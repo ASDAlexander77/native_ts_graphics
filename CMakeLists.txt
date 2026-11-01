@@ -1748,6 +1748,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(async_compute_bloom async_compute_bloom_media)
 endif()
 
+# async_compute_bloom with NRI and NRIFramework instead of Donut: its shaders and Bonza scene, the bloom on NRI's compute queue.
+add_tslang_nri_example(async_compute_bloom_nri SHADERS async_compute_bloom_shaders core/donut_first_person_camera.ts core/matrix.ts)
+add_tslang_example_test(async_compute_bloom_nri)
+if (TARGET async_compute_bloom_media AND TARGET async_compute_bloom_nri)
+    add_dependencies(async_compute_bloom_nri async_compute_bloom_media)
+endif()
+
 # Port of Vulkan-Samples' oit_linked_lists: order-independent transparency, the fragments of 64
 # transparent spheres gathered into per-pixel linked lists by their pixel shaders (atomics on a
 # UAV texture and a counter), then sorted and blended over a background. Its model and texture are
@@ -1956,6 +1963,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(rasterization_order_attachment_access rasterization_order_attachment_access_media)
 endif()
 
+# rasterization_order_attachment_access with NRI and NRIFramework instead of Donut: its shaders, model and background.
+add_tslang_nri_example(rasterization_order_attachment_access_nri SHADERS rasterization_order_attachment_access_shaders core/random.ts core/matrix.ts)
+add_tslang_example_test(rasterization_order_attachment_access_nri)
+if (TARGET rasterization_order_attachment_access_media AND TARGET rasterization_order_attachment_access_nri)
+    add_dependencies(rasterization_order_attachment_access_nri rasterization_order_attachment_access_media)
+endif()
+
 # Port of Vulkan-Samples' fragment_shader_barycentric: a cube in front of a skybox, its pixel shader
 # reading its barycentrics and the triangle's vertex colors (SV_Barycentrics, GetAttributeAtVertex:
 # shader model 6.1, so no DXBC). Its models and textures are Vulkan-Samples' (see
@@ -2145,7 +2159,7 @@ donut_compile_shaders_all_platforms(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/render_octomap.hlsl
     OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/render_octomap
 )
-add_tslang_example(render_octomap core/matrix.ts MEDIA render_octomap)
+add_tslang_example(render_octomap core/octomap_common.ts core/matrix.ts MEDIA render_octomap)
 add_tslang_example_test(render_octomap)
 if (VULKAN_SAMPLES_ASSETS_DIR)
     set(octomap_source "${VULKAN_SAMPLES_ASSETS_DIR}/scenes/octmap_and_splats")
@@ -2162,6 +2176,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     endforeach()
     add_custom_target(render_octomap_media DEPENDS ${octomap_media})
     add_dependencies(render_octomap render_octomap_media)
+endif()
+
+# render_octomap with NRI and NRIFramework instead of Donut: its shaders and map.
+add_tslang_nri_example(render_octomap_nri SHADERS render_octomap_shaders core/octomap_common.ts core/matrix.ts)
+add_tslang_example_test(render_octomap_nri)
+if (TARGET render_octomap_media AND TARGET render_octomap_nri)
+    add_dependencies(render_octomap_nri render_octomap_media)
 endif()
 
 # Port of Vulkan-Samples' ray_tracing_invocation_reorder: ray_tracing_extended's scene with shader
@@ -2235,6 +2256,16 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(msaa msaa_media)
 endif()
 
+# msaa with NRI and NRIFramework instead of Donut: its shaders and space module, the multisampled color resolved by shaders/nri_msaa_resolve.hlsl.
+add_tslang_nri_example(msaa_nri SHADERS msaa_shaders core/donut_first_person_camera.ts core/matrix.ts)
+if (TARGET msaa_nri)
+    add_dependencies(msaa_nri nri_msaa_resolve_shaders)
+endif()
+add_tslang_example_test(msaa_nri)
+if (TARGET msaa_media AND TARGET msaa_nri)
+    add_dependencies(msaa_nri msaa_media)
+endif()
+
 # Port of Vulkan-Samples' dynamic_blending: two overlapping faces blended by a blend state set in
 # the UI (the sample's dynamic state is a pipeline per combination here): blending on or off, its
 # operations and factors, Vulkan's advanced blend operations, and each face's color write mask.
@@ -2285,6 +2316,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     list(APPEND mipmap_media "${output}")
     add_custom_target(texture_mipmap_generation_media DEPENDS ${mipmap_media})
     add_dependencies(texture_mipmap_generation texture_mipmap_generation_media)
+endif()
+
+# texture_mipmap_generation with NRI and NRIFramework instead of Donut: its shaders, model and texture, the mips drawn level by level.
+add_tslang_nri_example(texture_mipmap_generation_nri SHADERS texture_mipmap_generation_shaders core/matrix.ts)
+add_tslang_example_test(texture_mipmap_generation_nri)
+if (TARGET texture_mipmap_generation_media AND TARGET texture_mipmap_generation_nri)
+    add_dependencies(texture_mipmap_generation_nri texture_mipmap_generation_media)
 endif()
 
 # Port of Vulkan-Samples' ray_tracing_position_fetch: a robot ray traced, its closest hit shader

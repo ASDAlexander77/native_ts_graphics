@@ -70,7 +70,9 @@ enum NriTextureState {
     // from PixelStorage to PixelStorage, the writes before are seen by the accesses after
     PixelStorage = 8,
     // read as the shading rate attachment (Nri_CreateShadingRateTexture's, from the start)
-    ShadingRateAttachment = 9
+    ShadingRateAttachment = 9,
+    // read by compute shaders only: what a compute queue can read (D3D12's NON_PIXEL_SHADER_RESOURCE)
+    ComputeShaderResource = 12
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -101,7 +103,10 @@ enum NriFeature {
     // tiers.shadingRate >= 2: variable rate shading with shading rate attachments
     // (Nri_PipelineDescSetShadingRate, Nri_CmdSetShadingRate, Nri_CmdBeginRenderingWithShadingRate;
     // D3D12 tier 2, Vulkan's VK_KHR_fragment_shading_rate), NVRHI's Feature::VariableRateShading
-    VariableRateShading = 11
+    VariableRateShading = 11,
+    // shaderFeatures.rasterizedOrderedView: RasterizerOrderedTexture2D and friends in pixel shaders
+    // (D3D's ROVs, Vulkan's VK_EXT_fragment_shader_interlock: pixel and sample interlock)
+    RasterizerOrderedViews = 23
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -126,6 +131,8 @@ enum NriFormat {
     RG32_SFLOAT = 36,
     RGB32_SFLOAT = 39,
     RGBA32_SFLOAT = 42,
+    // a 16-bit depth buffer (async_compute_bloom_nri's shadow map)
+    D16_UNORM = 64,
     BC1_RGBA_UNORM = 50,
     D32_SFLOAT = 66
 }
@@ -436,11 +443,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 
 // Textures and views
 @nodrops declare function Nri_GetTextureFormat(texture: NriTextureHandle): NriFormat;
+// The texture's size (its first level's) and mip levels.
+@nodrops declare function Nri_GetTextureWidth(texture: NriTextureHandle): int;
+@nodrops declare function Nri_GetTextureHeight(texture: NriTextureHandle): int;
+@nodrops declare function Nri_GetTextureMipNum(texture: NriTextureHandle): int;
 @nodrops declare function Nri_GetFormatName(format: NriFormat): string;
 // The sRGB format of an 8-bit RGBA or BGRA UNORM format, else the format itself: the swap chain's
 // textures are UNORM, their color attachment views may be sRGB (as Donut's back buffers are).
 @nodrops declare function Nri_GetSrgbFormat(format: NriFormat): NriFormat;
 @nodrops declare function Nri_CreateColorAttachmentView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// A color attachment view of one mip level of the texture.
+@nodrops declare function Nri_CreateColorAttachmentMipView(texture: NriTextureHandle, format: NriFormat, mip: int): NriDescriptorHandle;
 @nodrops declare function Nri_CreateDepthAttachmentView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 @nodrops declare function Nri_DestroyDescriptor(descriptor: NriDescriptorHandle): void;
 // A width x height depth texture in device memory, moved on the queue (which this waits for) to
@@ -454,6 +467,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // As Nri_CreateDepthTexture, with sampleNum samples per pixel; null on failure.
 @nodrops declare function Nri_CreateMultisampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat, sampleNum: int): NriTextureHandle | null;
+// As Nri_CreateMultisampledDepthTexture, read by shaders too (Nri_CreateTextureView with the depth
+// format: Texture2DMS<float>, or Texture2D<float> with 1 sample), left in
+// NriTextureState.ShaderResource; null on failure.
+@nodrops declare function Nri_CreateSampledMultisampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat, sampleNum: int): NriTextureHandle | null;
 // A color attachment with sampleNum samples per pixel (Nri_CreateColorAttachmentView), left in
 // NriTextureState.ColorAttachment, read by shaders too (Nri_CreateTextureView: Texture2DMS, as
 // shaders/nri_msaa_resolve.hlsl resolves it); null on failure.
@@ -461,6 +479,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     format: NriFormat, sampleNum: int): NriTextureHandle | null;
 // The sample counts both formats can be rendered with, as bits (1 | 2 | 4 | 8).
 @nodrops declare function Nri_GetSupportedSampleCounts(device: NriDeviceHandle, colorFormat: NriFormat, depthFormat: NriFormat): int;
+// The depth resolve modes of Vulkan's render passes, as bits 1 << mode (mode as Donut's ResolveMode:
+// SampleZero 1, Average 2, Min 3, Max 4), as Donut_GetDepthResolveModes gives them; 0 on D3D.
+@nodrops declare function Nri_GetDepthResolveModes(device: NriDeviceHandle): int;
 // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
 @nodrops declare function Nri_DestroyTexture(texture: NriTextureHandle): void;
 
@@ -567,10 +588,15 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdBufferBarrier(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, before: NriBufferState,
     after: NriBufferState): void;
 @nodrops declare function Nri_CmdTextureBarrier(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle, before: NriTextureState, after: NriTextureState): void;
+// Nri_CmdTextureBarrier for one mip level of the texture.
+@nodrops declare function Nri_CmdTextureMipBarrier(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle, mip: int,
+    before: NriTextureState, after: NriTextureState): void;
 // Renders into one color attachment, a view Nri_CreateColorAttachmentView made.
 @nodrops declare function Nri_CmdBeginRendering(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle): void;
 // Renders into one color attachment and a depth attachment (Nri_CreateDepthAttachmentView's).
 @nodrops declare function Nri_CmdBeginRenderingWithDepth(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
+// Renders into a depth attachment alone (Nri_CreateDepthAttachmentView's), e.g. a shadow map.
+@nodrops declare function Nri_CmdBeginRenderingDepthOnly(commandBuffer: NriCommandBufferHandle, depthAttachment: NriDescriptorHandle): void;
 // Renders into three color attachments (SV_Target0 to 2), Nri_CreateColorAttachmentView's views.
 @nodrops declare function Nri_CmdBeginRenderingWithThreeColors(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
     color1: NriDescriptorHandle, color2: NriDescriptorHandle): void;
@@ -795,6 +821,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // axes, anisotropy (1: none); null on failure.
 @nodrops declare function Nri_CreateSamplerWithMipFilter(device: NriDeviceHandle, filter: NriFilter, mipFilter: NriFilter,
     addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
+// As Nri_CreateSamplerWithMipFilter, the levels of detail sampled clamped to [mipMin, mipMax] (mipMax
+// 0: level 0 only), as Donut's sampler minLod and maxLod.
+@nodrops declare function Nri_CreateSamplerWithLodRange(device: NriDeviceHandle, filter: NriFilter, mipFilter: NriFilter,
+    addressMode: NriAddressMode, anisotropy: int, mipMin: number, mipMax: number): NriDescriptorHandle | null;
+// A comparison sampler (SamplerComparisonState), linear, clamped, comparing with compareOp, as
+// Donut's createComparisonSampler (NriCompareOp.Less); null on failure.
+@nodrops declare function Nri_CreateComparisonSampler(device: NriDeviceHandle, compareOp: NriCompareOp): NriDescriptorHandle | null;
 // The device's widest anisotropic filtering (16 on most).
 @nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
 // The most draws one indirect draw call takes: above 1, multi-draw indirect (D3D12 always; Vulkan's
@@ -812,6 +845,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateSampler(device: NriDeviceHandle, filter: NriFilter, addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // A view of a 2D texture's mips for shaders to read.
 @nodrops declare function Nri_CreateTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// A view of one mip level of a 2D texture for shaders to read.
+@nodrops declare function Nri_CreateTextureMipView(texture: NriTextureHandle, format: NriFormat, mip: int): NriDescriptorHandle;
 
 // Textures shaders read (destroyed with Nri_DestroyTexture): committed, or placed in memory.
 // A width x height texture (one mip) of NRI's choosing (D3D12: a committed resource); null on failure.
@@ -887,6 +922,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // all its layers and mips (sRGB: 1, RGBA8 as sRGB, as Donut's sRGB loads), R16_UNORM and RGBA16F too,
 // left in NriTextureState.ShaderResource; null if it can't be read. (Nri_LoadTexture reads one layer.)
 @nodrops declare function Nri_LoadDdsTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
+// The first level of an RGBA8 2D DDS file in a texture with the whole mip chain below it (1 +
+// floor(log2(max(width, height))) levels; sRGB: 1, RGBA8_SRGB), the other levels zeroed, to be
+// rendered into (Nri_CreateColorAttachmentMipView), left in NriTextureState.ShaderResource; null on
+// failure. Its levels: Nri_GetTextureMipNum.
+@nodrops declare function Nri_LoadDdsTextureWithMipChain(device: NriDeviceHandle, queue: NriQueueHandle, path: string,
+    sRGB: int): NriTextureHandle | null;
 // The first primitive of a glTF file's first mesh, as Donut's loadGltfMesh reads it (the
 // Vulkan-Samples framework's load_model: float3 position, float3 normal, float2 texture coordinates,
 // 32 bytes a vertex; 32-bit indices; the nodes' transforms ignored), uploaded into a vertex and an

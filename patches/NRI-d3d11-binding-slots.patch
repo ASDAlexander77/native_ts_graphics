@@ -1,0 +1,36 @@
+diff --git a/Source/D3D11/SharedD3D11.h b/Source/D3D11/SharedD3D11.h
+index 5f84df81..5ea30c9f 100644
+--- a/Source/D3D11/SharedD3D11.h
++++ b/Source/D3D11/SharedD3D11.h
+@@ -91,6 +91,9 @@ struct BindingState {
+                 }
+             }
+ 
++            // The slot's previous storage isn't bound any more: forget it, or binding it as a
++            // resource later would unbind this one.
++            ForgetSlot(storages, slot);
+             storages.push_back({subresource, slot});
+ 
+             if (isGraphics)
+@@ -109,10 +112,21 @@ struct BindingState {
+                 }
+             }
+ 
++            ForgetSlot(resources, slot);
+             resources.push_back({subresource, slot});
+         }
+     }
+ 
++    static inline void ForgetSlot(Vector<SubresourceAndSlot>& tracked, uint32_t slot) {
++        for (uint32_t i = 0; i < (uint32_t)tracked.size(); i++) {
++            if (tracked[i].slot == slot) {
++                tracked[i] = tracked.back();
++                tracked.pop_back();
++                i--;
++            }
++        }
++    }
++
+     inline void UnbindAndReset(ID3D11DeviceContextBest* deferredContext) {
+         constexpr void* null = nullptr;
+ 

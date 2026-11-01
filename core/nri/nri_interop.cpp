@@ -319,6 +319,10 @@ namespace
             // a shading rate attachment's (Nri_CreateShadingRateTexture's, from the start); all stages:
             // Vulkan reads it at its own stage (FRAGMENT_SHADING_RATE_ATTACHMENT), which NRI has no bit for
             return { nri::AccessBits::SHADING_RATE_ATTACHMENT, nri::Layout::SHADING_RATE_ATTACHMENT, nri::StageBits::ALL };
+        case 12:
+            // read by compute shaders only: what the compute queue can read (D3D12's
+            // NON_PIXEL_SHADER_RESOURCE; AllShaderResource's pixel bit isn't a compute queue state)
+            return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -927,6 +931,10 @@ extern "C"
             // VK_KHR_fragment_shading_rate with attachment and primitive rates): NVRHI's
             // Feature::VariableRateShading
             return desc.tiers.shadingRate >= 2 ? 1 : 0;
+        case 23:
+            // Rasterizer ordered views in pixel shaders (D3D's ROVsSupported, Vulkan's fragment shader
+            // pixel and sample interlock, which NRI enables where the device has them)
+            return desc.shaderFeatures.rasterizedOrderedView ? 1 : 0;
         default:
             return 0;
         }
@@ -1066,6 +1074,22 @@ extern "C"
         return (int)NRI.GetTextureDesc(*texture).format;
     }
 
+    // The texture's size (its first level's) and mip levels.
+    NRI_INTEROP_API int Nri_GetTextureWidth(nri::Texture* texture)
+    {
+        return (int)NRI.GetTextureDesc(*texture).width;
+    }
+
+    NRI_INTEROP_API int Nri_GetTextureHeight(nri::Texture* texture)
+    {
+        return (int)NRI.GetTextureDesc(*texture).height;
+    }
+
+    NRI_INTEROP_API int Nri_GetTextureMipNum(nri::Texture* texture)
+    {
+        return (int)NRI.GetTextureDesc(*texture).mipNum;
+    }
+
     NRI_INTEROP_API const char* Nri_GetFormatName(int format)
     {
         return nri::nriGetFormatProps((nri::Format)format)->name;
@@ -1089,6 +1113,16 @@ extern "C"
     NRI_INTEROP_API nri::Descriptor* Nri_CreateColorAttachmentView(nri::Texture* texture, int format)
     {
         nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::COLOR_ATTACHMENT, (nri::Format)format };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A color attachment view of one mip level of the texture (rendered into, e.g. a mip chain
+    // generated level by level).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateColorAttachmentMipView(nri::Texture* texture, int format, int mip)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::COLOR_ATTACHMENT, (nri::Format)format, (nri::Dim_t)mip, 1 };
         nri::Descriptor* view = nullptr;
         NRI.CreateTexture2DView(desc, view);
         return view;
@@ -1175,6 +1209,15 @@ extern "C"
         return CreateDepthTexture(device, queue, width, height, format, false, 4, sampleNum);
     }
 
+    // As Nri_CreateMultisampledDepthTexture, but shaders read it too (Nri_CreateTextureView with the
+    // depth format: Texture2DMS<float> with samples, Texture2D<float> without), and it's left in
+    // NriTextureState.ShaderResource, as Nri_CreateSampledDepthTexture's.
+    NRI_INTEROP_API nri::Texture* Nri_CreateSampledMultisampledDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height,
+        int format, int sampleNum)
+    {
+        return CreateDepthTexture(device, queue, width, height, format, true, 5, sampleNum);
+    }
+
     // A width x height color attachment with sampleNum samples per pixel (a view of it:
     // Nri_CreateColorAttachmentView), in device memory, moved on the queue (which this waits for) to
     // NriTextureState.ColorAttachment; shaders read it too (Nri_CreateTextureView: Texture2DMS), as
@@ -1215,6 +1258,65 @@ extern "C"
                 counts |= 2 << i;
         }
         return counts;
+    }
+
+    // The ways Vulkan's render passes can resolve a multisampled depth buffer
+    // (VkPhysicalDeviceDepthStencilResolveProperties::supportedDepthResolveModes), as Donut's
+    // Donut_GetDepthResolveModes gives them: bits 1 << mode, mode as Donut's ResolveMode (SampleZero 1,
+    // Average 2, Min 3, Max 4); 0 on D3D, where Donut's render passes don't resolve. NRI's render
+    // passes don't either: the NRI examples resolve with shaders/nri_msaa_resolve.hlsl as Donut's
+    // Vulkan render pass would.
+    NRI_INTEROP_API int Nri_GetDepthResolveModes(nri::Device* device)
+    {
+        if (NRI.GetDeviceDesc(*device).graphicsAPI != nri::GraphicsAPI::VK)
+            return 0;
+        nri::WrapperVKInterface wrapper = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            return 0;
+        // VkPhysicalDeviceDepthStencilResolveProperties
+        // (VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES), chained to
+        // VkPhysicalDeviceProperties2 (VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2), whose
+        // VkPhysicalDeviceProperties (824 bytes) is given room enough.
+        struct DepthStencilResolveProperties
+        {
+            int32_t sType;
+            void* pNext;
+            uint32_t supportedDepthResolveModes;
+            uint32_t supportedStencilResolveModes;
+            uint32_t independentResolveNone;
+            uint32_t independentResolve;
+        };
+        struct Properties2
+        {
+            int32_t sType;
+            void* pNext;
+            alignas(8) uint8_t properties[2048];
+        };
+        typedef void* (*GetInstanceProcAddr)(void* instance, const char* name);
+        typedef void (*GetPhysicalDeviceProperties2)(void* physicalDevice, Properties2* properties);
+        void* instance = (void*)wrapper.GetInstanceVK(*device);
+        auto getInstanceProcAddr = (GetInstanceProcAddr)wrapper.GetInstanceProcAddrVK(*device);
+        auto getProperties2 = getInstanceProcAddr
+            ? (GetPhysicalDeviceProperties2)getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2") : nullptr;
+        if (!getProperties2)
+            return 0;
+        DepthStencilResolveProperties resolve = { 1000199000, nullptr, 0, 0, 0, 0 };
+        Properties2 properties2 = {};
+        properties2.sType = 1000059001;
+        properties2.pNext = &resolve;
+        getProperties2((void*)wrapper.GetPhysicalDeviceVK(*device), &properties2);
+        // VkResolveModeFlagBits: SAMPLE_ZERO 1, AVERAGE 2, MIN 4, MAX 8.
+        const uint32_t modes = resolve.supportedDepthResolveModes;
+        int bits = 0;
+        if (modes & 1)
+            bits |= 1 << 1;
+        if (modes & 2)
+            bits |= 1 << 2;
+        if (modes & 4)
+            bits |= 1 << 3;
+        if (modes & 8)
+            bits |= 1 << 4;
+        return bits;
     }
 
     // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
@@ -1771,6 +1873,22 @@ extern "C"
         NRI.CmdBarrier(*commandBuffer, barrierDesc);
     }
 
+    // Nri_CmdTextureBarrier for one mip level of the texture.
+    NRI_INTEROP_API void Nri_CmdTextureMipBarrier(nri::CommandBuffer* commandBuffer, nri::Texture* texture, int mip, int before, int after)
+    {
+        nri::TextureBarrierDesc textureBarrier = {};
+        textureBarrier.texture = texture;
+        textureBarrier.before = TextureState(before);
+        textureBarrier.after = TextureState(after);
+        textureBarrier.mipOffset = (nri::Dim_t)mip;
+        textureBarrier.mipNum = 1;
+
+        nri::BarrierDesc barrierDesc = {};
+        barrierDesc.textures = &textureBarrier;
+        barrierDesc.textureNum = 1;
+        NRI.CmdBarrier(*commandBuffer, barrierDesc);
+    }
+
     // Renders into one color attachment, a view Nri_CreateColorAttachmentView made.
     NRI_INTEROP_API void Nri_CmdBeginRendering(nri::CommandBuffer* commandBuffer, nri::Descriptor* colorAttachment)
     {
@@ -1788,6 +1906,14 @@ extern "C"
         nri::AttachmentsDesc desc = {};
         desc.colors = &colorAttachment;
         desc.colorNum = 1;
+        desc.depthStencil = depthAttachment;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
+    // Renders into a depth attachment alone (Nri_CreateDepthAttachmentView's), e.g. a shadow map.
+    NRI_INTEROP_API void Nri_CmdBeginRenderingDepthOnly(nri::CommandBuffer* commandBuffer, nri::Descriptor* depthAttachment)
+    {
+        nri::AttachmentsDesc desc = {};
         desc.depthStencil = depthAttachment;
         NRI.CmdBeginRendering(*commandBuffer, desc);
     }
@@ -2669,6 +2795,40 @@ extern "C"
         return sampler;
     }
 
+    // As Nri_CreateSamplerWithMipFilter, the levels of detail sampled clamped to [mipMin, mipMax]
+    // (mipMax 0: level 0 only), as Donut's SamplerDesc minLod and maxLod.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateSamplerWithLodRange(nri::Device* device, int filter, int mipFilter, int addressMode,
+        int anisotropy, double mipMin, double mipMax)
+    {
+        nri::SamplerDesc desc = {};
+        desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)mipFilter };
+        desc.anisotropy = (uint8_t)anisotropy;
+        desc.mipMin = (float)mipMin;
+        desc.mipMax = (float)mipMax;
+        desc.addressModes = { (nri::AddressMode)addressMode, (nri::AddressMode)addressMode, (nri::AddressMode)addressMode };
+        nri::Descriptor* sampler = nullptr;
+        if (NRI.CreateSampler(*device, desc, sampler) != nri::Result::SUCCESS)
+            return nullptr;
+        return sampler;
+    }
+
+    // A comparison sampler (SamplerComparisonState: SampleCmp), linear, clamped, comparing with
+    // compareOp (an NriCompareOp), as Donut's createComparisonSampler (NVRHI's comparison reduction:
+    // Less); null on failure.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateComparisonSampler(nri::Device* device, int compareOp)
+    {
+        nri::SamplerDesc desc = {};
+        desc.filters = { nri::Filter::LINEAR, nri::Filter::LINEAR, nri::Filter::LINEAR };
+        desc.anisotropy = 1;
+        desc.mipMax = 16.0f;
+        desc.addressModes = { nri::AddressMode::CLAMP_TO_EDGE, nri::AddressMode::CLAMP_TO_EDGE, nri::AddressMode::CLAMP_TO_EDGE };
+        desc.compareOp = (nri::CompareOp)compareOp;
+        nri::Descriptor* sampler = nullptr;
+        if (NRI.CreateSampler(*device, desc, sampler) != nri::Result::SUCCESS)
+            return nullptr;
+        return sampler;
+    }
+
     // A sampler filtering with filter for minification, magnification and mips (as
     // Nri_CreateSamplerWithMipFilter's).
     NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode, int anisotropy)
@@ -2774,6 +2934,16 @@ extern "C"
     NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureView(nri::Texture* texture, int format)
     {
         nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_2D, (nri::Format)format };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A view of one mip level of a 2D texture for shaders to read (e.g. the level above the one a
+    // mip chain generation draws into).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureMipView(nri::Texture* texture, int format, int mip)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_2D, (nri::Format)format, (nri::Dim_t)mip, 1 };
         nri::Descriptor* view = nullptr;
         NRI.CreateTexture2DView(desc, view);
         return view;
@@ -3064,6 +3234,32 @@ extern "C"
         return texture;
     }
 
+    // A DDS file with a DX10 header (as tools/ktx_to_dds.py writes them), read whole: its header's
+    // and DX10 header's fields, the texels after them.
+    struct DdsFile
+    {
+        // "DDS ", the 124-byte header, the 20-byte DX10 header.
+        static constexpr size_t headerSize = 4 + 124 + 20;
+        std::vector<uint8_t> data;
+        uint32_t header[31] = {};
+        uint32_t dx10[5] = {};
+
+        // path relative to this library's folder; false (after printing why) on failure.
+        bool Read(const char* path)
+        {
+            if (!ReadFile(LibraryDirectory() + path, data))
+                return false;
+            if (data.size() < headerSize || memcmp(data.data(), "DDS ", 4) != 0 || memcmp(data.data() + 84, "DX10", 4) != 0)
+            {
+                printf("ERROR: %s isn't a DDS file with a DX10 header\n", path);
+                return false;
+            }
+            memcpy(header, data.data() + 4, sizeof(header));
+            memcpy(dx10, data.data() + 128, sizeof(dx10));
+            return true;
+        }
+    };
+
     // A DDS file as tools/ktx_to_dds.py writes them (a DX10 header; 2D textures and 2D texture
     // arrays, each layer with all its mips, rows packed) in device memory with all its layers and
     // mips, uploaded on the queue (which this waits for) and left in NriTextureState.ShaderResource;
@@ -3071,20 +3267,13 @@ extern "C"
     // and RGBA16F, which NRIFramework's loader (detex) reads one layer of at most.
     NRI_INTEROP_API nri::Texture* Nri_LoadDdsTexture(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
     {
-        std::vector<uint8_t> data;
-        if (!ReadFile(LibraryDirectory() + path, data))
+        DdsFile file;
+        if (!file.Read(path))
             return nullptr;
-        // "DDS ", the 124-byte header, the 20-byte DX10 header.
-        const size_t headerSize = 4 + 124 + 20;
-        if (data.size() < headerSize || memcmp(data.data(), "DDS ", 4) != 0 || memcmp(data.data() + 84, "DX10", 4) != 0)
-        {
-            printf("ERROR: %s isn't a DDS file with a DX10 header\n", path);
-            return nullptr;
-        }
-        uint32_t header[31];
-        memcpy(header, data.data() + 4, sizeof(header));
-        uint32_t dx10[5];
-        memcpy(dx10, data.data() + 128, sizeof(dx10));
+        const std::vector<uint8_t>& data = file.data;
+        const uint32_t* header = file.header;
+        const uint32_t* dx10 = file.dx10;
+        const size_t headerSize = DdsFile::headerSize;
         const uint32_t height = header[2];
         const uint32_t width = header[3];
         const uint32_t mipNum = std::max(header[6], 1u);
@@ -3158,6 +3347,71 @@ extern "C"
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
             Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // The first level of an RGBA8 2D DDS file (as tools/ktx_to_dds.py writes them: a DX10 header,
+    // rows packed) in a texture with the whole mip chain below it (1 + floor(log2(max(width,
+    // height))) levels; sRGB: 1, RGBA8_SRGB), the other levels zeroed, rendered into later (a color
+    // attachment of each level: Nri_CreateColorAttachmentMipView); in device memory, uploaded on the
+    // queue (which this waits for) and left in NriTextureState.ShaderResource. As Donut's
+    // loadStagingTexture and createMipmappedRenderTarget with the first level copied in. Null (after
+    // printing why) on failure.
+    NRI_INTEROP_API nri::Texture* Nri_LoadDdsTextureWithMipChain(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
+    {
+        DdsFile file;
+        if (!file.Read(path))
+            return nullptr;
+        const std::vector<uint8_t>& data = file.data;
+        const uint32_t* header = file.header;
+        const uint32_t* dx10 = file.dx10;
+        const size_t headerSize = DdsFile::headerSize;
+        const uint32_t height = header[2];
+        const uint32_t width = header[3];
+        // DXGI_FORMAT_R8G8B8A8_UNORM (28) or _SRGB (29), a 2D texture.
+        if ((dx10[0] != 28 && dx10[0] != 29) || dx10[1] != 3 || width == 0 || height == 0)
+        {
+            printf("ERROR: %s isn't an RGBA8 2D texture\n", path);
+            return nullptr;
+        }
+        const uint32_t rowPitch = width * 4;
+        if (headerSize + (size_t)rowPitch * height > data.size())
+        {
+            printf("ERROR: %s is shorter than its header says\n", path);
+            return nullptr;
+        }
+        uint32_t mipNum = 1;
+        while ((std::max(width, height) >> mipNum) > 0)
+            mipNum++;
+
+        nri::Format format = sRGB || dx10[0] == 29 ? nri::Format::RGBA8_SRGB : nri::Format::RGBA8_UNORM;
+        nri::TextureDesc desc = ShaderResourceTextureDesc((int)width, (int)height, (int)format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::COLOR_ATTACHMENT;
+        desc.mipNum = (nri::Dim_t)mipNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        // The first level from the file; the others zeros (which also initializes them, as D3D12
+        // wants of render targets before they're read).
+        std::vector<uint8_t> zeros((size_t)rowPitch * height, 0);
+        std::vector<nri::TextureSubresourceUploadDesc> subresources(mipNum);
+        for (uint32_t mip = 0; mip < mipNum; mip++)
+        {
+            const uint32_t mipRowPitch = std::max(width >> mip, 1u) * 4;
+            const uint32_t mipSlicePitch = mipRowPitch * std::max(height >> mip, 1u);
+            subresources[mip] = { mip == 0 ? data.data() + headerSize : zeros.data(), 1, mipRowPitch, mipSlicePitch };
+        }
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = subresources.data();
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
             return nullptr;
         }
         return texture;
