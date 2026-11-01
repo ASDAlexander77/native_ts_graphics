@@ -323,7 +323,7 @@ namespace BundlesNri {
             const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setNum = queuedFrameNum * CITY_COUNT;
-            const descriptorPool = Nri_CreateDescriptorPool(device, setNum, setNum, setNum, setNum, 0);
+            const descriptorPool = Nri_CreateDescriptorPool(device, setNum, setNum, setNum, setNum, 0, 0);
             this.descriptorPool = descriptorPool;
             const diffuseView = this.diffuseView;
             if (!sampler || !constantBuffer || !descriptorPool || !diffuseView) {

@@ -364,7 +364,7 @@ namespace VertexBufferNri {
             const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setNum = queuedFrameNum * NUM_VIEWS;
-            const descriptorPool = Nri_CreateDescriptorPool(device, setNum, setNum, setNum, setNum, 0);
+            const descriptorPool = Nri_CreateDescriptorPool(device, setNum, setNum, setNum, setNum, 0, 0);
             this.descriptorPool = descriptorPool;
             const textureView = this.textureView;
             if (!sampler || !constantBuffer || !descriptorPool || !textureView) {

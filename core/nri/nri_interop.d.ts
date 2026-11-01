@@ -31,6 +31,8 @@
 // Allocated from a pool, destroyed with it.
 @cpp declare class NriDescriptorSetHandle { private readonly __nriDescriptorSet: index; }
 @cpp declare class NriMemoryHandle { private readonly __nriMemory: index; }
+// A worker thread's compute loop (Nri_CreateAsyncComputeLoop).
+@cpp declare class NriAsyncComputeLoopHandle { private readonly __nriAsyncComputeLoop: index; }
 // A file's bytes (Nri_LoadFile).
 @cpp declare class NriFileHandle { private readonly __nriFile: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
@@ -53,7 +55,9 @@ enum NriTextureState {
     // a depth attachment's (Nri_CreateDepthTexture's, from the start)
     DepthAttachment = 4,
     // read by pixel shaders (Nri_UploadTexture's textures, after it)
-    ShaderResource = 5
+    ShaderResource = 5,
+    // written by compute shaders (Nri_CreateStorageTexture's textures, from the start)
+    Storage = 6
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -128,7 +132,9 @@ enum NriCullMode {
 enum NriDescriptorType {
     Sampler = 0,
     ConstantBuffer = 1,
-    Texture = 2
+    Texture = 2,
+    // RWTexture2D (u registers)
+    StorageTexture = 3
 }
 
 // nri::StageBits: the shader stages that see a descriptor range.
@@ -136,7 +142,8 @@ enum NriStage {
     Vertex = 2,
     Pixel = 128,
     // vertex and pixel
-    VertexPixel = 130
+    VertexPixel = 130,
+    Compute = 1024
 }
 
 // nri::Filter (Nri_CreateSampler).
@@ -242,6 +249,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The alignment of the rows of a texture read back into a buffer.
 @nodrops declare function Nri_GetUploadBufferTextureRowAlignment(device: NriDeviceHandle): int;
 @nodrops declare function Nri_GetGraphicsQueue(device: NriDeviceHandle): NriQueueHandle;
+// The device's compute queue, null if it has none.
+@nodrops declare function Nri_GetComputeQueue(device: NriDeviceHandle): NriQueueHandle | null;
 // 1 if the device has the feature, else 0.
 @nodrops declare function Nri_IsFeatureSupported(device: NriDeviceHandle, feature: NriFeature): int;
 
@@ -357,6 +366,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Runs the command buffer once waitSemaphore (a swap chain's acquire) is signaled; signals
 // signalSemaphore (the swap chain's release) when done.
 @nodrops declare function Nri_QueueSubmit(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle, waitSemaphore: NriFenceHandle, signalSemaphore: NriFenceHandle): void;
+// Makes the work submitted to the queue from now on wait until the fence reaches value (on the GPU).
+@nodrops declare function Nri_QueueWait(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
 // Signals the fence with value once the work submitted before is done.
 @nodrops declare function Nri_QueueSignal(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
 
@@ -424,15 +435,16 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // magnification, mipFilter for mips, addressMode on all axes, for stages.
 @nodrops declare function Nri_PipelineLayoutDescAddRootSampler(desc: NriPipelineLayoutDescHandle, registerIndex: int, filter: NriFilter,
     mipFilter: NriFilter, addressMode: NriAddressMode, stages: NriStage): void;
-// The layout the desc describes, for the graphics stages; null on failure.
+// The layout the desc describes, for the stages its ranges and root parameters are for; null on failure.
 @nodrops declare function Nri_CreatePipelineLayoutFromDesc(device: NriDeviceHandle, desc: NriPipelineLayoutDescHandle): NriPipelineLayoutHandle | null;
 
 // Descriptor pools and sets
 // A pool of setMaxNum descriptor sets holding at most samplerMaxNum samplers, constantBufferMaxNum
-// constant buffers and textureMaxNum textures in all; updateAfterSet (1) for sets with ranges updated
-// after binding (NriRangeFlags.UpdateAfterSet). Null on failure.
+// constant buffers, textureMaxNum textures and storageTextureMaxNum storage textures in all;
+// updateAfterSet (1) for sets with ranges updated after binding (NriRangeFlags.UpdateAfterSet). Null
+// on failure.
 @nodrops declare function Nri_CreateDescriptorPool(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
-    constantBufferMaxNum: int, textureMaxNum: int, updateAfterSet: int): NriDescriptorPoolHandle | null;
+    constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, updateAfterSet: int): NriDescriptorPoolHandle | null;
 // Destroys the pool and the sets allocated from it.
 @nodrops declare function Nri_DestroyDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
 // Forgets the sets allocated from the pool, which may allocate as many again.
@@ -493,3 +505,36 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Donut's sRGB loads), uploaded on the queue (which this waits for), in NriTextureState.ShaderResource;
 // null if it can't be read. Destroyed with Nri_DestroyTexture.
 @nodrops declare function Nri_LoadImageTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
+
+// Compute
+// A compute pipeline of the shader read from path (as Nri_CreateGraphicsPipeline's); null on failure.
+@nodrops declare function Nri_CreateComputePipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, path: string,
+    entry: string): NriPipelineHandle | null;
+// A width x height texture (one mip) compute shaders write (RWTexture2D) and pixel shaders read,
+// shared by the queues, moved on the queue (which this waits for) to NriTextureState.Storage; null on
+// failure. Destroyed with Nri_DestroyTexture.
+@nodrops declare function Nri_CreateStorageTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat): NriTextureHandle | null;
+// A view of a 2D texture's mip 0 for compute shaders to write.
+@nodrops declare function Nri_CreateStorageTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+
+// Async compute: a C++ worker thread (tslang code can't run on threads its GC doesn't know about)
+// that every intervalMicroseconds dispatches groupsX x groupsY groups of the compute pipeline on the
+// compute queue, each run writing the next free texture (bound by its descriptor set as set 0, the
+// run's index as root constants 0), and hands it to the render thread. The graphics queue signals
+// graphicsFence with the values Nri_ReleaseAsyncComputeTexture gives. Null on failure.
+@nodrops declare function Nri_CreateAsyncComputeLoop(computeQueue: NriQueueHandle, device: NriDeviceHandle, graphicsFence: NriFenceHandle,
+    pipelineLayout: NriPipelineLayoutHandle, pipeline: NriPipelineHandle, descriptorPool: NriDescriptorPoolHandle, groupsX: int, groupsY: int,
+    intervalMicroseconds: int): NriAsyncComputeLoopHandle | null;
+// Adds a texture for the loop to write, by its descriptor set (its storage view at u0); before
+// starting it. The textures are numbered from 0 in the order they're added.
+@nodrops declare function Nri_AddAsyncComputeTexture(loop: NriAsyncComputeLoopHandle, descriptorSet: NriDescriptorSetHandle): void;
+@nodrops declare function Nri_StartAsyncComputeLoop(loop: NriAsyncComputeLoopHandle): void;
+// Stops and joins the worker thread, waits for the device to be idle, and destroys the loop.
+@nodrops declare function Nri_DestroyAsyncComputeLoop(loop: NriAsyncComputeLoopHandle): void;
+// On the render thread: the number of the next texture the loop finished (in NriTextureState.Storage),
+// making the work submitted to graphicsQueue from now on wait for its run; -1 if none is finished.
+@nodrops declare function Nri_AcquireAsyncComputeTexture(loop: NriAsyncComputeLoopHandle, graphicsQueue: NriQueueHandle): int;
+// On the render thread: gives the texture numbered index back to the loop, in NriTextureState.Storage
+// once the graphics queue signals graphicsFence with lastUse.
+@nodrops declare function Nri_ReleaseAsyncComputeTexture(loop: NriAsyncComputeLoopHandle, index: int, lastUse: int): void;

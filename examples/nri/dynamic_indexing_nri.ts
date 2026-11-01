@@ -401,7 +401,7 @@ namespace DynamicIndexingNri {
             // the materials, the sampler.
             const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 1, 1, 0, 1 + CITY_MATERIAL_COUNT, 0);
+            const descriptorPool = Nri_CreateDescriptorPool(device, 1, 1, 0, 1 + CITY_MATERIAL_COUNT, 0, 0);
             this.descriptorPool = descriptorPool;
             const diffuseView = this.diffuseView;
             if (!sampler || !descriptorPool || !diffuseView) {
