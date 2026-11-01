@@ -866,8 +866,8 @@ namespace AtomOrbitalsNri {
                 this.restart();
             }
 
-            // In test mode 1/60 second a frame, as Donut's test mode.
-            const elapsedSeconds = this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample);
+            // In test mode 1/60 second a frame in float32, as Donut's test mode passes it.
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
             if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
                 this.paused = !this.paused;
                 this.idleSeconds = 0.0;

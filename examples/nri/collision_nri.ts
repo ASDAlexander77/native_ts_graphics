@@ -847,7 +847,7 @@ namespace CollisionNri {
         // Sample::Update: the keys, then the objects move and are tested, then the camera follows
         // the input (none in the test, which takes 1/60 second a frame, as Donut's test mode).
         update() {
-            const elapsedSeconds = this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
             if (!this.test) {
                 for (const key of CAMERA_KEYS) {
                     this.held[key] = Nri_IsKeyPressed(this.sample, key) != 0;

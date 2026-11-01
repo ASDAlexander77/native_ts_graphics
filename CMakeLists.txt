@@ -1447,6 +1447,10 @@ add_tslang_example_test(terrain_tessellation)
 # terrain_tessellation with NRI and NRIFramework instead of Donut: terrain_tessellation's shaders and textures, NRIFramework's ImGui.
 add_tslang_nri_example(terrain_tessellation_nri SHADERS terrain_tessellation_shaders core/matrix.ts)
 add_tslang_example_test(terrain_tessellation_nri)
+# The terrain's blit into the swap chain is Donut's (shaders/framework's rect_vs and blit_ps).
+if (TARGET donut_shaders AND TARGET terrain_tessellation_nri)
+    add_dependencies(terrain_tessellation_nri donut_shaders)
+endif()
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(terrain_textures)

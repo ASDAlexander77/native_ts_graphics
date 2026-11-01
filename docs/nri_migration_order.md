@@ -127,9 +127,12 @@ ray_queries. After that come the scene-heavy ray-traced examples.
 - NRI's D3D12 backend gets patch lists' topology wrong (TRIANGLESTRIP_ADJ plus the control points
   instead of 1_CONTROL_POINT_PATCHLIST minus one plus them: "primitive topology mismatch" at the
   draw); `patches/NRI-d3d12-patch-list-topology.patch` fixes it. D3D11's is right.
-- NRI draws its default lines only: the Donut examples that ask for rectangular (quadrilateral)
-  lines, wider than one pixel (collision), differ from the NRI ports along every line, on every
-  API, and only there.
+- NRI draws its default lines only, with no line rasterization mode or width. Where a Donut example
+  asks for rectangular lines (D3D's quadrilateral lines; on Vulkan 1.4 pixels wide: collision) or
+  Bresenham ones (Vulkan: simple_bezier's wireframe), the NRI port differs along every line, and
+  only there.
+- Donut's test mode passes each frame's 1/60 second as a float: the ports step their animations by
+  `Math.fround(1.0 / 60.0)`, or a state that integrates time (atom_orbitals' superposition) drifts.
 - `Nri_RunSample` leaves the example's options out of NRIFramework's command line; an option with
   values (`Nri_AddExampleOptionWithValues`) has its values left out too, or NRIFramework rejects
   them.
