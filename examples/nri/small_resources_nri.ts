@@ -233,8 +233,8 @@ namespace SmallResourcesNri {
             // The root signature: a descriptor table of the texture (t0) and the sampler (s0), for the
             // pixel shader, as one descriptor set.
             const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel);
+            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
             this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
             Nri_DestroyPipelineLayoutDesc(layoutDesc);
             const pipelineLayout = this.pipelineLayout;
@@ -242,7 +242,7 @@ namespace SmallResourcesNri {
                 console.log("Cannot create the pipeline layout");
                 return 0;
             }
-            this.descriptorPool = Nri_CreateDescriptorPool(device, TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT);
+            this.descriptorPool = Nri_CreateDescriptorPool(device, TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT, 0);
             // The sample's static sampler: linear, wrapping.
             this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat);
 
@@ -364,7 +364,7 @@ namespace SmallResourcesNri {
                 const data = generateTexture(random);
                 Nri_UploadTexture(this.queue, texture, Ref(data[0]), TEXTURE_WIDTH * TEXTURE_PIXEL_SIZE);
                 const view = Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM);
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0);
+                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
                 if (!descriptorSet) {
                     Nri_DestroyDescriptor(view);
                     Nri_DestroyTexture(texture);
