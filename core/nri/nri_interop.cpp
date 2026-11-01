@@ -536,9 +536,18 @@ namespace
     };
 }
 
+// A path relative to this library's folder (where the shaders and media are) as a full path: for
+// nri_donut_scene.cpp's files.
+std::string NriLibraryPath(const char* path)
+{
+    return LibraryDirectory() + path;
+}
+
 // NRIFramework's application, its virtual methods calling TypeScript.
 // stb_image_write's, compiled into NRIFramework's detex library.
 extern "C" int stbi_write_png(char const* filename, int w, int h, int comp, const void* data, int stride_in_bytes);
+// stb_image's, compiled into NRIFramework.
+extern "C" int stbi_info_from_memory(unsigned char const* buffer, int len, int* x, int* y, int* comp);
 
 class TsSample : public SampleBase
 {
@@ -3255,6 +3264,63 @@ extern "C"
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
             Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // An image file (as Nri_LoadImageTexture reads it, RGB or RGBA) in a texture with the mip chain
+    // Donut's TextureCache gives the images it loads (1 + floor(log2(min(width, height))) levels:
+    // GetMipLevelsNum), the levels below the first zeroed, to be rendered into from the level above
+    // (Donut blits each: Nri_CreateColorAttachmentMipView, Nri_CreateTextureMipView); RGBA8 (sRGB: 1,
+    // RGBA8_SRGB), left in NriTextureState.ShaderResource. Null (after printing why) on failure.
+    NRI_INTEROP_API nri::Texture* Nri_LoadImageTextureWithMipChain(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
+    {
+        std::vector<uint8_t> data;
+        if (!ReadFile(LibraryDirectory() + path, data))
+        {
+            printf("ERROR: cannot read %s\n", path);
+            return nullptr;
+        }
+        // Donut keeps one- and two-channel images as R8 and RG8 textures: not these.
+        int width = 0, height = 0, channels = 0;
+        if (!stbi_info_from_memory(data.data(), (int)data.size(), &width, &height, &channels) || channels < 3)
+        {
+            printf("ERROR: %s isn't an RGB or RGBA image\n", path);
+            return nullptr;
+        }
+        utils::Texture image;
+        if (!utils::LoadTextureFromMemory(path, data.data(), (int)data.size(), image, false))
+            return nullptr;
+        const uint32_t mipNum = (uint32_t)(logf((float)std::min(width, height)) / logf(2.0f)) + 1;
+
+        nri::Format format = sRGB ? nri::Format::RGBA8_SRGB : nri::Format::RGBA8_UNORM;
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, (int)format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::COLOR_ATTACHMENT;
+        desc.mipNum = (nri::Dim_t)mipNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        // The first level from the file; the others zeros (which also initializes them, as D3D12
+        // wants of render targets before they're read).
+        std::vector<uint8_t> zeros((size_t)width * height * 4, 0);
+        std::vector<nri::TextureSubresourceUploadDesc> subresources(mipNum);
+        image.GetSubresource(subresources[0], 0);
+        for (uint32_t mip = 1; mip < mipNum; mip++)
+        {
+            const uint32_t mipRowPitch = std::max((uint32_t)width >> mip, 1u) * 4;
+            const uint32_t mipSlicePitch = mipRowPitch * std::max((uint32_t)height >> mip, 1u);
+            subresources[mip] = { zeros.data(), 1, mipRowPitch, mipSlicePitch };
+        }
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = subresources.data();
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
             return nullptr;
         }
         return texture;

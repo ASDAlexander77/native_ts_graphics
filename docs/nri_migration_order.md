@@ -151,6 +151,19 @@ comparison's format) and a cubemap array (`Nri_CreateTextureCubeArrayView`, whic
 layers: NRI's D3D11 makes 0 cubes of REMAINING). Still to come: threaded_rendering,
 environment_map and bindless_rendering, which load whole Donut scenes.
 
+Second: bindless_rendering_nri, pixel-exact on D3D12 and Vulkan (D3D11 refused, as by the Donut
+example). core/nri/nri_donut_scene.cpp loads a glTF scene as Donut's engine does (GltfImporter's
+TRS nodes composed in doubles, SceneGraph's float transforms, Scene's InstanceData and GeometryData,
+Material::FillConstantBuffer's MaterialConstants), for what scene shaders read: positions, texture
+coordinates, indices, base color textures. The textures get the mip chain Donut's TextureCache
+gives images it loads (1 + floor(log2(min(width, height))) levels, `Nri_LoadImageTextureWithMipChain`),
+each level blitted from the one above with Donut's blit shaders through sRGB views, in the first
+frame. Texture numbers differ from Donut's (its loader threads number them as they finish); the
+shaders only follow them. The shader's bindless arrays are set 1, bindings 0 and 1, on Vulkan
+(vk::binding) but spaces 1 and 2 on D3D12: the layout differs per API. Still to come:
+threaded_rendering and environment_map (Donut's forward shading pass, with shadows and tone mapping
+for environment_map).
+
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
