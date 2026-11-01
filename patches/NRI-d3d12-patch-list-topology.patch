@@ -1,0 +1,12 @@
+diff --git a/Source/D3D12/SharedD3D12.hpp b/Source/D3D12/SharedD3D12.hpp
+--- a/Source/D3D12/SharedD3D12.hpp
++++ b/Source/D3D12/SharedD3D12.hpp
+@@ -73,7 +73,7 @@
+ 
+ D3D_PRIMITIVE_TOPOLOGY nri::GetPrimitiveTopology(Topology topology, uint8_t tessControlPointNum) {
+     if (topology == Topology::PATCH_LIST)
+-        return (D3D_PRIMITIVE_TOPOLOGY)((uint8_t)D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ + tessControlPointNum);
++        return (D3D_PRIMITIVE_TOPOLOGY)((uint8_t)D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST - 1 + tessControlPointNum);
+     else
+         return g_PrimitiveTopologies[(size_t)topology];
+ }

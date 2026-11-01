@@ -1405,6 +1405,9 @@ add_tslang_example(atom_orbitals core/matrix.ts)
 # 3d (m = 1): every particle circles the z axis at the angular speed 1 / rho^2 (L_z = 1), and <r>
 # stays (3 n^2 - l (l + 1)) / 2.
 add_tslang_example_test(atom_orbitals)
+# atom_orbitals with NRI and NRIFramework instead of Donut: atom_orbitals's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(atom_orbitals_nri SHADERS atom_orbitals_shaders core/matrix.ts)
+add_tslang_example_test(atom_orbitals_nri)
 # 1s + 2p0, equal parts: the cloud sloshes along z, <z>(t) = <1s|z|2p0> cos(3/8 t). The time scale
 # ends the 5 seconds at 3/8 t = 11 pi, the cloud at its lowest (it starts at its highest).
 add_tslang_example_test(atom_orbitals SUFFIX superposition ARGS -orbital 1 0 0 -mix 2 1 0 -weight 0.5 -timescale 18.430697)
@@ -1441,6 +1444,13 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(terrain_tessellation core/matrix.ts MEDIA terrain_tessellation)
 add_tslang_example_test(terrain_tessellation)
+# terrain_tessellation with NRI and NRIFramework instead of Donut: terrain_tessellation's shaders and textures, NRIFramework's ImGui.
+add_tslang_nri_example(terrain_tessellation_nri SHADERS terrain_tessellation_shaders core/matrix.ts)
+add_tslang_example_test(terrain_tessellation_nri)
+# The terrain's blit into the swap chain is Donut's (shaders/framework's rect_vs and blit_ps).
+if (TARGET donut_shaders AND TARGET terrain_tessellation_nri)
+    add_dependencies(terrain_tessellation_nri donut_shaders)
+endif()
 if (VULKAN_SAMPLES_ASSETS_DIR)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(terrain_textures)
@@ -1456,6 +1466,9 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     endforeach()
     add_custom_target(terrain_tessellation_media DEPENDS ${terrain_textures})
     add_dependencies(terrain_tessellation terrain_tessellation_media)
+endif()
+if (TARGET terrain_tessellation_media AND TARGET terrain_tessellation_nri)
+    add_dependencies(terrain_tessellation_nri terrain_tessellation_media)
 endif()
 
 # Port of Vulkan-Samples' instancing: thousands of rocks around a planet in one instanced draw, their
@@ -2168,6 +2181,9 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(dynamic_blending core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
 add_tslang_example_test(dynamic_blending)
+# dynamic_blending with NRI and NRIFramework instead of Donut: dynamic_blending's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(dynamic_blending_nri SHADERS dynamic_blending_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
+add_tslang_example_test(dynamic_blending_nri)
 
 # Port of Vulkan-Samples' texture_mipmap_generation: a texture's mip chain generated on the GPU from
 # its first level, and a tunnel sampled through it without mip maps, with them, and with
@@ -3284,6 +3300,13 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(simple_compute core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_compute)
+# simple_compute with NRI and NRIFramework instead of Donut: simple_compute's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(simple_compute_nri SHADERS simple_compute_shaders core/text_format.ts)
+add_tslang_example_test(simple_compute_nri)
+# simple_compute has no draw of its own to show the fractal with: 16bit_arithmetic's visualization shaders.
+if (TARGET 16bit_arithmetic_shaders AND TARGET simple_compute_nri)
+    add_dependencies(simple_compute_nri 16bit_arithmetic_shaders)
+endif()
 
 # Port of the Xbox ATG SimpleBezierPC12 sample (PCSamples/IntroGraphics/SimpleBezierPC12): a Mobius
 # strip of four Bezier patches tessellated by hull and domain shaders, in integer, fractional even
@@ -3297,6 +3320,9 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(simple_bezier core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_bezier)
+# simple_bezier with NRI and NRIFramework instead of Donut: simple_bezier's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(simple_bezier_nri SHADERS simple_bezier_shaders core/text_format.ts)
+add_tslang_example_test(simple_bezier_nri)
 
 # Port of the Xbox ATG MouseCursor UWP sample (UWPSamples/System/MouseCursor): a menu picked with the
 # absolute mouse cursor, a first-person room turned by the captured mouse's relative motion, and a
@@ -3357,6 +3383,9 @@ if (NOT WIN32)
 endif()
 add_tslang_example(collision core/matrix.ts core/directx_collision.ts core/directx_collision.cpp MEDIA fonts)
 add_tslang_example_test(collision)
+# collision with NRI and NRIFramework instead of Donut: collision's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(collision_nri SHADERS collision_shaders core/matrix.ts core/directx_collision.ts core/directx_collision.cpp)
+add_tslang_example_test(collision_nri)
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
 # triangles and a plane, two rotating, ray traced with per-instance colors and shadow rays; the
@@ -3476,6 +3505,12 @@ donut_compile_shaders(
 add_tslang_example(meshlet_render core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp MEDIA meshlet_render)
 add_dxgs_media(meshlet_render meshlet_render Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin)
 add_tslang_example_test(meshlet_render)
+# meshlet_render with NRI and NRIFramework instead of Donut: meshlet_render's shaders and model.
+add_tslang_nri_example(meshlet_render_nri SHADERS meshlet_render_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_example_test(meshlet_render_nri)
+if (TARGET meshlet_render_media AND TARGET meshlet_render_nri)
+    add_dependencies(meshlet_render_nri meshlet_render_media)
+endif()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletCull: amplification shaders cull the
 # dragon's meshlets against a second camera's frustum and by their normal cones; that camera's
@@ -3499,6 +3534,12 @@ add_dxgs_media(meshlet_cull meshlet_cull
     Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin
     Samples/Desktop/D3D12MeshShaders/src/Assets/Camera.bin)
 add_tslang_example_test(meshlet_cull)
+# meshlet_cull with NRI and NRIFramework instead of Donut: meshlet_cull's shaders and models.
+add_tslang_nri_example(meshlet_cull_nri SHADERS meshlet_cull_shaders core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_example_test(meshlet_cull_nri)
+if (TARGET meshlet_cull_media AND TARGET meshlet_cull_nri)
+    add_dependencies(meshlet_cull_nri meshlet_cull_media)
+endif()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletInstancing: a cube of toy robots drawn by a
 # mesh shader alone, a group per meshlet and instance, several instances of each subset's last meshlet
@@ -3517,6 +3558,12 @@ donut_compile_shaders(
 add_tslang_example(meshlet_instancing core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp MEDIA meshlet_instancing)
 add_dxgs_media(meshlet_instancing meshlet_instancing Samples/Desktop/D3D12MeshShaders/src/Assets/ToyRobot.bin)
 add_tslang_example_test(meshlet_instancing)
+# meshlet_instancing with NRI and NRIFramework instead of Donut: meshlet_instancing's shaders and model.
+add_tslang_nri_example(meshlet_instancing_nri SHADERS meshlet_instancing_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_example_test(meshlet_instancing_nri)
+if (TARGET meshlet_instancing_media AND TARGET meshlet_instancing_nri)
+    add_dependencies(meshlet_instancing_nri meshlet_instancing_media)
+endif()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders DynamicLOD: a cube of dragons, an amplification
 # shader thread per dragon culling it and picking one of six levels of detail by its size on screen,
@@ -3539,6 +3586,12 @@ foreach(level RANGE 0 5)
 endforeach()
 add_dxgs_media(dynamic_lod dynamic_lod ${dynamic_lod_media})
 add_tslang_example_test(dynamic_lod)
+# dynamic_lod with NRI and NRIFramework instead of Donut: dynamic_lod's shaders and models.
+add_tslang_nri_example(dynamic_lod_nri SHADERS dynamic_lod_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_example_test(dynamic_lod_nri)
+if (TARGET dynamic_lod_media AND TARGET dynamic_lod_nri)
+    add_dependencies(dynamic_lod_nri dynamic_lod_media)
+endif()
 
 # Port of DirectX-Graphics-Samples' D3D12ExecuteIndirect: 1024 triangles drawn by one indirect call,
 # a compute shader first culling their commands to the middle of the screen and the call taking their

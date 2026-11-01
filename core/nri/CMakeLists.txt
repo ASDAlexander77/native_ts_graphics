@@ -33,6 +33,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # NRI also enables VK_KHR_shader_quad_control (and VK_KHR_shader_maximal_reconvergence, which it
 # needs) where the device has it, as Donut does: shader_quad_control_nri's pixel shader asks for
 # full quads.
+# NRI's D3D12 backend also gets patch lists' topology wrong (TRIANGLESTRIP_ADJ + control points
+# instead of 1_CONTROL_POINT_PATCHLIST - 1 + control points): patched, for the tessellation examples.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -45,6 +47,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-shader-quad-control.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-patch-list-topology.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

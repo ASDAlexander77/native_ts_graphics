@@ -33,11 +33,21 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | texture_loading_nri (#192) | NRIFramework's ImGui (`Nri_UseImgui`, `Nri_InitImgui`, the frame calls and widgets), textures with all their mips (`Nri_LoadTexture`, detex), the device's widest anisotropy; `-testOutput` for every NRI example |
 | separate_image_sampler_nri (#192) | samplers with their own mip filter, the sampler in a set of its own (space 1: the shader and the Donut example changed with it) |
 | compute_shader_derivatives_nri (#192) | `NriFeature.ComputeShaderDerivatives` |
-| shader_quad_control_nri | a permutation picked from a ShaderMake blob of several (`Nri_PipelineDescAddShaderPermutation`), `NriFeature.ShaderQuadControl` (NRI patched to enable VK_KHR_shader_quad_control, queried with vkGetPhysicalDeviceFeatures2 through NRI's Vulkan wrapper) |
-| color_write_enable_nri | render target textures (`Nri_CreateRenderTargetTexture`), three color attachments (`Nri_CmdBeginRenderingWithThreeColors`, `Nri_PipelineDescAddColor`) cleared one by one (`Nri_CmdClearColorAttachment`), `Nri_ImguiColorPicker3`, options with values (`Nri_AddExampleOptionWithValues`); a pipeline per write-mask combination (NRI has no dynamic color write enable) |
-| 16bit_arithmetic_nri | `NriFeature.Native16Bit` and `Native16BitConstants`, compute permutations (`Nri_CreateComputePipelinePermutation`), structured buffers in descriptor sets (`Nri_CreateDescriptorPoolWithBuffers`), RGBA16F storage textures; no GPU time (no timer queries) |
-| mesh_shader_culling_nri | nothing new: a task shader's constant buffer as a root descriptor; no pipeline statistics (no queries) |
-| n_body_gravity_nri | geometry shaders, point lists, blend factors (`Nri_PipelineDescSetBlend`), buffers read by vertex and compute shaders (`NriBufferState.VertexAndComputeShaderResource`); the steps on the graphics queue (the Donut example's path without a compute queue) |
+| shader_quad_control_nri (#193) | a permutation picked from a ShaderMake blob of several (`Nri_PipelineDescAddShaderPermutation`), `NriFeature.ShaderQuadControl` (NRI patched to enable VK_KHR_shader_quad_control, queried with vkGetPhysicalDeviceFeatures2 through NRI's Vulkan wrapper) |
+| color_write_enable_nri (#193) | render target textures (`Nri_CreateRenderTargetTexture`), three color attachments (`Nri_CmdBeginRenderingWithThreeColors`, `Nri_PipelineDescAddColor`) cleared one by one (`Nri_CmdClearColorAttachment`), `Nri_ImguiColorPicker3`, options with values (`Nri_AddExampleOptionWithValues`); a pipeline per write-mask combination (NRI has no dynamic color write enable) |
+| 16bit_arithmetic_nri (#193) | `NriFeature.Native16Bit` and `Native16BitConstants`, compute permutations (`Nri_CreateComputePipelinePermutation`), structured buffers in descriptor sets (`Nri_CreateDescriptorPoolWithBuffers`), RGBA16F storage textures; no GPU time (no timer queries) |
+| mesh_shader_culling_nri (#193) | nothing new: a task shader's constant buffer as a root descriptor; no pipeline statistics (no queries) |
+| n_body_gravity_nri (#193) | geometry shaders, point lists, blend factors (`Nri_PipelineDescSetBlend`), buffers read by vertex and compute shaders (`NriBufferState.VertexAndComputeShaderResource`); the steps on the graphics queue (the Donut example's path without a compute queue) |
+| meshlet_render_nri | uploaded structured buffers (`Nri_CreateUploadedStructuredBuffer`, from ints, files and native pointers), a loaded file's bytes (`Nri_GetFileData`, `Nri_GetFileSize`) for core/meshlet_model.cpp's loader |
+| meshlet_instancing_nri | nothing new: host-written instances (rewritten after the device is idle when they change) |
+| dynamic_lod_nri | nothing new: buffer arrays in a descriptor set, a constant buffer array |
+| meshlet_cull_nri | the cursor's position (`Nri_GetMouseX/Y`), line lists from mesh shaders |
+| simple_compute_nri | the async compute loop's own root constants, pause and run count (`Nri_SetAsyncComputeConstants`, `Nri_SetAsyncComputePaused`, `Nri_GetAsyncComputeRunCount`), textures the compute queue reads (`Nri_CreateUploadedComputeTexture`), ImGui text drawn anywhere (`Nri_ImguiDrawText`, `Nri_ImguiDrawRect`); the fractal drawn with 16bit_arithmetic's visualization shaders; on D3D11 with the HUD, no async compute (the HUD's command buffer emulation breaks the compute queue) |
+| collision_nri | line lists, CPU-written vertex buffers (`Nri_CreateHostBuffer` with `NriBufferUsage.VertexBuffer`), a captured cursor (`Nri_SetCursorDisabled`) |
+| simple_bezier_nri | hull and domain shaders, patch lists (`Nri_PipelineDescSetPatchControlPoints`), wireframe (`Nri_PipelineDescSetWireframe`); NRI patched for D3D12's patch-list topology |
+| terrain_tessellation_nri | DDS texture arrays with their mips (`Nri_LoadDdsTexture`, `Nri_CreateTextureArrayView`), Donut's own blit shaders into the sRGB swap chain, Donut's FirstPersonCamera in float32 |
+| dynamic_blending_nri | all blend factors and ops, blend constants (`Nri_CmdSetBlendConstants`), more ImGui widgets (`Nri_ImguiColorEdit4`, `Nri_ImguiButton`, `Nri_ImguiRadioButton`, `Nri_ImguiPushID`, `Nri_ImguiSameLine`); no advanced blend operations (NRI has none) |
+| atom_orbitals_nri | front-face winding (`Nri_PipelineDescSetFrontCounterClockwise`), three root descriptors in one layout, `Nri_ImguiSetNextWindowPosPivot`, `Nri_ImguiDragFloat` |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -57,10 +67,16 @@ examples needed a copy queue.
 
 NRIFramework's ImGui is in, ported in batches: texture_loading_nri, separate_image_sampler_nri and
 compute_shader_derivatives_nri; then shader_quad_control_nri, color_write_enable_nri,
-16bit_arithmetic_nri, mesh_shader_culling_nri and n_body_gravity_nri (which has no UI). Left for
-later: simple_compute (Donut's sprite font, which NRI has no counterpart for) and
-dynamic_line_rasterization (NRI's rasterization desc has line smoothing only: no line width,
-rasterization mode or stipple).
+16bit_arithmetic_nri, mesh_shader_culling_nri and n_body_gravity_nri (which has no UI); then the
+ten examples that need neither a scene nor ray tracing: meshlet_render_nri, meshlet_instancing_nri,
+dynamic_lod_nri, meshlet_cull_nri, simple_compute_nri, collision_nri, simple_bezier_nri,
+terrain_tessellation_nri, dynamic_blending_nri and atom_orbitals_nri. Text overlays use ImGui's
+default font, as the UI isn't compared.
+
+Left out of tier 3: dynamic_line_rasterization (NRI's rasterization desc has line smoothing only:
+no line width, rasterization mode or stipple), texture_compression_basisu (the Basis Universal
+transcoder is C++ in Donut's interop) and multithreading (Donut's draw batches are recorded on C++
+threads; recorded serially, the port would lose its point).
 
 ## Tier 4: scenes (NRIFramework utils::Scene, cgltf)
 
@@ -108,6 +124,15 @@ ray_queries. After that come the scene-heavy ray-traced examples.
 - D3D12's legacy barriers have one state for buffers read by vertex and by compute shaders
   (NON_PIXEL_SHADER_RESOURCE): a barrier between NRI's two is "before and after states must be
   different". A buffer both read goes between `VertexAndComputeShaderResource` and `Storage`.
+- NRI's D3D12 backend gets patch lists' topology wrong (TRIANGLESTRIP_ADJ plus the control points
+  instead of 1_CONTROL_POINT_PATCHLIST minus one plus them: "primitive topology mismatch" at the
+  draw); `patches/NRI-d3d12-patch-list-topology.patch` fixes it. D3D11's is right.
+- NRI draws its default lines only, with no line rasterization mode or width. Where a Donut example
+  asks for rectangular lines (D3D's quadrilateral lines; on Vulkan 1.4 pixels wide: collision) or
+  Bresenham ones (Vulkan: simple_bezier's wireframe), the NRI port differs along every line, and
+  only there.
+- Donut's test mode passes each frame's 1/60 second as a float: the ports step their animations by
+  `Math.fround(1.0 / 60.0)`, or a state that integrates time (atom_orbitals' superposition) drifts.
 - `Nri_RunSample` leaves the example's options out of NRIFramework's command line; an option with
   values (`Nri_AddExampleOptionWithValues`) has its values left out too, or NRIFramework rejects
   them.
