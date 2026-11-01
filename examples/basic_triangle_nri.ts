@@ -123,10 +123,12 @@ namespace BasicTriangleNri {
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
             this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
             const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            // Rendered through sRGB views, as into Donut's sRGB back buffers.
             const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            const viewFormat = Nri_GetSrgbFormat(format);
             for (let i = 0; i < textureNum; i++) {
                 const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
                     Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
             }
 
@@ -141,7 +143,7 @@ namespace BasicTriangleNri {
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/basic_triangle/${folder}/basic_triangle`;
             const pipeline = Nri_CreateGraphicsPipeline(device, this.pipelineLayout,
-                `${shaders}_main_vs.bin`, "main_vs", `${shaders}_main_ps.bin`, "main_ps", format);
+                `${shaders}_main_vs.bin`, "main_vs", `${shaders}_main_ps.bin`, "main_ps", viewFormat);
             if (!pipeline) {
                 console.log("Cannot load the triangle shaders");
                 return 0;

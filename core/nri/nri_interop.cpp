@@ -126,20 +126,22 @@ namespace
         }
     }
 
-    // A pipeline whose first shader (firstStage: the vertex or the mesh shader) and pixel shader are
-    // read from firstPath and psPath, under LibraryDirectory(): see Nri_CreateGraphicsPipeline.
-    nri::Pipeline* CreateGraphicsPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout, nri::StageBits firstStage,
-        const char* firstPath, const char* firstEntry, const char* psPath, const char* psEntry, int colorFormat)
+    // A pipeline whose shaders are read from their paths, under LibraryDirectory(): the task shader
+    // (if taskPath isn't null), the first shader (firstStage: the vertex or the mesh shader) and the
+    // pixel shader. See Nri_CreateGraphicsPipeline.
+    nri::Pipeline* CreateGraphicsPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout, const char* taskPath, const char* taskEntry,
+        nri::StageBits firstStage, const char* firstPath, const char* firstEntry, const char* psPath, const char* psEntry, int colorFormat)
     {
         std::string directory = LibraryDirectory();
-        std::vector<uint8_t> first, ps;
-        if (!ReadFile(directory + firstPath, first) || !ReadFile(directory + psPath, ps))
+        std::vector<uint8_t> task, first, ps;
+        if ((taskPath && !ReadFile(directory + taskPath, task)) || !ReadFile(directory + firstPath, first) || !ReadFile(directory + psPath, ps))
             return nullptr;
 
-        nri::ShaderDesc shaders[] = {
-            { firstStage, first.data(), first.size(), firstEntry },
-            { nri::StageBits::FRAGMENT_SHADER, ps.data(), ps.size(), psEntry },
-        };
+        std::vector<nri::ShaderDesc> shaders;
+        if (taskPath)
+            shaders.push_back({ nri::StageBits::TASK_SHADER, task.data(), task.size(), taskEntry });
+        shaders.push_back({ firstStage, first.data(), first.size(), firstEntry });
+        shaders.push_back({ nri::StageBits::FRAGMENT_SHADER, ps.data(), ps.size(), psEntry });
 
         nri::ColorAttachmentDesc color = {};
         color.format = (nri::Format)colorFormat;
@@ -152,8 +154,8 @@ namespace
         desc.rasterization.cullMode = nri::CullMode::NONE;
         desc.outputMerger.colors = &color;
         desc.outputMerger.colorNum = 1;
-        desc.shaders = shaders;
-        desc.shaderNum = helper::GetCountOf(shaders);
+        desc.shaders = shaders.data();
+        desc.shaderNum = (uint32_t)shaders.size();
 
         nri::Pipeline* pipeline = nullptr;
         if (NRI.CreateGraphicsPipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
@@ -498,6 +500,21 @@ extern "C"
         return nri::nriGetFormatProps((nri::Format)format)->name;
     }
 
+    // The sRGB format of an 8-bit RGBA or BGRA UNORM format (the swap chain's, whose views may be
+    // sRGB), else the format itself.
+    NRI_INTEROP_API int Nri_GetSrgbFormat(int format)
+    {
+        switch ((nri::Format)format)
+        {
+        case nri::Format::RGBA8_UNORM:
+            return (int)nri::Format::RGBA8_SRGB;
+        case nri::Format::BGRA8_UNORM:
+            return (int)nri::Format::BGRA8_SRGB;
+        default:
+            return format;
+        }
+    }
+
     NRI_INTEROP_API nri::Descriptor* Nri_CreateColorAttachmentView(nri::Texture* texture, int format)
     {
         nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::COLOR_ATTACHMENT, (nri::Format)format };
@@ -761,7 +778,8 @@ extern "C"
     NRI_INTEROP_API nri::Pipeline* Nri_CreateGraphicsPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
         const char* vsPath, const char* vsEntry, const char* psPath, const char* psEntry, int colorFormat)
     {
-        return CreateGraphicsPipeline(device, pipelineLayout, nri::StageBits::VERTEX_SHADER, vsPath, vsEntry, psPath, psEntry, colorFormat);
+        return CreateGraphicsPipeline(device, pipelineLayout, nullptr, nullptr, nri::StageBits::VERTEX_SHADER, vsPath, vsEntry,
+            psPath, psEntry, colorFormat);
     }
 
     // As Nri_CreateGraphicsPipeline, with a mesh shader (msPath, msEntry) making the triangles instead
@@ -769,7 +787,18 @@ extern "C"
     NRI_INTEROP_API nri::Pipeline* Nri_CreateMeshPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
         const char* msPath, const char* msEntry, const char* psPath, const char* psEntry, int colorFormat)
     {
-        return CreateGraphicsPipeline(device, pipelineLayout, nri::StageBits::MESH_SHADER, msPath, msEntry, psPath, psEntry, colorFormat);
+        return CreateGraphicsPipeline(device, pipelineLayout, nullptr, nullptr, nri::StageBits::MESH_SHADER, msPath, msEntry,
+            psPath, psEntry, colorFormat);
+    }
+
+    // As Nri_CreateMeshPipeline, with a task (amplification) shader (taskPath, taskEntry) launching
+    // the mesh shader's workgroups.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateTaskMeshPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
+        const char* taskPath, const char* taskEntry, const char* msPath, const char* msEntry, const char* psPath, const char* psEntry,
+        int colorFormat)
+    {
+        return CreateGraphicsPipeline(device, pipelineLayout, taskPath, taskEntry, nri::StageBits::MESH_SHADER, msPath, msEntry,
+            psPath, psEntry, colorFormat);
     }
 
     NRI_INTEROP_API void Nri_DestroyPipeline(nri::Pipeline* pipeline)

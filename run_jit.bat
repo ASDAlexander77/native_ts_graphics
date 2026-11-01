@@ -6,6 +6,6 @@
 rem set D=build-release-dlss/bin
 rem set D=build-release-rtxcr/bin
 set D=build-release/bin
-@rem nri_interop.dll: the NRI examples' (basic_triangle_nri, mesh_shading_nri).
+@rem nri_interop.dll: the NRI examples' (basic_triangle_nri, mesh_shading_nri, meshlets_nri).
 "tslang.exe" --shared-libs=%D%/donut_interop_shared.dll --shared-libs=%D%/nri_interop.dll %* -- -dx12
 @popd

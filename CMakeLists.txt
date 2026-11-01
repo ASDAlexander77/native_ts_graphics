@@ -1089,6 +1089,9 @@ donut_compile_shaders(
 )
 add_tslang_example(meshlets)
 add_tslang_example_test(meshlets)
+# meshlets with NRI and NRIFramework instead of Donut: meshlets' shaders.
+add_tslang_nri_example(meshlets_nri SHADERS meshlets_shaders)
+add_tslang_example_test(meshlets_nri)
 
 # Port of Donut-Samples' shader_specializations. Specialization constants are Vulkan-only.
 donut_compile_shaders(
@@ -4243,7 +4246,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)

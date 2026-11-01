@@ -16,43 +16,40 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | Example | Interop added |
 |---|---|
 | basic_triangle_nri (#174) | device, swap chain, frames, empty pipeline layout, VS+PS pipeline, draw, test readback |
-| mesh_shading_nri | `Nri_IsFeatureSupported` (`NriFeature.MeshShader`), `Nri_CreateMeshPipeline`, `Nri_CmdDrawMeshTasks` |
+| mesh_shading_nri (#177) | `Nri_IsFeatureSupported` (`NriFeature.MeshShader`), `Nri_CreateMeshPipeline`, `Nri_CmdDrawMeshTasks` |
+| meshlets_nri | `Nri_CreateTaskMeshPipeline` (task shader), `Nri_GetSrgbFormat` (sRGB color attachment views of the UNORM swap chain, as Donut's sRGB back buffers: pixels match the Donut examples) |
 
-## Tier 1: mesh shaders, nothing bound
-
-1. **meshlets**: adds a task (amplification) shader to the mesh pipeline.
-
-## Tier 2: vertex buffers, offscreen targets, fixed-function state
+## Tier 1: vertex buffers, offscreen targets, fixed-function state
 
 Adds buffer upload (`HelperInterface::UploadData`, memory via `AllocateAndBindMemory`), vertex
 input layouts, depth and color render targets, and a blit or copy to the swap chain.
 
-2. **depth_bounds_test**: vertex buffer, D32 depth target, depth bounds (`features.depthBoundsTest`, `CmdSetDepthBounds`).
-3. **small_resources**: adds a first binding set (descriptor pool and sets).
+1. **depth_bounds_test**: vertex buffer, D32 depth target, depth bounds (`features.depthBoundsTest`, `CmdSetDepthBounds`).
+2. **small_resources**: adds a first binding set (descriptor pool and sets).
 
-## Tier 3: descriptor sets and constant buffers
+## Tier 2: descriptor sets and constant buffers
 
 Adds pipeline layouts with descriptor sets and root constants (push constants), constant
 buffers, structured buffers and samplers.
 
-4. **descriptor_indexing**: descriptor ranges with partially bound / variable-size arrays.
-5. **dynamic_uniform_buffers**: constant buffer slices, with a camera matrix computed in TypeScript.
-6. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
-7. **dynamic_indexing**
-8. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
+3. **descriptor_indexing**: descriptor ranges with partially bound / variable-size arrays.
+4. **dynamic_uniform_buffers**: constant buffer slices, with a camera matrix computed in TypeScript.
+5. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
+6. **dynamic_indexing**
+7. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
 
-## Tier 4: compute and queues
+## Tier 3: compute and queues
 
 Adds compute pipelines, `CmdDispatch`, storage buffers and textures, compute/copy queues and
 timeline fences.
 
-9. **async_compute**
-10. **timeline_semaphore**
-11. **compute_nbody**
-12. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-13. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+8. **async_compute**
+9. **timeline_semaphore**
+10. **compute_nbody**
+11. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+12. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
-## Tier 5: ImGui (NRIImgui.h)
+## Tier 4: ImGui (NRIImgui.h)
 
 NRIFramework draws ImGui through `CmdCopyImguiData` / `CmdDrawImgui`. After this tier, the
 examples whose only blocker was ImGui become portable: shader_quad_control, color_write_enable
@@ -60,13 +57,13 @@ examples whose only blocker was ImGui become portable: shader_quad_control, colo
 compute_shader_derivatives, 16bit_arithmetic, simple_compute, texture_loading,
 separate_image_sampler, dynamic_line_rasterization, and others.
 
-## Tier 6: scenes (NRIFramework utils::Scene, cgltf)
+## Tier 5: scenes (NRIFramework utils::Scene, cgltf)
 
 This tier covers deferred_shading, threaded_rendering, environment_map, bindless_rendering, and
 the Vulkan-Samples ports that load glTF. NRIFramework's scene loader is not Donut's, so the
 material and vertex layouts need checking for each example.
 
-## Tier 7: ray tracing (NRIRayTracing.h)
+## Tier 6: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
 ray_queries. After that come the scene-heavy ray-traced examples.
