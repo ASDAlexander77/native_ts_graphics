@@ -29,7 +29,7 @@ static const uint HEIGHT = 1024;
 
 StructuredBuffer<uint2> blob_data : register(t0);
 
-RWTexture2D<float4> o_results : register(u0);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> o_results : register(u0);
 
 struct Registers
 {

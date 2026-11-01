@@ -30,9 +30,14 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | compute_nbody_nri (#189) | storage buffers (`Nri_CreateStorageBuffer`, structured views) bound as root descriptors, buffer barriers and copies, additive blending; shaders from ShaderMake permutation blobs (a .cfg line with -D); Donut's ThirdPersonCamera view matrix in float32 |
 | execute_indirect_nri (#190) | indexed indirect draws with a count buffer (`Nri_CmdDrawIndexedIndirect`, `NriFeature.DrawIndirectCount`), raw (byte address) buffers as stride-4 structured views, `Nri_CmdZeroBuffer`, host-written structured buffers, per-instance vertex streams |
 | buffer_device_address_nri (#191) | buffers' device addresses (`Nri_GetBufferDeviceAddress`: vkGetBufferDeviceAddress through NRI's Vulkan wrapper, as NRI has no call for it) in push constants, primitive restart; Vulkan only |
-| texture_loading_nri | NRIFramework's ImGui (`Nri_UseImgui`, `Nri_InitImgui`, the frame calls and widgets), textures with all their mips (`Nri_LoadTexture`, detex), the device's widest anisotropy; `-testOutput` for every NRI example |
-| separate_image_sampler_nri | samplers with their own mip filter, the sampler in a set of its own (space 1: the shader and the Donut example changed with it) |
-| compute_shader_derivatives_nri | `NriFeature.ComputeShaderDerivatives` |
+| texture_loading_nri (#192) | NRIFramework's ImGui (`Nri_UseImgui`, `Nri_InitImgui`, the frame calls and widgets), textures with all their mips (`Nri_LoadTexture`, detex), the device's widest anisotropy; `-testOutput` for every NRI example |
+| separate_image_sampler_nri (#192) | samplers with their own mip filter, the sampler in a set of its own (space 1: the shader and the Donut example changed with it) |
+| compute_shader_derivatives_nri (#192) | `NriFeature.ComputeShaderDerivatives` |
+| shader_quad_control_nri | a permutation picked from a ShaderMake blob of several (`Nri_PipelineDescAddShaderPermutation`), `NriFeature.ShaderQuadControl` (NRI patched to enable VK_KHR_shader_quad_control, queried with vkGetPhysicalDeviceFeatures2 through NRI's Vulkan wrapper) |
+| color_write_enable_nri | render target textures (`Nri_CreateRenderTargetTexture`), three color attachments (`Nri_CmdBeginRenderingWithThreeColors`, `Nri_PipelineDescAddColor`) cleared one by one (`Nri_CmdClearColorAttachment`), `Nri_ImguiColorPicker3`, options with values (`Nri_AddExampleOptionWithValues`); a pipeline per write-mask combination (NRI has no dynamic color write enable) |
+| 16bit_arithmetic_nri | `NriFeature.Native16Bit` and `Native16BitConstants`, compute permutations (`Nri_CreateComputePipelinePermutation`), structured buffers in descriptor sets (`Nri_CreateDescriptorPoolWithBuffers`), RGBA16F storage textures; no GPU time (no timer queries) |
+| mesh_shader_culling_nri | nothing new: a task shader's constant buffer as a root descriptor; no pipeline statistics (no queries) |
+| n_body_gravity_nri | geometry shaders, point lists, blend factors (`Nri_PipelineDescSetBlend`), buffers read by vertex and compute shaders (`NriBufferState.VertexAndComputeShaderResource`); the steps on the graphics queue (the Donut example's path without a compute queue) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -50,10 +55,12 @@ examples needed a copy queue.
 
 ## Tier 3: ImGui (NRIImgui.h)
 
-NRIFramework's ImGui is in (texture_loading_nri, separate_image_sampler_nri,
-compute_shader_derivatives_nri), ported in batches. Next: shader_quad_control, color_write_enable
-(static `colorWriteMask` only, because NRI has no dynamic color write enable), 16bit_arithmetic,
-simple_compute, dynamic_line_rasterization, and others.
+NRIFramework's ImGui is in, ported in batches: texture_loading_nri, separate_image_sampler_nri and
+compute_shader_derivatives_nri; then shader_quad_control_nri, color_write_enable_nri,
+16bit_arithmetic_nri, mesh_shader_culling_nri and n_body_gravity_nri (which has no UI). Left for
+later: simple_compute (Donut's sprite font, which NRI has no counterpart for) and
+dynamic_line_rasterization (NRI's rasterization desc has line smoothing only: no line width,
+rasterization mode or stipple).
 
 ## Tier 4: scenes (NRIFramework utils::Scene, cgltf)
 
@@ -93,6 +100,17 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   drawn as nothing. The emulation isn't on for the others: it breaks the compute queue examples.
 - NRI's validation rejects two descriptor sets in the same register space, which D3D12 allows: a
   set of its own needs a space of its own (on Vulkan the space is the set's index anyway).
+- NRI's Vulkan backend chains only the feature structs of the extensions it knows:
+  `patches/NRI-shader-quad-control.patch` adds VK_KHR_shader_quad_control and
+  VK_KHR_shader_maximal_reconvergence (enabled where the device has them, as Donut does). NRI
+  doesn't say whether they're on; `Nri_IsFeatureSupported` asks vkGetPhysicalDeviceFeatures2
+  through NRI's Vulkan wrapper, as NRI passes what it queried to vkCreateDevice.
+- D3D12's legacy barriers have one state for buffers read by vertex and by compute shaders
+  (NON_PIXEL_SHADER_RESOURCE): a barrier between NRI's two is "before and after states must be
+  different". A buffer both read goes between `VertexAndComputeShaderResource` and `Storage`.
+- `Nri_RunSample` leaves the example's options out of NRIFramework's command line; an option with
+  values (`Nri_AddExampleOptionWithValues`) has its values left out too, or NRIFramework rejects
+  them.
 - An animation that the original sample steps in OnUpdate counts the frame before it's drawn
   (frame number = frameIndex + 1), as Donut's test mode does.
 

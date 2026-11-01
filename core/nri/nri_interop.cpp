@@ -96,6 +96,9 @@ namespace
     static_assert((int)nri::IndexType::UINT16 == 0 && (int)nri::IndexType::UINT32 == 1);
     static_assert((int)nri::CullMode::NONE == 0 && (int)nri::CullMode::FRONT == 1 && (int)nri::CullMode::BACK == 2);
     static_assert((int)nri::StageBits::COMPUTE_SHADER == 1024 && (int)nri::DescriptorType::STORAGE_TEXTURE == 3);
+    static_assert((int)nri::Format::RGBA16_SFLOAT == 30 && (int)nri::Topology::POINT_LIST == 0);
+    static_assert((int)nri::StageBits::GEOMETRY_SHADER == 16 && (int)nri::StageBits::TASK_SHADER == 32);
+    static_assert((int)nri::BlendFactor::SRC_ALPHA == 6 && (int)nri::BlendOp::ADD == 0);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -113,7 +116,10 @@ namespace
         // The vertex attributes, if any, each of its stream (bound to the slot of its number; the
         // stride is Nri_CmdSetVertexBuffer's).
         std::vector<nri::VertexAttributeDesc> attributes;
+        // The color attachments: the first (Nri_PipelineDescSetColor), then the others
+        // (Nri_PipelineDescAddColor). None while the first's format is UNKNOWN.
         nri::ColorAttachmentDesc color = { nri::Format::UNKNOWN, {}, {}, nri::ColorWriteBits::RGBA, false };
+        std::vector<nri::ColorAttachmentDesc> moreColors;
         nri::DepthAttachmentDesc depth = {};
         nri::Format depthFormat = nri::Format::UNKNOWN;
         nri::CullMode cullMode = nri::CullMode::NONE;
@@ -183,10 +189,11 @@ namespace
         return read && !data.empty();
     }
 
-    // A shader's bytecode, read from path: the file, or the one permutation in it when it's a
-    // ShaderMake permutation blob ("NVSP", then per permutation its sizes, its defines and its
-    // bytecode), as a .cfg line with -D compiles, for that line's defines.
-    bool ReadShader(const std::string& path, std::vector<uint8_t>& data)
+    // A shader's bytecode, read from path: the file, or a permutation in it when it's a ShaderMake
+    // permutation blob ("NVSP", then per permutation its sizes, its defines and its bytecode), as a
+    // .cfg line with -D compiles, for that line's defines: the one whose defines are permutation
+    // ("NAME=VALUE", as ShaderMake writes them), or the only one when permutation is empty.
+    bool ReadShader(const std::string& path, std::vector<uint8_t>& data, const std::string& permutation = std::string())
     {
         if (!ReadFile(path, data))
             return false;
@@ -198,18 +205,29 @@ namespace
             uint32_t dataSize;
         };
         size_t offset = 4;
-        if (data.size() < offset + sizeof(Entry))
-            return false;
-        Entry entry;
-        memcpy(&entry, data.data() + offset, sizeof(Entry));
-        size_t start = offset + sizeof(Entry) + entry.permutationSize;
-        if (data.size() < start + entry.dataSize || start + entry.dataSize != data.size())
+        size_t entryNum = 0;
+        while (offset + sizeof(Entry) <= data.size())
         {
-            printf("ERROR: %s holds more than one permutation\n", path.c_str());
-            return false;
+            Entry entry;
+            memcpy(&entry, data.data() + offset, sizeof(Entry));
+            size_t start = offset + sizeof(Entry) + entry.permutationSize;
+            if (start + entry.dataSize > data.size())
+                break;
+            std::string defines((const char*)data.data() + offset + sizeof(Entry), entry.permutationSize);
+            bool last = start + entry.dataSize == data.size();
+            if (permutation.empty() ? (entryNum == 0 && last) : defines == permutation)
+            {
+                data = std::vector<uint8_t>(data.begin() + (ptrdiff_t)start, data.begin() + (ptrdiff_t)(start + entry.dataSize));
+                return true;
+            }
+            entryNum++;
+            offset = start + entry.dataSize;
         }
-        data = std::vector<uint8_t>(data.begin() + (ptrdiff_t)start, data.end());
-        return true;
+        if (permutation.empty())
+            printf("ERROR: %s holds more than one permutation\n", path.c_str());
+        else
+            printf("ERROR: %s has no permutation %s\n", path.c_str(), permutation.c_str());
+        return false;
     }
 
     // NRI's messages (its validation layer's and the graphics API's) on the standard output, errors
@@ -237,6 +255,8 @@ namespace
             return { nri::AccessBits::ARGUMENT_BUFFER, nri::StageBits::INDIRECT };
         case 5:
             return { nri::AccessBits::ARGUMENT_BUFFER | nri::AccessBits::SHADER_RESOURCE, nri::StageBits::INDIRECT | nri::StageBits::COMPUTE_SHADER };
+        case 6:
+            return { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::VERTEX_SHADER | nri::StageBits::COMPUTE_SHADER };
         default:
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
         }
@@ -472,8 +492,10 @@ public:
     Callback<FrameFn> m_LatencySleep;
     Callback<FrameFn> m_RenderFrame;
     bool m_Test = false;
-    // The example's own options (Nri_AddExampleOption), which NRIFramework's parser isn't given.
+    // The example's own options (Nri_AddExampleOption), which NRIFramework's parser isn't given,
+    // and the values each takes after it.
     std::vector<std::string> m_ExampleOptions;
+    std::vector<int> m_ExampleOptionValueNums;
     // Nri_UseImgui was called: the device is made for ImGui (see Nri_CreateDevice).
     bool m_UsesImgui = false;
     // Nri_InitImgui's streamer, which uploads ImGui's geometry.
@@ -590,8 +612,14 @@ extern "C"
             }
             // a separator the JIT launchers leave in (run_jitd.bat x.ts -- -test passes -test -- -dx12),
             // which NRIFramework's parser rejects, and the example's options
-            else if (arg != "--" && std::find(sample->m_ExampleOptions.begin(), sample->m_ExampleOptions.end(), arg) == sample->m_ExampleOptions.end())
-                args.push_back(arg);
+            else if (arg != "--")
+            {
+                auto option = std::find(sample->m_ExampleOptions.begin(), sample->m_ExampleOptions.end(), arg);
+                if (option == sample->m_ExampleOptions.end())
+                    args.push_back(arg);
+                else
+                    i += sample->m_ExampleOptionValueNums[option - sample->m_ExampleOptions.begin()];
+            }
         }
 
         std::vector<char*> pointers;
@@ -614,6 +642,14 @@ extern "C"
     NRI_INTEROP_API void Nri_AddExampleOption(TsSample* sample, const char* option)
     {
         sample->m_ExampleOptions.push_back(option);
+        sample->m_ExampleOptionValueNums.push_back(0);
+    }
+
+    // As Nri_AddExampleOption, an option followed by valueNum values, left out too.
+    NRI_INTEROP_API void Nri_AddExampleOptionWithValues(TsSample* sample, const char* option, int valueNum)
+    {
+        sample->m_ExampleOptions.push_back(option);
+        sample->m_ExampleOptionValueNums.push_back(valueNum);
     }
 
     // The command line's argument index (main's argv), "" past its end.
@@ -740,10 +776,52 @@ extern "C"
         return device;
     }
 
+    // A Vulkan feature struct (sType, pNext, then VkBool32 members, the first boolNum of them at
+    // bools) as vkGetPhysicalDeviceFeatures2 fills it for the device's physical device: NRI enables
+    // whatever its structs say the device has, the patched-in VK_KHR_shader_quad_control's too, but
+    // doesn't say. False if it can't be queried (not Vulkan).
+    bool QueryVulkanFeatures(nri::Device* device, int32_t sType, uint32_t* bools, uint32_t boolNum)
+    {
+        if (NRI.GetDeviceDesc(*device).graphicsAPI != nri::GraphicsAPI::VK)
+            return false;
+        nri::WrapperVKInterface wrapper = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            return false;
+        // VkPhysicalDeviceFeatures2 (VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2): the 55 VkBool32s of
+        // VkPhysicalDeviceFeatures after sType and pNext. The queried struct likewise, 32 at most.
+        struct Features
+        {
+            int32_t sType;
+            void* pNext;
+            uint32_t bools[55];
+        };
+        typedef void* (*GetInstanceProcAddr)(void* instance, const char* name);
+        typedef void (*GetPhysicalDeviceFeatures2)(void* physicalDevice, Features* features);
+        void* instance = (void*)wrapper.GetInstanceVK(*device);
+        auto getInstanceProcAddr = (GetInstanceProcAddr)wrapper.GetInstanceProcAddrVK(*device);
+        auto getFeatures2 = getInstanceProcAddr ? (GetPhysicalDeviceFeatures2)getInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2")
+            : nullptr;
+        if (!getFeatures2 || boolNum > 32)
+            return false;
+        Features queried = { sType, nullptr, {} };
+        Features features2 = { 1000059000, &queried, {} };
+        getFeatures2((void*)wrapper.GetPhysicalDeviceVK(*device), &features2);
+        memcpy(bools, queried.bools, boolNum * sizeof(uint32_t));
+        return true;
+    }
+
     // Whether the device has an NriFeature (nri_interop.d.ts): 1 or 0.
     NRI_INTEROP_API int Nri_IsFeatureSupported(nri::Device* device, int feature)
     {
         const nri::DeviceDesc& desc = NRI.GetDeviceDesc(*device);
+        bool d3d12 = desc.graphicsAPI == nri::GraphicsAPI::D3D12;
+        // VkPhysicalDeviceVulkan11Features (VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES):
+        // storageBuffer16BitAccess, uniformAndStorageBuffer16BitAccess, storagePushConstant16, ...
+        uint32_t features11[3] = {};
+        // VkPhysicalDeviceShaderQuadControlFeaturesKHR and
+        // VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR: one VkBool32 each.
+        uint32_t quadControl = 0;
+        uint32_t maximalReconvergence = 0;
         switch (feature)
         {
         case 0:
@@ -754,6 +832,22 @@ extern "C"
             return desc.features.drawIndirectCount ? 1 : 0;
         case 3:
             return (desc.wave.derivativeOpsStages & nri::StageBits::COMPUTE_SHADER) ? 1 : 0;
+        case 4:
+            // Shader model 6.2's 16-bit types on D3D12 (anywhere); Vulkan's in storage buffers too,
+            // as Donut checks.
+            if (!desc.shaderFeatures.nativeF16 || !desc.shaderFeatures.nativeI16)
+                return 0;
+            return d3d12 || (QueryVulkanFeatures(device, 49, features11, 3) && features11[0]) ? 1 : 0;
+        case 5:
+            if (!Nri_IsFeatureSupported(device, 4))
+                return 0;
+            return d3d12 || (QueryVulkanFeatures(device, 49, features11, 3) && features11[1] && features11[2]) ? 1 : 0;
+        case 6:
+            // D3D12 runs pixel shaders in whole quads, helper lanes taking part in quad operations.
+            if (d3d12)
+                return 1;
+            return QueryVulkanFeatures(device, 1000235000, &quadControl, 1) && quadControl
+                && QueryVulkanFeatures(device, 1000434000, &maximalReconvergence, 1) && maximalReconvergence ? 1 : 0;
         default:
             return 0;
         }
@@ -1418,11 +1512,34 @@ extern "C"
         NRI.CmdEndRendering(*commandBuffer);
     }
 
+    // Renders into three color attachments (SV_Target0 to 2), views Nri_CreateColorAttachmentView
+    // made.
+    NRI_INTEROP_API void Nri_CmdBeginRenderingWithThreeColors(nri::CommandBuffer* commandBuffer, nri::Descriptor* color0,
+        nri::Descriptor* color1, nri::Descriptor* color2)
+    {
+        nri::Descriptor* colors[] = { color0, color1, color2 };
+        nri::AttachmentsDesc desc = {};
+        desc.colors = colors;
+        desc.colorNum = 3;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
     // Clears the whole color attachment (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
     NRI_INTEROP_API void Nri_CmdClearColor(nri::CommandBuffer* commandBuffer, float r, float g, float b, float a)
     {
         nri::ClearDesc clearDesc = {};
         clearDesc.planes = nri::PlaneBits::COLOR;
+        clearDesc.value.color.f = { r, g, b, a };
+        NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
+    }
+
+    // Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
+    // into).
+    NRI_INTEROP_API void Nri_CmdClearColorAttachment(nri::CommandBuffer* commandBuffer, int index, float r, float g, float b, float a)
+    {
+        nri::ClearDesc clearDesc = {};
+        clearDesc.planes = nri::PlaneBits::COLOR;
+        clearDesc.colorAttachmentIndex = (uint32_t)index;
         clearDesc.value.color.f = { r, g, b, a };
         NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
     }
@@ -1722,18 +1839,25 @@ extern "C"
     }
 
     // Adds the shader of stage (an NriShaderStage) read from path (as Nri_CreateGraphicsPipeline's);
-    // 0 if it can't be read.
-    NRI_INTEROP_API int Nri_PipelineDescAddShader(PipelineDesc* desc, int stage, const char* path, const char* entry)
+    // 0 if it can't be read. With permutation ("NAME=VALUE"), the permutation of a ShaderMake
+    // permutation blob with those defines.
+    NRI_INTEROP_API int Nri_PipelineDescAddShaderPermutation(PipelineDesc* desc, int stage, const char* path, const char* entry,
+        const char* permutation)
     {
         static const nri::StageBits stages[] = { nri::StageBits::VERTEX_SHADER, nri::StageBits::FRAGMENT_SHADER,
-            nri::StageBits::MESH_SHADER, nri::StageBits::TASK_SHADER };
+            nri::StageBits::MESH_SHADER, nri::StageBits::TASK_SHADER, nri::StageBits::GEOMETRY_SHADER };
         if (stage < 0 || stage >= (int)helper::GetCountOf(stages))
             return 0;
         PipelineDesc::Shader shader = { stages[stage], {}, entry };
-        if (!ReadShader(LibraryDirectory() + path, shader.bytecode))
+        if (!ReadShader(LibraryDirectory() + path, shader.bytecode, permutation))
             return 0;
         desc->shaders.push_back(std::move(shader));
         return 1;
+    }
+
+    NRI_INTEROP_API int Nri_PipelineDescAddShader(PipelineDesc* desc, int stage, const char* path, const char* entry)
+    {
+        return Nri_PipelineDescAddShaderPermutation(desc, stage, path, entry, "");
     }
 
     // An attribute of stream's vertices (the vertex buffer bound to slot stream): semantic (index
@@ -1791,6 +1915,23 @@ extern "C"
         desc->color.alphaBlend = { nri::BlendFactor::SRC_ALPHA, nri::BlendFactor::DST_ALPHA, nri::BlendOp::ADD };
     }
 
+    // Another color attachment after the first (Nri_PipelineDescSetColor): its format and the
+    // channels written (NriColorWrite bits).
+    NRI_INTEROP_API void Nri_PipelineDescAddColor(PipelineDesc* desc, int format, int writeMask)
+    {
+        desc->moreColors.push_back({ (nri::Format)format, {}, {}, (nri::ColorWriteBits)writeMask, false });
+    }
+
+    // Blending into the first color attachment: color srcColor * source op dstColor * destination,
+    // alpha likewise (NriBlendFactor and NriBlendOp values).
+    NRI_INTEROP_API void Nri_PipelineDescSetBlend(PipelineDesc* desc, int srcColor, int dstColor, int colorOp, int srcAlpha, int dstAlpha,
+        int alphaOp)
+    {
+        desc->color.blendEnabled = true;
+        desc->color.colorBlend = { (nri::BlendFactor)srcColor, (nri::BlendFactor)dstColor, (nri::BlendOp)colorOp };
+        desc->color.alphaBlend = { (nri::BlendFactor)srcAlpha, (nri::BlendFactor)dstAlpha, (nri::BlendOp)alphaOp };
+    }
+
     // The depth attachment's format and its test (an NriCompareOp, NONE: off), whether it's written,
     // and whether the depth bounds test is on (NriFeature.DepthBoundsTest, Nri_CmdSetDepthBounds).
     NRI_INTEROP_API void Nri_PipelineDescSetDepth(PipelineDesc* desc, int format, int compareOp, int write, int boundsTest)
@@ -1841,10 +1982,13 @@ extern "C"
         pipelineDesc.inputAssembly.primitiveRestart = desc->primitiveRestart;
         pipelineDesc.rasterization.fillMode = nri::FillMode::SOLID;
         pipelineDesc.rasterization.cullMode = desc->cullMode;
+        std::vector<nri::ColorAttachmentDesc> colors;
         if (desc->color.format != nri::Format::UNKNOWN)
         {
-            pipelineDesc.outputMerger.colors = &desc->color;
-            pipelineDesc.outputMerger.colorNum = 1;
+            colors.push_back(desc->color);
+            colors.insert(colors.end(), desc->moreColors.begin(), desc->moreColors.end());
+            pipelineDesc.outputMerger.colors = colors.data();
+            pipelineDesc.outputMerger.colorNum = (uint32_t)colors.size();
         }
         pipelineDesc.outputMerger.depth = desc->depth;
         pipelineDesc.outputMerger.depthStencilFormat = desc->depthFormat;
@@ -2002,6 +2146,27 @@ extern "C"
         desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
         desc.textureMaxNum = (uint32_t)textureMaxNum;
         desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorPool;
+    }
+
+    // As Nri_CreateDescriptorPool, with room for structuredBufferMaxNum structured buffers and
+    // storageStructuredBufferMaxNum storage ones too.
+    NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPoolWithBuffers(nri::Device* device, int setMaxNum, int samplerMaxNum,
+        int constantBufferMaxNum, int textureMaxNum, int storageTextureMaxNum, int structuredBufferMaxNum, int storageStructuredBufferMaxNum,
+        int updateAfterSet)
+    {
+        nri::DescriptorPoolDesc desc = {};
+        desc.flags = updateAfterSet ? nri::DescriptorPoolBits::ALLOW_UPDATE_AFTER_SET : nri::DescriptorPoolBits::NONE;
+        desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
+        desc.samplerMaxNum = (uint32_t)samplerMaxNum;
+        desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
+        desc.textureMaxNum = (uint32_t)textureMaxNum;
+        desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
+        desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.storageStructuredBufferMaxNum = (uint32_t)storageStructuredBufferMaxNum;
         nri::DescriptorPool* descriptorPool = nullptr;
         if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
             return nullptr;
@@ -2447,15 +2612,27 @@ extern "C"
         return value;
     }
 
+    // A color picker of the 3 floats (RGB, unbounded: HDR) at values, width wide, without previews,
+    // as Vulkan-Samples' Drawer::color_op<Pick>; 1 when changed.
+    NRI_INTEROP_API int Nri_ImguiColorPicker3(const char* label, float* values, double width)
+    {
+        ImGui::PushItemWidth(float(width));
+        bool changed = ImGui::ColorPicker3(label, values, ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview
+            | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+        ImGui::PopItemWidth();
+        return changed ? 1 : 0;
+    }
+
     // --- Compute ------------------------------------------------------------------------------
 
-    // A compute pipeline of the shader read from path (as Nri_CreateGraphicsPipeline's), entry; null
-    // on failure.
-    NRI_INTEROP_API nri::Pipeline* Nri_CreateComputePipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout, const char* path,
-        const char* entry)
+    // A compute pipeline of the shader read from path (as Nri_CreateGraphicsPipeline's), entry: of a
+    // ShaderMake permutation blob, the permutation whose defines are permutation ("NAME=VALUE", or
+    // "" for a blob of one); null on failure.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateComputePipelinePermutation(nri::Device* device, nri::PipelineLayout* pipelineLayout,
+        const char* path, const char* entry, const char* permutation)
     {
         std::vector<uint8_t> bytecode;
-        if (!ReadShader(LibraryDirectory() + path, bytecode))
+        if (!ReadShader(LibraryDirectory() + path, bytecode, permutation))
             return nullptr;
         nri::ComputePipelineDesc desc = {};
         desc.pipelineLayout = pipelineLayout;
@@ -2464,6 +2641,13 @@ extern "C"
         if (NRI.CreateComputePipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
             return nullptr;
         return pipeline;
+    }
+
+    // A compute pipeline of the shader read from path, entry; null on failure.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateComputePipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout, const char* path,
+        const char* entry)
+    {
+        return Nri_CreateComputePipelinePermutation(device, pipelineLayout, path, entry, "");
     }
 
     // A width x height texture (one mip) compute shaders write (RWTexture2D) and pixel shaders read,
@@ -2481,6 +2665,29 @@ extern "C"
         nri::TextureUploadDesc upload = {};
         upload.texture = texture;
         upload.after = TextureState(6);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // A width x height texture (one mip) rendered into (a color attachment, Nri_CreateColorAttachmentView)
+    // and read by pixel shaders, in device memory, moved on the queue (which this waits for) to
+    // NriTextureState.ShaderResource; null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateRenderTargetTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::COLOR_ATTACHMENT;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(5);
         upload.planes = nri::PlaneBits::ALL;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
