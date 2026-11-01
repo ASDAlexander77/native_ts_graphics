@@ -37,6 +37,8 @@
 @cpp declare class NriFileHandle { private readonly __nriFile: index; }
 // A glTF mesh primitive's vertex and index buffers (Nri_LoadGltfMesh).
 @cpp declare class NriGltfMeshHandle { private readonly __nriGltfMesh: index; }
+// Every primitive of a glTF file with its materials and nodes, on the CPU (Nri_LoadGltfModel).
+@cpp declare class NriGltfModelHandle { private readonly __nriGltfModel: index; }
 // A pool of timestamp queries (Nri_CreateTimestampQueryPool).
 @cpp declare class NriQueryPoolHandle { private readonly __nriQueryPool: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
@@ -449,6 +451,16 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // render into it, and back; null on failure.
 @nodrops declare function Nri_CreateSampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat): NriTextureHandle | null;
+// As Nri_CreateDepthTexture, with sampleNum samples per pixel; null on failure.
+@nodrops declare function Nri_CreateMultisampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat, sampleNum: int): NriTextureHandle | null;
+// A color attachment with sampleNum samples per pixel (Nri_CreateColorAttachmentView), left in
+// NriTextureState.ColorAttachment, read by shaders too (Nri_CreateTextureView: Texture2DMS, as
+// shaders/nri_msaa_resolve.hlsl resolves it); null on failure.
+@nodrops declare function Nri_CreateMultisampledRenderTarget(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat, sampleNum: int): NriTextureHandle | null;
+// The sample counts both formats can be rendered with, as bits (1 | 2 | 4 | 8).
+@nodrops declare function Nri_GetSupportedSampleCounts(device: NriDeviceHandle, colorFormat: NriFormat, depthFormat: NriFormat): int;
 // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
 @nodrops declare function Nri_DestroyTexture(texture: NriTextureHandle): void;
 
@@ -460,6 +472,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies count floats from the start of the buffer (a readback buffer, after the GPU wrote it) to
 // dst; 1, or 0 if it can't be read.
 @nodrops declare function Nri_ReadBufferFloats(buffer: NriBufferHandle, dst: Ref<f32>, count: int): int;
+// Copies count 32-bit ints from the start of the buffer (a readback buffer, after the GPU wrote it)
+// to dst (Ref of an int array element); 1, or 0 if it can't be read.
+@nodrops declare function Nri_ReadBufferInts(buffer: NriBufferHandle, dst: Ref<int>, count: int): int;
 // A pool of capacity timestamp queries (the graphics queue's); null on failure.
 @nodrops declare function Nri_CreateTimestampQueryPool(device: NriDeviceHandle, capacity: int): NriQueryPoolHandle | null;
 @nodrops declare function Nri_DestroyQueryPool(queryPool: NriQueryPoolHandle): void;
@@ -563,6 +578,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // (Nri_CreateDepthAttachmentView's).
 @nodrops declare function Nri_CmdBeginRenderingWithTwoColorsAndDepth(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
     color1: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
+// Renders into three color attachments (SV_Target0 to 2) and a depth attachment
+// (Nri_CreateDepthAttachmentView's): a G-buffer.
+@nodrops declare function Nri_CmdBeginRenderingWithThreeColorsAndDepth(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
+    color1: NriDescriptorHandle, color2: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
 // Renders into one or two color attachments (color1 null for one), a depth attachment (null for
 // none) and a shading rate attachment (Nri_CreateShadingRateAttachmentView's; null for none).
@@ -709,6 +728,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Whether primitives are clipped at the near and far planes (1) or not (0: depth clamped, Donut's
 // default). Unset, NRI's default differs by API (clipped on Vulkan, not on D3D).
 @nodrops declare function Nri_PipelineDescSetDepthClip(desc: NriPipelineDescHandle, clip: int): void;
+// The color and depth attachments' samples (Nri_GetSupportedSampleCounts'; 1 by default): a pipeline
+// per sample count (NRI has no dynamic one).
+@nodrops declare function Nri_PipelineDescSetSampleCount(desc: NriPipelineDescHandle, sampleNum: int): void;
 // The color attachment's logic operation instead of blending (NriFeature.LogicOp; a UNORM or UINT
 // attachment, UINT on D3D12), in Vulkan's VkLogicOp order (0 CLEAR, 3 COPY, 5 NO_OP ... 15 SET).
 // NRI has no NO_OP: the attachment's color writes are turned off instead (the same result).
@@ -716,6 +738,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Variable rate shading (NriFeature.VariableRateShading): the draws' shading rate is the one
 // Nri_CmdSetShadingRate sets, combined with the shading rate attachment's.
 @nodrops declare function Nri_PipelineDescSetShadingRate(desc: NriPipelineDescHandle, enabled: int): void;
+// The depth bias of the triangles drawn: constant (D3D's integer DepthBias), clamped to clamp (0: not
+// clamped), plus slope times their depth slope, as NVRHI's setDepthBias (none by default).
+@nodrops declare function Nri_PipelineDescSetDepthBias(desc: NriPipelineDescHandle, constant: number, clamp: number, slope: number): void;
 // The pipeline the desc describes, with the layout; null on failure.
 @nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;
 
@@ -772,6 +797,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // The device's widest anisotropic filtering (16 on most).
 @nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
+// The most draws one indirect draw call takes: above 1, multi-draw indirect (D3D12 always; Vulkan's
+// multiDrawIndirect feature).
+@nodrops declare function Nri_GetDrawIndirectMaxNum(device: NriDeviceHandle): int;
 // Pixels per shading rate attachment texel in each dimension; 0 without shading rate attachments.
 @nodrops declare function Nri_GetShadingRateTileSize(device: NriDeviceHandle): int;
 // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of an int
@@ -869,6 +897,44 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetGltfMeshVertexBuffer(mesh: NriGltfMeshHandle): NriBufferHandle;
 @nodrops declare function Nri_GetGltfMeshIndexBuffer(mesh: NriGltfMeshHandle): NriBufferHandle;
 @nodrops declare function Nri_GetGltfMeshIndexCount(mesh: NriGltfMeshHandle): int;
+// Every primitive of a glTF file's meshes, in mesh and primitive order, with its material, the
+// file's textures and the nodes that instantiate meshes, as Donut's loadGltfModel reads them; kept on
+// the CPU to copy out with the functions below; null on failure. Destroyed with Nri_DestroyGltfModel.
+@nodrops declare function Nri_LoadGltfModel(path: string): NriGltfModelHandle | null;
+@nodrops declare function Nri_DestroyGltfModel(model: NriGltfModelHandle): void;
+@nodrops declare function Nri_GetGltfModelPrimitiveCount(model: NriGltfModelHandle): int;
+@nodrops declare function Nri_GetGltfModelVertexCount(model: NriGltfModelHandle, primitive: int): int;
+@nodrops declare function Nri_GetGltfModelIndexCount(model: NriGltfModelHandle, primitive: int): int;
+// Into dst: Ref(arr[0]) of an f32 array of 8 x the vertex count (float3 position, float3 normal,
+// float2 texture coordinates) / an int array of the index count.
+@nodrops declare function Nri_CopyGltfModelVertices(model: NriGltfModelHandle, primitive: int, dst: Ref<f32>): void;
+@nodrops declare function Nri_CopyGltfModelIndices(model: NriGltfModelHandle, primitive: int, dst: Ref<int>): void;
+// A primitive's vertex attribute by its name in the file ("COLOR_0"...): its elements (0 if none),
+// floats per element, and the floats themselves (count * components into dst).
+@nodrops declare function Nri_GetGltfModelAttributeCount(model: NriGltfModelHandle, primitive: int, name: string): int;
+@nodrops declare function Nri_GetGltfModelAttributeComponents(model: NriGltfModelHandle, primitive: int, name: string): int;
+@nodrops declare function Nri_CopyGltfModelAttribute(model: NriGltfModelHandle, primitive: int, name: string, dst: Ref<f32>): void;
+// The URI of a primitive's material's base color image ("" if none).
+@nodrops declare function Nri_GetGltfModelBaseColorImage(model: NriGltfModelHandle, primitive: int): string;
+// A primitive's material's base color factor (RGBA) into dst (Ref of an f32 array of 4).
+@nodrops declare function Nri_CopyGltfModelBaseColorFactor(model: NriGltfModelHandle, primitive: int, dst: Ref<f32>): void;
+// The name of the primitive's mesh ("" if none), the mesh's index, and its material's alpha mode
+// (0 opaque, 1 mask, 2 blend).
+@nodrops declare function Nri_GetGltfModelMeshName(model: NriGltfModelHandle, primitive: int): string;
+@nodrops declare function Nri_GetGltfModelPrimitiveMesh(model: NriGltfModelHandle, primitive: int): int;
+@nodrops declare function Nri_GetGltfModelPrimitiveAlphaMode(model: NriGltfModelHandle, primitive: int): int;
+// A primitive's material's texture (0 base color, 1 normal, 2 metallic-roughness) as an index into
+// the file's textures (-1 if none), and its metallic (0) or roughness (1) factor.
+@nodrops declare function Nri_GetGltfModelMaterialTexture(model: NriGltfModelHandle, primitive: int, which: int): int;
+@nodrops declare function Nri_GetGltfModelMaterialFactor(model: NriGltfModelHandle, primitive: int, which: int): number;
+// The file's textures, and a texture's image URI ("" if none).
+@nodrops declare function Nri_GetGltfModelTextureCount(model: NriGltfModelHandle): int;
+@nodrops declare function Nri_GetGltfModelTextureImage(model: NriGltfModelHandle, texture: int): string;
+// The nodes that instantiate meshes, in node order: their mesh, and their world transform (16
+// floats, column-major as glm) into dst.
+@nodrops declare function Nri_GetGltfModelNodeCount(model: NriGltfModelHandle): int;
+@nodrops declare function Nri_GetGltfModelNodeMesh(model: NriGltfModelHandle, node: int): int;
+@nodrops declare function Nri_CopyGltfModelNodeTransform(model: NriGltfModelHandle, node: int, dst: Ref<f32>): void;
 // A view of a cubemap's six faces and all its mips for shaders to read (TextureCube; Nri_LoadDdsTexture
 // loads cubemaps).
 @nodrops declare function Nri_CreateTextureCubeView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
