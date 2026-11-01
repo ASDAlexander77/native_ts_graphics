@@ -49,8 +49,9 @@ namespace
     using InitializeFn = int (*)(void* thisVal, int graphicsAPI);
     using FrameFn = void (*)(void* thisVal, int frameIndex);
 
-    // The interfaces of the device Nri_CreateDevice made last.
-    struct Interfaces : nri::CoreInterface, nri::HelperInterface, nri::SwapChainInterface
+    // The interfaces of the device Nri_CreateDevice made last. MeshShaderInterface's functions are
+    // null on a device without mesh shaders.
+    struct Interfaces : nri::CoreInterface, nri::HelperInterface, nri::SwapChainInterface, nri::MeshShaderInterface
     {
     };
     Interfaces NRI = {};
@@ -123,6 +124,41 @@ namespace
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
+    }
+
+    // A pipeline whose first shader (firstStage: the vertex or the mesh shader) and pixel shader are
+    // read from firstPath and psPath, under LibraryDirectory(): see Nri_CreateGraphicsPipeline.
+    nri::Pipeline* CreateGraphicsPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout, nri::StageBits firstStage,
+        const char* firstPath, const char* firstEntry, const char* psPath, const char* psEntry, int colorFormat)
+    {
+        std::string directory = LibraryDirectory();
+        std::vector<uint8_t> first, ps;
+        if (!ReadFile(directory + firstPath, first) || !ReadFile(directory + psPath, ps))
+            return nullptr;
+
+        nri::ShaderDesc shaders[] = {
+            { firstStage, first.data(), first.size(), firstEntry },
+            { nri::StageBits::FRAGMENT_SHADER, ps.data(), ps.size(), psEntry },
+        };
+
+        nri::ColorAttachmentDesc color = {};
+        color.format = (nri::Format)colorFormat;
+        color.colorWriteMask = nri::ColorWriteBits::RGBA;
+
+        nri::GraphicsPipelineDesc desc = {};
+        desc.pipelineLayout = pipelineLayout;
+        desc.inputAssembly.topology = nri::Topology::TRIANGLE_LIST;
+        desc.rasterization.fillMode = nri::FillMode::SOLID;
+        desc.rasterization.cullMode = nri::CullMode::NONE;
+        desc.outputMerger.colors = &color;
+        desc.outputMerger.colorNum = 1;
+        desc.shaders = shaders;
+        desc.shaderNum = helper::GetCountOf(shaders);
+
+        nri::Pipeline* pipeline = nullptr;
+        if (NRI.CreateGraphicsPipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
+            return nullptr;
+        return pipeline;
     }
 }
 
@@ -315,7 +351,22 @@ extern "C"
             nri::nriDestroyDevice(device);
             return nullptr;
         }
+        if (NRI.GetDeviceDesc(*device).features.meshShader)
+            nri::nriGetInterface(*device, NRI_INTERFACE(nri::MeshShaderInterface), (nri::MeshShaderInterface*)&NRI);
         return device;
+    }
+
+    // Whether the device has an NriFeature (nri_interop.d.ts): 1 or 0.
+    NRI_INTEROP_API int Nri_IsFeatureSupported(nri::Device* device, int feature)
+    {
+        const nri::DeviceDesc& desc = NRI.GetDeviceDesc(*device);
+        switch (feature)
+        {
+        case 0:
+            return desc.features.meshShader ? 1 : 0;
+        default:
+            return 0;
+        }
     }
 
     NRI_INTEROP_API void Nri_DestroyDevice(nri::Device* device)
@@ -630,6 +681,12 @@ extern "C"
         NRI.CmdDraw(*commandBuffer, { (uint32_t)vertexNum, (uint32_t)instanceNum, (uint32_t)baseVertex, (uint32_t)baseInstance });
     }
 
+    // Dispatches x * y * z mesh shader workgroups (a device with NriFeature.MeshShader).
+    NRI_INTEROP_API void Nri_CmdDrawMeshTasks(nri::CommandBuffer* commandBuffer, int x, int y, int z)
+    {
+        NRI.CmdDrawMeshTasks(*commandBuffer, { (uint32_t)x, (uint32_t)y, (uint32_t)z });
+    }
+
     // Copies the texture's top left width x height pixels (mip 0, layer 0), in NriTextureState.CopySource,
     // into the buffer, rows rowPitch bytes apart (a multiple of Nri_GetUploadBufferTextureRowAlignment).
     NRI_INTEROP_API void Nri_CmdReadbackTextureToBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer, int rowPitch,
@@ -682,11 +739,11 @@ extern "C"
 
     // --- Pipelines ------------------------------------------------------------------------------
 
-    // A layout binding nothing, for the vertex and fragment stages.
+    // A layout binding nothing, for the graphics stages (vertex or mesh, fragment).
     NRI_INTEROP_API nri::PipelineLayout* Nri_CreatePipelineLayout(nri::Device* device)
     {
         nri::PipelineLayoutDesc desc = {};
-        desc.shaderStages = nri::StageBits::VERTEX_SHADER | nri::StageBits::FRAGMENT_SHADER;
+        desc.shaderStages = nri::StageBits::GRAPHICS_SHADERS;
         nri::PipelineLayout* pipelineLayout = nullptr;
         NRI.CreatePipelineLayout(*device, desc, pipelineLayout);
         return pipelineLayout;
@@ -704,34 +761,15 @@ extern "C"
     NRI_INTEROP_API nri::Pipeline* Nri_CreateGraphicsPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
         const char* vsPath, const char* vsEntry, const char* psPath, const char* psEntry, int colorFormat)
     {
-        std::string directory = LibraryDirectory();
-        std::vector<uint8_t> vs, ps;
-        if (!ReadFile(directory + vsPath, vs) || !ReadFile(directory + psPath, ps))
-            return nullptr;
+        return CreateGraphicsPipeline(device, pipelineLayout, nri::StageBits::VERTEX_SHADER, vsPath, vsEntry, psPath, psEntry, colorFormat);
+    }
 
-        nri::ShaderDesc shaders[] = {
-            { nri::StageBits::VERTEX_SHADER, vs.data(), vs.size(), vsEntry },
-            { nri::StageBits::FRAGMENT_SHADER, ps.data(), ps.size(), psEntry },
-        };
-
-        nri::ColorAttachmentDesc color = {};
-        color.format = (nri::Format)colorFormat;
-        color.colorWriteMask = nri::ColorWriteBits::RGBA;
-
-        nri::GraphicsPipelineDesc desc = {};
-        desc.pipelineLayout = pipelineLayout;
-        desc.inputAssembly.topology = nri::Topology::TRIANGLE_LIST;
-        desc.rasterization.fillMode = nri::FillMode::SOLID;
-        desc.rasterization.cullMode = nri::CullMode::NONE;
-        desc.outputMerger.colors = &color;
-        desc.outputMerger.colorNum = 1;
-        desc.shaders = shaders;
-        desc.shaderNum = helper::GetCountOf(shaders);
-
-        nri::Pipeline* pipeline = nullptr;
-        if (NRI.CreateGraphicsPipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
-            return nullptr;
-        return pipeline;
+    // As Nri_CreateGraphicsPipeline, with a mesh shader (msPath, msEntry) making the triangles instead
+    // of a vertex shader: no input assembly. Needs NriFeature.MeshShader.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateMeshPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
+        const char* msPath, const char* msEntry, const char* psPath, const char* psEntry, int colorFormat)
+    {
+        return CreateGraphicsPipeline(device, pipelineLayout, nri::StageBits::MESH_SHADER, msPath, msEntry, psPath, psEntry, colorFormat);
     }
 
     NRI_INTEROP_API void Nri_DestroyPipeline(nri::Pipeline* pipeline)

@@ -2756,6 +2756,9 @@ donut_compile_shaders(
 )
 add_tslang_example(mesh_shading)
 add_tslang_example_test(mesh_shading)
+# mesh_shading with NRI and NRIFramework instead of Donut: mesh_shading's shaders.
+add_tslang_nri_example(mesh_shading_nri SHADERS mesh_shading_shaders)
+add_tslang_example_test(mesh_shading_nri)
 
 # Port of Vulkan-Samples' dynamic_uniform_buffers: 125 spinning cubes, one draw each, their model
 # matrices in slices of one uniform buffer (the sample's dynamic offsets are a binding set per slice
@@ -4240,7 +4243,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)
