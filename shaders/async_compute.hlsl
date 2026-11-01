@@ -50,7 +50,8 @@ struct Constants
     uint counter;
 };
 DECLARE_PUSH_CONSTANTS(Constants, g_Constants, 0, 0);
-RWTexture2D<float4> rwTexture0 : REGISTER_UAV(0, 0);
+// RGBA8 textures: their format declared for Vulkan (DXC's default, Rgba32f, doesn't match their views).
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> rwTexture0 : REGISTER_UAV(0, 0);
 
 //--------------------------------------------------------------------------------------
 // Simplex Noise https://en.wikipedia.org/wiki/Simplex_noise

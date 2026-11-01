@@ -25,8 +25,13 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <deque>
+#include <mutex>
 #include <random>
+#include <thread>
 #include <cstring>
 #include <unordered_map>
 
@@ -58,6 +63,11 @@ namespace
     };
     Interfaces NRI = {};
 
+    // Held around every queue submission and present: the async compute loops' worker threads
+    // (AsyncComputeLoop) submit to the compute queue while the render thread submits to the graphics
+    // one.
+    std::mutex g_QueueMutex;
+
     // The memory Nri_CreateReadbackBuffer and Nri_CreateUploadedBuffer bound to each buffer, freed
     // with it; Nri_CreateDepthTexture's to each texture.
     std::unordered_map<nri::Buffer*, std::vector<nri::Memory*>> g_BufferMemory;
@@ -82,6 +92,7 @@ namespace
         && (int)nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY == 4 && (int)nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET == 8);
     static_assert((int)nri::IndexType::UINT16 == 0 && (int)nri::IndexType::UINT32 == 1);
     static_assert((int)nri::CullMode::NONE == 0 && (int)nri::CullMode::FRONT == 1 && (int)nri::CullMode::BACK == 2);
+    static_assert((int)nri::StageBits::COMPUTE_SHADER == 1024 && (int)nri::DescriptorType::STORAGE_TEXTURE == 3);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -191,6 +202,8 @@ namespace
                 nri::StageBits::DEPTH_STENCIL_ATTACHMENT };
         case 5:
             return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::FRAGMENT_SHADER };
+        case 6:
+            return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -255,6 +268,135 @@ namespace
         NRI.DestroyTexture(texture);
         return true;
     }
+}
+
+namespace
+{
+    // A C++ worker thread that, at a fixed rate, takes a free texture, runs a compute pipeline over it
+    // on the compute queue, and hands it to the render thread; the render thread hands back the
+    // texture it stops showing (Nri_*AsyncCompute*). The compute queue waits for the graphics frame
+    // that last used a texture, the graphics queue for the run that wrote it. Only C++ runs on the
+    // worker: tslang code can't run on threads its GC doesn't know about. Textures stay in
+    // NriTextureState.Storage while the compute queue has them; the render thread's command buffers
+    // move them to ShaderResource and back.
+    struct AsyncComputeLoop
+    {
+        struct Texture
+        {
+            int index = 0;
+            nri::DescriptorSet* descriptorSet = nullptr;
+            // The fence value of its last use (by the other queue).
+            uint64_t lastUse = 0;
+        };
+
+        nri::Device* device = nullptr;
+        nri::Queue* queue = nullptr;
+        nri::Fence* graphicsFence = nullptr;
+        nri::PipelineLayout* pipelineLayout = nullptr;
+        nri::Pipeline* pipeline = nullptr;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        uint32_t groupsX = 0;
+        uint32_t groupsY = 0;
+        std::chrono::microseconds interval{};
+
+        nri::CommandAllocator* commandAllocator = nullptr;
+        nri::CommandBuffer* commandBuffer = nullptr;
+        // Signaled with the run count as each run finishes.
+        nri::Fence* fence = nullptr;
+        uint64_t fenceValue = 0;
+
+        std::vector<nri::DescriptorSet*> descriptorSets;
+        std::mutex mutex;
+        std::deque<Texture> renderToCompute;
+        std::deque<Texture> computeToRender;
+
+        std::thread thread;
+        std::atomic_bool terminate = false;
+
+        ~AsyncComputeLoop()
+        {
+            Stop();
+            // The graphics queue may wait on the fence too (Nri_AcquireAsyncComputeTexture).
+            if (device)
+                NRI.DeviceWaitIdle(device);
+            if (commandBuffer)
+                NRI.DestroyCommandBuffer(commandBuffer);
+            if (commandAllocator)
+                NRI.DestroyCommandAllocator(commandAllocator);
+            if (fence)
+                NRI.DestroyFence(fence);
+        }
+
+        void Stop()
+        {
+            terminate = true;
+            if (thread.joinable())
+                thread.join();
+        }
+
+        bool TryPop(std::deque<Texture>& queue, Texture& texture)
+        {
+            std::lock_guard lock(mutex);
+            if (queue.empty())
+                return false;
+            texture = queue.front();
+            queue.pop_front();
+            return true;
+        }
+
+        void Push(std::deque<Texture>& queue, const Texture& texture)
+        {
+            std::lock_guard lock(mutex);
+            queue.push_back(texture);
+        }
+
+        void ThreadProc()
+        {
+            uint32_t counter = 0;
+            while (!terminate)
+            {
+                const auto nextTimePoint = std::chrono::steady_clock::now() + interval;
+
+                Texture texture;
+                while (!terminate && !TryPop(renderToCompute, texture))
+                    std::this_thread::yield();
+                if (terminate)
+                    break;
+
+                // The one command buffer: after the last run is done with it.
+                NRI.Wait(*fence, fenceValue);
+                NRI.ResetCommandAllocator(*commandAllocator);
+                NRI.BeginCommandBuffer(*commandBuffer, descriptorPool);
+                NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::COMPUTE, *pipelineLayout);
+                NRI.CmdSetPipeline(*commandBuffer, *pipeline);
+                NRI.CmdSetDescriptorSet(*commandBuffer, { 0, texture.descriptorSet, nri::BindPoint::COMPUTE });
+                NRI.CmdSetRootConstants(*commandBuffer, { 0, &counter, sizeof(counter), 0, nri::BindPoint::COMPUTE });
+                NRI.CmdDispatch(*commandBuffer, { groupsX, groupsY, 1 });
+                NRI.EndCommandBuffer(*commandBuffer);
+
+                nri::FenceSubmitDesc wait = { graphicsFence, texture.lastUse, nri::StageBits::COMPUTE_SHADER };
+                nri::FenceSubmitDesc signal = { fence, fenceValue + 1, nri::StageBits::ALL };
+                nri::QueueSubmitDesc desc = {};
+                desc.waitFences = &wait;
+                desc.waitFenceNum = texture.lastUse > 0 ? 1 : 0;
+                desc.commandBuffers = &commandBuffer;
+                desc.commandBufferNum = 1;
+                desc.signalFences = &signal;
+                desc.signalFenceNum = 1;
+                {
+                    std::lock_guard lock(g_QueueMutex);
+                    NRI.QueueSubmit(*queue, desc);
+                }
+                fenceValue++;
+
+                texture.lastUse = fenceValue;
+                Push(computeToRender, texture);
+
+                counter++;
+                std::this_thread::sleep_until(nextTimePoint);
+            }
+        }
+    };
 }
 
 // NRIFramework's application, its virtual methods calling TypeScript.
@@ -499,6 +641,10 @@ extern "C"
         desc.adapterDesc = &adapterDescs[std::min(sample->AdapterIndex(), adapterDescNum - 1)];
         desc.allocationCallbacks = sample->AllocationCallbacks();
         desc.callbackInterface.MessageCallback = MessageCallback;
+        // A graphics queue and a compute queue (Nri_GetComputeQueue).
+        nri::QueueFamilyDesc queueFamilies[] = { { nullptr, 1, nri::QueueType::GRAPHICS }, { nullptr, 1, nri::QueueType::COMPUTE } };
+        desc.queueFamilies = queueFamilies;
+        desc.queueFamilyNum = helper::GetCountOf(queueFamilies);
 
         nri::Device* device = nullptr;
         if (nri::nriCreateDevice(desc, device) != nri::Result::SUCCESS)
@@ -563,6 +709,15 @@ extern "C"
     {
         nri::Queue* queue = nullptr;
         NRI.GetQueue(*device, nri::QueueType::GRAPHICS, 0, queue);
+        return queue;
+    }
+
+    // The device's compute queue, null if it has none.
+    NRI_INTEROP_API nri::Queue* Nri_GetComputeQueue(nri::Device* device)
+    {
+        nri::Queue* queue = nullptr;
+        if (NRI.GetQueue(*device, nri::QueueType::COMPUTE, 0, queue) != nri::Result::SUCCESS)
+            return nullptr;
         return queue;
     }
 
@@ -645,6 +800,7 @@ extern "C"
     // Presents once releaseSemaphore is signaled; 0 on failure.
     NRI_INTEROP_API int Nri_QueuePresent(nri::SwapChain* swapChain, nri::Fence* releaseSemaphore)
     {
+        std::lock_guard lock(g_QueueMutex);
         return NRI.QueuePresent(*swapChain, *releaseSemaphore) == nri::Result::SUCCESS ? 1 : 0;
     }
 
@@ -1159,6 +1315,23 @@ extern "C"
         desc.commandBufferNum = 1;
         desc.signalFences = &signal;
         desc.signalFenceNum = 1;
+        std::lock_guard lock(g_QueueMutex);
+        NRI.QueueSubmit(*queue, desc);
+    }
+
+    // Makes the work submitted to the queue from now on wait until the fence reaches value (on the
+    // GPU; e.g. another queue's).
+    NRI_INTEROP_API void Nri_QueueWait(nri::Queue* queue, nri::Fence* fence, int value)
+    {
+        nri::FenceSubmitDesc wait = {};
+        wait.fence = fence;
+        wait.value = (uint64_t)value;
+        wait.stages = nri::StageBits::ALL;
+
+        nri::QueueSubmitDesc desc = {};
+        desc.waitFences = &wait;
+        desc.waitFenceNum = 1;
+        std::lock_guard lock(g_QueueMutex);
         NRI.QueueSubmit(*queue, desc);
     }
 
@@ -1172,6 +1345,7 @@ extern "C"
         nri::QueueSubmitDesc desc = {};
         desc.signalFences = &signal;
         desc.signalFenceNum = 1;
+        std::lock_guard lock(g_QueueMutex);
         NRI.QueueSubmit(*queue, desc);
     }
 
@@ -1455,7 +1629,24 @@ extern "C"
         layoutDesc.rootDescriptorNum = (uint32_t)desc->rootDescriptors.size();
         layoutDesc.rootSamplers = desc->rootSamplers.data();
         layoutDesc.rootSamplerNum = (uint32_t)desc->rootSamplers.size();
-        layoutDesc.shaderStages = nri::StageBits::GRAPHICS_SHADERS;
+        // The pipelines it's for: graphics (all their stages) if anything is bound for a graphics
+        // stage, or nothing is; compute if anything is bound for it.
+        nri::StageBits stages = nri::StageBits::NONE;
+        auto addStages = [&stages](nri::StageBits more) { stages = stages == nri::StageBits::NONE ? more : stages | more; };
+        for (const PipelineLayoutDesc::Set& set : desc->sets)
+            for (const nri::DescriptorRangeDesc& range : set.ranges)
+                addStages(range.shaderStages);
+        for (const nri::RootConstantDesc& rootConstants : desc->rootConstants)
+            addStages(rootConstants.shaderStages);
+        for (const nri::RootDescriptorDesc& rootDescriptor : desc->rootDescriptors)
+            addStages(rootDescriptor.shaderStages);
+        for (const nri::RootSamplerDesc& rootSampler : desc->rootSamplers)
+            addStages(rootSampler.shaderStages);
+        const bool compute = stages != nri::StageBits::NONE && (stages & nri::StageBits::COMPUTE_SHADER);
+        const bool graphics = stages == nri::StageBits::NONE || (stages & nri::StageBits::GRAPHICS_SHADERS);
+        layoutDesc.shaderStages = graphics && compute ? nri::StageBits::GRAPHICS_SHADERS | nri::StageBits::COMPUTE_SHADER
+                                  : compute         ? nri::StageBits::COMPUTE_SHADER
+                                                    : nri::StageBits::GRAPHICS_SHADERS;
         nri::PipelineLayout* pipelineLayout = nullptr;
         if (NRI.CreatePipelineLayout(*device, layoutDesc, pipelineLayout) != nri::Result::SUCCESS)
             return nullptr;
@@ -1465,10 +1656,11 @@ extern "C"
     // --- Descriptor pools and sets ----------------------------------------------------------------
 
     // A pool of setMaxNum descriptor sets holding at most samplerMaxNum samplers, constantBufferMaxNum
-    // constant buffers and textureMaxNum textures in all; updateAfterSet (1): for sets with ranges
+    // constant buffers, textureMaxNum textures and storageTextureMaxNum storage textures in all;
+    // updateAfterSet (1): for sets with ranges
     // updated after binding (NriRangeFlags.UpdateAfterSet). Null on failure.
     NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPool(nri::Device* device, int setMaxNum, int samplerMaxNum,
-        int constantBufferMaxNum, int textureMaxNum, int updateAfterSet)
+        int constantBufferMaxNum, int textureMaxNum, int storageTextureMaxNum, int updateAfterSet)
     {
         nri::DescriptorPoolDesc desc = {};
         desc.flags = updateAfterSet ? nri::DescriptorPoolBits::ALLOW_UPDATE_AFTER_SET : nri::DescriptorPoolBits::NONE;
@@ -1476,6 +1668,7 @@ extern "C"
         desc.samplerMaxNum = (uint32_t)samplerMaxNum;
         desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
         desc.textureMaxNum = (uint32_t)textureMaxNum;
+        desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
         nri::DescriptorPool* descriptorPool = nullptr;
         if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
             return nullptr;
@@ -1725,5 +1918,144 @@ extern "C"
             return nullptr;
         }
         return texture;
+    }
+
+    // --- Compute ------------------------------------------------------------------------------
+
+    // A compute pipeline of the shader read from path (as Nri_CreateGraphicsPipeline's), entry; null
+    // on failure.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateComputePipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout, const char* path,
+        const char* entry)
+    {
+        std::vector<uint8_t> bytecode;
+        if (!ReadFile(LibraryDirectory() + path, bytecode))
+            return nullptr;
+        nri::ComputePipelineDesc desc = {};
+        desc.pipelineLayout = pipelineLayout;
+        desc.shader = { nri::StageBits::COMPUTE_SHADER, bytecode.data(), bytecode.size(), entry };
+        nri::Pipeline* pipeline = nullptr;
+        if (NRI.CreateComputePipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
+            return nullptr;
+        return pipeline;
+    }
+
+    // A width x height texture (one mip) compute shaders write (RWTexture2D) and pixel shaders read,
+    // in device memory, shared by the queues, moved on the queue (which this waits for) to
+    // NriTextureState.Storage; null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateStorageTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::SHADER_RESOURCE_STORAGE;
+        desc.sharingMode = nri::SharingMode::CONCURRENT;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(6);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // A view of a 2D texture's mip 0 for compute shaders to write (RWTexture2D).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateStorageTextureView(nri::Texture* texture, int format)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_STORAGE_2D, (nri::Format)format, 0, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // --- Async compute ------------------------------------------------------------------------
+
+    // A loop that, every intervalMicroseconds, dispatches groupsX x groupsY groups of the compute
+    // pipeline on the compute queue (Nri_GetComputeQueue's), on a C++ worker thread. Each run writes
+    // one texture, bound by its descriptor set (Nri_AddAsyncComputeTexture) as set 0 of the layout,
+    // with the run's index (a uint, counting from 0) as root constants 0; the sets come from the
+    // descriptor pool, which only the worker uses then. The graphics queue signals graphicsFence with
+    // the values Nri_ReleaseAsyncComputeTexture gives. Null on failure.
+    NRI_INTEROP_API AsyncComputeLoop* Nri_CreateAsyncComputeLoop(nri::Queue* computeQueue, nri::Device* device, nri::Fence* graphicsFence,
+        nri::PipelineLayout* pipelineLayout, nri::Pipeline* pipeline, nri::DescriptorPool* descriptorPool, int groupsX, int groupsY,
+        int intervalMicroseconds)
+    {
+        auto* loop = new AsyncComputeLoop();
+        loop->device = device;
+        loop->queue = computeQueue;
+        loop->graphicsFence = graphicsFence;
+        loop->pipelineLayout = pipelineLayout;
+        loop->pipeline = pipeline;
+        loop->descriptorPool = descriptorPool;
+        loop->groupsX = (uint32_t)groupsX;
+        loop->groupsY = (uint32_t)groupsY;
+        loop->interval = std::chrono::microseconds(intervalMicroseconds);
+        if (NRI.CreateCommandAllocator(*computeQueue, loop->commandAllocator) != nri::Result::SUCCESS
+            || NRI.CreateCommandBuffer(*loop->commandAllocator, loop->commandBuffer) != nri::Result::SUCCESS
+            || NRI.CreateFence(*device, 0, loop->fence) != nri::Result::SUCCESS)
+        {
+            delete loop;
+            return nullptr;
+        }
+        return loop;
+    }
+
+    // Adds a texture for the loop to write, by its descriptor set (its storage view at u0); call
+    // before starting it. The textures are numbered from 0 in the order they're added.
+    NRI_INTEROP_API void Nri_AddAsyncComputeTexture(AsyncComputeLoop* loop, nri::DescriptorSet* descriptorSet)
+    {
+        AsyncComputeLoop::Texture texture;
+        texture.index = (int)loop->descriptorSets.size();
+        texture.descriptorSet = descriptorSet;
+        loop->descriptorSets.push_back(descriptorSet);
+        loop->Push(loop->renderToCompute, texture);
+    }
+
+    NRI_INTEROP_API void Nri_StartAsyncComputeLoop(AsyncComputeLoop* loop)
+    {
+        loop->thread = std::thread([loop]() { loop->ThreadProc(); });
+    }
+
+    // Stops and joins the worker thread, waits for the device to be idle, and destroys the loop (not
+    // the pipeline, layout, pool and textures it was given).
+    NRI_INTEROP_API void Nri_DestroyAsyncComputeLoop(AsyncComputeLoop* loop)
+    {
+        delete loop;
+    }
+
+    // On the render thread: the number of the next texture the loop finished (in NriTextureState.
+    // Storage), making the work submitted to graphicsQueue from now on wait for its run; -1 if none
+    // is finished since.
+    NRI_INTEROP_API int Nri_AcquireAsyncComputeTexture(AsyncComputeLoop* loop, nri::Queue* graphicsQueue)
+    {
+        AsyncComputeLoop::Texture texture;
+        if (!loop->TryPop(loop->computeToRender, texture))
+            return -1;
+        nri::FenceSubmitDesc wait = { loop->fence, texture.lastUse, nri::StageBits::ALL };
+        nri::QueueSubmitDesc desc = {};
+        desc.waitFences = &wait;
+        desc.waitFenceNum = 1;
+        {
+            std::lock_guard lock(g_QueueMutex);
+            NRI.QueueSubmit(*graphicsQueue, desc);
+        }
+        return texture.index;
+    }
+
+    // On the render thread: gives the texture numbered index back to the loop, back in
+    // NriTextureState.Storage once the graphics queue signals graphicsFence with lastUse.
+    NRI_INTEROP_API void Nri_ReleaseAsyncComputeTexture(AsyncComputeLoop* loop, int index, int lastUse)
+    {
+        if (index < 0 || index >= (int)loop->descriptorSets.size())
+            return;
+        AsyncComputeLoop::Texture texture;
+        texture.index = index;
+        texture.descriptorSet = loop->descriptorSets[(size_t)index];
+        texture.lastUse = (uint64_t)lastUse;
+        loop->Push(loop->renderToCompute, texture);
     }
 }

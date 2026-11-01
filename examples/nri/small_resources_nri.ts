@@ -242,7 +242,7 @@ namespace SmallResourcesNri {
                 console.log("Cannot create the pipeline layout");
                 return 0;
             }
-            this.descriptorPool = Nri_CreateDescriptorPool(device, TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT, 0);
+            this.descriptorPool = Nri_CreateDescriptorPool(device, TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT, 0, 0);
             // The sample's static sampler: linear, wrapping.
             this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
 

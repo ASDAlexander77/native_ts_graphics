@@ -272,7 +272,7 @@ namespace DescriptorIndexingNri {
 
             // The sample's two descriptor sets of it. Room for two whole arrays: NRI's D3D12 pool gives
             // every set the range's descriptorNum, whatever its variableDescriptorNum.
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2, 0, 0, 2 * NUM_DESCRIPTORS_STREAMING, 1);
+            const descriptorPool = Nri_CreateDescriptorPool(device, 2, 0, 0, 2 * NUM_DESCRIPTORS_STREAMING, 0, 1);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");

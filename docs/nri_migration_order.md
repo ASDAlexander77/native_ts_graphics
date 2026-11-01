@@ -24,7 +24,8 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | dynamic_uniform_buffers_nri (#183) | host-visible constant buffers (`Nri_CreateHostBuffer`, `Nri_WriteBuffer`), constant buffer views, root descriptors bound per draw with an offset (the sample's dynamic uniform buffer offsets), mouse input (`Nri_IsButtonPressed`, `Nri_GetMouseDeltaX/Y`, `Nri_GetMouseWheel`), normal-distributed random numbers |
 | bundles_nri (#184) | the scene only (NRI has no bundles: the draws are recorded every frame); files (`Nri_LoadFile`, buffers and textures uploaded from file regions), BC1 textures, `Nri_IsKeyPressed` (SimpleCamera, with Donut's Key values: declarations only) |
 | dynamic_indexing_nri (#185) | nothing new: root constants (the draw's matrix and material index) and a descriptor set with a 120-texture array, from the interop the earlier examples added |
-| vertex_buffer_nri | image textures (`Nri_LoadImageTexture`: stb_image through NRIFramework, sRGB as Donut's), vertex attributes from more than one stream (`Nri_PipelineDescAddVertexAttributeFromStream`), cull modes, anisotropic samplers |
+| vertex_buffer_nri (#186) | image textures (`Nri_LoadImageTexture`: stb_image through NRIFramework, sRGB as Donut's), vertex attributes from more than one stream (`Nri_PipelineDescAddVertexAttributeFromStream`), cull modes, anisotropic samplers |
+| async_compute_nri | compute queue, compute pipelines, storage textures and views, `Nri_QueueWait`, a C++ worker thread's async compute loop (`Nri_CreateAsyncComputeLoop`, as Donut's); layouts' stages from what they bind |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -34,14 +35,13 @@ targets and a blit or copy to the swap chain; tier 1's examples are done.
 
 ## Tier 2: compute and queues
 
-Adds compute pipelines, `CmdDispatch`, storage buffers and textures, compute/copy queues and
-timeline fences.
+Compute pipelines, storage textures, the compute queue and cross-queue waits are in
+(async_compute_nri). Still to add: storage buffers, a copy queue, indirect draws.
 
-1. **async_compute**
-2. **timeline_semaphore**
-3. **compute_nbody**
-4. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-5. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+1. **timeline_semaphore**
+2. **compute_nbody**
+3. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+4. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
 ## Tier 3: ImGui (NRIImgui.h)
 
@@ -71,6 +71,8 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   `Nri_CreateDevice` sets NRI's `vkBindingOffsets` to those (NRIFramework's defaults differ).
 - NRI's D3D12 descriptor pool gives every set its ranges' whole descriptorNum, ignoring the
   variable-sized array's length, and doesn't check the heap's bounds: size pools for whole arrays.
+- A worker thread's GPU work (async compute) is C++ in nri_interop, as Donut's: tslang code can't
+  run on threads its GC doesn't know about.
 - An animation that the original sample steps in OnUpdate counts the frame before it's drawn
   (frame number = frameIndex + 1), as Donut's test mode does.
 
