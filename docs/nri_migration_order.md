@@ -53,11 +53,16 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | dynamic_primitive_clipping_nri (#195) | depth clipping on or off (`Nri_PipelineDescSetDepthClip`, which sets NRI's depthClamp for the API) |
 | fragment_shader_barycentric_nri (#195) | `NriFeature.Barycentrics`; no D3D11 (shader model 6.1) |
 | push_descriptors_nri (#195) | root descriptors as Vulkan push descriptors (`Nri_GetRootDescriptorMaxNum`); its own shaders (shaders/push_descriptors_nri.hlsl): NRI has no combined image samplers, so the texture and sampler are in a descriptor set; Vulkan only |
-| patch_control_points_nri | nothing new: tessellation with root constants |
-| instancing_nri | 32-bit signed integer vertex attributes (`NriFormat.R32_SINT`), Donut's ThirdPersonCamera in float32 |
-| logic_op_dynamic_state_nri | logic operations (`Nri_PipelineDescSetLogicOp`, `NriFeature.LogicOp`; a pipeline per operation, NRI having no dynamic one), RGBA8_UINT views of a UNORM texture on D3D; NRI patched for logic operations on D3D11 and D3D12 |
-| oit_linked_lists_nri | storage buffers and textures in pixel shaders (`NriBufferState.PixelStorage`, `NriTextureState.PixelStorage`), storage textures with data (`Nri_CreateStorageTextureWithData`), buffers without data (`Nri_CreateUninitializedStorageBuffer`: NRI patched for uploads without data); no D3D11 (see the notes) |
-| oit_depth_peeling_nri | depth textures shaders read (`Nri_CreateSampledDepthTexture`), moved between depth attachment and shader resource each pass |
+| patch_control_points_nri (#196) | nothing new: tessellation with root constants |
+| instancing_nri (#196) | 32-bit signed integer vertex attributes (`NriFormat.R32_SINT`), Donut's ThirdPersonCamera in float32 |
+| logic_op_dynamic_state_nri (#196) | logic operations (`Nri_PipelineDescSetLogicOp`, `NriFeature.LogicOp`; a pipeline per operation, NRI having no dynamic one), RGBA8_UINT views of a UNORM texture on D3D; NRI patched for logic operations on D3D11 and D3D12 |
+| oit_linked_lists_nri (#196) | storage buffers and textures in pixel shaders (`NriBufferState.PixelStorage`, `NriTextureState.PixelStorage`), storage textures with data (`Nri_CreateStorageTextureWithData`), buffers without data (`Nri_CreateUninitializedStorageBuffer`: NRI patched for uploads without data); no D3D11 (see the notes) |
+| oit_depth_peeling_nri (#196) | depth textures shaders read (`Nri_CreateSampledDepthTexture`), moved between depth attachment and shader resource each pass |
+| hdr_nri | two color attachments with depth (`Nri_CmdBeginRenderingWithTwoColorsAndDepth`), RGBA32F render targets, `Nri_ImguiInputFloat` |
+| timestamp_queries_nri | timestamp queries (`Nri_CreateTimestampQueryPool`, `Nri_CmdResetQueries`, `Nri_CmdWriteTimestamp`, `Nri_CmdCopyQueries`, `Nri_ReadTimestampIntervalMs`) |
+| fragment_shading_rate_nri | variable rate shading (`NriFeature.VariableRateShading`, `Nri_PipelineDescSetShadingRate`, `Nri_CmdSetShadingRate`, `Nri_CmdBeginRenderingWithShadingRate`), shading rate attachments (`Nri_CreateShadingRateTexture`, `NriTextureState.ShadingRateAttachment`), the device's rates (`Nri_GetFragmentShadingRates`, `Nri_GetShadingRateTileSize`); no D3D11 (shader model 6.4) |
+| fragment_shading_rate_dynamic_nri | shading rates a compute shader writes (storage and shading rate attachment in one texture), render targets compute shaders read (`Nri_CreateRenderTargetStorageTexture`), rect clears (`Nri_CmdClearColorAttachmentRect`, `Nri_CmdClearDepthRect`); no D3D11 |
+| mobile_nerf_nri | a file's bytes for parsers in TypeScript (`Nri_CopyFileBytes`): core/mobile_nerf_common.ts no longer depends on Donut and is shared with the Donut ports |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -102,6 +107,12 @@ buffers: they come last.
 
 Second batch: patch_control_points_nri, instancing_nri, logic_op_dynamic_state_nri,
 oit_linked_lists_nri and oit_depth_peeling_nri.
+
+Third batch: hdr_nri, timestamp_queries_nri, fragment_shading_rate_nri,
+fragment_shading_rate_dynamic_nri and mobile_nerf_nri. Left for later: calibrated_timestamps (NRI
+has no calibrated timestamps), rasterization_order_attachment_access, texture_mipmap_generation
+(NRI has no blits), and the examples that load whole glTF models with materials
+(`loadGltfModel`: extended_dynamic_state2, msaa, multi_draw_indirect and others).
 
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
@@ -179,6 +190,14 @@ ray_queries. After that come the scene-heavy ray-traced examples.
 - instancing_nri on D3D11 differs from Donut's D3D11 frame in about 170 faint stars: the star field
   hashes interpolated coordinates scaled by about 440 (frac), so the last bit of D3D11's attribute
   interpolation decides some stars. Both are deterministic; D3D12 and Vulkan match exactly.
+- NRI's Vulkan swap chain needn't hand out its textures in order (D3D12's flip model does): an
+  example that reads what "the frame before" rendered into a per-texture target tracks the texture
+  it last rendered into instead of taking the one before the current
+  (fragment_shading_rate_dynamic_nri's frequency content).
+- A test that passes isn't a frame that matches: fragment_shading_rate_dynamic_nri passed with its
+  compute shader writing nothing (its parameters were written before the shading rate image's size
+  was known), and logic_op_dynamic_state_nri with D3D12 ignoring the logic operation. Compare every
+  option against Donut.
 
 ## Excluded
 

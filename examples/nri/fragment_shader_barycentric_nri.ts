@@ -70,8 +70,7 @@ namespace FragmentShaderBarycentricNri {
     }
 
     // -test: checks the last frame, read back, as the Donut example does: the street skybox fills it
-    // (90% or more of the pixels not near black: the Donut example asks 95%, but this one's overlay,
-    // scaled by the monitor's DPI, is bigger), and the cube in the middle is colored by its
+    // (95% or more of the pixels not near black), and the cube in the middle is colored by its
     // barycentric coordinates (4% to 12% of the frame colored).
     function checkFrame(pixels: int[], width: int, height: int) {
         if (pixels.length == 0) {
@@ -100,8 +99,8 @@ namespace FragmentShaderBarycentricNri {
         const total = width * height;
         const lit = 100.0 * (total - dark) / total;
         console.log(`Lit: ${lit}% (${total - dark} of ${total} pixels)`);
-        if (lit < 90.0) {
-            return `Lit: ${lit}% of the pixels, not 90% to 100%`;
+        if (lit < 95.0) {
+            return `Lit: ${lit}% of the pixels, not 95% to 100%`;
         }
         const coloredPercent = 100.0 * colored / total;
         console.log(`Colored: ${coloredPercent}% (${colored} of ${total} pixels)`);

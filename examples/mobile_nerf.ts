@@ -82,9 +82,10 @@ namespace MobileNerf {
     function loadMlp(app: App, path: string, dst: f32[]) {
         const file = app.loadBinaryFile(path);
         const reader = new MlpReader();
-        if (file.isNull() || !reader.read(file)) {
+        if (file.isNull() || !reader.resize(file.getSize())) {
             return false;
         }
+        file.copyBytes(0, reader.bytes.length, Ref(reader.bytes[0]));
         app.releaseObject(file.handle);
         const weights0 = reader.array("0_weights");
         const weights1 = reader.array("1_weights");

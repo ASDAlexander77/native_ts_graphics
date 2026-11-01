@@ -37,6 +37,8 @@
 @cpp declare class NriFileHandle { private readonly __nriFile: index; }
 // A glTF mesh primitive's vertex and index buffers (Nri_LoadGltfMesh).
 @cpp declare class NriGltfMeshHandle { private readonly __nriGltfMesh: index; }
+// A pool of timestamp queries (Nri_CreateTimestampQueryPool).
+@cpp declare class NriQueryPoolHandle { private readonly __nriQueryPool: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
 @cpp declare class NriRandomEngineHandle { private readonly __nriRandomEngine: index; }
 
@@ -64,7 +66,9 @@ enum NriTextureState {
     AllShaderResource = 7,
     // read and written by pixel shaders (RWTexture2D in a draw: Nri_CreateStorageTextureWithData's);
     // from PixelStorage to PixelStorage, the writes before are seen by the accesses after
-    PixelStorage = 8
+    PixelStorage = 8,
+    // read as the shading rate attachment (Nri_CreateShadingRateTexture's, from the start)
+    ShadingRateAttachment = 9
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -91,13 +95,21 @@ enum NriFeature {
     // shader model 6.1, Vulkan's VK_KHR_fragment_shader_barycentric)
     Barycentrics = 7,
     // features.logicOp: Nri_PipelineDescSetLogicOp (D3D's OutputMergerLogicOp, Vulkan's logicOp)
-    LogicOp = 8
+    LogicOp = 8,
+    // tiers.shadingRate >= 2: variable rate shading with shading rate attachments
+    // (Nri_PipelineDescSetShadingRate, Nri_CmdSetShadingRate, Nri_CmdBeginRenderingWithShadingRate;
+    // D3D12 tier 2, Vulkan's VK_KHR_fragment_shading_rate), NVRHI's Feature::VariableRateShading
+    VariableRateShading = 11
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
 // examples name (nri_interop.cpp asserts them), any other passing through as well.
 enum NriFormat {
     Unknown = 0,
+    // shading rate attachments (Nri_CreateShadingRateTexture's)
+    R8_UINT = 3,
+    // fragment_shading_rate_dynamic_nri's frequency content
+    RG8_UINT = 7,
     BGRA8_UNORM = 9,
     BGRA8_SRGB = 10,
     RGBA8_UNORM = 11,
@@ -196,6 +208,30 @@ enum NriCullMode {
     None = 0,
     Front = 1,
     Back = 2
+}
+
+// The draws' shading rate (Nri_CmdSetShadingRate; nri::ShadingRate): fragment width x height.
+enum NriShadingRate {
+    Rate1x1 = 0,
+    Rate1x2 = 1,
+    Rate2x1 = 2,
+    Rate2x2 = 3,
+    // the device's additional shading rates
+    Rate2x4 = 4,
+    Rate4x2 = 5,
+    Rate4x4 = 6
+}
+
+// How Nri_CmdSetShadingRate's rate combines with the primitives' and the attachment's
+// (nri::ShadingRateCombiner).
+enum NriShadingRateCombiner {
+    // the rate so far (NVRHI's Passthrough)
+    Keep = 0,
+    // the new one (NVRHI's Override)
+    Replace = 1,
+    Min = 2,
+    Max = 3,
+    Sum = 4
 }
 
 // nri::DescriptorType: a descriptor range's.
@@ -424,6 +460,22 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies count floats from the start of the buffer (a readback buffer, after the GPU wrote it) to
 // dst; 1, or 0 if it can't be read.
 @nodrops declare function Nri_ReadBufferFloats(buffer: NriBufferHandle, dst: Ref<f32>, count: int): int;
+// A pool of capacity timestamp queries (the graphics queue's); null on failure.
+@nodrops declare function Nri_CreateTimestampQueryPool(device: NriDeviceHandle, capacity: int): NriQueryPoolHandle | null;
+@nodrops declare function Nri_DestroyQueryPool(queryPool: NriQueryPoolHandle): void;
+// The bytes a query's result takes in a buffer Nri_CmdCopyQueries copies into (8 for a timestamp).
+@nodrops declare function Nri_GetQuerySize(queryPool: NriQueryPoolHandle): int;
+// Resets num queries from offset before they're written again (outside rendering).
+@nodrops declare function Nri_CmdResetQueries(commandBuffer: NriCommandBufferHandle, queryPool: NriQueryPoolHandle, offset: int, num: int): void;
+// Writes the GPU's timestamp into query offset once the commands before have completed.
+@nodrops declare function Nri_CmdWriteTimestamp(commandBuffer: NriCommandBufferHandle, queryPool: NriQueryPoolHandle, offset: int): void;
+// Copies num written queries' results from offset into buffer (Nri_CreateReadbackBuffer's) at
+// dstOffset bytes. On D3D11 a buffer remembers only its last copy: one copy per buffer between reads.
+@nodrops declare function Nri_CmdCopyQueries(commandBuffer: NriCommandBufferHandle, queryPool: NriQueryPoolHandle, offset: int, num: int,
+    buffer: NriBufferHandle, dstOffset: int): void;
+// The milliseconds between two timestamps a readback buffer holds at byte offsets begin and end;
+// -1 if it can't be read.
+@nodrops declare function Nri_ReadTimestampIntervalMs(device: NriDeviceHandle, buffer: NriBufferHandle, begin: int, end: int): number;
 // A buffer of byteSize bytes in device memory, filled with data's byteSize bytes (Ref of an array
 // element) on the queue, which this waits for; null on failure.
 @nodrops declare function Nri_CreateUploadedBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
@@ -507,7 +559,25 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Renders into three color attachments (SV_Target0 to 2), Nri_CreateColorAttachmentView's views.
 @nodrops declare function Nri_CmdBeginRenderingWithThreeColors(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
     color1: NriDescriptorHandle, color2: NriDescriptorHandle): void;
+// Renders into two color attachments (SV_Target0 and 1) and a depth attachment
+// (Nri_CreateDepthAttachmentView's).
+@nodrops declare function Nri_CmdBeginRenderingWithTwoColorsAndDepth(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
+    color1: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
+// Renders into one or two color attachments (color1 null for one), a depth attachment (null for
+// none) and a shading rate attachment (Nri_CreateShadingRateAttachmentView's; null for none).
+@nodrops declare function Nri_CmdBeginRenderingWithShadingRate(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
+    color1: NriDescriptorHandle | null, depthAttachment: NriDescriptorHandle | null, shadingRateAttachment: NriDescriptorHandle | null): void;
+// Clears color attachment index within the rectangle to (r, g, b, a) (a UINT attachment: their bits).
+@nodrops declare function Nri_CmdClearColorAttachmentRect(commandBuffer: NriCommandBufferHandle, index: int, x: int, y: int, width: int,
+    height: int, r: float, g: float, b: float, a: float): void;
+// Clears the depth attachment within the rectangle to depth.
+@nodrops declare function Nri_CmdClearDepthRect(commandBuffer: NriCommandBufferHandle, x: int, y: int, width: int, height: int, depth: float): void;
+// The draws' shading rate from now on, combined with the primitives' rate by primitiveCombiner, then
+// with the shading rate attachment's by attachmentCombiner (pipelines with
+// Nri_PipelineDescSetShadingRate).
+@nodrops declare function Nri_CmdSetShadingRate(commandBuffer: NriCommandBufferHandle, shadingRate: NriShadingRate,
+    primitiveCombiner: NriShadingRateCombiner, attachmentCombiner: NriShadingRateCombiner): void;
 // The blend constants (NriBlendFactor.ConstantColor's, ConstantAlpha's).
 @nodrops declare function Nri_CmdSetBlendConstants(commandBuffer: NriCommandBufferHandle, r: float, g: float, b: float, a: float): void;
 // Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
@@ -643,6 +713,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // attachment, UINT on D3D12), in Vulkan's VkLogicOp order (0 CLEAR, 3 COPY, 5 NO_OP ... 15 SET).
 // NRI has no NO_OP: the attachment's color writes are turned off instead (the same result).
 @nodrops declare function Nri_PipelineDescSetLogicOp(desc: NriPipelineDescHandle, vkLogicOp: int): void;
+// Variable rate shading (NriFeature.VariableRateShading): the draws' shading rate is the one
+// Nri_CmdSetShadingRate sets, combined with the shading rate attachment's.
+@nodrops declare function Nri_PipelineDescSetShadingRate(desc: NriPipelineDescHandle, enabled: int): void;
 // The pipeline the desc describes, with the layout; null on failure.
 @nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;
 
@@ -699,6 +772,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // The device's widest anisotropic filtering (16 on most).
 @nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
+// Pixels per shading rate attachment texel in each dimension; 0 without shading rate attachments.
+@nodrops declare function Nri_GetShadingRateTileSize(device: NriDeviceHandle): int;
+// The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of an int
+// array of 32), largest first, as Donut's getFragmentShadingRates gives them; their count, 0 without
+// shading rate attachments.
+@nodrops declare function Nri_GetFragmentShadingRates(device: NriDeviceHandle, dst: Ref<int>): int;
 // The most root descriptors a pipeline layout can have: on Vulkan the device's maxPushDescriptors
 // (root descriptors are push descriptors there), 0 without VK_KHR_push_descriptor.
 @nodrops declare function Nri_GetRootDescriptorMaxNum(device: NriDeviceHandle): int;
@@ -755,6 +834,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // (MeshletModel.load), and their count.
 @nodrops declare function Nri_GetFileData(file: NriFileHandle): Opaque;
 @nodrops declare function Nri_GetFileSize(file: NriFileHandle): int;
+// count bytes of the file from offset, one per int at dst (Ref of an int array element; 0 past its
+// end): for parsers in TypeScript.
+@nodrops declare function Nri_CopyFileBytes(file: NriFileHandle, offset: int, count: int, dst: Ref<int>): void;
 // Nri_CreateUploadedBuffer from byteSize bytes of the file at offset; null if they're past its end.
 @nodrops declare function Nri_CreateUploadedBufferFromFile(device: NriDeviceHandle, queue: NriQueueHandle, file: NriFileHandle, offset: int,
     byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
@@ -826,6 +908,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The selection among items (separated by '|').
 @nodrops declare function Nri_ImguiCombo(label: string, current: int, items: string): int;
 @nodrops declare function Nri_ImguiSliderFloat(label: string, value: number, min: number, max: number): number;
+// An input box with +/- buttons of step, the value shown in format ("%.3f"); the value after.
+@nodrops declare function Nri_ImguiInputFloat(label: string, value: number, step: number, format: string): number;
 @nodrops declare function Nri_ImguiSliderInt(label: string, value: int, min: int, max: int): int;
 // 1 if the button was clicked.
 @nodrops declare function Nri_ImguiButton(label: string): int;
@@ -877,6 +961,20 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     format: NriFormat, data: Ref<int>, rowPitch: int, state: NriTextureState): NriTextureHandle | null;
 // A view of a 2D texture's mip 0 for compute shaders to write.
 @nodrops declare function Nri_CreateStorageTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// A width x height R8_UINT shading rate attachment (a texel per Nri_GetShadingRateTileSize square of
+// pixels: log2(width) << 2 | log2(height)), filled with data (Ref of an int array element: 4 texels
+// an int; rows rowPitch bytes apart), written by compute shaders too if storage is 1 (a view:
+// Nri_CreateStorageTextureView with R8_UINT), left in NriTextureState.ShadingRateAttachment; null on
+// failure. Destroyed with Nri_DestroyTexture.
+@nodrops declare function Nri_CreateShadingRateTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    data: Ref<int>, rowPitch: int, storage: int): NriTextureHandle | null;
+// The view a shading rate attachment is rendered with (Nri_CmdBeginRenderingWithShadingRate).
+@nodrops declare function Nri_CreateShadingRateAttachmentView(texture: NriTextureHandle): NriDescriptorHandle;
+// A width x height texture rendered into (a color attachment) and read and written by shaders
+// (Nri_CreateStorageTextureView), left in state; null on failure. Clear it (as a color attachment)
+// before shaders use it: D3D12 wants render targets initialized first.
+@nodrops declare function Nri_CreateRenderTargetStorageTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat, state: NriTextureState): NriTextureHandle | null;
 
 // Async compute: a C++ worker thread (tslang code can't run on threads its GC doesn't know about)
 // that every intervalMicroseconds dispatches groupsX x groupsY groups of the compute pipeline on the

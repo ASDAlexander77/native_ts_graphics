@@ -2,9 +2,11 @@
 // sample's mlp.json and the sample's camera.
 //
 // Imported with `import { MlpReader, MobileNerfCamera } from "../core/mobile_nerf_common";` (from
-// examples/), and listed with core/matrix.ts in the example's add_tslang_example sources.
+// examples/), and listed with core/matrix.ts in the example's add_tslang_example sources. It doesn't
+// depend on Donut (the NRI port, examples/nri/mobile_nerf_nri.ts, imports it too): the mouse's types
+// are declarations only.
 
-import { BinaryFile } from "./donut";
+/// <reference path="donut_interop.d.ts" />
 import { cross3, dot3, identity, multiply, radians, rotate } from "./matrix";
 
 // Character codes for the JSON reader.
@@ -24,7 +26,8 @@ const CHAR_LOWER_E = 101;
 // [...], ... }.
 @final
 export class MlpReader {
-    private bytes: int[];
+    // The file's bytes, one per int: resize makes room, the caller copies them in from bytes[0].
+    bytes: int[];
     private pos: int;
 
     constructor() {
@@ -32,16 +35,12 @@ export class MlpReader {
         this.pos = 0;
     }
 
-    read(file: BinaryFile) {
-        const size = file.getSize();
+    // Room for a file of size bytes; false if it's empty.
+    resize(size: int) {
         for (let i = 0; i < size; i++) {
             this.bytes.push(0);
         }
-        if (size == 0) {
-            return false;
-        }
-        file.copyBytes(0, size, Ref(this.bytes[0]));
-        return true;
+        return size > 0;
     }
 
     // Moves past "key": ; false if the key isn't there.
