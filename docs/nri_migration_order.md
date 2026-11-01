@@ -26,7 +26,8 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | dynamic_indexing_nri (#185) | nothing new: root constants (the draw's matrix and material index) and a descriptor set with a 120-texture array, from the interop the earlier examples added |
 | vertex_buffer_nri (#186) | image textures (`Nri_LoadImageTexture`: stb_image through NRIFramework, sRGB as Donut's), vertex attributes from more than one stream (`Nri_PipelineDescAddVertexAttributeFromStream`), cull modes, anisotropic samplers |
 | async_compute_nri (#187) | compute queue, compute pipelines, storage textures and views, `Nri_QueueWait`, a C++ worker thread's async compute loop (`Nri_CreateAsyncComputeLoop`, as Donut's); layouts' stages from what they bind |
-| timeline_semaphore_nri | `Nri_CmdDispatch` and the compute bind point's layout, sets and root constants on the render thread; `Nri_QueueSubmitWithFences` (a submission waiting for one fence's value and signaling another's: NRI's fences are timeline semaphores); textures read by compute and pixel shaders (`NriTextureState.AllShaderResource`) |
+| timeline_semaphore_nri (#188) | `Nri_CmdDispatch` and the compute bind point's layout, sets and root constants on the render thread; `Nri_QueueSubmitWithFences` (a submission waiting for one fence's value and signaling another's: NRI's fences are timeline semaphores); textures read by compute and pixel shaders (`NriTextureState.AllShaderResource`) |
+| compute_nbody_nri | storage buffers (`Nri_CreateStorageBuffer`, structured views) bound as root descriptors, buffer barriers and copies, additive blending; shaders from ShaderMake permutation blobs (a .cfg line with -D); Donut's ThirdPersonCamera view matrix in float32 |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -38,11 +39,11 @@ targets and a blit or copy to the swap chain; tier 1's examples are done.
 
 Compute pipelines, storage textures, the compute queue and cross-queue waits are in
 (async_compute_nri), dispatches from the render thread and fenced submissions
-(timeline_semaphore_nri). Still to add: storage buffers, a copy queue, indirect draws.
+(timeline_semaphore_nri), storage buffers (compute_nbody_nri). Still to add: a copy queue,
+indirect draws.
 
-1. **compute_nbody**
-2. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-3. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+1. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+2. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
 ## Tier 3: ImGui (NRIImgui.h)
 
@@ -78,6 +79,10 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   the same command buffer bound to that slot as a UAV, without checking what's bound there now: a
   dispatch whose set swaps two textures' roles gets no UAV. Record such dispatches in separate
   command buffers (each resets the tracking when it ends), as timeline_semaphore_nri's setup does.
+- NRI's D3D11 buffer views take neither `WHOLE_SIZE` nor the buffer's structure stride (both
+  documented as defaults): nri_interop passes the buffer's size and stride.
+- Shaders a .cfg compiles with -D are ShaderMake permutation blobs ("NVSP"); nri_interop's shader
+  loader unpacks a blob holding one permutation.
 - An animation that the original sample steps in OnUpdate counts the frame before it's drawn
   (frame number = frameIndex + 1), as Donut's test mode does.
 
