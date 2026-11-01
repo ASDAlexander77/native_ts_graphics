@@ -23,26 +23,25 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | descriptor_indexing_nri (#182) | root constants and root (immutable) samplers, descriptor range flags (bindless variable-sized arrays updated after binding), set register spaces, update-after-set pools, variable-sized set allocation, index buffers and indexed draws, `Nri_StoreInt32`, `Nri_GetFrameTime`, `std::default_random_engine` numbers (`Nri_CreateRandomEngine`) |
 | dynamic_uniform_buffers_nri (#183) | host-visible constant buffers (`Nri_CreateHostBuffer`, `Nri_WriteBuffer`), constant buffer views, root descriptors bound per draw with an offset (the sample's dynamic uniform buffer offsets), mouse input (`Nri_IsButtonPressed`, `Nri_GetMouseDeltaX/Y`, `Nri_GetMouseWheel`), normal-distributed random numbers |
 | bundles_nri (#184) | the scene only (NRI has no bundles: the draws are recorded every frame); files (`Nri_LoadFile`, buffers and textures uploaded from file regions), BC1 textures, `Nri_IsKeyPressed` (SimpleCamera, with Donut's Key values: declarations only) |
-| dynamic_indexing_nri | nothing new: root constants (the draw's matrix and material index) and a descriptor set with a 120-texture array, from the interop the earlier examples added |
+| dynamic_indexing_nri (#185) | nothing new: root constants (the draw's matrix and material index) and a descriptor set with a 120-texture array, from the interop the earlier examples added |
+| vertex_buffer_nri | image textures (`Nri_LoadImageTexture`: stb_image through NRIFramework, sRGB as Donut's), vertex attributes from more than one stream (`Nri_PipelineDescAddVertexAttributeFromStream`), cull modes, anisotropic samplers |
 
 ## Tier 1: constant buffers and more descriptor types
 
-Descriptor sets, samplers, textures, root constants, bindless arrays and constant buffers are in
-(dynamic_uniform_buffers_nri). Still to add: structured buffers, offscreen color targets and a
-blit or copy to the swap chain.
-
-1. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
+Descriptor sets, samplers, textures (from image files too), root constants, bindless arrays and
+constant buffers are in (vertex_buffer_nri). Still to add: structured buffers, offscreen color
+targets and a blit or copy to the swap chain; tier 1's examples are done.
 
 ## Tier 2: compute and queues
 
 Adds compute pipelines, `CmdDispatch`, storage buffers and textures, compute/copy queues and
 timeline fences.
 
-2. **async_compute**
-3. **timeline_semaphore**
-4. **compute_nbody**
-5. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-6. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+1. **async_compute**
+2. **timeline_semaphore**
+3. **compute_nbody**
+4. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+5. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
 ## Tier 3: ImGui (NRIImgui.h)
 

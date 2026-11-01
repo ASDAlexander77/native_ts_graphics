@@ -117,6 +117,13 @@ enum NriTopology {
     TriangleStrip = 4
 }
 
+// nri::CullMode.
+enum NriCullMode {
+    None = 0,
+    Front = 1,
+    Back = 2
+}
+
 // nri::DescriptorType: a descriptor range's.
 enum NriDescriptorType {
     Sampler = 0,
@@ -382,6 +389,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // An attribute of stream 0's vertices: semantic (index 0) on D3D, the next location on Vulkan (as
 // DXC numbers the vertex shader's inputs), format at offset bytes in the vertex.
 @nodrops declare function Nri_PipelineDescAddVertexAttribute(desc: NriPipelineDescHandle, semantic: string, format: NriFormat, offset: int): void;
+// As Nri_PipelineDescAddVertexAttribute, of stream's vertices (the vertex buffer bound to slot stream).
+@nodrops declare function Nri_PipelineDescAddVertexAttributeFromStream(desc: NriPipelineDescHandle, semantic: string, format: NriFormat,
+    offset: int, stream: int): void;
+// The faces culled (None by default), clockwise ones the front.
+@nodrops declare function Nri_PipelineDescSetCullMode(desc: NriPipelineDescHandle, cullMode: NriCullMode): void;
 // The color attachment's format and the channels written (NriColorWrite bits).
 @nodrops declare function Nri_PipelineDescSetColor(desc: NriPipelineDescHandle, format: NriFormat, writeMask: int): void;
 // The depth attachment's format, its test (NriCompareOp.None: off), whether it's written (1) and
@@ -431,8 +443,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     setIndex: int, variableDescriptorNum: int): NriDescriptorSetHandle | null;
 // Puts the descriptor in the set's range rangeIndex (in the order the layout added them), at element.
 @nodrops declare function Nri_UpdateDescriptor(descriptorSet: NriDescriptorSetHandle, rangeIndex: int, element: int, descriptor: NriDescriptorHandle): void;
-// A sampler: filter for minification, magnification and mips, addressMode on all axes; null on failure.
-@nodrops declare function Nri_CreateSampler(device: NriDeviceHandle, filter: NriFilter, addressMode: NriAddressMode): NriDescriptorHandle | null;
+// A sampler: filter for minification, magnification and mips, addressMode on all axes, anisotropy
+// (its maximum; 1: none); null on failure.
+@nodrops declare function Nri_CreateSampler(device: NriDeviceHandle, filter: NriFilter, addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // A view of a 2D texture's mips for shaders to read.
 @nodrops declare function Nri_CreateTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 
@@ -476,3 +489,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.
 @nodrops declare function Nri_UploadTextureFromFile(queue: NriQueueHandle, texture: NriTextureHandle, file: NriFileHandle, offset: int,
     rowPitch: int): int;
+// An image file's texture (PNG, JPEG, ... through stb_image): mip 0, RGBA8 (sRGB 1: RGBA8_SRGB, as
+// Donut's sRGB loads), uploaded on the queue (which this waits for), in NriTextureState.ShaderResource;
+// null if it can't be read. Destroyed with Nri_DestroyTexture.
+@nodrops declare function Nri_LoadImageTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;

@@ -81,6 +81,7 @@ namespace
     static_assert((int)nri::DescriptorRangeBits::PARTIALLY_BOUND == 1 && (int)nri::DescriptorRangeBits::ARRAY == 2
         && (int)nri::DescriptorRangeBits::VARIABLE_SIZED_ARRAY == 4 && (int)nri::DescriptorRangeBits::ALLOW_UPDATE_AFTER_SET == 8);
     static_assert((int)nri::IndexType::UINT16 == 0 && (int)nri::IndexType::UINT32 == 1);
+    static_assert((int)nri::CullMode::NONE == 0 && (int)nri::CullMode::FRONT == 1 && (int)nri::CullMode::BACK == 2);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -95,7 +96,8 @@ namespace
         std::vector<Shader> shaders;
         // The attributes' semantic names (their D3D names) are kept here.
         std::vector<std::string> semantics;
-        // Stream 0's, if any (their stride is Nri_CmdSetVertexBuffer's).
+        // The vertex attributes, if any, each of its stream (bound to the slot of its number; the
+        // stride is Nri_CmdSetVertexBuffer's).
         std::vector<nri::VertexAttributeDesc> attributes;
         nri::ColorAttachmentDesc color = { nri::Format::UNKNOWN, {}, {}, nri::ColorWriteBits::RGBA, false };
         nri::DepthAttachmentDesc depth = {};
@@ -1253,16 +1255,31 @@ extern "C"
         return 1;
     }
 
-    // An attribute of stream 0's vertices: semantic (index 0) on D3D, the next location on Vulkan
-    // (as DXC numbers the vertex shader's inputs), format at offset bytes in the vertex.
-    NRI_INTEROP_API void Nri_PipelineDescAddVertexAttribute(PipelineDesc* desc, const char* semantic, int format, int offset)
+    // An attribute of stream's vertices (the vertex buffer bound to slot stream): semantic (index
+    // 0) on D3D, the next location on Vulkan (as DXC numbers the vertex shader's inputs), format at
+    // offset bytes in the vertex.
+    NRI_INTEROP_API void Nri_PipelineDescAddVertexAttributeFromStream(PipelineDesc* desc, const char* semantic, int format, int offset,
+        int stream)
     {
         nri::VertexAttributeDesc attribute = {};
         attribute.vk.location = (uint32_t)desc->attributes.size();
         attribute.offset = (uint32_t)offset;
         attribute.format = (nri::Format)format;
+        attribute.streamIndex = (uint16_t)stream;
         desc->semantics.push_back(semantic);
         desc->attributes.push_back(attribute);
+    }
+
+    // An attribute of stream 0's vertices (Nri_PipelineDescAddVertexAttributeFromStream).
+    NRI_INTEROP_API void Nri_PipelineDescAddVertexAttribute(PipelineDesc* desc, const char* semantic, int format, int offset)
+    {
+        Nri_PipelineDescAddVertexAttributeFromStream(desc, semantic, format, offset, 0);
+    }
+
+    // The faces culled (an NriCullMode; NONE by default), clockwise ones the front.
+    NRI_INTEROP_API void Nri_PipelineDescSetCullMode(PipelineDesc* desc, int cullMode)
+    {
+        desc->cullMode = (nri::CullMode)cullMode;
     }
 
     // The color attachment's format and the channels written (NriColorWrite bits).
@@ -1295,14 +1312,21 @@ extern "C"
         for (const PipelineDesc::Shader& shader : desc->shaders)
             shaders.push_back({ shader.stage, shader.bytecode.data(), shader.bytecode.size(), shader.entry.c_str() });
 
+        // Streams 0 to the attributes' last, stream i bound to slot i.
+        uint16_t streamNum = 1;
         for (size_t i = 0; i < desc->attributes.size(); i++)
+        {
             desc->attributes[i].d3d.semanticName = desc->semantics[i].c_str();
-        nri::VertexStreamDesc stream = { 0, nri::VertexStreamStepRate::PER_VERTEX };
+            streamNum = std::max(streamNum, (uint16_t)(desc->attributes[i].streamIndex + 1));
+        }
+        std::vector<nri::VertexStreamDesc> streams;
+        for (uint16_t i = 0; i < streamNum; i++)
+            streams.push_back({ i, nri::VertexStreamStepRate::PER_VERTEX });
         nri::VertexInputDesc vertexInput = {};
         vertexInput.attributes = desc->attributes.data();
         vertexInput.attributeNum = (uint8_t)desc->attributes.size();
-        vertexInput.streams = &stream;
-        vertexInput.streamNum = 1;
+        vertexInput.streams = streams.data();
+        vertexInput.streamNum = (uint8_t)streams.size();
 
         nri::GraphicsPipelineDesc pipelineDesc = {};
         pipelineDesc.pipelineLayout = pipelineLayout;
@@ -1491,11 +1515,12 @@ extern "C"
     }
 
     // A sampler: filter (an NriFilter) for minification, magnification and mips, addressMode (an
-    // NriAddressMode) on all axes; null on failure.
-    NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode)
+    // NriAddressMode) on all axes, anisotropy (its maximum; 1: none); null on failure.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode, int anisotropy)
     {
         nri::SamplerDesc desc = {};
         desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)filter };
+        desc.anisotropy = (uint8_t)anisotropy;
         desc.mipMax = 16.0f;
         desc.addressModes = { (nri::AddressMode)addressMode, (nri::AddressMode)addressMode, (nri::AddressMode)addressMode };
         nri::Descriptor* sampler = nullptr;
@@ -1668,5 +1693,37 @@ extern "C"
         if (offset < 0 || (size_t)offset + size > file->size())
             return 0;
         return Nri_UploadTexture(queue, texture, file->data() + offset, rowPitch);
+    }
+
+    // An image file's texture (PNG, JPEG, ... through stb_image, as NRIFramework's
+    // LoadTextureFromMemory reads them): its mip 0, RGBA8 (sRGB: 1, RGBA8_SRGB, as Donut's sRGB
+    // loads), in device memory, uploaded on the queue (which this waits for) and left in
+    // NriTextureState.ShaderResource; null if it can't be read.
+    NRI_INTEROP_API nri::Texture* Nri_LoadImageTexture(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
+    {
+        std::vector<uint8_t> data;
+        if (!ReadFile(LibraryDirectory() + path, data))
+            return nullptr;
+        utils::Texture image;
+        if (!utils::LoadTextureFromMemory(path, data.data(), (int)data.size(), image, false))
+            return nullptr;
+        nri::Format format = sRGB ? nri::Format::RGBA8_SRGB : nri::Format::RGBA8_UNORM;
+        nri::Texture* texture = Nri_CreateCommittedTexture(device, image.GetWidth(), image.GetHeight(), (int)format);
+        if (!texture)
+            return nullptr;
+
+        nri::TextureSubresourceUploadDesc subresource = {};
+        image.GetSubresource(subresource, 0);
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = &subresource;
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
     }
 }
