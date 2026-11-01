@@ -1,16 +1,20 @@
 // A glTF scene as Donut's engine loads it (GltfImporter, SceneGraph, Scene), for the NRI ports of the
-// Donut examples that draw Donut scenes (examples/nri/bindless_rendering_nri.ts): the scene buffers
-// Donut's scene shaders read (donut/shaders/bindless.h's InstanceData and GeometryData,
-// material_cb.h's MaterialConstants), the vertices as Donut's BufferGroup holds them (all the
-// positions, then all the texture coordinates) and the indices, with Donut's own math for the node
-// transforms, so the ports draw the same pixels. What the shaders don't read isn't imported (normals,
-// tangents, materials' other textures); the base color textures are numbered in the order their
-// materials first use them (Donut numbers them as its loader threads finish: the shaders only
-// follow the numbers). A translation unit of its own, as nri_donut_constants.cpp.
+// Donut examples that draw Donut scenes (examples/nri/bindless_rendering_nri.ts,
+// threaded_rendering_nri.ts): the scene buffers Donut's scene shaders read (donut/shaders/bindless.h's
+// InstanceData and GeometryData, material_cb.h's MaterialConstants), the vertices as Donut's
+// BufferGroup holds them (each attribute's stream after the other: positions, texture coordinates,
+// snorm8 normals and tangents, the tangents generated as GltfImporter generates the missing ones)
+// and the indices, with Donut's own math for the node transforms, so the ports draw the same pixels.
+// The materials' textures are numbered in the order the materials first use them (Donut numbers
+// them as its loader threads finish: the shaders only follow the numbers). Not imported: skins,
+// curves, second texture coordinates, lights, cameras. A translation unit of its own, as
+// nri_donut_constants.cpp.
 
 #include <donut/core/math/math.h>
 
 #include <cstdio>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -33,25 +37,72 @@ using namespace donut::math;
 // nri_interop.cpp's.
 std::string NriLibraryPath(const char* path);
 extern "C" NRI_INTEROP_API void* Nri_CreateUploadedStructuredBuffer(void* device, void* queue, const void* data, int byteSize, int stride);
+extern "C" NRI_INTEROP_API void* Nri_CreateHostBuffer(void* device, int byteSize, int usage);
+extern "C" NRI_INTEROP_API void* Nri_CreateUploadedBufferFromInts(void* device, void* queue, const void* data, int byteSize, int usage);
+extern "C" NRI_INTEROP_API void Nri_WriteBuffer(void* buffer, int offset, const void* data, int byteSize);
 
 namespace
 {
+    // A material's texture slots, as the G-buffer and forward passes bind them (t0 to t6).
+    enum MaterialTexture
+    {
+        MaterialTexture_BaseOrDiffuse,
+        MaterialTexture_MetalRoughOrSpecular,
+        MaterialTexture_Normal,
+        MaterialTexture_Emissive,
+        MaterialTexture_Occlusion,
+        MaterialTexture_Transmission,
+        MaterialTexture_Opacity,
+        MaterialTexture_Count
+    };
+
+    // The vertex streams, one after the other in the vertex buffer.
+    enum VertexStream
+    {
+        VertexStream_Position,
+        VertexStream_TexCoord,
+        VertexStream_Normal,
+        VertexStream_Tangent,
+        VertexStream_Count
+    };
+
     struct DonutScene
     {
-        // The mesh buffers: Donut's BufferGroup of the file (vertex buffer: the positions, then the
-        // texture coordinates), its bindless buffer numbers 0 (vertices) and 1 (indices).
-        std::vector<float> vertices;
+        // The mesh buffers: Donut's BufferGroup of the file (the vertex buffer's streams one after
+        // the other, 32-bit words), its bindless buffer numbers 0 (vertices) and 1 (indices, each
+        // geometry's from its first vertex).
+        std::vector<uint32_t> vertices;
+        uint32_t streamOffsets[VertexStream_Count] = {};
         std::vector<uint32_t> indices;
         std::vector<InstanceData> instances;
         std::vector<GeometryData> geometries;
+        // Each geometry's first vertex in the streams (GeometryData has their byte offsets).
+        std::vector<uint32_t> firstVertices;
         std::vector<MaterialConstants> materials;
-        // The base color textures' files (relative to the library's folder), in texture number order.
+        // Each material's textures by slot (-1: none), and whether it's double-sided.
+        std::vector<std::array<int, MaterialTexture_Count>> materialTextures;
+        std::vector<bool> materialDoubleSided;
+        // The textures' files (relative to the library's folder) and whether they're sRGB, in texture
+        // number order.
         std::vector<std::string> textures;
+        std::vector<bool> textureSrgb;
     };
 
+    // donut::math::vectorToSnorm8 (donut/core/math/vector.cpp, not compiled here): the vector scaled
+    // by 127 / |xyz|, a byte per component (n of them).
+    uint32_t VectorToSnorm8(const float4& v, int n)
+    {
+        float scale = 127.0f / sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+        int x = int(v.x * scale);
+        int y = int(v.y * scale);
+        int z = int(v.z * scale);
+        int w = n == 4 ? int(v.w * scale) : 0;
+        return uint32_t((x & 0xff) | ((y & 0xff) << 8) | ((z & 0xff) << 16) | ((w & 0xff) << 24));
+    }
+
     // MaterialConstants as Material::FillConstantBuffer fills them from a material GltfImporter
-    // imports (the base color texture, numbered texture, if any), or Donut's default material (null).
-    MaterialConstants ImportMaterial(const cgltf_material* material, int texture)
+    // imports (its textures by slot, numbered, -1 for none), or Donut's default material (null).
+    MaterialConstants ImportMaterial(const cgltf_material* material, const std::array<int, MaterialTexture_Count>& textures)
     {
         // Material's defaults.
         float3 baseOrDiffuseColor = 1.f;
@@ -64,6 +115,8 @@ namespace
         float alphaCutoff = 0.5f;
         float normalTextureScale = 1.f;
         float occlusionStrength = 1.f;
+        float transmissionFactor = 0.f;
+        float2 normalTextureTransformScale = 1.f;
         bool useSpecularGlossModel = false;
         bool doubleSided = false;
         int domain = MaterialDomain_Opaque;
@@ -85,6 +138,8 @@ namespace
                 roughness = material->pbr_metallic_roughness.roughness_factor;
                 opacity = material->pbr_metallic_roughness.base_color_factor[3];
             }
+            if (material->has_transmission)
+                transmissionFactor = material->transmission.transmission_factor;
             emissiveColor = float3(material->emissive_factor);
             if (material->has_emissive_strength)
                 emissiveIntensity = material->emissive_strength.emissive_strength;
@@ -100,6 +155,8 @@ namespace
             occlusionStrength = material->occlusion_texture.scale;
             alphaCutoff = material->alpha_cutoff;
             doubleSided = material->double_sided;
+            if (material->normal_texture.has_transform)
+                normalTextureTransformScale = float2(material->normal_texture.transform.scale[0], material->normal_texture.transform.scale[1]);
             const bool transmission = material->has_transmission;
             switch (material->alpha_mode)
             {
@@ -114,8 +171,12 @@ namespace
         constants.flags = 0;
         if (useSpecularGlossModel)
             constants.flags |= MaterialFlags_UseSpecularGlossModel;
-        if (texture >= 0)
-            constants.flags |= MaterialFlags_UseBaseOrDiffuseTexture;
+        const int flags[MaterialTexture_Count] = { MaterialFlags_UseBaseOrDiffuseTexture, MaterialFlags_UseMetalRoughOrSpecularTexture,
+            MaterialFlags_UseNormalTexture, MaterialFlags_UseEmissiveTexture, MaterialFlags_UseOcclusionTexture,
+            MaterialFlags_UseTransmissionTexture, MaterialFlags_UseOpacityTexture };
+        for (int slot = 0; slot < MaterialTexture_Count; slot++)
+            if (textures[slot] >= 0)
+                constants.flags |= flags[slot];
         if (doubleSided)
             constants.flags |= MaterialFlags_DoubleSided;
         constants.domain = domain;
@@ -126,19 +187,88 @@ namespace
         constants.metalness = metalness;
         constants.normalTextureScale = normalTextureScale;
         constants.occlusionStrength = occlusionStrength;
-        constants.normalTextureTransformScale = float2(1.f);
+        constants.transmissionFactor = transmissionFactor;
+        constants.normalTextureTransformScale = normalTextureTransformScale;
         const bool blended = domain == MaterialDomain_AlphaBlended || domain == MaterialDomain_TransmissiveAlphaBlended;
         const bool tested = domain == MaterialDomain_AlphaTested || domain == MaterialDomain_TransmissiveAlphaTested;
         constants.opacity = blended ? opacity : 1.f;
         constants.alphaCutoff = tested ? alphaCutoff : blended ? 0.f : -1.f;
-        constants.baseOrDiffuseTextureIndex = texture;
-        constants.metalRoughOrSpecularTextureIndex = -1;
-        constants.normalTextureIndex = -1;
-        constants.emissiveTextureIndex = -1;
-        constants.occlusionTextureIndex = -1;
-        constants.transmissionTextureIndex = -1;
-        constants.opacityTextureIndex = -1;
+        // Bindless descriptors: the texture numbers.
+        constants.baseOrDiffuseTextureIndex = textures[MaterialTexture_BaseOrDiffuse];
+        constants.metalRoughOrSpecularTextureIndex = textures[MaterialTexture_MetalRoughOrSpecular];
+        constants.normalTextureIndex = textures[MaterialTexture_Normal];
+        constants.emissiveTextureIndex = textures[MaterialTexture_Emissive];
+        constants.occlusionTextureIndex = textures[MaterialTexture_Occlusion];
+        constants.transmissionTextureIndex = textures[MaterialTexture_Transmission];
+        constants.opacityTextureIndex = textures[MaterialTexture_Opacity];
         return constants;
+    }
+
+    // GltfImporter's tangents for a primitive without them: each triangle's tangent and bitangent
+    // from its texture coordinates, normalized, summed per vertex, normalized again, the sign from the
+    // normal; snorm8-packed.
+    void GenerateTangents(const float* positions, const float* texCoords, const float3* normals, size_t count, const uint32_t* indices,
+        size_t indexCount, uint32_t* tangentWords)
+    {
+        std::vector<float3> computedTangents(count, float3(0.f));
+        std::vector<float3> computedBitangents(count, float3(0.f));
+        for (size_t t_idx = 0; t_idx < indexCount / 3; t_idx++)
+        {
+            uint3 tri = indices;
+            indices += 3;
+
+            float3 p0 = positions + tri.x * 3;
+            float3 p1 = positions + tri.y * 3;
+            float3 p2 = positions + tri.z * 3;
+
+            float2 t0 = texCoords + tri.x * 2;
+            float2 t1 = texCoords + tri.y * 2;
+            float2 t2 = texCoords + tri.z * 2;
+
+            float3 dPds = p1 - p0;
+            float3 dPdt = p2 - p0;
+
+            float2 dTds = t1 - t0;
+            float2 dTdt = t2 - t0;
+            float r = 1.0f / (dTds.x * dTdt.y - dTds.y * dTdt.x);
+            float3 tangent = r * (dPds * dTdt.y - dPdt * dTds.y);
+            float3 bitangent = r * (dPdt * dTds.x - dPds * dTdt.x);
+
+            float tangentLength = length(tangent);
+            float bitangentLength = length(bitangent);
+            if (tangentLength > 0 && bitangentLength > 0)
+            {
+                tangent /= tangentLength;
+                bitangent /= bitangentLength;
+
+                computedTangents[tri.x] += tangent;
+                computedTangents[tri.y] += tangent;
+                computedTangents[tri.z] += tangent;
+                computedBitangents[tri.x] += bitangent;
+                computedBitangents[tri.y] += bitangent;
+                computedBitangents[tri.z] += bitangent;
+            }
+        }
+
+        for (size_t v_idx = 0; v_idx < count; v_idx++)
+        {
+            float3 normal = normals[v_idx];
+            float3 tangent = computedTangents[v_idx];
+            float3 bitangent = computedBitangents[v_idx];
+
+            float sign = 0;
+            float tangentLength = length(tangent);
+            float bitangentLength = length(bitangent);
+            if (tangentLength > 0 && bitangentLength > 0)
+            {
+                tangent /= tangentLength;
+                bitangent /= bitangentLength;
+                float3 cross_b = cross(normal, tangent);
+                sign = (dot(cross_b, bitangent) > 0) ? -1.f : 1.f;
+            }
+
+            tangentWords[v_idx] = VectorToSnorm8(float4(tangent, sign), 4);
+        }
     }
 
     // A node's transform relative to its parent: SceneGraphNode's TRS, as GltfImporter sets them
@@ -214,13 +344,9 @@ namespace
         const std::string relative = path;
         const size_t slash = relative.find_last_of("/\\");
         const std::string folder = slash == std::string::npos ? std::string() : relative.substr(0, slash + 1);
+        // TextureCache keys by file: an image used as sRGB and as linear keeps its first use's.
         std::map<const cgltf_image*, int> textureNumbers;
-        auto baseColorTexture = [&](const cgltf_material* material) -> int {
-            if (!material)
-                return -1;
-            const cgltf_texture* texture = material->has_pbr_specular_glossiness
-                ? material->pbr_specular_glossiness.diffuse_texture.texture
-                : material->has_pbr_metallic_roughness ? material->pbr_metallic_roughness.base_color_texture.texture : nullptr;
+        auto textureNumber = [&](const cgltf_texture* texture, bool sRGB) -> int {
             if (!texture || !texture->image || !texture->image->uri)
                 return -1;
             auto found = textureNumbers.find(texture->image);
@@ -231,8 +357,34 @@ namespace
             uri.resize(strlen(uri.c_str()));
             const int number = int(scene.textures.size());
             scene.textures.push_back(folder + uri);
+            scene.textureSrgb.push_back(sRGB);
             textureNumbers[texture->image] = number;
             return number;
+        };
+        // GltfImporter's load_texture calls, in its order, with their sRGB modes.
+        auto materialTextures = [&](const cgltf_material* material) {
+            std::array<int, MaterialTexture_Count> textures;
+            textures.fill(-1);
+            if (!material)
+                return textures;
+            if (material->has_pbr_specular_glossiness)
+            {
+                textures[MaterialTexture_BaseOrDiffuse] = textureNumber(material->pbr_specular_glossiness.diffuse_texture.texture, true);
+                textures[MaterialTexture_MetalRoughOrSpecular] =
+                    textureNumber(material->pbr_specular_glossiness.specular_glossiness_texture.texture, true);
+            }
+            else if (material->has_pbr_metallic_roughness)
+            {
+                textures[MaterialTexture_BaseOrDiffuse] = textureNumber(material->pbr_metallic_roughness.base_color_texture.texture, true);
+                textures[MaterialTexture_MetalRoughOrSpecular] =
+                    textureNumber(material->pbr_metallic_roughness.metallic_roughness_texture.texture, false);
+            }
+            if (material->has_transmission)
+                textures[MaterialTexture_Transmission] = textureNumber(material->transmission.transmission_texture.texture, false);
+            textures[MaterialTexture_Emissive] = textureNumber(material->emissive_texture.texture, true);
+            textures[MaterialTexture_Normal] = textureNumber(material->normal_texture.texture, false);
+            textures[MaterialTexture_Occlusion] = textureNumber(material->occlusion_texture.texture, false);
+            return textures;
         };
 
         // The materials, then Donut's default material for primitives without one.
@@ -240,12 +392,18 @@ namespace
         for (size_t i = 0; i < data->materials_count; i++)
         {
             materialIDs[&data->materials[i]] = uint32_t(scene.materials.size());
-            scene.materials.push_back(ImportMaterial(&data->materials[i], baseColorTexture(&data->materials[i])));
+            const std::array<int, MaterialTexture_Count> textures = materialTextures(&data->materials[i]);
+            scene.materials.push_back(ImportMaterial(&data->materials[i], textures));
+            scene.materialTextures.push_back(textures);
+            scene.materialDoubleSided.push_back(data->materials[i].double_sided);
         }
         uint32_t defaultMaterial = ~0u;
 
         // The meshes' geometries (triangle lists), their vertices and indices one after another.
-        std::vector<std::vector<float>> texCoords;
+        std::vector<float> positions3;
+        std::vector<float> texCoords2;
+        std::vector<uint32_t> normalWords;
+        std::vector<uint32_t> tangentWords;
         std::vector<uint32_t> firstGeometry;
         size_t vertexCount = 0;
         for (size_t m = 0; m < data->meshes_count; m++)
@@ -262,6 +420,8 @@ namespace
                 }
                 const cgltf_accessor* positions = nullptr;
                 const cgltf_accessor* uvs = nullptr;
+                const cgltf_accessor* normals = nullptr;
+                const cgltf_accessor* tangents = nullptr;
                 for (size_t a = 0; a < primitive.attributes_count; a++)
                 {
                     const cgltf_attribute& attribute = primitive.attributes[a];
@@ -269,6 +429,10 @@ namespace
                         positions = attribute.data;
                     else if (attribute.type == cgltf_attribute_type_texcoord && attribute.index == 0)
                         uvs = attribute.data;
+                    else if (attribute.type == cgltf_attribute_type_normal)
+                        normals = attribute.data;
+                    else if (attribute.type == cgltf_attribute_type_tangent)
+                        tangents = attribute.data;
                 }
                 if (!positions)
                 {
@@ -281,13 +445,13 @@ namespace
                 geometry.indexBufferIndex = 1;
                 geometry.indexOffset = uint32_t(scene.indices.size() * sizeof(uint32_t));
                 geometry.vertexBufferIndex = 0;
-                // (The texture coordinates' offsets once all the positions are in.)
+                // (The streams' starts added once all the vertices are in.)
                 geometry.positionOffset = uint32_t(vertexCount * sizeof(float3));
                 geometry.prevPositionOffset = ~0u;
                 geometry.texCoord1Offset = uint32_t(vertexCount * sizeof(float2));
                 geometry.texCoord2Offset = ~0u;
-                geometry.normalOffset = ~0u;
-                geometry.tangentOffset = ~0u;
+                geometry.normalOffset = uint32_t(vertexCount * sizeof(uint32_t));
+                geometry.tangentOffset = uint32_t(vertexCount * sizeof(uint32_t));
                 geometry.curveRadiusOffset = ~0u;
                 if (primitive.material)
                     geometry.materialIndex = materialIDs[primitive.material];
@@ -296,13 +460,18 @@ namespace
                     if (defaultMaterial == ~0u)
                     {
                         defaultMaterial = uint32_t(scene.materials.size());
-                        scene.materials.push_back(ImportMaterial(nullptr, -1));
+                        std::array<int, MaterialTexture_Count> none;
+                        none.fill(-1);
+                        scene.materials.push_back(ImportMaterial(nullptr, none));
+                        scene.materialTextures.push_back(none);
+                        scene.materialDoubleSided.push_back(false);
                     }
                     geometry.materialIndex = defaultMaterial;
                 }
 
                 // Indices as GltfImporter copies them (or 0, 1, 2... without), relative to the
                 // geometry's first vertex.
+                const size_t firstIndex = scene.indices.size();
                 if (primitive.indices)
                 {
                     geometry.numIndices = uint32_t(primitive.indices->count);
@@ -316,28 +485,64 @@ namespace
                         scene.indices.push_back(uint32_t(i));
                 }
 
-                for (size_t v = 0; v < positions->count; v++)
-                {
-                    float position[3] = {};
-                    cgltf_accessor_read_float(positions, v, position, 3);
-                    scene.vertices.insert(scene.vertices.end(), position, position + 3);
-                }
-                std::vector<float> uv(positions->count * 2, 0.f);
+                const size_t count = positions->count;
+                const size_t firstPosition = positions3.size();
+                positions3.resize(firstPosition + count * 3, 0.f);
+                for (size_t v = 0; v < count; v++)
+                    cgltf_accessor_read_float(positions, v, &positions3[firstPosition + v * 3], 3);
+                const size_t firstTexCoord = texCoords2.size();
+                texCoords2.resize(firstTexCoord + count * 2, 0.f);
                 if (uvs)
-                    for (size_t v = 0; v < positions->count && v < uvs->count; v++)
-                        cgltf_accessor_read_float(uvs, v, &uv[v * 2], 2);
-                texCoords.push_back(std::move(uv));
-                vertexCount += positions->count;
+                    for (size_t v = 0; v < count && v < uvs->count; v++)
+                        cgltf_accessor_read_float(uvs, v, &texCoords2[firstTexCoord + v * 2], 2);
+                std::vector<float3> normalVectors(count, float3(0.f));
+                if (normals)
+                    for (size_t v = 0; v < count && v < normals->count; v++)
+                        cgltf_accessor_read_float(normals, v, &normalVectors[v].x, 3);
+                const size_t firstNormal = normalWords.size();
+                normalWords.resize(firstNormal + count, 0);
+                tangentWords.resize(firstNormal + count, 0);
+                if (normals)
+                    for (size_t v = 0; v < count; v++)
+                        normalWords[firstNormal + v] = VectorToSnorm8(float4(normalVectors[v], 0.f), 3);
+                if (tangents)
+                    for (size_t v = 0; v < count && v < tangents->count; v++)
+                    {
+                        float4 tangent = 0.f;
+                        cgltf_accessor_read_float(tangents, v, &tangent.x, 4);
+                        tangentWords[firstNormal + v] = VectorToSnorm8(tangent, 4);
+                    }
+                else if (normals && uvs)
+                    GenerateTangents(&positions3[firstPosition], &texCoords2[firstTexCoord], normalVectors.data(), count,
+                        &scene.indices[firstIndex], scene.indices.size() - firstIndex, &tangentWords[firstNormal]);
+
+                scene.firstVertices.push_back(uint32_t(vertexCount));
+                vertexCount += count;
                 scene.geometries.push_back(geometry);
             }
         }
 
-        // The texture coordinates after the positions.
-        const uint32_t texCoordStart = uint32_t(scene.vertices.size() * sizeof(float));
+        // The streams one after the other.
+        auto appendFloats = [&scene](const std::vector<float>& values) {
+            const size_t start = scene.vertices.size();
+            scene.vertices.resize(start + values.size());
+            if (!values.empty())
+                memcpy(&scene.vertices[start], values.data(), values.size() * sizeof(float));
+        };
+        scene.streamOffsets[VertexStream_Position] = 0;
+        appendFloats(positions3);
+        scene.streamOffsets[VertexStream_TexCoord] = uint32_t(scene.vertices.size() * 4);
+        appendFloats(texCoords2);
+        scene.streamOffsets[VertexStream_Normal] = uint32_t(scene.vertices.size() * 4);
+        scene.vertices.insert(scene.vertices.end(), normalWords.begin(), normalWords.end());
+        scene.streamOffsets[VertexStream_Tangent] = uint32_t(scene.vertices.size() * 4);
+        scene.vertices.insert(scene.vertices.end(), tangentWords.begin(), tangentWords.end());
         for (GeometryData& geometry : scene.geometries)
-            geometry.texCoord1Offset += texCoordStart;
-        for (const std::vector<float>& uv : texCoords)
-            scene.vertices.insert(scene.vertices.end(), uv.begin(), uv.end());
+        {
+            geometry.texCoord1Offset += scene.streamOffsets[VertexStream_TexCoord];
+            geometry.normalOffset += scene.streamOffsets[VertexStream_Normal];
+            geometry.tangentOffset += scene.streamOffsets[VertexStream_Tangent];
+        }
 
         // The instances: the scene's root nodes under the file's root (untransformed).
         const cgltf_scene* root = data->scene ? data->scene : data->scenes_count > 0 ? &data->scenes[0] : nullptr;
@@ -368,7 +573,8 @@ extern "C"
     // One of the scene's buffers, which: 0 the vertices, 1 the indices (both read as
     // ByteAddressBuffer: structures of 4 bytes), 2 the InstanceData, 3 the GeometryData, 4 the
     // MaterialConstants (StructuredBuffer), in device memory, uploaded on the queue
-    // (Nri_CreateUploadedStructuredBuffer's); null on failure.
+    // (Nri_CreateUploadedStructuredBuffer's); 5 the indices as an index buffer (32-bit); null on
+    // failure.
     NRI_INTEROP_API void* Nri_CreateDonutSceneBuffer(void* device, void* queue, DonutScene* scene, int which)
     {
         switch (which)
@@ -381,11 +587,50 @@ extern "C"
             int(scene->geometries.size() * sizeof(GeometryData)), int(sizeof(GeometryData)));
         case 4: return Nri_CreateUploadedStructuredBuffer(device, queue, scene->materials.data(),
             int(scene->materials.size() * sizeof(MaterialConstants)), int(sizeof(MaterialConstants)));
+        case 5: return Nri_CreateUploadedBufferFromInts(device, queue, scene->indices.data(), int(scene->indices.size() * 4), 1);
         default: return nullptr;
         }
     }
 
-    // The base color textures (their files relative to the library's folder, sRGB), by number.
+    // The materials' MaterialConstants, each in a constant buffer view's 256 bytes (material m at m *
+    // 256), in a host buffer (Nri_CreateHostBuffer's): the forward and G-buffer passes' per-material
+    // constants. Null on failure.
+    NRI_INTEROP_API void* Nri_CreateDonutSceneMaterialBuffer(void* device, DonutScene* scene)
+    {
+        static_assert(sizeof(MaterialConstants) <= 256, "a material's constants take more than 256 bytes");
+        void* buffer = Nri_CreateHostBuffer(device, int(scene->materials.size() * 256), 2);
+        if (!buffer)
+            return nullptr;
+        for (size_t m = 0; m < scene->materials.size(); m++)
+            Nri_WriteBuffer(buffer, int(m * 256), &scene->materials[m], int(sizeof(MaterialConstants)));
+        return buffer;
+    }
+
+    // The materials: their count, each's texture in a slot (0 base or diffuse, 1 metal-rough or
+    // specular, 2 normal, 3 emissive, 4 occlusion, 5 transmission, 6 opacity; -1 for none), its
+    // domain (MaterialDomain_*: 0 opaque, 1 alpha-tested, 2 alpha-blended...) and whether it's
+    // double-sided (Donut draws those without culling).
+    NRI_INTEROP_API int Nri_GetDonutSceneMaterialCount(DonutScene* scene)
+    {
+        return int(scene->materials.size());
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSceneMaterialTexture(DonutScene* scene, int material, int slot)
+    {
+        return scene->materialTextures[size_t(material)][size_t(slot)];
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSceneMaterialDomain(DonutScene* scene, int material)
+    {
+        return scene->materials[size_t(material)].domain;
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSceneMaterialDoubleSided(DonutScene* scene, int material)
+    {
+        return scene->materialDoubleSided[size_t(material)] ? 1 : 0;
+    }
+
+    // The textures (their files relative to the library's folder; sRGB or linear), by number.
     NRI_INTEROP_API int Nri_GetDonutSceneTextureCount(DonutScene* scene)
     {
         return int(scene->textures.size());
@@ -394,6 +639,18 @@ extern "C"
     NRI_INTEROP_API const char* Nri_GetDonutSceneTexturePath(DonutScene* scene, int texture)
     {
         return scene->textures[size_t(texture)].c_str();
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSceneTextureSrgb(DonutScene* scene, int texture)
+    {
+        return scene->textureSrgb[size_t(texture)] ? 1 : 0;
+    }
+
+    // The byte offset of a vertex stream in the vertex buffer: 0 positions (float3), 1 texture
+    // coordinates (float2), 2 normals, 3 tangents (snorm8 each).
+    NRI_INTEROP_API int Nri_GetDonutSceneStreamOffset(DonutScene* scene, int stream)
+    {
+        return int(scene->streamOffsets[size_t(stream)]);
     }
 
     // The mesh instances (in the order Donut's scene graph numbers them, each's index its number),
@@ -411,5 +668,22 @@ extern "C"
     NRI_INTEROP_API int Nri_GetDonutSceneGeometryIndexCount(DonutScene* scene, int instance, int geometry)
     {
         return int(scene->geometries[scene->instances[size_t(instance)].firstGeometryIndex + uint32_t(geometry)].numIndices);
+    }
+
+    // A geometry's first index in the index buffer, its first vertex in the streams (its indices count
+    // from it) and its material.
+    NRI_INTEROP_API int Nri_GetDonutSceneGeometryFirstIndex(DonutScene* scene, int instance, int geometry)
+    {
+        return int(scene->geometries[scene->instances[size_t(instance)].firstGeometryIndex + uint32_t(geometry)].indexOffset / 4);
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSceneGeometryFirstVertex(DonutScene* scene, int instance, int geometry)
+    {
+        return int(scene->firstVertices[scene->instances[size_t(instance)].firstGeometryIndex + uint32_t(geometry)]);
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSceneGeometryMaterial(DonutScene* scene, int instance, int geometry)
+    {
+        return int(scene->geometries[scene->instances[size_t(instance)].firstGeometryIndex + uint32_t(geometry)].materialIndex);
     }
 }

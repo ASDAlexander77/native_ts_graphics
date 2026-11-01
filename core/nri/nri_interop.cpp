@@ -556,6 +556,9 @@ public:
     Callback<FrameFn> m_LatencySleep;
     Callback<FrameFn> m_RenderFrame;
     bool m_Test = false;
+    // The window's size unless the command line says otherwise (Nri_SetWindowSize).
+    int m_WindowWidth = 1280;
+    int m_WindowHeight = 720;
     // The example's own options (Nri_AddExampleOption), which NRIFramework's parser isn't given,
     // and the values each takes after it.
     std::vector<std::string> m_ExampleOptions;
@@ -643,6 +646,14 @@ extern "C"
         sample->m_RenderFrame = { method, thisVal };
     }
 
+    // The window's size (1280 x 720 unless this is called, before Nri_RunSample): an example's whose
+    // Donut version opens another size.
+    NRI_INTEROP_API void Nri_SetWindowSize(TsSample* sample, int width, int height)
+    {
+        sample->m_WindowWidth = width;
+        sample->m_WindowHeight = height;
+    }
+
     // Parses the command line, makes the window (calling the Initialize callback) and renders until
     // it's closed. Returns 0, or 1 if the command line or the initialization failed.
     // The command line is NRIFramework's (--api=D3D12, --debugAPI, --frameNum=<n>, --help, ...), with
@@ -651,7 +662,8 @@ extern "C"
     // in the Donut examples.
     NRI_INTEROP_API int Nri_RunSample(TsSample* sample, int argc, const char* const* argv, const char* title, int testFrames)
     {
-        std::vector<std::string> args = { argc > 0 ? argv[0] : "nri" , "--vsync", "--width=1280", "--height=720" };
+        std::vector<std::string> args = { argc > 0 ? argv[0] : "nri" , "--vsync", "--width=" + std::to_string(sample->m_WindowWidth),
+            "--height=" + std::to_string(sample->m_WindowHeight) };
         for (int i = 1; i < argc; i++)
         {
             std::string arg = argv[i];
@@ -1140,6 +1152,36 @@ extern "C"
         return view;
     }
 
+    // A color attachment view of one layer of a texture array (a cubemap's face).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateColorAttachmentLayerView(nri::Texture* texture, int format, int layer)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::COLOR_ATTACHMENT, (nri::Format)format, 0, 1, (nri::Dim_t)layer, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A depth attachment view of one layer of a depth texture array.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateDepthAttachmentLayerView(nri::Texture* texture, int format, int layer)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::DEPTH_STENCIL_ATTACHMENT, (nri::Format)format, 0, 1,
+            (nri::Dim_t)layer, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A view of one layer of a texture array, as an array of that layer alone (Texture2DArray), for
+    // shaders to read: what Donut binds to blit a slice.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureArrayLayerView(nri::Texture* texture, int format, int layer)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_2D_ARRAY, (nri::Format)format, 0,
+            nri::REMAINING, (nri::Dim_t)layer, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
     NRI_INTEROP_API nri::Descriptor* Nri_CreateDepthAttachmentView(nri::Texture* texture, int format)
     {
         nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::DEPTH_STENCIL_ATTACHMENT, (nri::Format)format };
@@ -1158,7 +1200,7 @@ extern "C"
     // A width x height depth texture in device memory (read by shaders too if sampled), bound to it
     // and moved on the queue (which this waits for) to state; null on failure.
     nri::Texture* CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format, bool sampled, int state,
-        int sampleNum = 1)
+        int sampleNum = 1, int layerNum = 1)
     {
         nri::TextureDesc textureDesc = {};
         textureDesc.type = nri::TextureType::TEXTURE_2D;
@@ -1169,6 +1211,7 @@ extern "C"
         textureDesc.width = (nri::Dim_t)width;
         textureDesc.height = (nri::Dim_t)height;
         textureDesc.sampleNum = (nri::Sample_t)sampleNum;
+        textureDesc.layerNum = (nri::Dim_t)layerNum;
         nri::Texture* texture = nullptr;
         if (NRI.CreateTexture(*device, textureDesc, texture) != nri::Result::SUCCESS)
             return nullptr;
@@ -1190,9 +1233,10 @@ extern "C"
         nri::TextureUploadDesc upload = {};
         upload.texture = texture;
         upload.after = TextureState(state);
-        // (Both planes of a depth-stencil format: Vulkan moves their layouts together.)
+        // (Both planes of a depth-stencil format: Vulkan moves their layouts together. All of a texture
+        // array's: with the depth plane alone, NRI's D3D12 UploadData crashes in D3D12Core.)
         const bool stencil = (nri::Format)format == nri::Format::D24_UNORM_S8_UINT || (nri::Format)format == nri::Format::D32_SFLOAT_S8_UINT_X24;
-        upload.planes = stencil ? nri::PlaneBits::ALL : nri::PlaneBits::DEPTH;
+        upload.planes = stencil || layerNum > 1 ? nri::PlaneBits::ALL : nri::PlaneBits::DEPTH;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
             Nri_DestroyTexture(texture);
@@ -1206,6 +1250,14 @@ extern "C"
     NRI_INTEROP_API nri::Texture* Nri_CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
     {
         return CreateDepthTexture(device, queue, width, height, format, false, 4);
+    }
+
+    // As Nri_CreateDepthTexture, an array of layerNum layers (a cubemap's faces: views of each,
+    // Nri_CreateDepthAttachmentLayerView).
+    NRI_INTEROP_API nri::Texture* Nri_CreateLayeredDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int layerNum,
+        int format)
+    {
+        return CreateDepthTexture(device, queue, width, height, format, false, 4, 1, layerNum);
     }
 
     // As Nri_CreateDepthTexture, but shaders read it too (a view of it: Nri_CreateTextureView with
@@ -4105,6 +4157,30 @@ extern "C"
         upload.subresources = &subresource;
         upload.texture = texture;
         upload.after = TextureState(state);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // As Nri_CreateRenderTargetTexture, an array of layerNum layers (a cubemap's faces: views of each,
+    // Nri_CreateColorAttachmentLayerView, Nri_CreateTextureArrayLayerView), in NriTextureState.ShaderResource.
+    NRI_INTEROP_API nri::Texture* Nri_CreateLayeredRenderTargetTexture(nri::Device* device, nri::Queue* queue, int width, int height,
+        int layerNum, int format)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE | nri::TextureUsageBits::COLOR_ATTACHMENT;
+        desc.layerNum = (nri::Dim_t)layerNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(5);
         upload.planes = nri::PlaneBits::ALL;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {

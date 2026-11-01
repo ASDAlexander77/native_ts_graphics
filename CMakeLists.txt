@@ -1275,6 +1275,13 @@ if (DONUT_SAMPLES_MEDIA_DIR)
 endif()
 add_tslang_example(threaded_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(threaded_rendering)
+# threaded_rendering with NRI and NRIFramework: Donut's forward shading and blit shaders
+# (shaders/framework), Sponza loaded as Donut's engine loads it (core/nri/nri_donut_scene.cpp).
+add_tslang_nri_example(threaded_rendering_nri core/donut_first_person_camera.ts core/nri_donut_textures.ts)
+add_tslang_example_test(threaded_rendering_nri)
+if (TARGET donut_shaders AND TARGET threaded_rendering_nri)
+    add_dependencies(threaded_rendering_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' deferred_shading: no shaders of its own (Donut's G-buffer fill and
 # deferred lighting passes); uses media/nvidia-logo.png, copied with the media folder above.
@@ -4191,7 +4198,8 @@ add_tslang_example_test(bindless_rendering)
 # bindless_rendering with NRI and NRIFramework: the same shaders, Sponza loaded as Donut's engine
 # loads it (core/nri/nri_donut_scene.cpp), its textures' mip chains blitted with Donut's blit shaders
 # (shaders/framework).
-add_tslang_nri_example(bindless_rendering_nri SHADERS bindless_rendering_shaders core/matrix.ts core/donut_first_person_camera.ts)
+add_tslang_nri_example(bindless_rendering_nri SHADERS bindless_rendering_shaders core/matrix.ts core/donut_first_person_camera.ts
+    core/nri_donut_textures.ts)
 add_tslang_example_test(bindless_rendering_nri)
 if (TARGET donut_shaders AND TARGET bindless_rendering_nri)
     add_dependencies(bindless_rendering_nri donut_shaders)
