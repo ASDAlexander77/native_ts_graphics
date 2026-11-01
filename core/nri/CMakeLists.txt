@@ -28,11 +28,21 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 
 # NRIFramework v0.23 (15 October 2025), MIT; its submodules NRI (v176) and MathLib come with it.
 # Set FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK to use a checkout instead (NRISamples' External/NRIFramework).
+# Patched for Android (see patches/): NRI's Vulkan backend makes an ANativeWindow's surface, and
+# NRIFramework takes the activity's window from GLFW's Android platform (Donut's GLFW, below).
+# A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
+set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
 FetchContent_Declare(nriframework
     GIT_REPOSITORY https://github.com/NVIDIA-RTX/NRIFramework.git
     GIT_TAG 80fd6380500b9228c615fb71e5cd62d3c05df03b
-    GIT_SUBMODULES_RECURSE ON)
+    GIT_SUBMODULES_RECURSE ON
+    PATCH_COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-android-surface.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake")
 
 # NRI's memory allocators, at the commits NRI v176 names but cloned whole: NRI clones them shallow,
 # which checks out a commit only while it's the tip of a branch. The first declaration is the one
@@ -53,6 +63,13 @@ set(NRI_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 # Without the Agility SDK: NRI's D3D12 backend would then need D3D12SDKVersion and D3D12SDKPath
 # exported from the executable (a tslang one exports nothing), and the triangle needs no new D3D12.
 set(NRI_ENABLE_AGILITY_SDK_SUPPORT OFF CACHE BOOL "" FORCE)
+
+if (ANDROID)
+    # NRIFramework's GLFW is Donut's there (NRI_GLFW_SOURCE_DIR, the main project's
+    # external/Donut/thirdparty/glfw), patched with an Android platform: the NativeActivity's window,
+    # which core/android_main.cpp hands over with Nri_SetAndroidApp.
+    set(FETCHCONTENT_SOURCE_DIR_GLFW "${NRI_GLFW_SOURCE_DIR}")
+endif()
 FetchContent_MakeAvailable(nriframework)
 
 add_library(nri_interop SHARED nri_interop.cpp)

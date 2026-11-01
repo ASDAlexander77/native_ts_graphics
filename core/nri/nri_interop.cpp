@@ -19,6 +19,11 @@
 
 #include "NRIFramework.h"
 
+#if defined(__ANDROID__)
+// glfwSetAndroidApp, of GLFW's Android platform (patches/glfw-android-platform.patch)
+#include "GLFW/glfw3native.h"
+#endif
+
 #include <cstdio>
 #include <cstring>
 #include <unordered_map>
@@ -53,9 +58,14 @@ namespace
     // The memory Nri_CreateReadbackBuffer bound to each buffer, freed with it.
     std::unordered_map<nri::Buffer*, std::vector<nri::Memory*>> g_BufferMemory;
 
+    // Where the shaders are instead of next to this library, if Nri_SetDataDirectory was called.
+    std::string g_DataDirectory;
+
     // The directory of this library (bin/, where the shaders are), with a separator at the end.
     std::string LibraryDirectory()
     {
+        if (!g_DataDirectory.empty())
+            return g_DataDirectory;
 #if defined(_WIN32)
         HMODULE module = nullptr;
         GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -163,6 +173,24 @@ extern "C"
     {
         delete sample;
     }
+
+    // The folder the shaders are read from (Nri_CreateGraphicsPipeline), instead of this library's:
+    // on Android, where the APK's assets are extracted to (core/android_main.cpp).
+    NRI_INTEROP_API void Nri_SetDataDirectory(const char* directory)
+    {
+        g_DataDirectory = directory;
+        if (!g_DataDirectory.empty() && g_DataDirectory.back() != '/')
+            g_DataDirectory += '/';
+    }
+
+#if defined(__ANDROID__)
+    // The NativeActivity's android_app (android_native_app_glue's), which GLFW's Android platform
+    // takes the window and the input from; before Nri_RunSample, on android_main's thread.
+    NRI_INTEROP_API void Nri_SetAndroidApp(struct android_app* app)
+    {
+        glfwSetAndroidApp(app);
+    }
+#endif
 
     // Called by Nri_RunSample once the window is made: makes the device and what the frames need,
     // returns 0 on failure (then Nri_RunSample returns 1 without rendering).

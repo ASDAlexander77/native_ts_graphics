@@ -1,0 +1,58 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e130476..b043a4d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -191,6 +191,11 @@ if(APPLE)
+         pthread
+         MetalUtility
+     )
++elseif(ANDROID)
++    target_link_libraries(${PROJECT_NAME} PRIVATE
++        ${CMAKE_DL_LIBS}
++        android
++    )
+ elseif(UNIX)
+     target_link_libraries(${PROJECT_NAME} PRIVATE
+         ${CMAKE_DL_LIBS}
+diff --git a/Include/NRIFramework.h b/Include/NRIFramework.h
+index 063c587..c580e5b 100644
+--- a/Include/NRIFramework.h
++++ b/Include/NRIFramework.h
+@@ -12,6 +12,7 @@
+ #define NRIF_X11     1
+ #define NRIF_WAYLAND 2
+ #define NRIF_COCOA   3
++#define NRIF_ANDROID 4
+ 
+ #if defined(_WIN32)
+ #    define NRIF_PLATFORM NRIF_WINDOWS
+@@ -21,6 +22,10 @@
+ #    define NRIF_PLATFORM NRIF_COCOA
+ #    define GLFW_EXPOSE_NATIVE_COCOA
+ #    define VK_USE_PLATFORM_METAL_EXT
++#elif defined(__ANDROID__)
++#    define NRIF_PLATFORM NRIF_ANDROID
++#    define GLFW_EXPOSE_NATIVE_ANDROID
++#    define VK_USE_PLATFORM_ANDROID_KHR
+ #elif (defined(__linux__) && NRIF_USE_WAYLAND)
+ #    define NRIF_PLATFORM NRIF_WAYLAND
+ #    define GLFW_EXPOSE_NATIVE_WAYLAND
+diff --git a/Source/SampleBase.cpp b/Source/SampleBase.cpp
+index 4a79097..cc2da41 100644
+--- a/Source/SampleBase.cpp
++++ b/Source/SampleBase.cpp
+@@ -571,6 +571,14 @@ bool SampleBase::Create(int32_t argc, char** argv, const char* windowTitle) {
+     m_NRIWindow.x11.window = glfwGetX11Window(m_Window);
+ #elif (NRIF_PLATFORM == NRIF_COCOA)
+     m_NRIWindow.metal.caMetalLayer = GetMetalLayer(m_Window);
++#elif (NRIF_PLATFORM == NRIF_ANDROID)
++    m_NRIWindow.android.window = glfwGetAndroidWindow(m_Window);
++
++    // The window is the activity's, whatever size was asked for
++    int32_t windowW = 0;
++    int32_t windowH = 0;
++    glfwGetWindowSize(m_Window, &windowW, &windowH);
++    m_OutputResolution = uint2((uint32_t)windowW, (uint32_t)windowH);
+ #endif
+ 
+     // Main initialization

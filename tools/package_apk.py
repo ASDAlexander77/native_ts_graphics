@@ -10,8 +10,9 @@ Run by the <example>_apk targets (CMakeLists.txt); with the SDK's build tools, n
 1. the assets are staged with assets.txt, the list core/android_main.cpp extracts by, whose first
    line tells this build from the last one;
 2. aapt2 links the manifest (tools/android/AndroidManifest.xml.in) and the assets;
-3. the library goes in stripped (with --strip) and uncompressed (the manifest has
-   extractNativeLibs="false"), and zipalign aligns it to 16 KiB pages;
+3. the library, and the libraries it loads given with --extra-lib (an NRI example's
+   libnri_interop.so), go in stripped (with --strip) and uncompressed (the manifest has
+   extractNativeLibs="false"), and zipalign aligns them to 16 KiB pages;
 4. apksigner signs it with the debug keystore, made by the JDK's keytool if there is none.
 """
 
@@ -131,6 +132,8 @@ def main():
     parser.add_argument("--name", required=True, help="the example: lib<name>.so, the app's label")
     parser.add_argument("--package", help="the application ID (default: org.native_ts_graphics.<name>)")
     parser.add_argument("--lib", required=True, help="the example's shared library")
+    parser.add_argument("--extra-lib", action="append", default=[], metavar="LIB",
+                        help="a shared library the example's loads, packaged next to it under its own name")
     parser.add_argument("--abi", required=True, help="its Android ABI: arm64-v8a, armeabi-v7a or x86_64")
     parser.add_argument("--assets", action="append", default=[], metavar="SOURCE=PATH",
                         help="a file or folder to package, and its path among the assets")
@@ -178,17 +181,22 @@ def main():
     run([aapt2, "link", "-o", base, "--manifest", manifest_path, "-I", android_jar, "-A", assets_folder,
          "--debug-mode"])
 
-    library = args.lib
-    if args.strip:
-        library = os.path.join(work, f"lib{args.name}.so")
-        run([args.strip, "--strip-unneeded", "-o", library, args.lib])
+    # each library under its name in the APK, stripped if asked
+    libraries = {}
+    for source, packaged in [(args.lib, f"lib{args.name}.so")] + [(lib, os.path.basename(lib)) for lib in args.extra_lib]:
+        library = source
+        if args.strip:
+            library = os.path.join(work, packaged)
+            run([args.strip, "--strip-unneeded", "-o", library, source])
+        libraries[packaged] = library
 
     # aapt2 has no say over native libraries: copy its entries as they are and add the library
     unaligned = os.path.join(work, "unaligned.apk")
     with zipfile.ZipFile(base) as source, zipfile.ZipFile(unaligned, "w") as apk:
         for entry in source.infolist():
             apk.writestr(entry, source.read(entry), compress_type=entry.compress_type)
-        apk.write(library, f"lib/{args.abi}/lib{args.name}.so", compress_type=zipfile.ZIP_STORED)
+        for packaged, library in libraries.items():
+            apk.write(library, f"lib/{args.abi}/{packaged}", compress_type=zipfile.ZIP_STORED)
 
     aligned = os.path.join(work, "aligned.apk")
     run([zipalign, "-f", "-P", "16", "4", unaligned, aligned])
