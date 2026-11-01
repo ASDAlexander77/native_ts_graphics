@@ -139,6 +139,9 @@ namespace
         int depthClip = -1;
         // Nri_PipelineDescSetLogicOp: the color attachment's logic operation (NONE: blending).
         nri::LogicOp logicOp = nri::LogicOp::NONE;
+        // Nri_PipelineDescSetShadingRate: the draws' shading rate from Nri_CmdSetShadingRate (and the
+        // shading rate attachment).
+        bool shadingRate = false;
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
         nri::PrimitiveRestart primitiveRestart = nri::PrimitiveRestart::DISABLED;
         // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
@@ -308,6 +311,10 @@ namespace
         case 8:
             // read and written by pixel shaders (RWTexture2D in a draw's pixel shader)
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::FRAGMENT_SHADER };
+        case 9:
+            // a shading rate attachment's (Nri_CreateShadingRateTexture's, from the start); all stages:
+            // Vulkan reads it at its own stage (FRAGMENT_SHADING_RATE_ATTACHMENT), which NRI has no bit for
+            return { nri::AccessBits::SHADING_RATE_ATTACHMENT, nri::Layout::SHADING_RATE_ATTACHMENT, nri::StageBits::ALL };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -911,6 +918,11 @@ extern "C"
         case 8:
             // Logic operations in the output merger (D3D's OutputMergerLogicOp, Vulkan's logicOp)
             return desc.features.logicOp ? 1 : 0;
+        case 11:
+            // Variable rate shading with shading rate attachments (D3D12 tier 2, Vulkan's
+            // VK_KHR_fragment_shading_rate with attachment and primitive rates): NVRHI's
+            // Feature::VariableRateShading
+            return desc.tiers.shadingRate >= 2 ? 1 : 0;
         default:
             return 0;
         }
@@ -1468,6 +1480,72 @@ extern "C"
         return 1;
     }
 
+    // --- Timestamp queries ------------------------------------------------------------------------
+
+    // A pool of capacity timestamp queries (QueryType::TIMESTAMP: the graphics queue's); null on
+    // failure.
+    NRI_INTEROP_API nri::QueryPool* Nri_CreateTimestampQueryPool(nri::Device* device, int capacity)
+    {
+        nri::QueryPoolDesc desc = { nri::QueryType::TIMESTAMP, (uint32_t)capacity };
+        nri::QueryPool* queryPool = nullptr;
+        if (NRI.CreateQueryPool(*device, desc, queryPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return queryPool;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyQueryPool(nri::QueryPool* queryPool)
+    {
+        NRI.DestroyQueryPool(queryPool);
+    }
+
+    // The bytes a query's result takes in a buffer Nri_CmdCopyQueries copies into (8: a uint64_t
+    // timestamp).
+    NRI_INTEROP_API int Nri_GetQuerySize(nri::QueryPool* queryPool)
+    {
+        return (int)NRI.GetQuerySize(*queryPool);
+    }
+
+    // Resets num queries from offset, before they're written again (Vulkan's vkCmdResetQueryPool; a
+    // no-op on D3D); outside rendering.
+    NRI_INTEROP_API void Nri_CmdResetQueries(nri::CommandBuffer* commandBuffer, nri::QueryPool* queryPool, int offset, int num)
+    {
+        NRI.CmdResetQueries(*commandBuffer, *queryPool, (uint32_t)offset, (uint32_t)num);
+    }
+
+    // Writes the GPU's timestamp into query offset once the commands before have completed (NRI's
+    // CmdEndQuery of a timestamp query).
+    NRI_INTEROP_API void Nri_CmdWriteTimestamp(nri::CommandBuffer* commandBuffer, nri::QueryPool* queryPool, int offset)
+    {
+        NRI.CmdEndQuery(*commandBuffer, *queryPool, (uint32_t)offset);
+    }
+
+    // Copies num written queries' results from offset into buffer (a readback buffer) at dstOffset
+    // bytes. On D3D11 the copy happens when the buffer is mapped, and a buffer remembers only its
+    // last copy: one copy per buffer between reads.
+    NRI_INTEROP_API void Nri_CmdCopyQueries(nri::CommandBuffer* commandBuffer, nri::QueryPool* queryPool, int offset, int num,
+        nri::Buffer* buffer, int dstOffset)
+    {
+        NRI.CmdCopyQueries(*commandBuffer, *queryPool, (uint32_t)offset, (uint32_t)num, *buffer, (uint64_t)dstOffset);
+    }
+
+    // The milliseconds between two timestamps a readback buffer holds (uint64_t ticks at byte
+    // offsets begin and end), at the device's timestamp frequency; -1 if the buffer can't be read.
+    NRI_INTEROP_API double Nri_ReadTimestampIntervalMs(nri::Device* device, nri::Buffer* buffer, int begin, int end)
+    {
+        const uint8_t* data = (const uint8_t*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
+        if (!data)
+            return -1.0;
+        uint64_t beginTicks = 0;
+        uint64_t endTicks = 0;
+        memcpy(&beginTicks, data + begin, sizeof(beginTicks));
+        memcpy(&endTicks, data + end, sizeof(endTicks));
+        NRI.UnmapBuffer(*buffer);
+        const uint64_t frequency = NRI.GetDeviceDesc(*device).other.timestampFrequencyHz;
+        if (frequency == 0 || endTicks < beginTicks)
+            return 0.0;
+        return double(endTicks - beginTicks) * 1000.0 / double(frequency);
+    }
+
     NRI_INTEROP_API int Nri_ReadBufferRGBA8(nri::Buffer* buffer, int rowPitch, int width, int height, int format, int* dst, int pixelCount)
     {
         const nri::FormatProps* props = nri::nriGetFormatProps((nri::Format)format);
@@ -1652,6 +1730,55 @@ extern "C"
         NRI.CmdEndRendering(*commandBuffer);
     }
 
+    // Renders into one or two color attachments (color1 null for one), a depth attachment (null for
+    // none) and a shading rate attachment (Nri_CreateShadingRateAttachmentView's; null for none).
+    NRI_INTEROP_API void Nri_CmdBeginRenderingWithShadingRate(nri::CommandBuffer* commandBuffer, nri::Descriptor* color0,
+        nri::Descriptor* color1, nri::Descriptor* depthAttachment, nri::Descriptor* shadingRateAttachment)
+    {
+        nri::Descriptor* colors[] = { color0, color1 };
+        nri::AttachmentsDesc desc = {};
+        desc.colors = colors;
+        desc.colorNum = color1 ? 2 : 1;
+        desc.depthStencil = depthAttachment;
+        desc.shadingRate = shadingRateAttachment;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
+    // Clears color attachment index (of those rendered into) within the rectangle (x, y, width,
+    // height) to (r, g, b, a) (a UINT attachment: their bits).
+    NRI_INTEROP_API void Nri_CmdClearColorAttachmentRect(nri::CommandBuffer* commandBuffer, int index, int x, int y, int width, int height,
+        float r, float g, float b, float a)
+    {
+        nri::ClearDesc clearDesc = {};
+        clearDesc.planes = nri::PlaneBits::COLOR;
+        clearDesc.colorAttachmentIndex = (uint32_t)index;
+        clearDesc.value.color.f = { r, g, b, a };
+        nri::Rect rect = { (int16_t)x, (int16_t)y, (nri::Dim_t)width, (nri::Dim_t)height };
+        NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, &rect, 1);
+    }
+
+    // Clears the depth attachment within the rectangle (x, y, width, height) to depth.
+    NRI_INTEROP_API void Nri_CmdClearDepthRect(nri::CommandBuffer* commandBuffer, int x, int y, int width, int height, float depth)
+    {
+        nri::ClearDesc clearDesc = {};
+        clearDesc.planes = nri::PlaneBits::DEPTH;
+        clearDesc.value.depthStencil.depth = depth;
+        nri::Rect rect = { (int16_t)x, (int16_t)y, (nri::Dim_t)width, (nri::Dim_t)height };
+        NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, &rect, 1);
+    }
+
+    // The draws' shading rate from now on (an nri::ShadingRate: 0 1x1, 1 1x2, 2 2x1, 3 2x2, 4 2x4,
+    // 5 4x2, 6 4x4), combined with the primitives' rate by primitiveCombiner, then with the shading
+    // rate attachment's by attachmentCombiner (nri::ShadingRateCombiner: 0 KEEP the rate so far,
+    // NVRHI's Passthrough; 1 REPLACE it, NVRHI's Override; 2 MIN, 3 MAX, 4 SUM). For pipelines with
+    // Nri_PipelineDescSetShadingRate.
+    NRI_INTEROP_API void Nri_CmdSetShadingRate(nri::CommandBuffer* commandBuffer, int shadingRate, int primitiveCombiner, int attachmentCombiner)
+    {
+        nri::ShadingRateDesc desc = { (nri::ShadingRate)shadingRate, (nri::ShadingRateCombiner)primitiveCombiner,
+            (nri::ShadingRateCombiner)attachmentCombiner };
+        NRI.CmdSetShadingRate(*commandBuffer, desc);
+    }
+
     // Renders into three color attachments (SV_Target0 to 2), views Nri_CreateColorAttachmentView
     // made.
     NRI_INTEROP_API void Nri_CmdBeginRenderingWithThreeColors(nri::CommandBuffer* commandBuffer, nri::Descriptor* color0,
@@ -1661,6 +1788,19 @@ extern "C"
         nri::AttachmentsDesc desc = {};
         desc.colors = colors;
         desc.colorNum = 3;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
+    // Renders into two color attachments (SV_Target0 and 1, Nri_CreateColorAttachmentView's views)
+    // and a depth attachment (Nri_CreateDepthAttachmentView's).
+    NRI_INTEROP_API void Nri_CmdBeginRenderingWithTwoColorsAndDepth(nri::CommandBuffer* commandBuffer, nri::Descriptor* color0,
+        nri::Descriptor* color1, nri::Descriptor* depthAttachment)
+    {
+        nri::Descriptor* colors[] = { color0, color1 };
+        nri::AttachmentsDesc desc = {};
+        desc.colors = colors;
+        desc.colorNum = 2;
+        desc.depthStencil = depthAttachment;
         NRI.CmdBeginRendering(*commandBuffer, desc);
     }
 
@@ -2138,6 +2278,13 @@ extern "C"
         desc->logicOp = (nri::LogicOp)(vkLogicOp < 5 ? vkLogicOp + 1 : vkLogicOp);
     }
 
+    // Variable rate shading (NriFeature.VariableRateShading): the draws' shading rate is the one
+    // Nri_CmdSetShadingRate sets, combined with the shading rate attachment's (Vulkan: dynamic state).
+    NRI_INTEROP_API void Nri_PipelineDescSetShadingRate(PipelineDesc* desc, int enabled)
+    {
+        desc->shadingRate = enabled != 0;
+    }
+
     // The pipeline the desc describes, with the layout; null on failure.
     NRI_INTEROP_API nri::Pipeline* Nri_CreatePipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout, PipelineDesc* desc)
     {
@@ -2190,6 +2337,7 @@ extern "C"
         pipelineDesc.outputMerger.depth = desc->depth;
         pipelineDesc.outputMerger.depthStencilFormat = desc->depthFormat;
         pipelineDesc.outputMerger.logicOp = desc->logicOp;
+        pipelineDesc.rasterization.shadingRate = desc->shadingRate;
         pipelineDesc.shaders = shaders.data();
         pipelineDesc.shaderNum = (uint32_t)shaders.size();
 
@@ -2432,6 +2580,78 @@ extern "C"
         return (int)NRI.GetDeviceDesc(*device).other.samplerAnisotropyMax;
     }
 
+    // Pixels per shading rate attachment texel in each dimension (DeviceDesc::other's
+    // shadingRateAttachmentTileSize, as NVRHI's shadingRateImageTileSize); 0 without shading rate
+    // attachments (NriFeature.VariableRateShading).
+    NRI_INTEROP_API int Nri_GetShadingRateTileSize(nri::Device* device)
+    {
+        const nri::DeviceDesc& desc = NRI.GetDeviceDesc(*device);
+        return desc.tiers.shadingRate >= 2 ? (int)desc.other.shadingRateAttachmentTileSize : 0;
+    }
+
+    // The fragment sizes (shading rates) the device has, as width, height pairs into dst (32 ints at
+    // least), as Donut_GetFragmentShadingRates gives them: Vulkan's
+    // (vkGetPhysicalDeviceFragmentShadingRatesKHR's, largest first, 16 at most), D3D12's those of its
+    // tier (2x4, 4x2 and 4x4 first with additional shading rates, then 2x2, 2x1, 1x2, 1x1). Their
+    // count, 0 without shading rate attachments.
+    NRI_INTEROP_API int Nri_GetFragmentShadingRates(nri::Device* device, int* dst)
+    {
+        const nri::DeviceDesc& desc = NRI.GetDeviceDesc(*device);
+        if (desc.tiers.shadingRate < 2)
+            return 0;
+        int count = 0;
+        if (desc.graphicsAPI == nri::GraphicsAPI::D3D12)
+        {
+            const int additional[] = { 4, 4, 4, 2, 2, 4 };
+            const int base[] = { 2, 2, 2, 1, 1, 2, 1, 1 };
+            if (desc.features.additionalShadingRates)
+            {
+                for (int i = 0; i < 6; i++)
+                    dst[count * 2 + i] = additional[i];
+                count += 3;
+            }
+            for (int i = 0; i < 8; i++)
+                dst[count * 2 + i] = base[i];
+            return count + 4;
+        }
+        if (desc.graphicsAPI != nri::GraphicsAPI::VK)
+            return 0;
+        nri::WrapperVKInterface wrapper = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            return 0;
+        // VkPhysicalDeviceFragmentShadingRateKHR (VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_KHR).
+        struct FragmentShadingRate
+        {
+            int32_t sType;
+            void* pNext;
+            uint32_t sampleCounts;
+            uint32_t width;
+            uint32_t height;
+        };
+        typedef void* (*GetInstanceProcAddr)(void* instance, const char* name);
+        typedef int32_t (*GetPhysicalDeviceFragmentShadingRates)(void* physicalDevice, uint32_t* count, FragmentShadingRate* rates);
+        void* instance = (void*)wrapper.GetInstanceVK(*device);
+        auto getInstanceProcAddr = (GetInstanceProcAddr)wrapper.GetInstanceProcAddrVK(*device);
+        auto getRates = getInstanceProcAddr
+            ? (GetPhysicalDeviceFragmentShadingRates)getInstanceProcAddr(instance, "vkGetPhysicalDeviceFragmentShadingRatesKHR") : nullptr;
+        if (!getRates)
+            return 0;
+        void* physicalDevice = (void*)wrapper.GetPhysicalDeviceVK(*device);
+        uint32_t rateNum = 0;
+        if (getRates(physicalDevice, &rateNum, nullptr) != 0)
+            return 0;
+        std::vector<FragmentShadingRate> rates(rateNum, { 1000226004, nullptr, 0, 0, 0 });
+        if (getRates(physicalDevice, &rateNum, rates.data()) < 0)
+            return 0;
+        for (uint32_t i = 0; i < rateNum && count < 16; i++)
+        {
+            dst[count * 2] = (int)rates[i].width;
+            dst[count * 2 + 1] = (int)rates[i].height;
+            count++;
+        }
+        return count;
+    }
+
     // The most root descriptors a pipeline layout can have (DeviceDesc::pipelineLayout's
     // rootDescriptorMaxNum): on Vulkan the device's maxPushDescriptors (root descriptors are push
     // descriptors there), 0 without VK_KHR_push_descriptor.
@@ -2624,6 +2844,17 @@ extern "C"
     NRI_INTEROP_API int Nri_GetFileSize(const std::vector<uint8_t>* file)
     {
         return (int)file->size();
+    }
+
+    // count bytes of a file Nri_LoadFile read, from offset, one per int at dst (0 past its end), as
+    // Donut_CopyBinaryFileBytes: for parsers in TypeScript (mobile_nerf_nri's mlp.json).
+    NRI_INTEROP_API void Nri_CopyFileBytes(const std::vector<uint8_t>* file, int offset, int count, int* dst)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            const size_t index = size_t(offset) + size_t(i);
+            dst[i] = index < file->size() ? (*file)[index] : 0;
+        }
     }
 
     // Nri_CreateUploadedBuffer from byteSize bytes of the file at offset; null if they're past its end.
@@ -3058,6 +3289,15 @@ extern "C"
         return v;
     }
 
+    // ImGui::InputFloat with +/- buttons of step (as Donut_ImGuiInputFloat: no fast step), the value
+    // shown in format ("%.3f").
+    NRI_INTEROP_API double Nri_ImguiInputFloat(const char* label, double value, double step, const char* format)
+    {
+        float v = float(value);
+        ImGui::InputFloat(label, &v, float(step), 0.f, format);
+        return v;
+    }
+
     NRI_INTEROP_API int Nri_ImguiSliderInt(const char* label, int value, int min, int max)
     {
         ImGui::SliderInt(label, &value, min, max);
@@ -3268,6 +3508,70 @@ extern "C"
         nri::Descriptor* view = nullptr;
         NRI.CreateTexture2DView(desc, view);
         return view;
+    }
+
+    // A width x height R8_UINT shading rate attachment (a texel per Nri_GetShadingRateTileSize square
+    // of pixels; D3D12_SHADING_RATE values, which Vulkan's are too: log2(width) << 2 | log2(height)),
+    // filled with data (rows rowPitch bytes apart), written by compute shaders too if storage (its
+    // view: Nri_CreateStorageTextureView with R8_UINT), left in NriTextureState.ShadingRateAttachment;
+    // null on failure. Destroyed with Nri_DestroyTexture.
+    NRI_INTEROP_API nri::Texture* Nri_CreateShadingRateTexture(nri::Device* device, nri::Queue* queue, int width, int height,
+        const void* data, int rowPitch, int storage)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, (int)nri::Format::R8_UINT);
+        desc.usage = nri::TextureUsageBits::SHADING_RATE_ATTACHMENT;
+        if (storage != 0)
+            desc.usage |= nri::TextureUsageBits::SHADER_RESOURCE_STORAGE;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * (uint32_t)height };
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = &subresource;
+        upload.texture = texture;
+        upload.after = TextureState(9);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // The view a shading rate attachment is rendered with (Nri_CmdBeginRenderingWithShadingRate).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateShadingRateAttachmentView(nri::Texture* texture)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADING_RATE_ATTACHMENT, nri::Format::R8_UINT, 0, 1 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // A width x height texture (one mip) rendered into (a color attachment) and read and written by
+    // shaders (RWTexture2D: Nri_CreateStorageTextureView), in device memory, moved on the queue (which
+    // this waits for) to state (an NriTextureState); null on failure. Like any render target, D3D12
+    // wants it cleared (as a color attachment) before shaders use it.
+    NRI_INTEROP_API nri::Texture* Nri_CreateRenderTargetStorageTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format,
+        int state)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE_STORAGE | nri::TextureUsageBits::COLOR_ATTACHMENT;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(state);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
     }
 
     // --- Async compute ------------------------------------------------------------------------

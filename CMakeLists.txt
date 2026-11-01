@@ -1559,6 +1559,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(hdr hdr_media)
 endif()
 
+# hdr with NRI and NRIFramework instead of Donut: hdr's shaders, models and environment map.
+add_tslang_nri_example(hdr_nri SHADERS hdr_shaders core/matrix.ts)
+add_tslang_example_test(hdr_nri)
+if (TARGET hdr_media AND TARGET hdr_nri)
+    add_dependencies(hdr_nri hdr_media)
+endif()
+
 # Port of Vulkan-Samples' calibrated_timestamps: its hdr sample (above: the same shaders, models and
 # cube map), with pieces of its code timed by calibrated timestamps of the device's clock
 # (VK_EXT_calibrated_timestamps; D3D12's command queue clock calibration), shown in the overlay.
@@ -2336,6 +2343,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(fragment_shading_rate_dynamic fragment_shading_rate_dynamic_media)
 endif()
 
+# fragment_shading_rate_dynamic with NRI and NRIFramework instead of Donut: fragment_shading_rate_dynamic's shaders, model and textures.
+add_tslang_nri_example(fragment_shading_rate_dynamic_nri SHADERS fragment_shading_rate_dynamic_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(fragment_shading_rate_dynamic_nri)
+if (TARGET fragment_shading_rate_dynamic_media AND TARGET fragment_shading_rate_dynamic_nri)
+    add_dependencies(fragment_shading_rate_dynamic_nri fragment_shading_rate_dynamic_media)
+endif()
+
 # Port of Vulkan-Samples' texture_compression_comparison: Sponza with its textures transcoded at
 # load time from Basis Universal KTX 2 files (UASTC, Zstandard supercompressed) into the format
 # picked: RGBA8, BC7 or BC3 (ASTC and ETC2 where the GPU has them and NVRHI the formats), timed. The
@@ -2527,6 +2541,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(fragment_shading_rate fragment_shading_rate_media)
 endif()
 
+# fragment_shading_rate with NRI and NRIFramework instead of Donut: fragment_shading_rate's shaders, model and textures.
+add_tslang_nri_example(fragment_shading_rate_nri SHADERS fragment_shading_rate_shaders core/matrix.ts)
+add_tslang_example_test(fragment_shading_rate_nri)
+if (TARGET fragment_shading_rate_media AND TARGET fragment_shading_rate_nri)
+    add_dependencies(fragment_shading_rate_nri fragment_shading_rate_media)
+endif()
+
 # Port of Vulkan-Samples' memory_budget: its instancing sample's rocks around a planet (instancing's
 # shaders) with the memory heaps' usage and budget (VK_EXT_memory_budget, or DXGI's on D3D). Its
 # models and textures are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the
@@ -2596,6 +2617,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     endforeach()
     add_custom_target(mobile_nerf_media DEPENDS ${mobile_nerf_media})
     add_dependencies(mobile_nerf mobile_nerf_media)
+endif()
+
+# mobile_nerf with NRI and NRIFramework instead of Donut: mobile_nerf's shaders and NeRF scenes.
+add_tslang_nri_example(mobile_nerf_nri SHADERS mobile_nerf_shaders core/mobile_nerf_common.ts core/matrix.ts)
+add_tslang_example_test(mobile_nerf_nri)
+if (TARGET mobile_nerf_media AND TARGET mobile_nerf_nri)
+    add_dependencies(mobile_nerf_nri mobile_nerf_media)
 endif()
 
 # Port of Vulkan-Samples' dynamic_primitive_clipping: an object drawn twice with user clip distances
@@ -2696,6 +2724,13 @@ add_tslang_example(timestamp_queries core/matrix.ts MEDIA hdr)
 add_tslang_example_test(timestamp_queries)
 if (TARGET hdr_media)
     add_dependencies(timestamp_queries hdr_media)
+endif()
+
+# timestamp_queries with NRI and NRIFramework instead of Donut: its shaders, hdr's models and environment map.
+add_tslang_nri_example(timestamp_queries_nri SHADERS timestamp_queries_shaders core/matrix.ts)
+add_tslang_example_test(timestamp_queries_nri)
+if (TARGET hdr_media AND TARGET timestamp_queries_nri)
+    add_dependencies(timestamp_queries_nri hdr_media)
 endif()
 
 # Port of Vulkan-Samples' patch_control_points: a terrain drawn twice as wireframe tessellated
