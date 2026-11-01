@@ -286,6 +286,10 @@ namespace
         case 7:
             // read and written by pixel shaders (RWStructuredBuffer in a draw's pixel shader)
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::FRAGMENT_SHADER };
+        case 8:
+            return { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER };
+        case 9:
+            return { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::FRAGMENT_SHADER };
         default:
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
         }
@@ -1754,6 +1758,22 @@ extern "C"
         return view;
     }
 
+    // A view of the whole buffer (Nri_CreateStorageBufferFromInts' with stride 0) as elements of a
+    // format: written by compute shaders (storage, 1: RWBuffer<T>) or read (0: Buffer<T>); null on
+    // failure.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTypedBufferView(nri::Buffer* buffer, int format, int storage)
+    {
+        nri::BufferViewDesc desc = {};
+        desc.buffer = buffer;
+        desc.viewType = storage != 0 ? nri::BufferViewType::SHADER_RESOURCE_STORAGE : nri::BufferViewType::SHADER_RESOURCE;
+        desc.format = (nri::Format)format;
+        desc.size = NRI.GetBufferDesc(*buffer).size;
+        nri::Descriptor* view = nullptr;
+        if (NRI.CreateBufferView(desc, view) != nri::Result::SUCCESS)
+            return nullptr;
+        return view;
+    }
+
     // A view of byteSize bytes of the buffer from offset, as a constant buffer.
     NRI_INTEROP_API nri::Descriptor* Nri_CreateConstantBufferView(nri::Buffer* buffer, int offset, int byteSize)
     {
@@ -3069,6 +3089,28 @@ extern "C"
         return descriptorPool;
     }
 
+    // As Nri_CreateDescriptorPoolWithBuffers, with room for bufferMaxNum typed buffers (Buffer<T>) and
+    // storageBufferMaxNum storage ones (RWBuffer<T>) too.
+    NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPoolWithTypedBuffers(nri::Device* device, int setMaxNum, int samplerMaxNum,
+        int constantBufferMaxNum, int textureMaxNum, int storageTextureMaxNum, int structuredBufferMaxNum, int storageStructuredBufferMaxNum,
+        int bufferMaxNum, int storageBufferMaxNum)
+    {
+        nri::DescriptorPoolDesc desc = {};
+        desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
+        desc.samplerMaxNum = (uint32_t)samplerMaxNum;
+        desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
+        desc.textureMaxNum = (uint32_t)textureMaxNum;
+        desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
+        desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.storageStructuredBufferMaxNum = (uint32_t)storageStructuredBufferMaxNum;
+        desc.bufferMaxNum = (uint32_t)bufferMaxNum;
+        desc.storageBufferMaxNum = (uint32_t)storageBufferMaxNum;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorPool;
+    }
+
     // Destroys the pool and the sets allocated from it.
     NRI_INTEROP_API void Nri_DestroyDescriptorPool(nri::DescriptorPool* descriptorPool)
     {
@@ -3156,6 +3198,23 @@ extern "C"
     NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode, int anisotropy)
     {
         return Nri_CreateSamplerWithMipFilter(device, filter, filter, addressMode, anisotropy);
+    }
+
+    // A sampler (filter for minification, magnification and mips) returning the border color, white
+    // (1) or transparent black (0), outside [0, 1]: Donut's shadow samplers.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateBorderSampler(nri::Device* device, int filter, int white)
+    {
+        nri::SamplerDesc desc = {};
+        desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)filter };
+        desc.anisotropy = 1;
+        desc.mipMax = 1000.0f;
+        desc.addressModes = { nri::AddressMode::CLAMP_TO_BORDER, nri::AddressMode::CLAMP_TO_BORDER, nri::AddressMode::CLAMP_TO_BORDER };
+        const float border = white ? 1.0f : 0.0f;
+        desc.borderColor.f = { border, border, border, border };
+        nri::Descriptor* sampler = nullptr;
+        if (NRI.CreateSampler(*device, desc, sampler) != nri::Result::SUCCESS)
+            return nullptr;
+        return sampler;
     }
 
     // The device's widest anisotropic filtering (16 on most).
@@ -3658,9 +3717,21 @@ extern "C"
         const uint32_t mipNum = std::max(header[6], 1u);
         const uint32_t layerNum = std::max(dx10[3], 1u);
         nri::Format format = nri::Format::UNKNOWN;
+        // Bytes per texel, or per 4 x 4 block (blockSize 4).
         uint32_t texelSize = 0;
+        uint32_t blockSize = 1;
         switch (dx10[0])
         {
+        case 98: // DXGI_FORMAT_BC7_UNORM
+            format = sRGB ? nri::Format::BC7_RGBA_SRGB : nri::Format::BC7_RGBA_UNORM;
+            texelSize = 16;
+            blockSize = 4;
+            break;
+        case 99: // DXGI_FORMAT_BC7_UNORM_SRGB
+            format = nri::Format::BC7_RGBA_SRGB;
+            texelSize = 16;
+            blockSize = 4;
+            break;
         case 28: // DXGI_FORMAT_R8G8B8A8_UNORM
             format = sRGB ? nri::Format::RGBA8_SRGB : nri::Format::RGBA8_UNORM;
             texelSize = 4;
@@ -3699,8 +3770,8 @@ extern "C"
             {
                 const uint32_t mipWidth = std::max(width >> mip, 1u);
                 const uint32_t mipHeight = std::max(height >> mip, 1u);
-                const uint32_t rowPitch = mipWidth * texelSize;
-                const uint32_t slicePitch = rowPitch * mipHeight;
+                const uint32_t rowPitch = (mipWidth + blockSize - 1) / blockSize * texelSize;
+                const uint32_t slicePitch = rowPitch * ((mipHeight + blockSize - 1) / blockSize);
                 if (offset + slicePitch > data.size())
                 {
                     printf("ERROR: %s is shorter than its header says\n", path);

@@ -4223,6 +4223,13 @@ add_custom_command(OUTPUT "${output}"
     VERBATIM)
 add_custom_target(environment_map_media DEPENDS "${output}")
 add_dependencies(environment_map environment_map_media)
+# environment_map with NRI and NRIFramework: Donut's passes' shaders (shaders/framework), Sponza
+# loaded as Donut's engine loads it (core/nri/nri_donut_scene.cpp); the DDS environment map only.
+add_tslang_nri_example(environment_map_nri core/matrix.ts core/donut_first_person_camera.ts core/nri_donut_textures.ts)
+add_tslang_example_test(environment_map_nri)
+if (TARGET donut_shaders AND TARGET environment_map_nri)
+    add_dependencies(environment_map_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' rt_reflections: ray traced shadows and reflections on Sponza (see
 # DONUT_SAMPLES_MEDIA_DIR above). D3D12 only, as in the sample: its hit groups use local

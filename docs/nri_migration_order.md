@@ -178,6 +178,21 @@ materials' addresses (so its order varies run to run); the port draws by materia
 UploadData crashes (in D3D12Core) moving a depth texture array's layout with the depth plane alone:
 all planes work. Still to come: environment_map.
 
+Fourth: environment_map_nri, on D3D11, D3D12 and Vulkan, its frames each Donut run's but for two
+pixels that differ between Donut's own runs (its draw order follows the materials' addresses).
+Donut's shadow depth pass renders a PlanarShadowMap fitted to the scene's bounds as Donut's
+SetupWholeSceneDirectionalLightView fits it (with this repository's depth-range patch;
+`Nri_SetupDonutPlanarShadowMap`, `Nri_GetDonutSceneBounds`), once; the forward pass shades Sponza
+with the shadowed sun (`Nri_FillDonutForwardSunLightConstants`: a planar shadow map isn't lit out of
+its bounds); Donut's EnvironmentMapPass draws the lat-long BC7 environment map behind it (the DDS
+loader reads BC7 now); Donut's ToneMappingPass (histogram and exposure compute shaders on typed
+R32_UINT buffers, `Nri_CreateTypedBufferView`, then its pixel shader) tone maps with the fixed
+exposure; the blit shows it. The Donut example's -ktx2 (its Zstandard-supercompressed KTX 2 loader)
+isn't ported. Donut's tonemapping_cb.h has depth_cb.h's include guard: nri_donut_constants.cpp
+undefines it between them. On Vulkan, a typed buffer read (Buffer<T>) is a descriptor type of its
+own: the exposure shader's t0 needs a layout apart from the histogram shader's texture t0. That
+completes tier 4; tier 5 (ray tracing) is next.
+
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
