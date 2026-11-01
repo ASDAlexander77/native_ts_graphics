@@ -121,7 +121,10 @@ enum NriShaderStage {
     Pixel = 1,
     Mesh = 2,
     Task = 3,
-    Geometry = 4
+    Geometry = 4,
+    // hull (tessellation control) and domain (tessellation evaluation) shaders
+    Hull = 5,
+    Domain = 6
 }
 
 // nri::ColorWriteBits: the channels a pipeline writes to its color attachment.
@@ -137,21 +140,41 @@ enum NriColorWrite {
 // nri::Topology: the primitives a pipeline draws (Nri_PipelineDescSetTopology).
 enum NriTopology {
     PointList = 0,
+    LineList = 1,
+    LineStrip = 2,
     TriangleList = 3,
-    TriangleStrip = 4
+    TriangleStrip = 4,
+    // patches of Nri_PipelineDescSetPatchControlPoints's control points (hull and domain shaders)
+    PatchList = 9
 }
 
 // nri::BlendFactor: Nri_PipelineDescSetBlend's.
 enum NriBlendFactor {
     Zero = 0,
     One = 1,
+    SrcColor = 2,
+    OneMinusSrcColor = 3,
+    DstColor = 4,
+    OneMinusDstColor = 5,
     SrcAlpha = 6,
-    OneMinusSrcAlpha = 7
+    OneMinusSrcAlpha = 7,
+    DstAlpha = 8,
+    OneMinusDstAlpha = 9,
+    // Nri_CmdSetBlendConstants's
+    ConstantColor = 10,
+    OneMinusConstantColor = 11,
+    ConstantAlpha = 12,
+    OneMinusConstantAlpha = 13,
+    SrcAlphaSaturate = 14
 }
 
 // nri::BlendOp: Nri_PipelineDescSetBlend's.
 enum NriBlendOp {
-    Add = 0
+    Add = 0,
+    Subtract = 1,
+    ReverseSubtract = 2,
+    Min = 3,
+    Max = 4
 }
 
 // nri::CullMode.
@@ -177,12 +200,22 @@ enum NriDescriptorType {
 // nri::StageBits: the shader stages that see a descriptor range.
 enum NriStage {
     Vertex = 2,
+    // hull (tessellation control) and domain (tessellation evaluation) shaders
+    Hull = 4,
+    Domain = 8,
+    Geometry = 16,
     // vertex and geometry
     VertexGeometry = 18,
     Task = 32,
+    Mesh = 64,
     Pixel = 128,
     // vertex and pixel
     VertexPixel = 130,
+    // vertex, hull, domain and pixel: a tessellated draw's (AllGraphics' task and mesh bits are
+    // rejected on Vulkan where the device has no mesh shaders)
+    VertexTessellationPixel = 142,
+    // every graphics stage (vertex to pixel, task and mesh)
+    AllGraphics = 254,
     Compute = 1024
 }
 
@@ -202,7 +235,11 @@ enum NriAddressMode {
 
 // NRIFramework's Key: GLFW's key codes (Nri_IsKeyToggled).
 enum NriKey {
-    Space = 32
+    Space = 32,
+    Minus = 45,
+    Equal = 61,
+    KpSubtract = 333,
+    KpAdd = 334
 }
 
 // What Nri_CreateUploadedBuffer's buffer is for.
@@ -295,6 +332,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // How far the mouse moved since the last frame, in pixels (x right, y down).
 @nodrops declare function Nri_GetMouseDeltaX(sample: NriSampleHandle): number;
 @nodrops declare function Nri_GetMouseDeltaY(sample: NriSampleHandle): number;
+// The cursor's position in the window, in pixels from its top left corner (x right, y down).
+@nodrops declare function Nri_GetMouseX(sample: NriSampleHandle): number;
+@nodrops declare function Nri_GetMouseY(sample: NriSampleHandle): number;
+// 1: the cursor is hidden and captured (relative mouse movement); 0: normal.
+@nodrops declare function Nri_SetCursorDisabled(sample: NriSampleHandle, disabled: int): void;
 // The mouse wheel's turn this frame.
 @nodrops declare function Nri_GetMouseWheel(sample: NriSampleHandle): number;
 // The last frame's duration, in seconds.
@@ -366,6 +408,16 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for usage
 // (NriBufferUsage.ConstantBuffer); null on failure.
 @nodrops declare function Nri_CreateHostBuffer(device: NriDeviceHandle, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// A buffer of byteSize bytes in device memory holding data, structures stride bytes each that shaders
+// read (StructuredBuffer; views: Nri_CreateStructuredBufferView), uploaded on the queue (which this
+// waits for), readable by every shader stage; null on failure.
+@nodrops declare function Nri_CreateUploadedStructuredBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int,
+    stride: int): NriBufferHandle | null;
+@nodrops declare function Nri_CreateUploadedStructuredBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>,
+    byteSize: int, stride: int): NriBufferHandle | null;
+// Nri_CreateUploadedStructuredBuffer from data some other library holds (MeshletModel.getData's, ...).
+@nodrops declare function Nri_CreateUploadedStructuredBufferFromPointer(device: NriDeviceHandle, queue: NriQueueHandle, data: Opaque,
+    byteSize: int, stride: int): NriBufferHandle | null;
 // Nri_CreateHostBuffer's buffer, for usage StructuredBuffer too: structures stride bytes each.
 @nodrops declare function Nri_CreateHostBufferWithStride(device: NriDeviceHandle, byteSize: int, usage: NriBufferUsage,
     stride: int): NriBufferHandle | null;
@@ -431,6 +483,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdBeginRenderingWithThreeColors(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
     color1: NriDescriptorHandle, color2: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
+// The blend constants (NriBlendFactor.ConstantColor's, ConstantAlpha's).
+@nodrops declare function Nri_CmdSetBlendConstants(commandBuffer: NriCommandBufferHandle, r: float, g: float, b: float, a: float): void;
 // Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
 // into).
 @nodrops declare function Nri_CmdClearColorAttachment(commandBuffer: NriCommandBufferHandle, index: int, r: float, g: float, b: float,
@@ -551,6 +605,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineDescSetDepth(desc: NriPipelineDescHandle, format: NriFormat, compareOp: NriCompareOp, write: int, boundsTest: int): void;
 // The primitives drawn (TriangleList by default).
 @nodrops declare function Nri_PipelineDescSetTopology(desc: NriPipelineDescHandle, topology: NriTopology): void;
+// Patches of controlPointNum control points (NriTopology.PatchList: hull and domain shaders).
+@nodrops declare function Nri_PipelineDescSetPatchControlPoints(desc: NriPipelineDescHandle, controlPointNum: int): void;
+// Triangles drawn as their edges (1) or filled (0, the default).
+@nodrops declare function Nri_PipelineDescSetWireframe(desc: NriPipelineDescHandle, wireframe: int): void;
+// Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
+@nodrops declare function Nri_PipelineDescSetFrontCounterClockwise(desc: NriPipelineDescHandle, counterClockwise: int): void;
 // The pipeline the desc describes, with the layout; null on failure.
 @nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;
 
@@ -633,6 +693,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // block-compressed format) rowPitch bytes apart, on the queue (which this waits for); leaves it in
 // NriTextureState.ShaderResource. 0 on failure.
 @nodrops declare function Nri_UploadTexture(queue: NriQueueHandle, texture: NriTextureHandle, data: Ref<int>, rowPitch: int): int;
+// A width x height texture (one mip) of format filled with data (rows rowPitch bytes apart), read by
+// compute shaders on either queue (shared by the queues, left as a compute shader resource: D3D12's
+// NON_PIXEL_SHADER_RESOURCE, which the compute queue can use); null on failure. Destroyed with
+// Nri_DestroyTexture.
+@nodrops declare function Nri_CreateUploadedComputeTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat, data: Ref<int>, rowPitch: int): NriTextureHandle | null;
 // The application's device memory in use, in bytes.
 @nodrops declare function Nri_GetDeviceMemoryUsage(device: NriDeviceHandle): number;
 
@@ -650,9 +716,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // regions uploaded.
 @nodrops declare function Nri_LoadFile(path: string): NriFileHandle | null;
 @nodrops declare function Nri_DestroyFile(file: NriFileHandle): void;
+// The bytes of a file Nri_LoadFile read (valid until Nri_DestroyFile), e.g. for a loader taking them
+// (MeshletModel.load), and their count.
+@nodrops declare function Nri_GetFileData(file: NriFileHandle): Opaque;
+@nodrops declare function Nri_GetFileSize(file: NriFileHandle): int;
 // Nri_CreateUploadedBuffer from byteSize bytes of the file at offset; null if they're past its end.
 @nodrops declare function Nri_CreateUploadedBufferFromFile(device: NriDeviceHandle, queue: NriQueueHandle, file: NriFileHandle, offset: int,
     byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// Nri_CreateUploadedStructuredBuffer from byteSize bytes of the file at offset; null if they run past
+// its end.
+@nodrops declare function Nri_CreateUploadedStructuredBufferFromFile(device: NriDeviceHandle, queue: NriQueueHandle, file: NriFileHandle,
+    offset: int, byteSize: int, stride: int): NriBufferHandle | null;
 // Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.
 @nodrops declare function Nri_UploadTextureFromFile(queue: NriQueueHandle, texture: NriTextureHandle, file: NriFileHandle, offset: int,
     rowPitch: int): int;
@@ -664,6 +738,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // queue and left in NriTextureState.ShaderResource; null if it can't be read.
 @nodrops declare function Nri_LoadTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
 @nodrops declare function Nri_LoadImageTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
+// A DDS file as tools/ktx_to_dds.py writes them (DX10 header; 2D textures and 2D texture arrays) with
+// all its layers and mips (sRGB: 1, RGBA8 as sRGB, as Donut's sRGB loads), R16_UNORM and RGBA16F too,
+// left in NriTextureState.ShaderResource; null if it can't be read. (Nri_LoadTexture reads one layer.)
+@nodrops declare function Nri_LoadDdsTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
+// A view of all the layers and mips of a 2D texture array for shaders to read (Texture2DArray).
+@nodrops declare function Nri_CreateTextureArrayView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 
 // ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
 // Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui
@@ -699,6 +779,33 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_ImguiCombo(label: string, current: int, items: string): int;
 @nodrops declare function Nri_ImguiSliderFloat(label: string, value: number, min: number, max: number): number;
 @nodrops declare function Nri_ImguiSliderInt(label: string, value: int, min: int, max: int): int;
+// 1 if the button was clicked.
+@nodrops declare function Nri_ImguiButton(label: string): int;
+// A radio button shown selected when active is non-zero; 1 if it was clicked.
+@nodrops declare function Nri_ImguiRadioButton(label: string, active: int): int;
+// Scopes the IDs of the widgets that follow (ones with the same labels apart) until Nri_ImguiPopID.
+@nodrops declare function Nri_ImguiPushID(id: int): void;
+@nodrops declare function Nri_ImguiPopID(): void;
+// The next item on the same line as the last.
+@nodrops declare function Nri_ImguiSameLine(): void;
+// Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
+@nodrops declare function Nri_ImguiSetNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void;
+// A value dragged by speed per pixel, within min and max; the new value.
+@nodrops declare function Nri_ImguiDragFloat(label: string, value: number, speed: number, min: number, max: number): number;
+// A color edit of the 4 floats at values (RGBA), width wide; 1 when changed.
+@nodrops declare function Nri_ImguiColorEdit4(label: string, values: Ref<f32>, width: number): int;
+// Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in the
+// default font and color (r, g, b, a), behind the windows (between Nri_ImguiNewFrame and
+// Nri_ImguiRender).
+@nodrops declare function Nri_ImguiDrawText(x: number, y: number, text: string, r: number, g: number, b: number, a: number,
+    alignRight: int): void;
+// A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows.
+@nodrops declare function Nri_ImguiDrawRect(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number,
+    a: number): void;
+// The width of a line of text in the default font, in UI coordinates.
+@nodrops declare function Nri_ImguiCalcTextWidth(text: string): number;
+// The height of a line of text in the default font, in UI coordinates.
+@nodrops declare function Nri_ImguiGetFontSize(): number;
 // A color picker of the 3 floats at values (RGB, unbounded), width wide, without previews, as
 // Vulkan-Samples' Drawer::color_op<Pick>; 1 when changed.
 @nodrops declare function Nri_ImguiColorPicker3(label: string, values: Ref<f32>, width: number): int;
@@ -739,3 +846,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // On the render thread: gives the texture numbered index back to the loop, in NriTextureState.Storage
 // once the graphics queue signals graphicsFence with lastUse.
 @nodrops declare function Nri_ReleaseAsyncComputeTexture(loop: NriAsyncComputeLoopHandle, index: int, lastUse: int): void;
+// The root constants of the loop's runs from now on (byteSize bytes from data, copied; the layout's
+// root constants must be that size), instead of the run index.
+@nodrops declare function Nri_SetAsyncComputeConstants(loop: NriAsyncComputeLoopHandle, data: Ref<f32>, byteSize: int): void;
+// 1: the worker starts no more runs until resumed with 0 (the run under way finishes).
+@nodrops declare function Nri_SetAsyncComputePaused(loop: NriAsyncComputeLoopHandle, paused: int): void;
+// Runs the worker has submitted so far.
+@nodrops declare function Nri_GetAsyncComputeRunCount(loop: NriAsyncComputeLoopHandle): int;

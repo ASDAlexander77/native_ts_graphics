@@ -98,7 +98,11 @@ namespace
     static_assert((int)nri::StageBits::COMPUTE_SHADER == 1024 && (int)nri::DescriptorType::STORAGE_TEXTURE == 3);
     static_assert((int)nri::Format::RGBA16_SFLOAT == 30 && (int)nri::Topology::POINT_LIST == 0);
     static_assert((int)nri::StageBits::GEOMETRY_SHADER == 16 && (int)nri::StageBits::TASK_SHADER == 32);
-    static_assert((int)nri::BlendFactor::SRC_ALPHA == 6 && (int)nri::BlendOp::ADD == 0);
+    static_assert((int)nri::BlendFactor::SRC_ALPHA == 6 && (int)nri::BlendOp::ADD == 0);    static_assert((int)nri::BlendFactor::SRC_ALPHA_SATURATE == 14 && (int)nri::BlendOp::MAX == 4);
+    static_assert((int)nri::Topology::LINE_LIST == 1 && (int)nri::Topology::LINE_STRIP == 2 && (int)nri::Topology::PATCH_LIST == 9);
+    static_assert((int)nri::StageBits::TESS_CONTROL_SHADER == 4 && (int)nri::StageBits::TESS_EVALUATION_SHADER == 8);
+    static_assert((int)nri::Format::R16_UNORM != 0);
+    static_assert((int)nri::StageBits::MESH_SHADER == 64 && (int)nri::StageBits::GRAPHICS_SHADERS == 254);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -123,6 +127,10 @@ namespace
         nri::DepthAttachmentDesc depth = {};
         nri::Format depthFormat = nri::Format::UNKNOWN;
         nri::CullMode cullMode = nri::CullMode::NONE;
+        nri::FillMode fillMode = nri::FillMode::SOLID;
+        bool frontCounterClockwise = false;
+        // Patches' control points (Nri_PipelineDescSetPatchControlPoints), with NriTopology.PatchList.
+        uint8_t tessControlPointNum = 0;
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
         nri::PrimitiveRestart primitiveRestart = nri::PrimitiveRestart::DISABLED;
         // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
@@ -394,6 +402,14 @@ namespace
 
         std::thread thread;
         std::atomic_bool terminate = false;
+        // Root constants the app set (Nri_SetAsyncComputeConstants), sent instead of the run index
+        // when not empty; the latest values go with each run.
+        std::vector<uint8_t> constants;
+        std::mutex constantsMutex;
+        // Nri_SetAsyncComputePaused: no run starts while set (the one under way finishes).
+        std::atomic_bool paused = false;
+        // Runs submitted so far (Nri_GetAsyncComputeRunCount).
+        std::atomic<int> runCount = 0;
 
         ~AsyncComputeLoop()
         {
@@ -440,7 +456,7 @@ namespace
                 const auto nextTimePoint = std::chrono::steady_clock::now() + interval;
 
                 Texture texture;
-                while (!terminate && !TryPop(renderToCompute, texture))
+                while (!terminate && (paused || !TryPop(renderToCompute, texture)))
                     std::this_thread::yield();
                 if (terminate)
                     break;
@@ -452,7 +468,13 @@ namespace
                 NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::COMPUTE, *pipelineLayout);
                 NRI.CmdSetPipeline(*commandBuffer, *pipeline);
                 NRI.CmdSetDescriptorSet(*commandBuffer, { 0, texture.descriptorSet, nri::BindPoint::COMPUTE });
-                NRI.CmdSetRootConstants(*commandBuffer, { 0, &counter, sizeof(counter), 0, nri::BindPoint::COMPUTE });
+                {
+                    std::lock_guard lock(constantsMutex);
+                    if (constants.empty())
+                        NRI.CmdSetRootConstants(*commandBuffer, { 0, &counter, sizeof(counter), 0, nri::BindPoint::COMPUTE });
+                    else
+                        NRI.CmdSetRootConstants(*commandBuffer, { 0, constants.data(), (uint32_t)constants.size(), 0, nri::BindPoint::COMPUTE });
+                }
                 NRI.CmdDispatch(*commandBuffer, { groupsX, groupsY, 1 });
                 NRI.EndCommandBuffer(*commandBuffer);
 
@@ -475,6 +497,7 @@ namespace
                 Push(computeToRender, texture);
 
                 counter++;
+                runCount++;
                 std::this_thread::sleep_until(nextTimePoint);
             }
         }
@@ -702,6 +725,26 @@ extern "C"
     NRI_INTEROP_API double Nri_GetMouseDeltaY(TsSample* sample)
     {
         return sample->GetMouseDelta().y;
+    }
+
+    // The cursor's position in the window, in pixels from its top left corner (x right, y down), as
+    // GLFW last reported it.
+    NRI_INTEROP_API double Nri_GetMouseX(TsSample* sample)
+    {
+        return sample->m_MousePosPrev.x;
+    }
+
+    NRI_INTEROP_API double Nri_GetMouseY(TsSample* sample)
+    {
+        return sample->m_MousePosPrev.y;
+    }
+
+    // Non-zero: the cursor is hidden and captured (GLFW_CURSOR_DISABLED: relative mouse movement);
+    // zero: normal.
+    NRI_INTEROP_API void Nri_SetCursorDisabled(TsSample* sample, int disabled)
+    {
+        if (sample->Window())
+            glfwSetInputMode(sample->Window(), GLFW_CURSOR, disabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
     }
 
     // The mouse wheel's turn this frame.
@@ -1156,6 +1199,57 @@ extern "C"
         return buffer;
     }
 
+    // A buffer of byteSize bytes in device memory holding data, structures stride bytes each that
+    // shaders read (StructuredBuffer), uploaded on the queue (which this waits for) and left
+    // readable by every shader stage; null on failure. Destroyed with Nri_DestroyBuffer.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedStructuredBuffer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize,
+        int stride)
+    {
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = (uint64_t)byteSize;
+        bufferDesc.structureStride = (uint32_t)stride;
+        bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE;
+        nri::Buffer* buffer = nullptr;
+        if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::DEVICE;
+        group.bufferNum = 1;
+        group.buffers = &buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(buffer);
+            return nullptr;
+        }
+        g_BufferMemory[buffer] = std::move(memory);
+
+        nri::BufferUploadDesc upload = { data, buffer,
+            { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::GRAPHICS_SHADERS | nri::StageBits::COMPUTE_SHADER } };
+        if (NRI.UploadData(*queue, nullptr, 0, &upload, 1) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyBuffer(buffer);
+            return nullptr;
+        }
+        return buffer;
+    }
+
+    // Nri_CreateUploadedStructuredBuffer from ints.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedStructuredBufferFromInts(nri::Device* device, nri::Queue* queue, const int* data,
+        int byteSize, int stride)
+    {
+        return Nri_CreateUploadedStructuredBuffer(device, queue, data, byteSize, stride);
+    }
+
+    // Nri_CreateUploadedStructuredBuffer from data some other library holds (an Opaque pointer: e.g.
+    // MeshletModel.getData's).
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedStructuredBufferFromPointer(nri::Device* device, nri::Queue* queue, const void* data,
+        int byteSize, int stride)
+    {
+        return Nri_CreateUploadedStructuredBuffer(device, queue, data, byteSize, stride);
+    }
+
     // Nri_CreateUploadedBuffer from ints (index data).
     NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBufferFromInts(nri::Device* device, nri::Queue* queue, const int* data, int byteSize, int usage)
     {
@@ -1163,7 +1257,7 @@ extern "C"
     }
 
     // A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for
-    // usage (an NriBufferUsage: 2, constant buffers; 3, structures stride bytes each, read by
+    // usage (an NriBufferUsage: 0, vertex buffers; 2, constant buffers; 3, structures stride bytes each, read by
     // shaders: StructuredBuffer); null on failure.
     NRI_INTEROP_API nri::Buffer* Nri_CreateHostBufferWithStride(nri::Device* device, int byteSize, int usage, int stride)
     {
@@ -1171,6 +1265,9 @@ extern "C"
         bufferDesc.size = (uint64_t)byteSize;
         switch (usage)
         {
+        case 0:
+            bufferDesc.usage = nri::BufferUsageBits::VERTEX_BUFFER;
+            break;
         case 2:
             bufferDesc.usage = nri::BufferUsageBits::CONSTANT_BUFFER;
             break;
@@ -1533,6 +1630,13 @@ extern "C"
         NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
     }
 
+    // The blend constants (NriBlendFactor.ConstantColor's, ConstantAlpha's).
+    NRI_INTEROP_API void Nri_CmdSetBlendConstants(nri::CommandBuffer* commandBuffer, float r, float g, float b, float a)
+    {
+        nri::Color32f color = { r, g, b, a };
+        NRI.CmdSetBlendConstants(*commandBuffer, color);
+    }
+
     // Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
     // into).
     NRI_INTEROP_API void Nri_CmdClearColorAttachment(nri::CommandBuffer* commandBuffer, int index, float r, float g, float b, float a)
@@ -1845,7 +1949,8 @@ extern "C"
         const char* permutation)
     {
         static const nri::StageBits stages[] = { nri::StageBits::VERTEX_SHADER, nri::StageBits::FRAGMENT_SHADER,
-            nri::StageBits::MESH_SHADER, nri::StageBits::TASK_SHADER, nri::StageBits::GEOMETRY_SHADER };
+            nri::StageBits::MESH_SHADER, nri::StageBits::TASK_SHADER, nri::StageBits::GEOMETRY_SHADER, nri::StageBits::TESS_CONTROL_SHADER,
+            nri::StageBits::TESS_EVALUATION_SHADER };
         if (stage < 0 || stage >= (int)helper::GetCountOf(stages))
             return 0;
         PipelineDesc::Shader shader = { stages[stage], {}, entry };
@@ -1948,6 +2053,24 @@ extern "C"
         desc->topology = (nri::Topology)topology;
     }
 
+    // Patches of controlPointNum control points (NriTopology.PatchList: hull and domain shaders).
+    NRI_INTEROP_API void Nri_PipelineDescSetPatchControlPoints(PipelineDesc* desc, int controlPointNum)
+    {
+        desc->tessControlPointNum = (uint8_t)controlPointNum;
+    }
+
+    // Triangles drawn as their edges (1) or filled (0, the default).
+    NRI_INTEROP_API void Nri_PipelineDescSetWireframe(PipelineDesc* desc, int wireframe)
+    {
+        desc->fillMode = wireframe ? nri::FillMode::WIREFRAME : nri::FillMode::SOLID;
+    }
+
+    // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
+    NRI_INTEROP_API void Nri_PipelineDescSetFrontCounterClockwise(PipelineDesc* desc, int counterClockwise)
+    {
+        desc->frontCounterClockwise = counterClockwise != 0;
+    }
+
     // The pipeline the desc describes, with the layout; null on failure.
     NRI_INTEROP_API nri::Pipeline* Nri_CreatePipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout, PipelineDesc* desc)
     {
@@ -1980,7 +2103,9 @@ extern "C"
             pipelineDesc.vertexInput = &vertexInput;
         pipelineDesc.inputAssembly.topology = desc->topology;
         pipelineDesc.inputAssembly.primitiveRestart = desc->primitiveRestart;
-        pipelineDesc.rasterization.fillMode = nri::FillMode::SOLID;
+        pipelineDesc.rasterization.fillMode = desc->fillMode;
+        pipelineDesc.rasterization.frontCounterClockwise = desc->frontCounterClockwise;
+        pipelineDesc.inputAssembly.tessControlPointNum = desc->tessControlPointNum;
         pipelineDesc.rasterization.cullMode = desc->cullMode;
         std::vector<nri::ColorAttachmentDesc> colors;
         if (desc->color.format != nri::Format::UNKNOWN)
@@ -2317,6 +2442,35 @@ extern "C"
         return NRI.UploadData(*queue, &upload, 1, nullptr, 0) == nri::Result::SUCCESS ? 1 : 0;
     }
 
+    // A width x height texture (one mip) of format filled with data (rows rowPitch bytes apart), read
+    // by compute shaders on either queue: shared by the queues, uploaded on the queue (which this
+    // waits for) and left as a shader resource of compute shaders (D3D12: NON_PIXEL_SHADER_RESOURCE,
+    // which the compute queue can use). Null on failure; destroyed with Nri_DestroyTexture.
+    NRI_INTEROP_API nri::Texture* Nri_CreateUploadedComputeTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format,
+        const void* data, int rowPitch)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(width, height, format);
+        desc.sharingMode = nri::SharingMode::CONCURRENT;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        const uint32_t blockHeight = nri::nriGetFormatProps((nri::Format)format)->blockHeight;
+        const uint32_t rows = ((uint32_t)height + blockHeight - 1) / blockHeight;
+        nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * rows };
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = &subresource;
+        upload.texture = texture;
+        upload.after = { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER };
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
     // The application's device memory in use (QueryVideoMemoryInfo's usage), in bytes.
     NRI_INTEROP_API double Nri_GetDeviceMemoryUsage(nri::Device* device)
     {
@@ -2379,6 +2533,18 @@ extern "C"
         delete file;
     }
 
+    // The bytes of a file Nri_LoadFile read (valid until Nri_DestroyFile), e.g. for a loader taking
+    // them (MeshletModel.load), and their count.
+    NRI_INTEROP_API const void* Nri_GetFileData(const std::vector<uint8_t>* file)
+    {
+        return file->data();
+    }
+
+    NRI_INTEROP_API int Nri_GetFileSize(const std::vector<uint8_t>* file)
+    {
+        return (int)file->size();
+    }
+
     // Nri_CreateUploadedBuffer from byteSize bytes of the file at offset; null if they're past its end.
     NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBufferFromFile(nri::Device* device, nri::Queue* queue, const std::vector<uint8_t>* file,
         int offset, int byteSize, int usage)
@@ -2386,6 +2552,16 @@ extern "C"
         if (offset < 0 || byteSize <= 0 || (size_t)offset + (size_t)byteSize > file->size())
             return nullptr;
         return Nri_CreateUploadedBuffer(device, queue, file->data() + offset, byteSize, usage);
+    }
+
+    // Nri_CreateUploadedStructuredBuffer from byteSize bytes of the file at offset; null if they run
+    // past its end.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedStructuredBufferFromFile(nri::Device* device, nri::Queue* queue,
+        const std::vector<uint8_t>* file, int offset, int byteSize, int stride)
+    {
+        if (offset < 0 || byteSize <= 0 || (size_t)offset + (size_t)byteSize > file->size())
+            return nullptr;
+        return Nri_CreateUploadedStructuredBuffer(device, queue, file->data() + offset, byteSize, stride);
     }
 
     // Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.
@@ -2464,6 +2640,112 @@ extern "C"
             return nullptr;
         }
         return texture;
+    }
+
+    // A DDS file as tools/ktx_to_dds.py writes them (a DX10 header; 2D textures and 2D texture
+    // arrays, each layer with all its mips, rows packed) in device memory with all its layers and
+    // mips, uploaded on the queue (which this waits for) and left in NriTextureState.ShaderResource;
+    // null if it can't be read. RGBA8 (sRGB: 1, its sRGB variant, as Donut's sRGB loads), R16_UNORM
+    // and RGBA16F, which NRIFramework's loader (detex) reads one layer of at most.
+    NRI_INTEROP_API nri::Texture* Nri_LoadDdsTexture(nri::Device* device, nri::Queue* queue, const char* path, int sRGB)
+    {
+        std::vector<uint8_t> data;
+        if (!ReadFile(LibraryDirectory() + path, data))
+            return nullptr;
+        // "DDS ", the 124-byte header, the 20-byte DX10 header.
+        const size_t headerSize = 4 + 124 + 20;
+        if (data.size() < headerSize || memcmp(data.data(), "DDS ", 4) != 0 || memcmp(data.data() + 84, "DX10", 4) != 0)
+        {
+            printf("ERROR: %s isn't a DDS file with a DX10 header\n", path);
+            return nullptr;
+        }
+        uint32_t header[31];
+        memcpy(header, data.data() + 4, sizeof(header));
+        uint32_t dx10[5];
+        memcpy(dx10, data.data() + 128, sizeof(dx10));
+        const uint32_t height = header[2];
+        const uint32_t width = header[3];
+        const uint32_t mipNum = std::max(header[6], 1u);
+        const uint32_t layerNum = std::max(dx10[3], 1u);
+        nri::Format format = nri::Format::UNKNOWN;
+        uint32_t texelSize = 0;
+        switch (dx10[0])
+        {
+        case 28: // DXGI_FORMAT_R8G8B8A8_UNORM
+            format = sRGB ? nri::Format::RGBA8_SRGB : nri::Format::RGBA8_UNORM;
+            texelSize = 4;
+            break;
+        case 29: // DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+            format = nri::Format::RGBA8_SRGB;
+            texelSize = 4;
+            break;
+        case 56: // DXGI_FORMAT_R16_UNORM
+            format = nri::Format::R16_UNORM;
+            texelSize = 2;
+            break;
+        case 10: // DXGI_FORMAT_R16G16B16A16_FLOAT
+            format = nri::Format::RGBA16_SFLOAT;
+            texelSize = 8;
+            break;
+        default:
+            printf("ERROR: %s has an unsupported format (DXGI %u)\n", path, dx10[0]);
+            return nullptr;
+        }
+        if (dx10[1] != 3 || (dx10[2] & 0x4) != 0)
+        {
+            printf("ERROR: %s isn't a 2D texture or texture array\n", path);
+            return nullptr;
+        }
+
+        // The subresources, layer by layer, each with its mips (NRI's order too).
+        std::vector<nri::TextureSubresourceUploadDesc> subresources;
+        size_t offset = headerSize;
+        for (uint32_t layer = 0; layer < layerNum; layer++)
+        {
+            for (uint32_t mip = 0; mip < mipNum; mip++)
+            {
+                const uint32_t mipWidth = std::max(width >> mip, 1u);
+                const uint32_t mipHeight = std::max(height >> mip, 1u);
+                const uint32_t rowPitch = mipWidth * texelSize;
+                const uint32_t slicePitch = rowPitch * mipHeight;
+                if (offset + slicePitch > data.size())
+                {
+                    printf("ERROR: %s is shorter than its header says\n", path);
+                    return nullptr;
+                }
+                subresources.push_back({ data.data() + offset, 1, rowPitch, slicePitch });
+                offset += slicePitch;
+            }
+        }
+
+        nri::TextureDesc desc = ShaderResourceTextureDesc((int)width, (int)height, (int)format);
+        desc.mipNum = (nri::Dim_t)mipNum;
+        desc.layerNum = (nri::Dim_t)layerNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = subresources.data();
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // A view of all the layers and mips of a 2D texture array for shaders to read (Texture2DArray).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureArrayView(nri::Texture* texture, int format)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_2D_ARRAY, (nri::Format)format, 0, nri::REMAINING,
+            0, nri::REMAINING };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
     }
 
     // --- ImGui (NRIFramework's, drawn by NRI's Imgui extension) ---------------------------------
@@ -2610,6 +2892,91 @@ extern "C"
     {
         ImGui::SliderInt(label, &value, min, max);
         return value;
+    }
+
+    // 1 if the button was clicked.
+    NRI_INTEROP_API int Nri_ImguiButton(const char* label)
+    {
+        return ImGui::Button(label) ? 1 : 0;
+    }
+
+    // A radio button shown selected when active is non-zero; 1 if it was clicked.
+    NRI_INTEROP_API int Nri_ImguiRadioButton(const char* label, int active)
+    {
+        return ImGui::RadioButton(label, active != 0) ? 1 : 0;
+    }
+
+    // Scopes the IDs of the widgets that follow (ones with the same labels apart) until the
+    // matching Nri_ImguiPopID.
+    NRI_INTEROP_API void Nri_ImguiPushID(int id)
+    {
+        ImGui::PushID(id);
+    }
+
+    NRI_INTEROP_API void Nri_ImguiPopID()
+    {
+        ImGui::PopID();
+    }
+
+    // The next item on the same line as the last.
+    NRI_INTEROP_API void Nri_ImguiSameLine()
+    {
+        ImGui::SameLine();
+    }
+
+    // Places the next window with its pivot (0..1 of its size; 1, 0 = top right corner) at x, y.
+    NRI_INTEROP_API void Nri_ImguiSetNextWindowPosPivot(double x, double y, double pivotX, double pivotY)
+    {
+        ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0, ImVec2(float(pivotX), float(pivotY)));
+    }
+
+    // A value dragged by speed per pixel, within min and max; the new value.
+    NRI_INTEROP_API double Nri_ImguiDragFloat(const char* label, double value, double speed, double min, double max)
+    {
+        float v = float(value);
+        ImGui::DragFloat(label, &v, float(speed), float(min), float(max));
+        return v;
+    }
+
+    // A color edit of the 4 floats at values (RGBA), width wide; 1 when changed.
+    NRI_INTEROP_API int Nri_ImguiColorEdit4(const char* label, float* values, double width)
+    {
+        ImGui::PushItemWidth(float(width));
+        bool changed = ImGui::ColorEdit4(label, values, ImGuiColorEditFlags_Float);
+        ImGui::PopItemWidth();
+        return changed ? 1 : 0;
+    }
+
+    // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
+    // the default font and color (r, g, b, a), on the background draw list: behind the windows, no
+    // window needed (between Nri_ImguiNewFrame and Nri_ImguiRender).
+    NRI_INTEROP_API void Nri_ImguiDrawText(double x, double y, const char* text, double r, double g, double b, double a, int alignRight)
+    {
+        ImVec2 position{ float(x), float(y) };
+        if (alignRight)
+            position.x -= ImGui::CalcTextSize(text).x;
+        ImGui::GetBackgroundDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(), position,
+            ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))), text);
+    }
+
+    // A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, on the background draw list (e.g.
+    // a box under Nri_ImguiDrawText's text).
+    NRI_INTEROP_API void Nri_ImguiDrawRect(double x0, double y0, double x1, double y1, double r, double g, double b, double a)
+    {
+        ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(float(x0), float(y0)), ImVec2(float(x1), float(y1)),
+            ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))));
+    }
+
+    // The width of a line of text in the default font, in UI coordinates.
+    NRI_INTEROP_API double Nri_ImguiCalcTextWidth(const char* text)
+    {
+        return ImGui::CalcTextSize(text).x;
+    }
+
+    // The height of a line of text in the default font, in UI coordinates.
+    NRI_INTEROP_API double Nri_ImguiGetFontSize()
+    {
+        return ImGui::GetFontSize();
     }
 
     // A color picker of the 3 floats (RGB, unbounded: HDR) at values, width wide, without previews,
@@ -2791,5 +3158,25 @@ extern "C"
         texture.descriptorSet = loop->descriptorSets[(size_t)index];
         texture.lastUse = (uint64_t)lastUse;
         loop->Push(loop->renderToCompute, texture);
+    }
+
+    // The root constants of the runs from now on (byteSize bytes from data, copied; the layout's
+    // root constants must be that size), instead of the run index.
+    NRI_INTEROP_API void Nri_SetAsyncComputeConstants(AsyncComputeLoop* loop, const void* data, int byteSize)
+    {
+        std::lock_guard lock(loop->constantsMutex);
+        loop->constants.assign((const uint8_t*)data, (const uint8_t*)data + byteSize);
+    }
+
+    // Non-zero: the worker starts no more runs until resumed (the run under way finishes).
+    NRI_INTEROP_API void Nri_SetAsyncComputePaused(AsyncComputeLoop* loop, int paused)
+    {
+        loop->paused = paused != 0;
+    }
+
+    // Runs the worker has submitted so far.
+    NRI_INTEROP_API int Nri_GetAsyncComputeRunCount(AsyncComputeLoop* loop)
+    {
+        return loop->runCount.load();
     }
 }
