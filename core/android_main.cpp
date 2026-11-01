@@ -2,6 +2,8 @@
 // TypeScript main on the glue's thread, with GLFW's Android platform giving Donut the activity's
 // window (patches/glfw-android-platform.patch). Built into lib<example>.so with the example, and
 // packaged with its shaders and media by tools/package_apk.py (the <example>_apk targets).
+// With TSLANG_ANDROID_NRI, for the examples that render with NRI instead of Donut: the window and
+// the shaders' folder go to nri_interop (libnri_interop.so, with its own GLFW) instead.
 
 #include <android/asset_manager.h>
 #include <android/log.h>
@@ -9,10 +11,12 @@
 #include <android/native_activity.h>
 #include <android_native_app_glue.h>
 
+#if !TSLANG_ANDROID_NRI
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_ANDROID
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#endif
 
 #include <dlfcn.h>
 #include <pthread.h>
@@ -34,8 +38,14 @@
 extern "C" int main(int argc, char** argv);
 #pragma clang diagnostic pop
 
+#if TSLANG_ANDROID_NRI
+// core/nri/nri_interop.cpp
+extern "C" void Nri_SetDataDirectory(const char* directory);
+extern "C" void Nri_SetAndroidApp(struct android_app* app);
+#else
 // core/donut_interop.cpp
 extern "C" void Donut_SetExecutablePath(const char* path);
+#endif
 
 // android_native_app_glue.c is compiled with its ANativeActivity_onCreate renamed to this (see
 // add_tslang_example in CMakeLists.txt), so that the one below runs first
@@ -278,8 +288,13 @@ extern "C" void android_main(struct android_app* app)
     int result = 1;
     if (ExtractAssets(app->activity, folder))
     {
+#if TSLANG_ANDROID_NRI
+        Nri_SetDataDirectory(folder.c_str());
+        Nri_SetAndroidApp(app);
+#else
         Donut_SetExecutablePath((folder / name).c_str());
         glfwSetAndroidApp(app);
+#endif
 
 #if TSLANG_MEMORY_MODEL_GC
         struct GC_stack_base stackBase = {};

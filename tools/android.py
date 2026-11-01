@@ -50,7 +50,7 @@ NOT_ON_VULKAN = {"rt_reflections"}  # D3D12-only, no SPIR-V shaders
 # the emulator's graphics passthrough, which exposes fewer extensions than the GPU has). The others
 # stop at once saying what the device lacks (ray tracing, mesh shaders, variable rate shading,
 # conditional rendering, push descriptors, sparse and reserved resources, ...).
-EMULATOR_EXAMPLES = ["16bit_arithmetic", "async_compute", "async_compute_bloom", "basic_triangle",
+EMULATOR_EXAMPLES = ["16bit_arithmetic", "async_compute", "async_compute_bloom", "basic_triangle", "basic_triangle_nri",
                      "bindless_rendering", "bokeh", "buffer_device_address", "bundles",
                      "collision", "color_write_enable", "compute_nbody", "compute_nbody_collisions",
                      "deferred_shading", "depth_bounds_test", "descriptor_indexing", "dynamic_blending",

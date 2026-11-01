@@ -667,8 +667,11 @@ if (ANDROID)
     set_source_files_properties("${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c" PROPERTIES
         COMPILE_DEFINITIONS "ANativeActivity_onCreate=glue_ANativeActivity_onCreate")
     if (TSLANG_MEMORY_MODEL STREQUAL "gc")
-        set_source_files_properties(core/android_main.cpp PROPERTIES COMPILE_DEFINITIONS "TSLANG_MEMORY_MODEL_GC=1")
+        set_property(SOURCE core/android_main.cpp APPEND PROPERTY COMPILE_DEFINITIONS "TSLANG_MEMORY_MODEL_GC=1")
     endif()
+    # An NRI example's app (add_tslang_android_app's NRI): the window goes to nri_interop
+    set_property(SOURCE core/android_main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+        "$<$<BOOL:$<TARGET_PROPERTY:TSLANG_ANDROID_NRI>>:TSLANG_ANDROID_NRI=1>")
 
     # Packaging needs the SDK's build tools and platform (not the NDK's), a JDK for apksigner and
     # keytool, and Python. The SDK is ANDROID_HOME's, or next to the NDK, or the NDK is in it.
@@ -706,34 +709,54 @@ if (ANDROID)
 endif()
 
 # lib<name>.so and bin/<name>.apk (see above), with the media files and folders listed in
-# <media> (paths in the media folder) and the further sources after it
+# <media> (paths in the media folder) and the further sources after it. Its shaders are
+# <name>_shaders', or with SHADERS <target>, that target's (shaders/<target without _shaders>).
+# NRI: an example rendering with NRI (add_tslang_nri_example), whose app is the example and
+# nri_interop's library (libnri_interop.so, packaged with it), not Donut's.
 function(add_tslang_android_app name media)
-    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts ${ARGN}
+    cmake_parse_arguments(PARSE_ARGV 2 APP "NRI" "SHADERS" "")
+    if (NOT APP_SHADERS AND TARGET ${name}_shaders)
+        set(APP_SHADERS ${name}_shaders)
+    endif()
+    string(REGEX REPLACE "_shaders$" "" shader_folder "${APP_SHADERS}")
+
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts ${APP_UNPARSED_ARGUMENTS}
         core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
         LINKER_LANGUAGE CXX
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/android/${name}")
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/android/${name}"
+        TSLANG_ANDROID_NRI ${APP_NRI})
     target_include_directories(${name}_app PRIVATE "${ANDROID_NATIVE_APP_GLUE_DIR}")
-    target_link_libraries(${name}_app PRIVATE tslang_core ${TSLANG_LINK_LIBS} donut_interop_static glfw android log)
-    if (TARGET ${name}_shaders)
-        add_dependencies(${name}_app ${name}_shaders)
+    if (APP_NRI)
+        target_link_libraries(${name}_app PRIVATE ${TSLANG_LINK_LIBS} nri_interop android log)
+    else()
+        target_link_libraries(${name}_app PRIVATE tslang_core ${TSLANG_LINK_LIBS} donut_interop_static glfw android log)
+    endif()
+    if (APP_SHADERS)
+        add_dependencies(${name}_app ${APP_SHADERS})
     endif()
 
     if (NOT ANDROID_SDK_DIR OR NOT Python3_Interpreter_FOUND)
         return()
     endif()
 
-    set(assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/framework=shaders/framework")
-    if (TARGET ${name}_shaders)
-        list(APPEND assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${name}=shaders/${name}")
+    set(assets)
+    set(extra_libs)
+    if (APP_NRI)
+        list(APPEND extra_libs --extra-lib "$<TARGET_FILE:nri_interop>")
+    else()
+        list(APPEND assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/framework=shaders/framework")
+    endif()
+    if (APP_SHADERS)
+        list(APPEND assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/${shader_folder}=shaders/${shader_folder}")
     endif()
     foreach(path ${media})
         list(APPEND assets --assets "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/${path}=media/${path}")
     endforeach()
     add_custom_target(${name}_apk
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
-            --name ${name} --lib "$<TARGET_FILE:${name}_app>" --abi ${CMAKE_ANDROID_ARCH_ABI}
+            --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
             ${assets}
             --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
             --min-sdk ${CMAKE_SYSTEM_VERSION} --keystore "${ANDROID_DEBUG_KEYSTORE}" --strip "${CMAKE_STRIP}"
@@ -741,7 +764,11 @@ function(add_tslang_android_app name media)
             --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}.apk"
         COMMENT "Packaging ${name}.apk"
         VERBATIM)
-    add_dependencies(${name}_apk ${name}_app copy_media)
+    add_dependencies(${name}_apk ${name}_app)
+    if (APP_NRI)
+        return()
+    endif()
+    add_dependencies(${name}_apk copy_media)
     if (TARGET donut_shaders)
         add_dependencies(${name}_apk donut_shaders)
     endif()
@@ -976,55 +1003,79 @@ add_tslang_example_test(basic_triangle)
 # NRI (NVIDIA Rendering Interface) and NRIFramework, NRISamples' framework, for the examples that
 # render with them instead of Donut: core/nri/nri_interop.cpp in a shared library with both, built
 # by core/nri/CMakeLists.txt as a project of its own (NRIFramework's imgui, glfw and ShaderMake
-# targets would clash with Donut's), its libraries (nri_interop, NRI) put in bin/. Not on Android,
-# which NRIFramework doesn't support.
-if (NOT ANDROID)
-    include(ExternalProject)
-    set(NRI_INTEROP_BINARY_DIR "${CMAKE_BINARY_DIR}/nri")
-    if (WIN32)
-        set(NRI_INTEROP_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/nri_interop.dll")
-        set(NRI_INTEROP_LINKED "${NRI_INTEROP_BINARY_DIR}/nri_interop.lib")
-    else()
-        set(NRI_INTEROP_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/libnri_interop.so")
-        set(NRI_INTEROP_LINKED "${NRI_INTEROP_LOCATION}")
-    endif()
-    ExternalProject_Add(nri_interop_build
-        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/core/nri"
-        BINARY_DIR "${NRI_INTEROP_BINARY_DIR}"
-        CMAKE_GENERATOR "${CMAKE_GENERATOR}"
-        CMAKE_ARGS
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-            -DNRI_OUTPUT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
-        # its build decides what's out of date (nri_interop.cpp edited, ...)
-        BUILD_ALWAYS ON
-        INSTALL_COMMAND ""
-        BUILD_BYPRODUCTS "${NRI_INTEROP_LINKED}")
-    add_library(nri_interop SHARED IMPORTED)
-    set_target_properties(nri_interop PROPERTIES IMPORTED_LOCATION "${NRI_INTEROP_LOCATION}")
-    if (WIN32)
-        set_target_properties(nri_interop PROPERTIES IMPORTED_IMPLIB "${NRI_INTEROP_LINKED}")
-    endif()
-    add_dependencies(nri_interop nri_interop_build)
+# targets would clash with Donut's), its libraries (nri_interop, NRI) put in bin/. On Android,
+# built with the same NDK toolchain into libnri_interop.so, which the APKs carry (patched for it: see
+# core/nri/CMakeLists.txt), and only for an <example>_apk target that needs it.
+include(ExternalProject)
+set(NRI_INTEROP_BINARY_DIR "${CMAKE_BINARY_DIR}/nri")
+if (WIN32)
+    set(NRI_INTEROP_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/nri_interop.dll")
+    set(NRI_INTEROP_LINKED "${NRI_INTEROP_BINARY_DIR}/nri_interop.lib")
+else()
+    set(NRI_INTEROP_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/libnri_interop.so")
+    set(NRI_INTEROP_LINKED "${NRI_INTEROP_LOCATION}")
 endif()
+if (ANDROID)
+    set(NRI_INTEROP_PLATFORM_ARGS
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+        -DANDROID_STL=${ANDROID_STL}
+        -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        # GLFW with an Android platform (patches/glfw-android-platform.patch)
+        -DNRI_GLFW_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/thirdparty/glfw)
+    # nri_interop alone: NRIFramework's ShaderMake, a program for the build machine, doesn't link
+    # with the NDK
+    set(NRI_INTEROP_BUILD_COMMAND BUILD_COMMAND "${CMAKE_COMMAND}" --build "${NRI_INTEROP_BINARY_DIR}" --target nri_interop)
+else()
+    set(NRI_INTEROP_PLATFORM_ARGS
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER})
+endif()
+ExternalProject_Add(nri_interop_build
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/core/nri"
+    BINARY_DIR "${NRI_INTEROP_BINARY_DIR}"
+    CMAKE_GENERATOR "${CMAKE_GENERATOR}"
+    CMAKE_ARGS
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        ${NRI_INTEROP_PLATFORM_ARGS}
+        -DNRI_OUTPUT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+    ${NRI_INTEROP_BUILD_COMMAND}
+    # its build decides what's out of date (nri_interop.cpp edited, ...)
+    BUILD_ALWAYS ON
+    EXCLUDE_FROM_ALL ${ANDROID}
+    INSTALL_COMMAND ""
+    BUILD_BYPRODUCTS "${NRI_INTEROP_LINKED}")
+add_library(nri_interop SHARED IMPORTED)
+set_target_properties(nri_interop PROPERTIES IMPORTED_LOCATION "${NRI_INTEROP_LOCATION}")
+if (WIN32)
+    set_target_properties(nri_interop PROPERTIES IMPORTED_IMPLIB "${NRI_INTEROP_LINKED}")
+endif()
+add_dependencies(nri_interop nri_interop_build)
 
-# add_tslang_nri_example(<name>): examples/<name>.ts, rendering with NRI through core/nri/nri_interop.d.ts.
-# It links nri_interop, and nothing of Donut (tslang_core, donut_interop_static).
+# add_tslang_nri_example(<name> [SHADERS <target>]): examples/<name>.ts, rendering with NRI through
+# core/nri/nri_interop.d.ts, and the shaders it loads, compiled by <target>. It links nri_interop,
+# and nothing of Donut (tslang_core, donut_interop_static). On Android, only the app (<name>_app,
+# <name>_apk): its window is the activity's.
 function(add_tslang_nri_example name)
-    add_executable(${name} examples/${name}.ts)
+    cmake_parse_arguments(PARSE_ARGV 1 EXAMPLE "" "SHADERS" "")
     set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts")
     tslang_own_facts(examples/${name}.ts)
+    if (ANDROID)
+        add_tslang_android_app(${name} "" SHADERS ${EXAMPLE_SHADERS} NRI)
+        return()
+    endif()
+    add_executable(${name} examples/${name}.ts)
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} nri_interop)
+    if (EXAMPLE_SHADERS)
+        add_dependencies(${name} ${EXAMPLE_SHADERS})
+    endif()
 endfunction()
 
 # basic_triangle with NRI and NRIFramework instead of Donut: basic_triangle's shaders.
-if (TARGET nri_interop)
-    add_tslang_nri_example(basic_triangle_nri)
-    add_dependencies(basic_triangle_nri basic_triangle_shaders)
-    add_tslang_example_test(basic_triangle_nri)
-endif()
+add_tslang_nri_example(basic_triangle_nri SHADERS basic_triangle_shaders)
+add_tslang_example_test(basic_triangle_nri)
 
 # Port of Donut-Samples' meshlets. D3D11 has no mesh shaders, so no DXBC.
 donut_compile_shaders(
