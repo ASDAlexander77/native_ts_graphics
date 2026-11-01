@@ -22,7 +22,7 @@
       "lib": ["ESNext"],
       "types": ["./types/tslang", "./tools/tslang/defaultlib/lib.d.ts", "C:/Utils/tslang/defaultlib/lib.d.ts", "I:/tslang/defaultlib/lib.d.ts"]
     },
-    "include": ["core/*.ts", "examples/*.ts"],
+    "include": ["core/*.ts", "examples/*.ts", "examples/nri/*.ts"],
     // tslang merges the `nvrhi` namespaces of core/nvrhi*.ts, TypeScript does not:
     // tools/gen_nvrhi_editor.mjs writes core/nvrhi.editor.<os>.ts, the merged namespace the examples
     // import, and core/nvrhi.globals.<os>.d.ts, its members as globals for the sources, which

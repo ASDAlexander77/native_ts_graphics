@@ -712,15 +712,20 @@ endif()
 # <media> (paths in the media folder) and the further sources after it. Its shaders are
 # <name>_shaders', or with SHADERS <target>, that target's (shaders/<target without _shaders>).
 # NRI: an example rendering with NRI (add_tslang_nri_example), whose app is the example and
-# nri_interop's library (libnri_interop.so, packaged with it), not Donut's.
+# nri_interop's library (libnri_interop.so, packaged with it), not Donut's; its source is
+# examples/nri/<name>.ts instead of examples/<name>.ts.
 function(add_tslang_android_app name media)
     cmake_parse_arguments(PARSE_ARGV 2 APP "NRI" "SHADERS" "")
+    set(source examples/${name}.ts)
+    if (APP_NRI)
+        set(source examples/nri/${name}.ts)
+    endif()
     if (NOT APP_SHADERS AND TARGET ${name}_shaders)
         set(APP_SHADERS ${name}_shaders)
     endif()
     string(REGEX REPLACE "_shaders$" "" shader_folder "${APP_SHADERS}")
 
-    add_library(${name}_app SHARED EXCLUDE_FROM_ALL examples/${name}.ts ${APP_UNPARSED_ARGUMENTS}
+    add_library(${name}_app SHARED EXCLUDE_FROM_ALL ${source} ${APP_UNPARSED_ARGUMENTS}
         core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
@@ -1053,19 +1058,19 @@ if (WIN32)
 endif()
 add_dependencies(nri_interop nri_interop_build)
 
-# add_tslang_nri_example(<name> [SHADERS <target>]): examples/<name>.ts, rendering with NRI through
+# add_tslang_nri_example(<name> [SHADERS <target>]): examples/nri/<name>.ts, rendering with NRI through
 # core/nri/nri_interop.d.ts, and the shaders it loads, compiled by <target>. It links nri_interop,
 # and nothing of Donut (tslang_core, donut_interop_static). On Android, only the app (<name>_app,
 # <name>_apk): its window is the activity's.
 function(add_tslang_nri_example name)
     cmake_parse_arguments(PARSE_ARGV 1 EXAMPLE "" "SHADERS" "")
-    set_source_files_properties(examples/${name}.ts PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts")
-    tslang_own_facts(examples/${name}.ts)
+    set_source_files_properties(examples/nri/${name}.ts PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts")
+    tslang_own_facts(examples/nri/${name}.ts)
     if (ANDROID)
         add_tslang_android_app(${name} "" SHADERS ${EXAMPLE_SHADERS} NRI)
         return()
     endif()
-    add_executable(${name} examples/${name}.ts)
+    add_executable(${name} examples/nri/${name}.ts)
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} nri_interop)
     if (EXAMPLE_SHADERS)

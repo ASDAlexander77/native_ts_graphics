@@ -1,10 +1,10 @@
-/// <reference path="../core/nri/nri_interop.d.ts" />
+/// <reference path="../../core/nri/nri_interop.d.ts" />
 
-namespace MeshletsNri {
-    // meshlets, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
-    // NVRHI: the same shaders (meshlets.hlsl's: a task shader workgroup launches one mesh shader
-    // workgroup, which outputs a triangle colored by its vertices), through the NRI calls
-    // core/nri/nri_interop.d.ts binds, as basic_triangle_nri draws. D3D12 and Vulkan (mesh shaders).
+namespace MeshShadingNri {
+    // mesh_shading, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
+    // and NVRHI: the same shaders (mesh_shading.hlsl's: one mesh shader workgroup outputs a triangle,
+    // drawn red), through the NRI calls core/nri/nri_interop.d.ts binds, as basic_triangle_nri draws.
+    // D3D12 and Vulkan (mesh shaders).
 
     // Test mode: the frames rendered.
     const TEST_FRAMES = 120;
@@ -12,7 +12,10 @@ namespace MeshletsNri {
     // core/test_check.ts' TEST_SKIPPED (CTest's SKIP_RETURN_CODE): the device lacks mesh shaders.
     const TEST_SKIPPED = 77;
 
-    const WINDOW_TITLE = "NRI Example: Meshlets";
+    const WINDOW_TITLE = "NRI Example: Mesh Shading";
+
+    // ApiVulkanSample's default_clear_color, linear.
+    const CLEAR_COLOR = 0.002;
 
     // The callbacks given to C++, kept for as long as it may call them.
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
@@ -31,8 +34,8 @@ namespace MeshletsNri {
         }
     }
 
-    // -test: checks the last frame, read back. The corners are the black clear color; the meshlet
-    // triangle covers an eighth of the frame, colored in the middle, its apex at the top.
+    // -test: checks the last frame, read back. The corners are the dark clear color; the mesh
+    // shader's red triangle covers an eighth of the frame, its middle included.
     function checkFrame(pixels: int[], width: int, height: int) {
         if (pixels.length == 0) {
             return "cannot read the back buffer";
@@ -41,23 +44,27 @@ namespace MeshletsNri {
         const ys = [0, 0, height - 1, height - 1];
         for (let k = 0; k < 4; k++) {
             const p = pixels[ys[k] * width + xs[k]] & 0xFFFFFF;
-            if (p != 0) {
-                return `corner (${xs[k]}, ${ys[k]}) is ${p & 0xFF}, ${(p >> 8) & 0xFF}, ${(p >> 16) & 0xFF}, not 0, 0, 0`;
+            if (p != 0x070707) {
+                return `corner (${xs[k]}, ${ys[k]}) is ${p & 0xFF}, ${(p >> 8) & 0xFF}, ${(p >> 16) & 0xFF}, not 7, 7, 7`;
             }
         }
-        if ((pixels[(height / 2) * width + width / 2] & 0xFFFFFF) == 0) {
-            return "the middle of the triangle is black";
+        if ((pixels[(height / 2) * width + width / 2] & 0xFFFFFF) != 0x0000FF) {
+            return "the middle isn't the triangle's red";
         }
-        // Clip y up, as Donut's: the apex (0, 0.5) is at the top, so (0.4, -0.4) in clip space is in
-        // the triangle and (0.4, 0.4) isn't.
-        const inside = Math.floor(height * 0.7) * width + Math.floor(width * 0.7);
-        const outside = Math.floor(height * 0.3) * width + Math.floor(width * 0.7);
-        if ((pixels[inside] & 0xFFFFFF) == 0 || (pixels[outside] & 0xFFFFFF) != 0) {
-            return "the triangle is flipped: its apex isn't at the top";
+        // Clip y up, as Donut's: the right angle is at the bottom right, so (0.3, -0.3) in clip space
+        // is in the triangle and (-0.3, 0.3) isn't.
+        const inside = Math.floor(height * 0.65) * width + Math.floor(width * 0.65);
+        const outside = Math.floor(height * 0.35) * width + Math.floor(width * 0.35);
+        if ((pixels[inside] & 0xFFFFFF) != 0x0000FF || (pixels[outside] & 0xFFFFFF) != 0x070707) {
+            return "the triangle is flipped: its right angle isn't at the bottom right";
         }
         let count = 0;
         for (let i = 0; i < width * height; i++) {
-            if ((pixels[i] & 0xFFFFFF) != 0) {
+            const p = pixels[i];
+            const r = p & 0xFF;
+            const g = (p >> 8) & 0xFF;
+            const b = (p >> 16) & 0xFF;
+            if (r >= 151 && g <= 89 && b <= 89) {
                 count++;
             }
         }
@@ -69,8 +76,9 @@ namespace MeshletsNri {
         return "";
     }
 
-    // Port of Donut-Samples' meshlets.cpp (as examples/meshlets.ts ports it) to NRI.
-    class Meshlets {
+    // Port of Vulkan-Samples' mesh_shading (as examples/mesh_shading.ts ports it) to NRI: the
+    // simplest mesh shader pipeline, no vertex input and no amplification (task) shader.
+    class MeshShading {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
         private frameFence: NriFenceHandle;
@@ -157,14 +165,15 @@ namespace MeshletsNri {
                 this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator)));
             }
 
-            // Pipeline: meshlets.hlsl's shaders, as compiled for the Donut example.
+            // Pipeline: mesh_shading.hlsl's shaders, as compiled for the Donut example. The sample's
+            // pipeline: no culling, no depth test, no blending.
             this.pipelineLayout = Nri_CreatePipelineLayout(device);
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
-            const shaders = `shaders/meshlets/${folder}/meshlets`;
-            const pipeline = Nri_CreateTaskMeshPipeline(device, this.pipelineLayout, `${shaders}_main_as.bin`, "main_as",
-                `${shaders}_main_ms.bin`, "main_ms", `${shaders}_main_ps.bin`, "main_ps", viewFormat);
+            const shaders = `shaders/mesh_shading/${folder}/mesh_shading`;
+            const pipeline = Nri_CreateMeshPipeline(device, this.pipelineLayout,
+                `${shaders}_triangle_ms.bin`, "triangle_ms", `${shaders}_triangle_ps.bin`, "triangle_ps", viewFormat);
             if (!pipeline) {
-                console.log("Cannot load the meshlet shaders");
+                console.log("Cannot load the mesh shading shaders");
                 return 0;
             }
             this.pipeline = pipeline;
@@ -201,7 +210,7 @@ namespace MeshletsNri {
                 Nri_BeginCommandBuffer(commandBuffer);
                 Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
                 if (pipeline) {
                     Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
                     Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
@@ -286,12 +295,12 @@ namespace MeshletsNri {
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const meshlets = new Meshlets(Nri_CreateSample());
-        return meshlets.run(argc, argv);
+        const meshShading = new MeshShading(Nri_CreateSample());
+        return meshShading.run(argc, argv);
     }
 }
 
 // tslang starts the program at a global main.
 function main(argc: int, argv: Ref<string>) {
-    return MeshletsNri.main(argc, argv);
+    return MeshShadingNri.main(argc, argv);
 }

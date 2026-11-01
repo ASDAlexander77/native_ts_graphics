@@ -25,7 +25,7 @@ $logs = Join-Path $root "build/smoke"
 New-Item -ItemType Directory -Force $logs | Out-Null
 
 if ($exampleList.Count -eq 0) {
-    $exampleList = @(Get-ChildItem (Join-Path $root "examples/*.ts") |
+    $exampleList = @(Get-ChildItem (Join-Path $root "examples/*.ts"), (Join-Path $root "examples/nri/*.ts") |
         ForEach-Object { $_.BaseName } |
         Where-Object { Test-Path (Join-Path $bin "$_.exe") })
 }

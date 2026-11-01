@@ -1,7 +1,7 @@
 # Migrating the examples to NRI and NRIFramework
 
-Each migration adds a sibling `examples/<name>_nri.ts` (registered with `add_tslang_nri_example`
-and `add_tslang_example_test`) next to the Donut example, using the same compiled shaders. The
+Each migration adds `examples/nri/<name>_nri.ts` (registered with `add_tslang_nri_example`
+and `add_tslang_example_test`) alongside the Donut example, using the same compiled shaders. The
 Donut version stays. The order comes from what `core/nri/nri_interop` must gain for each example:
 an example comes earlier when it needs few new `Nri_*` functions, and each tier adds one reusable
 group of them.
