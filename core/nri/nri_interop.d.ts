@@ -23,6 +23,8 @@
 @cpp declare class NriCommandBufferHandle { private readonly __nriCommandBuffer: index; }
 @cpp declare class NriPipelineLayoutHandle { private readonly __nriPipelineLayout: index; }
 @cpp declare class NriPipelineHandle { private readonly __nriPipeline: index; }
+// What Nri_CreatePipelineFromDesc makes a pipeline from (Nri_CreatePipelineDesc).
+@cpp declare class NriPipelineDescHandle { private readonly __nriPipelineDesc: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -37,17 +39,69 @@ enum NriTextureState {
     Undefined = 0,
     ColorAttachment = 1,
     CopySource = 2,
-    Present = 3
+    Present = 3,
+    // a depth attachment's (Nri_CreateDepthTexture's, from the start)
+    DepthAttachment = 4
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
 enum NriFeature {
     // features.meshShader: Nri_CreateMeshPipeline, Nri_CmdDrawMeshTasks (D3D12, Vulkan)
-    MeshShader = 0
+    MeshShader = 0,
+    // features.depthBoundsTest: Nri_PipelineDescSetDepth's boundsTest, Nri_CmdSetDepthBounds
+    DepthBoundsTest = 1
 }
 
-// nri::Format, which the functions taking or returning a format pass through.
-type NriFormat = int;
+// nri::Format, which the functions taking or returning a format pass through: the values the
+// examples name (nri_interop.cpp asserts them), any other passing through as well.
+enum NriFormat {
+    Unknown = 0,
+    BGRA8_UNORM = 9,
+    BGRA8_SRGB = 10,
+    RGBA8_UNORM = 11,
+    RGBA8_SRGB = 12,
+    R32_SFLOAT = 33,
+    RG32_SFLOAT = 36,
+    RGB32_SFLOAT = 39,
+    RGBA32_SFLOAT = 42,
+    D32_SFLOAT = 66
+}
+
+// nri::CompareOp: a depth test's (None: off).
+enum NriCompareOp {
+    None = 0,
+    Always = 1,
+    Never = 2,
+    Equal = 3,
+    NotEqual = 4,
+    Less = 5,
+    LessEqual = 6,
+    Greater = 7,
+    GreaterEqual = 8
+}
+
+// The stages of the shaders Nri_PipelineDescAddShader adds.
+enum NriShaderStage {
+    Vertex = 0,
+    Pixel = 1,
+    Mesh = 2,
+    Task = 3
+}
+
+// nri::ColorWriteBits: the channels a pipeline writes to its color attachment.
+enum NriColorWrite {
+    None = 0,
+    R = 1,
+    G = 2,
+    B = 4,
+    A = 8,
+    RGBA = 15
+}
+
+// What Nri_CreateUploadedBuffer's buffer is for.
+enum NriBufferUsage {
+    VertexBuffer = 0
+}
 
 type NriInitializeCallback = (graphicsAPI: NriGraphicsAPI) => int;
 type NriFrameCallback = (frameIndex: int) => void;
@@ -115,13 +169,22 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // textures are UNORM, their color attachment views may be sRGB (as Donut's back buffers are).
 @nodrops declare function Nri_GetSrgbFormat(format: NriFormat): NriFormat;
 @nodrops declare function Nri_CreateColorAttachmentView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+@nodrops declare function Nri_CreateDepthAttachmentView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 @nodrops declare function Nri_DestroyDescriptor(descriptor: NriDescriptorHandle): void;
+// A width x height depth texture in device memory, moved on the queue (which this waits for) to
+// NriTextureState.DepthAttachment, where it stays (no barriers needed); null on failure.
+@nodrops declare function Nri_CreateDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int, format: NriFormat): NriTextureHandle | null;
+// Destroys a texture Nri_CreateDepthTexture made and frees its memory.
+@nodrops declare function Nri_DestroyTexture(texture: NriTextureHandle): void;
 
 // Buffers
 // A buffer of byteSize bytes in memory the CPU reads, bound to its memory; null on failure.
 @nodrops declare function Nri_CreateReadbackBuffer(device: NriDeviceHandle, byteSize: int): NriBufferHandle | null;
 // Destroys the buffer and frees its memory.
 @nodrops declare function Nri_DestroyBuffer(buffer: NriBufferHandle): void;
+// A buffer of byteSize bytes in device memory, filled with data's byteSize bytes (Ref of an array
+// element) on the queue, which this waits for; null on failure.
+@nodrops declare function Nri_CreateUploadedBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
 // The pixels of an 8-bit RGBA or BGRA texture read back into the buffer (rowPitch bytes a row),
 // one int each with red in the low byte (0xAABBGGRR; BGRA swapped), row by row into dst
 // (pixelCount ints; Ref of an int array element). 0 if the buffer can't be mapped or the format
@@ -141,7 +204,15 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdTextureBarrier(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle, before: NriTextureState, after: NriTextureState): void;
 // Renders into one color attachment, a view Nri_CreateColorAttachmentView made.
 @nodrops declare function Nri_CmdBeginRendering(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle): void;
+// Renders into one color attachment and a depth attachment (Nri_CreateDepthAttachmentView's).
+@nodrops declare function Nri_CmdBeginRenderingWithDepth(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
+// Clears the whole depth attachment (after Nri_CmdBeginRenderingWithDepth).
+@nodrops declare function Nri_CmdClearDepth(commandBuffer: NriCommandBufferHandle, depth: float): void;
+// Binds a vertex buffer, its vertices stride bytes apart, to stream slot.
+@nodrops declare function Nri_CmdSetVertexBuffer(commandBuffer: NriCommandBufferHandle, slot: int, buffer: NriBufferHandle, stride: int): void;
+// The depth bounds test's range (NriFeature.DepthBoundsTest; a pipeline with the test on).
+@nodrops declare function Nri_CmdSetDepthBounds(commandBuffer: NriCommandBufferHandle, boundsMin: float, boundsMax: float): void;
 // Clears the whole color attachment (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
 @nodrops declare function Nri_CmdClearColor(commandBuffer: NriCommandBufferHandle, r: float, g: float, b: float, a: float): void;
 @nodrops declare function Nri_CmdSetViewport(commandBuffer: NriCommandBufferHandle, x: float, y: float, width: float, height: float): void;
@@ -182,3 +253,20 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     taskPath: string, taskEntry: string, msPath: string, msEntry: string, psPath: string, psEntry: string,
     colorFormat: NriFormat): NriPipelineHandle | null;
 @nodrops declare function Nri_DestroyPipeline(pipeline: NriPipelineHandle): void;
+
+// Pipeline descs: a graphics pipeline's shaders and states, set one by one. A new desc draws
+// triangles, not culled, without vertex input, color attachment or depth.
+@nodrops declare function Nri_CreatePipelineDesc(): NriPipelineDescHandle;
+@nodrops declare function Nri_DestroyPipelineDesc(desc: NriPipelineDescHandle): void;
+// Adds a shader read from path (as Nri_CreateGraphicsPipeline's); 0 if it can't be read.
+@nodrops declare function Nri_PipelineDescAddShader(desc: NriPipelineDescHandle, stage: NriShaderStage, path: string, entry: string): int;
+// An attribute of stream 0's vertices: semantic (index 0) on D3D, the next location on Vulkan (as
+// DXC numbers the vertex shader's inputs), format at offset bytes in the vertex.
+@nodrops declare function Nri_PipelineDescAddVertexAttribute(desc: NriPipelineDescHandle, semantic: string, format: NriFormat, offset: int): void;
+// The color attachment's format and the channels written (NriColorWrite bits).
+@nodrops declare function Nri_PipelineDescSetColor(desc: NriPipelineDescHandle, format: NriFormat, writeMask: int): void;
+// The depth attachment's format, its test (NriCompareOp.None: off), whether it's written (1) and
+// whether the depth bounds test is on (1; NriFeature.DepthBoundsTest).
+@nodrops declare function Nri_PipelineDescSetDepth(desc: NriPipelineDescHandle, format: NriFormat, compareOp: NriCompareOp, write: int, boundsTest: int): void;
+// The pipeline the desc describes, with the layout; null on failure.
+@nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;

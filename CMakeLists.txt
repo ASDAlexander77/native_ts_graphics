@@ -3762,6 +3762,9 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(depth_bounds_test)
 add_tslang_example_test(depth_bounds_test)
+# depth_bounds_test with NRI and NRIFramework instead of Donut: depth_bounds_test's shaders.
+add_tslang_nri_example(depth_bounds_test_nri SHADERS depth_bounds_test_shaders)
+add_tslang_example_test(depth_bounds_test_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12PredicationQueries: a translucent quad moving across a far
 # one, which is drawn only if the previous frame's binary occlusion query found its bounding box
@@ -4251,7 +4254,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)

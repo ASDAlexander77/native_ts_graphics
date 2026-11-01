@@ -17,37 +17,37 @@ NRI's headers. Examples using something NRI lacks are excluded.
 |---|---|
 | basic_triangle_nri (#174) | device, swap chain, frames, empty pipeline layout, VS+PS pipeline, draw, test readback |
 | mesh_shading_nri (#177) | `Nri_IsFeatureSupported` (`NriFeature.MeshShader`), `Nri_CreateMeshPipeline`, `Nri_CmdDrawMeshTasks` |
-| meshlets_nri | `Nri_CreateTaskMeshPipeline` (task shader), `Nri_GetSrgbFormat` (sRGB color attachment views of the UNORM swap chain, as Donut's sRGB back buffers: pixels match the Donut examples) |
+| meshlets_nri (#178) | `Nri_CreateTaskMeshPipeline` (task shader), `Nri_GetSrgbFormat` (sRGB color attachment views of the UNORM swap chain, as Donut's sRGB back buffers: pixels match the Donut examples) |
+| depth_bounds_test_nri | pipeline descs (`Nri_CreatePipelineDesc`, shaders, vertex attributes, color write mask, depth test and bounds), `Nri_CreateUploadedBuffer` (vertex buffer), `Nri_CreateDepthTexture` (moved to its layout once, at creation), `Nri_CmdBeginRenderingWithDepth`, `Nri_CmdClearDepth`, `Nri_CmdSetVertexBuffer`, `Nri_CmdSetDepthBounds`, `NriFeature.DepthBoundsTest`, the `NriFormat` / `NriCompareOp` enums |
 
 ## Tier 1: vertex buffers, offscreen targets, fixed-function state
 
-Adds buffer upload (`HelperInterface::UploadData`, memory via `AllocateAndBindMemory`), vertex
-input layouts, depth and color render targets, and a blit or copy to the swap chain.
+Buffer upload, vertex input, depth targets and pipeline descs are in (depth_bounds_test_nri).
+Still to add: offscreen color targets and a blit or copy to the swap chain.
 
-1. **depth_bounds_test**: vertex buffer, D32 depth target, depth bounds (`features.depthBoundsTest`, `CmdSetDepthBounds`).
-2. **small_resources**: adds a first binding set (descriptor pool and sets).
+1. **small_resources**: adds a first binding set (descriptor pool and sets).
 
 ## Tier 2: descriptor sets and constant buffers
 
 Adds pipeline layouts with descriptor sets and root constants (push constants), constant
 buffers, structured buffers and samplers.
 
-3. **descriptor_indexing**: descriptor ranges with partially bound / variable-size arrays.
-4. **dynamic_uniform_buffers**: constant buffer slices, with a camera matrix computed in TypeScript.
-5. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
-6. **dynamic_indexing**
-7. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
+2. **descriptor_indexing**: descriptor ranges with partially bound / variable-size arrays.
+3. **dynamic_uniform_buffers**: constant buffer slices, with a camera matrix computed in TypeScript.
+4. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
+5. **dynamic_indexing**
+6. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
 
 ## Tier 3: compute and queues
 
 Adds compute pipelines, `CmdDispatch`, storage buffers and textures, compute/copy queues and
 timeline fences.
 
-8. **async_compute**
-9. **timeline_semaphore**
-10. **compute_nbody**
-11. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-12. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+7. **async_compute**
+8. **timeline_semaphore**
+9. **compute_nbody**
+10. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+11. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
 ## Tier 4: ImGui (NRIImgui.h)
 
@@ -67,6 +67,14 @@ material and vertex layouts need checking for each example.
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
 ray_queries. After that come the scene-heavy ray-traced examples.
+
+## Notes
+
+- D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is
+  the write bit alone, and textures are moved to their layout once at creation instead of from
+  Undefined each frame.
+- An animation that the original sample steps in OnUpdate counts the frame before it's drawn
+  (frame number = frameIndex + 1), as Donut's test mode does.
 
 ## Excluded
 
