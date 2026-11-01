@@ -136,7 +136,11 @@ enum NriDescriptorType {
     ConstantBuffer = 1,
     Texture = 2,
     // RWTexture2D (u registers)
-    StorageTexture = 3
+    StorageTexture = 3,
+    // StructuredBuffer (t registers)
+    StructuredBuffer = 6,
+    // RWStructuredBuffer (u registers)
+    StorageStructuredBuffer = 7
 }
 
 // nri::StageBits: the shader stages that see a descriptor range.
@@ -173,6 +177,16 @@ enum NriBufferUsage {
     IndexBuffer = 1,
     // Nri_CreateHostBuffer's
     ConstantBuffer = 2
+}
+
+// The states Nri_CmdBufferBarrier moves a storage buffer between (nri::AccessStage).
+enum NriBufferState {
+    // read and written by compute shaders (Nri_CreateStorageBuffer's buffers, from the start)
+    Storage = 0,
+    // read by vertex shaders
+    VertexShaderResource = 1,
+    // copied from (Nri_CmdCopyBuffer)
+    CopySource = 2
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -294,6 +308,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateReadbackBuffer(device: NriDeviceHandle, byteSize: int): NriBufferHandle | null;
 // Destroys the buffer and frees its memory.
 @nodrops declare function Nri_DestroyBuffer(buffer: NriBufferHandle): void;
+// Copies count floats from the start of the buffer (a readback buffer, after the GPU wrote it) to
+// dst; 1, or 0 if it can't be read.
+@nodrops declare function Nri_ReadBufferFloats(buffer: NriBufferHandle, dst: Ref<f32>, count: int): int;
 // A buffer of byteSize bytes in device memory, filled with data's byteSize bytes (Ref of an array
 // element) on the queue, which this waits for; null on failure.
 @nodrops declare function Nri_CreateUploadedBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
@@ -303,6 +320,14 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies byteSize bytes of data (Ref of an f32 array element) into the buffer at offset; 0 on failure.
 @nodrops declare function Nri_WriteBuffer(buffer: NriBufferHandle, offset: int, data: Ref<f32>, byteSize: int): int;
 // A view of byteSize bytes of the buffer from offset, as a constant buffer; null on failure.
+// A buffer of byteSize bytes of structures stride bytes each in device memory, which compute
+// shaders write (RWStructuredBuffer) and shaders read (StructuredBuffer), with data uploaded on the
+// queue (which this waits for), then in NriBufferState.Storage; null on failure.
+@nodrops declare function Nri_CreateStorageBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int,
+    stride: int): NriBufferHandle | null;
+// A view of the whole buffer (Nri_CreateStorageBuffer's) as structures: written by compute shaders
+// (storage, 1: RWStructuredBuffer) or read (0: StructuredBuffer); null on failure.
+@nodrops declare function Nri_CreateStructuredBufferView(buffer: NriBufferHandle, storage: int): NriDescriptorHandle | null;
 @nodrops declare function Nri_CreateConstantBufferView(buffer: NriBufferHandle, offset: int, byteSize: int): NriDescriptorHandle | null;
 // Nri_CreateUploadedBuffer from an int array (index data).
 @nodrops declare function Nri_CreateUploadedBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
@@ -322,6 +347,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_BeginCommandBuffer(commandBuffer: NriCommandBufferHandle): void;
 @nodrops declare function Nri_EndCommandBuffer(commandBuffer: NriCommandBufferHandle): void;
 // Moves the whole texture from one state to another.
+// A barrier moving the buffer from the state before to after; from Storage to Storage, the writes
+// before are seen by the accesses after.
+// Copies byteSize bytes from the start of src (in NriBufferState.CopySource) to the start of dst
+// (e.g. a readback buffer).
+@nodrops declare function Nri_CmdCopyBuffer(commandBuffer: NriCommandBufferHandle, dst: NriBufferHandle, src: NriBufferHandle, byteSize: int): void;
+@nodrops declare function Nri_CmdBufferBarrier(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, before: NriBufferState,
+    after: NriBufferState): void;
 @nodrops declare function Nri_CmdTextureBarrier(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle, before: NriTextureState, after: NriTextureState): void;
 // Renders into one color attachment, a view Nri_CreateColorAttachmentView made.
 @nodrops declare function Nri_CmdBeginRendering(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle): void;
@@ -352,10 +384,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Binds an index buffer from offset bytes in.
 @nodrops declare function Nri_CmdSetIndexBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, offset: int, indexType: NriIndexType): void;
 @nodrops declare function Nri_CmdDrawIndexed(commandBuffer: NriCommandBufferHandle, indexNum: int, instanceNum: int, baseIndex: int, baseVertex: int, baseInstance: int): void;
-// The compute bind point's Nri_CmdSetPipelineLayout, Nri_CmdSetDescriptorSet and
-// Nri_CmdSetRootConstants (for Nri_CmdDispatch).
+// The compute bind point's Nri_CmdSetPipelineLayout, Nri_CmdSetDescriptorSet,
+// Nri_CmdSetRootDescriptor (no offset) and Nri_CmdSetRootConstants (for Nri_CmdDispatch).
 @nodrops declare function Nri_CmdSetComputePipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
 @nodrops declare function Nri_CmdSetComputeDescriptorSet(commandBuffer: NriCommandBufferHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+@nodrops declare function Nri_CmdSetComputeRootDescriptor(commandBuffer: NriCommandBufferHandle, rootDescriptorIndex: int, descriptor: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdSetComputeRootConstants(commandBuffer: NriCommandBufferHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
 // Dispatches x * y * z groups of the compute pipeline set.
 @nodrops declare function Nri_CmdDispatch(commandBuffer: NriCommandBufferHandle, x: int, y: int, z: int): void;
@@ -420,6 +453,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineDescSetCullMode(desc: NriPipelineDescHandle, cullMode: NriCullMode): void;
 // The color attachment's format and the channels written (NriColorWrite bits).
 @nodrops declare function Nri_PipelineDescSetColor(desc: NriPipelineDescHandle, format: NriFormat, writeMask: int): void;
+// Additive blending into the color attachment, as Donut's BlendMode.Additive: color one + one, alpha
+// srcAlpha + dstAlpha.
+@nodrops declare function Nri_PipelineDescSetAdditiveBlend(desc: NriPipelineDescHandle): void;
 // The depth attachment's format, its test (NriCompareOp.None: off), whether it's written (1) and
 // whether the depth bounds test is on (1; NriFeature.DepthBoundsTest).
 @nodrops declare function Nri_PipelineDescSetDepth(desc: NriPipelineDescHandle, format: NriFormat, compareOp: NriCompareOp, write: int, boundsTest: int): void;
@@ -440,9 +476,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineLayoutDescSetRegisterSpace(desc: NriPipelineLayoutDescHandle, setIndex: int, registerSpace: int): void;
 // size bytes of root constants (push constants) at register b<registerIndex>, space 0, for stages.
 @nodrops declare function Nri_PipelineLayoutDescAddRootConstants(desc: NriPipelineLayoutDescHandle, registerIndex: int, size: int, stages: NriStage): void;
-// A root descriptor (push descriptor) of type (a constant buffer) at register b<registerIndex>,
-// space 0, for stages: bound per draw with an offset (Nri_CmdSetRootDescriptor), as a dynamic uniform
-// buffer is.
+// A root descriptor (push descriptor) of type (a constant buffer, or a structured buffer) at
+// register b, t or u<registerIndex> (by type), space 0, for stages: bound per draw with an offset
+// (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is, or per dispatch.
 @nodrops declare function Nri_PipelineLayoutDescAddRootDescriptor(desc: NriPipelineLayoutDescHandle, registerIndex: int, type: NriDescriptorType, stages: NriStage): void;
 // An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification and
 // magnification, mipFilter for mips, addressMode on all axes, for stages.

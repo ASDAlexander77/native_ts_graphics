@@ -84,6 +84,7 @@ namespace
     static_assert((int)nri::Topology::TRIANGLE_LIST == 3 && (int)nri::Topology::TRIANGLE_STRIP == 4);
     static_assert((int)nri::DescriptorType::SAMPLER == 0 && (int)nri::DescriptorType::CONSTANT_BUFFER == 1
         && (int)nri::DescriptorType::TEXTURE == 2);
+    static_assert((int)nri::DescriptorType::STRUCTURED_BUFFER == 6 && (int)nri::DescriptorType::STORAGE_STRUCTURED_BUFFER == 7);
     static_assert((int)nri::StageBits::VERTEX_SHADER == 2 && (int)nri::StageBits::FRAGMENT_SHADER == 128);
     static_assert((int)nri::Filter::NEAREST == 0 && (int)nri::Filter::LINEAR == 1);
     static_assert((int)nri::AddressMode::REPEAT == 0 && (int)nri::AddressMode::CLAMP_TO_BORDER == 3);
@@ -174,6 +175,35 @@ namespace
         return read && !data.empty();
     }
 
+    // A shader's bytecode, read from path: the file, or the one permutation in it when it's a
+    // ShaderMake permutation blob ("NVSP", then per permutation its sizes, its defines and its
+    // bytecode), as a .cfg line with -D compiles, for that line's defines.
+    bool ReadShader(const std::string& path, std::vector<uint8_t>& data)
+    {
+        if (!ReadFile(path, data))
+            return false;
+        if (data.size() < 4 || memcmp(data.data(), "NVSP", 4) != 0)
+            return true;
+        struct Entry
+        {
+            uint32_t permutationSize;
+            uint32_t dataSize;
+        };
+        size_t offset = 4;
+        if (data.size() < offset + sizeof(Entry))
+            return false;
+        Entry entry;
+        memcpy(&entry, data.data() + offset, sizeof(Entry));
+        size_t start = offset + sizeof(Entry) + entry.permutationSize;
+        if (data.size() < start + entry.dataSize || start + entry.dataSize != data.size())
+        {
+            printf("ERROR: %s holds more than one permutation\n", path.c_str());
+            return false;
+        }
+        data = std::vector<uint8_t>(data.begin() + (ptrdiff_t)start, data.end());
+        return true;
+    }
+
     // NRI's messages (its validation layer's and the graphics API's) on the standard output, errors
     // with "ERROR" in them, as the tests look for.
     void NRI_CALL MessageCallback(nri::Message messageType, const char* file, uint32_t line, const char* message, void*)
@@ -181,6 +211,21 @@ namespace
         const char* kind = messageType == nri::Message::ERROR ? "ERROR" : messageType == nri::Message::WARNING ? "WARNING" : "INFO";
         printf("NRI %s: %s (%s:%u)\n", kind, message, file, line);
         fflush(stdout);
+    }
+
+    // The states the examples' barriers move a buffer between (Nri_CmdBufferBarrier). Values of
+    // NriBufferState in nri_interop.d.ts.
+    nri::AccessStage BufferState(int state)
+    {
+        switch (state)
+        {
+        case 1:
+            return { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::VERTEX_SHADER };
+        case 2:
+            return { nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY };
+        default:
+            return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
+        }
     }
 
     // The states the examples' barriers move a texture between (Nri_CmdTextureBarrier). Values of
@@ -220,7 +265,7 @@ namespace
     {
         std::string directory = LibraryDirectory();
         std::vector<uint8_t> task, first, ps;
-        if ((taskPath && !ReadFile(directory + taskPath, task)) || !ReadFile(directory + firstPath, first) || !ReadFile(directory + psPath, ps))
+        if ((taskPath && !ReadShader(directory + taskPath, task)) || !ReadShader(directory + firstPath, first) || !ReadShader(directory + psPath, ps))
             return nullptr;
 
         std::vector<nri::ShaderDesc> shaders;
@@ -1034,6 +1079,57 @@ extern "C"
         return 1;
     }
 
+    // A buffer of byteSize bytes of structures stride bytes each in device memory, which compute
+    // shaders write (RWStructuredBuffer) and shaders read (StructuredBuffer), with data uploaded on
+    // the queue (which this waits for), then in NriBufferState.Storage; null on failure.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBuffer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int stride)
+    {
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = (uint64_t)byteSize;
+        bufferDesc.structureStride = (uint32_t)stride;
+        bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE;
+        nri::Buffer* buffer = nullptr;
+        if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::DEVICE;
+        group.bufferNum = 1;
+        group.buffers = &buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(buffer);
+            return nullptr;
+        }
+        g_BufferMemory[buffer] = std::move(memory);
+
+        nri::BufferUploadDesc upload = { data, buffer, BufferState(0) };
+        if (NRI.UploadData(*queue, nullptr, 0, &upload, 1) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyBuffer(buffer);
+            return nullptr;
+        }
+        return buffer;
+    }
+
+    // A view of the whole buffer (Nri_CreateStorageBuffer's) as structures: written by compute
+    // shaders (storage, 1: RWStructuredBuffer) or read (0: StructuredBuffer); null on failure.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateStructuredBufferView(nri::Buffer* buffer, int storage)
+    {
+        nri::BufferViewDesc desc = {};
+        desc.buffer = buffer;
+        desc.viewType = storage != 0 ? nri::BufferViewType::SHADER_RESOURCE_STORAGE : nri::BufferViewType::SHADER_RESOURCE;
+        // the size and stride given (NRI's D3D11 views take neither WHOLE_SIZE nor the buffer's stride)
+        const nri::BufferDesc& bufferDesc = NRI.GetBufferDesc(*buffer);
+        desc.size = bufferDesc.size;
+        desc.structureStride = bufferDesc.structureStride;
+        nri::Descriptor* view = nullptr;
+        if (NRI.CreateBufferView(desc, view) != nri::Result::SUCCESS)
+            return nullptr;
+        return view;
+    }
+
     // A view of byteSize bytes of the buffer from offset, as a constant buffer.
     NRI_INTEROP_API nri::Descriptor* Nri_CreateConstantBufferView(nri::Buffer* buffer, int offset, int byteSize)
     {
@@ -1064,6 +1160,18 @@ extern "C"
     // The pixels of an 8-bit RGBA or BGRA texture read back into the buffer (rowPitch bytes a row),
     // one int each with red in the low byte (0xAABBGGRR; BGRA swapped), row by row into dst
     // (pixelCount ints). 0 if the buffer can't be mapped or the format isn't one of those.
+    // Copies count floats from the start of the buffer (a readback buffer, after the GPU wrote it)
+    // to dst; 1, or 0 if it can't be read.
+    NRI_INTEROP_API int Nri_ReadBufferFloats(nri::Buffer* buffer, float* dst, int count)
+    {
+        const float* data = (const float*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
+        if (!data)
+            return 0;
+        memcpy(dst, data, (size_t)count * sizeof(float));
+        NRI.UnmapBuffer(*buffer);
+        return 1;
+    }
+
     NRI_INTEROP_API int Nri_ReadBufferRGBA8(nri::Buffer* buffer, int rowPitch, int width, int height, int format, int* dst, int pixelCount)
     {
         const nri::FormatProps* props = nri::nriGetFormatProps((nri::Format)format);
@@ -1130,6 +1238,28 @@ extern "C"
     }
 
     // Moves the whole texture from one NriTextureState to another.
+    // Copies byteSize bytes from the start of src (in NriBufferState.CopySource) to the start of dst
+    // (e.g. a readback buffer).
+    NRI_INTEROP_API void Nri_CmdCopyBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* dst, nri::Buffer* src, int byteSize)
+    {
+        NRI.CmdCopyBuffer(*commandBuffer, *dst, 0, *src, 0, (uint64_t)byteSize);
+    }
+
+    // A barrier moving the buffer from the state before to after (NriBufferState values); from
+    // Storage to Storage, the writes before are seen by the accesses after.
+    NRI_INTEROP_API void Nri_CmdBufferBarrier(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer, int before, int after)
+    {
+        nri::BufferBarrierDesc bufferBarrier = {};
+        bufferBarrier.buffer = buffer;
+        bufferBarrier.before = BufferState(before);
+        bufferBarrier.after = BufferState(after);
+
+        nri::BarrierDesc barrierDesc = {};
+        barrierDesc.buffers = &bufferBarrier;
+        barrierDesc.bufferNum = 1;
+        NRI.CmdBarrier(*commandBuffer, barrierDesc);
+    }
+
     NRI_INTEROP_API void Nri_CmdTextureBarrier(nri::CommandBuffer* commandBuffer, nri::Texture* texture, int before, int after)
     {
         nri::TextureBarrierDesc textureBarrier = {};
@@ -1240,8 +1370,8 @@ extern "C"
         NRI.CmdDraw(*commandBuffer, { (uint32_t)vertexNum, (uint32_t)instanceNum, (uint32_t)baseVertex, (uint32_t)baseInstance });
     }
 
-    // The compute bind point's Nri_CmdSetPipelineLayout, Nri_CmdSetDescriptorSet and
-    // Nri_CmdSetRootConstants (for Nri_CmdDispatch).
+    // The compute bind point's Nri_CmdSetPipelineLayout, Nri_CmdSetDescriptorSet,
+    // Nri_CmdSetRootDescriptor (no offset) and Nri_CmdSetRootConstants (for Nri_CmdDispatch).
     NRI_INTEROP_API void Nri_CmdSetComputePipelineLayout(nri::CommandBuffer* commandBuffer, nri::PipelineLayout* pipelineLayout)
     {
         NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::COMPUTE, *pipelineLayout);
@@ -1251,6 +1381,12 @@ extern "C"
     {
         nri::SetDescriptorSetDesc desc = { (uint32_t)setIndex, descriptorSet, nri::BindPoint::COMPUTE };
         NRI.CmdSetDescriptorSet(*commandBuffer, desc);
+    }
+
+    NRI_INTEROP_API void Nri_CmdSetComputeRootDescriptor(nri::CommandBuffer* commandBuffer, int rootDescriptorIndex, nri::Descriptor* descriptor)
+    {
+        nri::SetRootDescriptorDesc desc = { (uint32_t)rootDescriptorIndex, descriptor, 0, nri::BindPoint::COMPUTE };
+        NRI.CmdSetRootDescriptor(*commandBuffer, desc);
     }
 
     NRI_INTEROP_API void Nri_CmdSetComputeRootConstants(nri::CommandBuffer* commandBuffer, int rootConstantIndex, const void* data, int size)
@@ -1475,7 +1611,7 @@ extern "C"
         if (stage < 0 || stage >= (int)helper::GetCountOf(stages))
             return 0;
         PipelineDesc::Shader shader = { stages[stage], {}, entry };
-        if (!ReadFile(LibraryDirectory() + path, shader.bytecode))
+        if (!ReadShader(LibraryDirectory() + path, shader.bytecode))
             return 0;
         desc->shaders.push_back(std::move(shader));
         return 1;
@@ -1513,6 +1649,15 @@ extern "C"
     {
         desc->color.format = (nri::Format)format;
         desc->color.colorWriteMask = (nri::ColorWriteBits)writeMask;
+    }
+
+    // Additive blending into the color attachment, as Donut's BlendMode.Additive: color one + one,
+    // alpha srcAlpha + dstAlpha.
+    NRI_INTEROP_API void Nri_PipelineDescSetAdditiveBlend(PipelineDesc* desc)
+    {
+        desc->color.blendEnabled = true;
+        desc->color.colorBlend = { nri::BlendFactor::ONE, nri::BlendFactor::ONE, nri::BlendOp::ADD };
+        desc->color.alphaBlend = { nri::BlendFactor::SRC_ALPHA, nri::BlendFactor::DST_ALPHA, nri::BlendOp::ADD };
     }
 
     // The depth attachment's format and its test (an NriCompareOp, NONE: off), whether it's written,
@@ -1636,9 +1781,10 @@ extern "C"
         desc->rootConstants.push_back({ (uint32_t)registerIndex, (uint32_t)size, (nri::StageBits)stages });
     }
 
-    // A root descriptor (push descriptor) of type (an NriDescriptorType: a constant buffer) at
-    // register b<registerIndex> (by type), space 0, for the stages: bound per draw with an offset
-    // (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is.
+    // A root descriptor (push descriptor) of type (an NriDescriptorType: a constant buffer, or a
+    // structured buffer) at register b, t or u<registerIndex> (by type), space 0, for the stages:
+    // bound per draw with an offset (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is, or
+    // per dispatch.
     NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootDescriptor(PipelineLayoutDesc* desc, int registerIndex, int type, int stages)
     {
         desc->rootDescriptors.push_back({ (uint32_t)registerIndex, (nri::DescriptorType)type, (nri::StageBits)stages });
@@ -1980,7 +2126,7 @@ extern "C"
         const char* entry)
     {
         std::vector<uint8_t> bytecode;
-        if (!ReadFile(LibraryDirectory() + path, bytecode))
+        if (!ReadShader(LibraryDirectory() + path, bytecode))
             return nullptr;
         nri::ComputePipelineDesc desc = {};
         desc.pipelineLayout = pipelineLayout;
