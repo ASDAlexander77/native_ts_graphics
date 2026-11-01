@@ -67,7 +67,9 @@ enum NriFeature {
     // features.meshShader: Nri_CreateMeshPipeline, Nri_CmdDrawMeshTasks (D3D12, Vulkan)
     MeshShader = 0,
     // features.depthBoundsTest: Nri_PipelineDescSetDepth's boundsTest, Nri_CmdSetDepthBounds
-    DepthBoundsTest = 1
+    DepthBoundsTest = 1,
+    // features.drawIndirectCount: Nri_CmdDrawIndexedIndirect's countBuffer
+    DrawIndirectCount = 2
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -78,6 +80,7 @@ enum NriFormat {
     BGRA8_SRGB = 10,
     RGBA8_UNORM = 11,
     RGBA8_SRGB = 12,
+    R32_UINT = 31,
     R32_SFLOAT = 33,
     RG32_SFLOAT = 36,
     RGB32_SFLOAT = 39,
@@ -176,7 +179,9 @@ enum NriBufferUsage {
     VertexBuffer = 0,
     IndexBuffer = 1,
     // Nri_CreateHostBuffer's
-    ConstantBuffer = 2
+    ConstantBuffer = 2,
+    // Nri_CreateHostBufferWithStride's: structures read by shaders (StructuredBuffer)
+    StructuredBuffer = 3
 }
 
 // The states Nri_CmdBufferBarrier moves a storage buffer between (nri::AccessStage).
@@ -186,7 +191,13 @@ enum NriBufferState {
     // read by vertex shaders
     VertexShaderResource = 1,
     // copied from (Nri_CmdCopyBuffer)
-    CopySource = 2
+    CopySource = 2,
+    // copied to (Nri_CmdZeroBuffer)
+    CopyDestination = 3,
+    // an indirect draw's arguments (Nri_CmdDrawIndexedIndirect's buffer and countBuffer)
+    IndirectArgument = 4,
+    // an indirect draw's arguments, and read by compute shaders
+    IndirectArgumentAndComputeResource = 5
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -317,6 +328,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for usage
 // (NriBufferUsage.ConstantBuffer); null on failure.
 @nodrops declare function Nri_CreateHostBuffer(device: NriDeviceHandle, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// Nri_CreateHostBuffer's buffer, for usage StructuredBuffer too: structures stride bytes each.
+@nodrops declare function Nri_CreateHostBufferWithStride(device: NriDeviceHandle, byteSize: int, usage: NriBufferUsage,
+    stride: int): NriBufferHandle | null;
 // Copies byteSize bytes of data (Ref of an f32 array element) into the buffer at offset; 0 on failure.
 @nodrops declare function Nri_WriteBuffer(buffer: NriBufferHandle, offset: int, data: Ref<f32>, byteSize: int): int;
 // A view of byteSize bytes of the buffer from offset, as a constant buffer; null on failure.
@@ -327,6 +341,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     stride: int): NriBufferHandle | null;
 // A view of the whole buffer (Nri_CreateStorageBuffer's) as structures: written by compute shaders
 // (storage, 1: RWStructuredBuffer) or read (0: StructuredBuffer); null on failure.
+// Nri_CreateStorageBuffer's buffer, but of ints (Ref of an int array element), with structures stride
+// bytes each (4: raw, a ByteAddressBuffer's), which indirect draws can take their arguments from too,
+// then in state.
+@nodrops declare function Nri_CreateStorageBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int,
+    stride: int, state: NriBufferState): NriBufferHandle | null;
 @nodrops declare function Nri_CreateStructuredBufferView(buffer: NriBufferHandle, storage: int): NriDescriptorHandle | null;
 @nodrops declare function Nri_CreateConstantBufferView(buffer: NriBufferHandle, offset: int, byteSize: int): NriDescriptorHandle | null;
 // Nri_CreateUploadedBuffer from an int array (index data).
@@ -352,6 +371,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies byteSize bytes from the start of src (in NriBufferState.CopySource) to the start of dst
 // (e.g. a readback buffer).
 @nodrops declare function Nri_CmdCopyBuffer(commandBuffer: NriCommandBufferHandle, dst: NriBufferHandle, src: NriBufferHandle, byteSize: int): void;
+// Zeroes the whole buffer (in NriBufferState.CopyDestination).
+@nodrops declare function Nri_CmdZeroBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle): void;
+// drawNum indexed draws whose arguments (5 uints: D3D12_DRAW_INDEXED_ARGUMENTS) are in buffer from
+// offset, stride bytes apart (in NriBufferState.IndirectArgument); with a countBuffer
+// (NriFeature.DrawIndirectCount), the uint at its countOffset, at most drawNum.
+@nodrops declare function Nri_CmdDrawIndexedIndirect(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, offset: int, drawNum: int,
+    stride: int, countBuffer: NriBufferHandle | null, countOffset: int): void;
 @nodrops declare function Nri_CmdBufferBarrier(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, before: NriBufferState,
     after: NriBufferState): void;
 @nodrops declare function Nri_CmdTextureBarrier(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle, before: NriTextureState, after: NriTextureState): void;
@@ -450,6 +476,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineDescAddVertexAttributeFromStream(desc: NriPipelineDescHandle, semantic: string, format: NriFormat,
     offset: int, stream: int): void;
 // The faces culled (None by default), clockwise ones the front.
+// The stream's attributes advance per instance, not per vertex.
+@nodrops declare function Nri_PipelineDescSetInstanceStream(desc: NriPipelineDescHandle, stream: int): void;
 @nodrops declare function Nri_PipelineDescSetCullMode(desc: NriPipelineDescHandle, cullMode: NriCullMode): void;
 // The color attachment's format and the channels written (NriColorWrite bits).
 @nodrops declare function Nri_PipelineDescSetColor(desc: NriPipelineDescHandle, format: NriFormat, writeMask: int): void;
