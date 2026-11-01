@@ -18,6 +18,7 @@
 #endif
 
 #include "NRIFramework.h"
+#include "Extensions/NRIWrapperVK.h"
 
 #if defined(__ANDROID__)
 // glfwSetAndroidApp, of GLFW's Android platform (patches/glfw-android-platform.patch)
@@ -117,6 +118,7 @@ namespace
         nri::Format depthFormat = nri::Format::UNKNOWN;
         nri::CullMode cullMode = nri::CullMode::NONE;
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
+        nri::PrimitiveRestart primitiveRestart = nri::PrimitiveRestart::DISABLED;
         // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
         std::vector<uint16_t> instanceStreams;
     };
@@ -1276,6 +1278,38 @@ extern "C"
     }
 
     // Moves the whole texture from one NriTextureState to another.
+    // The buffer's device address (a GPU pointer; Vulkan's vkGetBufferDeviceAddress: NRI has no
+    // call for it, its Vulkan wrapper gives vkGetDeviceProcAddr) as two 32-bit halves at dst; 1, or
+    // 0 without one (not Vulkan, or no bufferDeviceAddress).
+    NRI_INTEROP_API int Nri_GetBufferDeviceAddress(nri::Device* device, nri::Buffer* buffer, void* dst)
+    {
+        if (NRI.GetDeviceDesc(*device).graphicsAPI != nri::GraphicsAPI::VK)
+            return 0;
+        nri::WrapperVKInterface wrapper = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            return 0;
+        // VkBufferDeviceAddressInfo, VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO
+        struct BufferDeviceAddressInfo
+        {
+            int32_t sType;
+            const void* pNext;
+            uint64_t buffer;
+        };
+        typedef void* (*GetDeviceProcAddr)(void* device, const char* name);
+        typedef uint64_t (*GetBufferDeviceAddress)(void* device, const BufferDeviceAddressInfo* info);
+        void* vkDevice = NRI.GetDeviceNativeObject(device);
+        auto getDeviceProcAddr = (GetDeviceProcAddr)wrapper.GetDeviceProcAddrVK(*device);
+        auto getBufferDeviceAddress = getDeviceProcAddr ? (GetBufferDeviceAddress)getDeviceProcAddr(vkDevice, "vkGetBufferDeviceAddress") : nullptr;
+        if (!getBufferDeviceAddress)
+            return 0;
+        BufferDeviceAddressInfo info = { 1000244001, nullptr, NRI.GetBufferNativeObject(buffer) };
+        uint64_t address = getBufferDeviceAddress(vkDevice, &info);
+        if (address == 0)
+            return 0;
+        memcpy(dst, &address, sizeof(address));
+        return 1;
+    }
+
     // Zeroes the whole buffer (in NriBufferState.CopyDestination).
     NRI_INTEROP_API void Nri_CmdZeroBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer)
     {
@@ -1692,6 +1726,12 @@ extern "C"
         Nri_PipelineDescAddVertexAttributeFromStream(desc, semantic, format, offset, 0);
     }
 
+    // Primitive restart for an NriIndexType's indices (0xFFFF or 0xFFFFFFFF end a strip).
+    NRI_INTEROP_API void Nri_PipelineDescSetPrimitiveRestart(PipelineDesc* desc, int indexType)
+    {
+        desc->primitiveRestart = indexType == 0 ? nri::PrimitiveRestart::INDICES_UINT16 : nri::PrimitiveRestart::INDICES_UINT32;
+    }
+
     // The stream's attributes advance per instance (Nri_CmdDraw*'s instances), not per vertex.
     NRI_INTEROP_API void Nri_PipelineDescSetInstanceStream(PipelineDesc* desc, int stream)
     {
@@ -1767,6 +1807,7 @@ extern "C"
         if (!desc->attributes.empty())
             pipelineDesc.vertexInput = &vertexInput;
         pipelineDesc.inputAssembly.topology = desc->topology;
+        pipelineDesc.inputAssembly.primitiveRestart = desc->primitiveRestart;
         pipelineDesc.rasterization.fillMode = nri::FillMode::SOLID;
         pipelineDesc.rasterization.cullMode = desc->cullMode;
         if (desc->color.format != nri::Format::UNKNOWN)
