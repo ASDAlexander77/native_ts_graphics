@@ -85,6 +85,10 @@ FetchContent_MakeAvailable(nriframework)
 
 add_library(nri_interop SHARED nri_interop.cpp)
 target_link_libraries(nri_interop PRIVATE NRIFramework)
+# cgltf, which NRIFramework compiles (and keeps its include directory to itself): Nri_LoadGltfMesh
+# reads glTF files with it, as core/vulkan_samples_gltf.h does for Donut's interop.
+FetchContent_GetProperties(cgltf)
+target_include_directories(nri_interop PRIVATE "${cgltf_SOURCE_DIR}")
 if (WIN32)
     target_compile_definitions(nri_interop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
     # NRIFramework's link options (/NOIMPLIB, /NOEXP: for an executable exporting the Agility SDK's

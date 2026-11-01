@@ -19,6 +19,9 @@
 
 #include "NRIFramework.h"
 #include "Extensions/NRIWrapperVK.h"
+// Its implementation is compiled into NRIFramework (Utils.cpp).
+#include "cgltf.h"
+#include "../vulkan_samples_gltf.h"
 
 #if defined(__ANDROID__)
 // glfwSetAndroidApp, of GLFW's Android platform (patches/glfw-android-platform.patch)
@@ -131,6 +134,9 @@ namespace
         bool frontCounterClockwise = false;
         // Patches' control points (Nri_PipelineDescSetPatchControlPoints), with NriTopology.PatchList.
         uint8_t tessControlPointNum = 0;
+        // Nri_PipelineDescSetDepthClip: -1 NRI's default (rasterization.depthClamp false), else
+        // whether primitives are clipped at the near and far planes.
+        int depthClip = -1;
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
         nri::PrimitiveRestart primitiveRestart = nri::PrimitiveRestart::DISABLED;
         // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
@@ -891,6 +897,9 @@ extern "C"
                 return 1;
             return QueryVulkanFeatures(device, 1000235000, &quadControl, 1) && quadControl
                 && QueryVulkanFeatures(device, 1000434000, &maximalReconvergence, 1) && maximalReconvergence ? 1 : 0;
+        case 7:
+            // SV_Barycentrics: D3D12 shader model 6.1's, Vulkan's VK_KHR_fragment_shader_barycentric
+            return desc.shaderFeatures.barycentric ? 1 : 0;
         default:
             return 0;
         }
@@ -2071,6 +2080,14 @@ extern "C"
         desc->frontCounterClockwise = counterClockwise != 0;
     }
 
+    // Whether primitives are clipped at the near and far planes (1; Vulkan's default) or not (0: depth
+    // clamped instead, NVRHI's default and Donut's GraphicsPipelineDesc.setDepthClip(false)). NRI's
+    // own default (unset) differs by API: clipped on Vulkan, not on D3D.
+    NRI_INTEROP_API void Nri_PipelineDescSetDepthClip(PipelineDesc* desc, int clip)
+    {
+        desc->depthClip = clip != 0 ? 1 : 0;
+    }
+
     // The pipeline the desc describes, with the layout; null on failure.
     NRI_INTEROP_API nri::Pipeline* Nri_CreatePipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout, PipelineDesc* desc)
     {
@@ -2105,6 +2122,11 @@ extern "C"
         pipelineDesc.inputAssembly.primitiveRestart = desc->primitiveRestart;
         pipelineDesc.rasterization.fillMode = desc->fillMode;
         pipelineDesc.rasterization.frontCounterClockwise = desc->frontCounterClockwise;
+        // NRI's depthClamp is D3D's DepthClipEnable on D3D11 and D3D12 but Vulkan's depthClampEnable
+        // (the opposite: no clipping): set it for what the API takes it as.
+        if (desc->depthClip >= 0)
+            pipelineDesc.rasterization.depthClamp = NRI.GetDeviceDesc(*device).graphicsAPI == nri::GraphicsAPI::VK ? desc->depthClip == 0
+                                                                                                                 : desc->depthClip != 0;
         pipelineDesc.inputAssembly.tessControlPointNum = desc->tessControlPointNum;
         pipelineDesc.rasterization.cullMode = desc->cullMode;
         std::vector<nri::ColorAttachmentDesc> colors;
@@ -2357,6 +2379,14 @@ extern "C"
     NRI_INTEROP_API int Nri_GetMaxSamplerAnisotropy(nri::Device* device)
     {
         return (int)NRI.GetDeviceDesc(*device).other.samplerAnisotropyMax;
+    }
+
+    // The most root descriptors a pipeline layout can have (DeviceDesc::pipelineLayout's
+    // rootDescriptorMaxNum): on Vulkan the device's maxPushDescriptors (root descriptors are push
+    // descriptors there), 0 without VK_KHR_push_descriptor.
+    NRI_INTEROP_API int Nri_GetRootDescriptorMaxNum(nri::Device* device)
+    {
+        return (int)NRI.GetDeviceDesc(*device).pipelineLayout.rootDescriptorMaxNum;
     }
 
     // A view of a 2D texture's mips for shaders to read.
@@ -2691,16 +2721,19 @@ extern "C"
             printf("ERROR: %s has an unsupported format (DXGI %u)\n", path, dx10[0]);
             return nullptr;
         }
-        if (dx10[1] != 3 || (dx10[2] & 0x4) != 0)
+        if (dx10[1] != 3)
         {
-            printf("ERROR: %s isn't a 2D texture or texture array\n", path);
+            printf("ERROR: %s isn't a 2D texture, texture array or cubemap\n", path);
             return nullptr;
         }
+        // A cubemap (DDS_RESOURCE_MISC_TEXTURECUBE): six faces per array element, +X, -X, +Y, -Y,
+        // +Z, -Z, as NRI's layers.
+        const uint32_t layers = (dx10[2] & 0x4) != 0 ? layerNum * 6 : layerNum;
 
         // The subresources, layer by layer, each with its mips (NRI's order too).
         std::vector<nri::TextureSubresourceUploadDesc> subresources;
         size_t offset = headerSize;
-        for (uint32_t layer = 0; layer < layerNum; layer++)
+        for (uint32_t layer = 0; layer < layers; layer++)
         {
             for (uint32_t mip = 0; mip < mipNum; mip++)
             {
@@ -2720,7 +2753,7 @@ extern "C"
 
         nri::TextureDesc desc = ShaderResourceTextureDesc((int)width, (int)height, (int)format);
         desc.mipNum = (nri::Dim_t)mipNum;
-        desc.layerNum = (nri::Dim_t)layerNum;
+        desc.layerNum = (nri::Dim_t)layers;
         nri::Texture* texture = nullptr;
         if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
             return nullptr;
@@ -2736,6 +2769,92 @@ extern "C"
             return nullptr;
         }
         return texture;
+    }
+
+    // A glTF mesh primitive as the Vulkan-Samples framework loads one (Nri_LoadGltfMesh).
+    struct GltfMesh
+    {
+        // float3 position, float3 normal, float2 texture coordinates (32 bytes a vertex).
+        nri::Buffer* vertexBuffer = nullptr;
+        // 32-bit indices.
+        nri::Buffer* indexBuffer = nullptr;
+        int indexCount = 0;
+    };
+
+    NRI_INTEROP_API void Nri_DestroyGltfMesh(GltfMesh* mesh)
+    {
+        if (mesh->vertexBuffer)
+            Nri_DestroyBuffer(mesh->vertexBuffer);
+        if (mesh->indexBuffer)
+            Nri_DestroyBuffer(mesh->indexBuffer);
+        delete mesh;
+    }
+
+    // The first primitive of a glTF file's first mesh (path relative to this library's folder), as
+    // Donut_LoadGltfMesh reads it (core/vulkan_samples_gltf.h: positions, normals and texture
+    // coordinates interleaved, 32-bit indices, the nodes' transforms ignored), uploaded on the queue
+    // (which this waits for) into a vertex and an index buffer; null (after printing why) on failure.
+    NRI_INTEROP_API GltfMesh* Nri_LoadGltfMesh(nri::Device* device, nri::Queue* queue, const char* path)
+    {
+        const std::string fileName = LibraryDirectory() + path;
+        std::vector<uint8_t> file;
+        if (!ReadFile(fileName, file))
+            return nullptr;
+        // The buffers can be files next to the glTF or data URIs.
+        cgltf_options options{};
+        cgltf_data* data = nullptr;
+        cgltf_result result = cgltf_parse(&options, file.data(), file.size(), &data);
+        if (result == cgltf_result_success)
+            result = cgltf_load_buffers(&options, data, fileName.c_str());
+        std::vector<float> vertices;
+        std::vector<uint32_t> indices;
+        const bool read = result == cgltf_result_success && data->meshes_count > 0 && data->meshes[0].primitives_count > 0
+            && ReadGltfPrimitive(data->meshes[0].primitives[0], vertices, indices);
+        if (data)
+            cgltf_free(data);
+        if (!read)
+        {
+            printf("ERROR: cannot load an indexed mesh from %s\n", fileName.c_str());
+            return nullptr;
+        }
+
+        GltfMesh* mesh = new GltfMesh();
+        mesh->vertexBuffer = Nri_CreateUploadedBuffer(device, queue, vertices.data(), (int)(vertices.size() * sizeof(float)), 0);
+        mesh->indexBuffer = Nri_CreateUploadedBuffer(device, queue, indices.data(), (int)(indices.size() * sizeof(uint32_t)), 1);
+        mesh->indexCount = (int)indices.size();
+        if (!mesh->vertexBuffer || !mesh->indexBuffer)
+        {
+            printf("ERROR: cannot create the buffers of %s\n", fileName.c_str());
+            Nri_DestroyGltfMesh(mesh);
+            return nullptr;
+        }
+        return mesh;
+    }
+
+    // Valid as long as the mesh.
+    NRI_INTEROP_API nri::Buffer* Nri_GetGltfMeshVertexBuffer(GltfMesh* mesh)
+    {
+        return mesh->vertexBuffer;
+    }
+
+    NRI_INTEROP_API nri::Buffer* Nri_GetGltfMeshIndexBuffer(GltfMesh* mesh)
+    {
+        return mesh->indexBuffer;
+    }
+
+    NRI_INTEROP_API int Nri_GetGltfMeshIndexCount(GltfMesh* mesh)
+    {
+        return mesh->indexCount;
+    }
+
+    // A view of a cubemap's six faces and all its mips for shaders to read (TextureCube).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureCubeView(nri::Texture* texture, int format)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_CUBE, (nri::Format)format, 0, nri::REMAINING,
+            0, 6 };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
     }
 
     // A view of all the layers and mips of a 2D texture array for shaders to read (Texture2DArray).

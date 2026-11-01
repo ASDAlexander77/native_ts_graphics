@@ -1955,6 +1955,12 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_custom_target(fragment_shader_barycentric_media DEPENDS ${barycentric_media})
     add_dependencies(fragment_shader_barycentric fragment_shader_barycentric_media)
 endif()
+# fragment_shader_barycentric with NRI and NRIFramework instead of Donut: fragment_shader_barycentric's shaders and models, NRIFramework's ImGui.
+add_tslang_nri_example(fragment_shader_barycentric_nri SHADERS fragment_shader_barycentric_shaders core/matrix.ts)
+add_tslang_example_test(fragment_shader_barycentric_nri)
+if (TARGET fragment_shader_barycentric_media AND TARGET fragment_shader_barycentric_nri)
+    add_dependencies(fragment_shader_barycentric_nri fragment_shader_barycentric_media)
+endif()
 
 # Port of Vulkan-Samples' 16bit_arithmetic: a compute shader rendering blobs in FP32, or in FP16 with
 # native 16-bit types (shader model 6.2: DXIL and SPIR-V only, in a file of their own, so the FP32
@@ -2584,6 +2590,12 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_custom_target(dynamic_primitive_clipping_media DEPENDS ${dynamic_primitive_clipping_media})
     add_dependencies(dynamic_primitive_clipping dynamic_primitive_clipping_media)
 endif()
+# dynamic_primitive_clipping with NRI and NRIFramework instead of Donut: dynamic_primitive_clipping's shaders and models, NRIFramework's ImGui.
+add_tslang_nri_example(dynamic_primitive_clipping_nri SHADERS dynamic_primitive_clipping_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
+add_tslang_example_test(dynamic_primitive_clipping_nri)
+if (TARGET dynamic_primitive_clipping_media AND TARGET dynamic_primitive_clipping_nri)
+    add_dependencies(dynamic_primitive_clipping_nri dynamic_primitive_clipping_media)
+endif()
 
 # Port of Vulkan-Samples' mobile_nerf_rayquery: mobile_nerf's NeRFs found by inline ray queries in a
 # pixel shader (a TLAS of the models' meshes) instead of rasterized, each hit's feature textures run
@@ -2774,6 +2786,12 @@ add_tslang_example_test(vertex_dynamic_state)
 if (TARGET hdr_media)
     add_dependencies(vertex_dynamic_state hdr_media)
 endif()
+# vertex_dynamic_state with NRI and NRIFramework instead of Donut: vertex_dynamic_state's shaders and model.
+add_tslang_nri_example(vertex_dynamic_state_nri SHADERS vertex_dynamic_state_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(vertex_dynamic_state_nri)
+if (TARGET hdr_media AND TARGET vertex_dynamic_state_nri)
+    add_dependencies(vertex_dynamic_state_nri hdr_media)
+endif()
 
 # Port of Vulkan-Samples' dynamic_rendering: hdr's skybox and a reflective geosphere (the sample's
 # point, rendering without render pass objects, is how NVRHI draws anyway). vertex_dynamic_state's
@@ -2789,6 +2807,12 @@ add_tslang_example(dynamic_rendering core/vulkan_samples_camera.ts core/matrix.t
 add_tslang_example_test(dynamic_rendering)
 if (TARGET hdr_media)
     add_dependencies(dynamic_rendering hdr_media)
+endif()
+# dynamic_rendering with NRI and NRIFramework instead of Donut: dynamic_rendering's shaders and models.
+add_tslang_nri_example(dynamic_rendering_nri SHADERS dynamic_rendering_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(dynamic_rendering_nri)
+if (TARGET hdr_media AND TARGET dynamic_rendering_nri)
+    add_dependencies(dynamic_rendering_nri hdr_media)
 endif()
 
 # Port of Vulkan-Samples' graphics_pipeline_library: a grid of spinning teapots, each with a pipeline
@@ -2946,6 +2970,22 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(push_descriptors push_descriptors_media fragment_shading_rate_media)
 endif()
 add_tslang_example_test(push_descriptors APIS vk)
+# push_descriptors with NRI and NRIFramework instead of Donut: push_descriptors' model and textures,
+# NRIFramework's ImGui. Its own shaders (the same math): Donut's bind a combined image sampler, which
+# NRI has none of, at explicit bindings; these push the uniform buffers as NRI root descriptors and
+# keep the texture and sampler in a descriptor set. SPIR-V only.
+donut_compile_shaders(
+    TARGET push_descriptors_nri_shaders
+    PROJECT_NAME "Push Descriptors NRI"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/push_descriptors_nri.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/push_descriptors_nri.hlsl
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/push_descriptors_nri/spirv
+)
+add_tslang_nri_example(push_descriptors_nri SHADERS push_descriptors_nri_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(push_descriptors_nri APIS vk)
+if (TARGET push_descriptors_media AND TARGET push_descriptors_nri)
+    add_dependencies(push_descriptors_nri push_descriptors_media fragment_shading_rate_media)
+endif()
 
 # Port of Vulkan-Samples' descriptor_buffer_basic: push_descriptors' two textured cubes, their
 # descriptor sets in descriptor buffers (VK_EXT_descriptor_buffer): buffers the CPU writes the

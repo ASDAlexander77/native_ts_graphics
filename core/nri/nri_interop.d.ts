@@ -35,6 +35,8 @@
 @cpp declare class NriAsyncComputeLoopHandle { private readonly __nriAsyncComputeLoop: index; }
 // A file's bytes (Nri_LoadFile).
 @cpp declare class NriFileHandle { private readonly __nriFile: index; }
+// A glTF mesh primitive's vertex and index buffers (Nri_LoadGltfMesh).
+@cpp declare class NriGltfMeshHandle { private readonly __nriGltfMesh: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
 @cpp declare class NriRandomEngineHandle { private readonly __nriRandomEngine: index; }
 
@@ -81,7 +83,10 @@ enum NriFeature {
     Native16BitConstants = 5,
     // Pixel shaders in full quads (D3D12 always; Vulkan's VK_KHR_shader_quad_control, which NRI is
     // patched to enable, with VK_KHR_shader_maximal_reconvergence)
-    ShaderQuadControl = 6
+    ShaderQuadControl = 6,
+    // shaderFeatures.barycentric: SV_Barycentrics and GetAttributeAtVertex in pixel shaders (D3D12
+    // shader model 6.1, Vulkan's VK_KHR_fragment_shader_barycentric)
+    Barycentrics = 7
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -611,6 +616,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineDescSetWireframe(desc: NriPipelineDescHandle, wireframe: int): void;
 // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
 @nodrops declare function Nri_PipelineDescSetFrontCounterClockwise(desc: NriPipelineDescHandle, counterClockwise: int): void;
+// Whether primitives are clipped at the near and far planes (1) or not (0: depth clamped, Donut's
+// default). Unset, NRI's default differs by API (clipped on Vulkan, not on D3D).
+@nodrops declare function Nri_PipelineDescSetDepthClip(desc: NriPipelineDescHandle, clip: int): void;
 // The pipeline the desc describes, with the layout; null on failure.
 @nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;
 
@@ -667,6 +675,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // The device's widest anisotropic filtering (16 on most).
 @nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
+// The most root descriptors a pipeline layout can have: on Vulkan the device's maxPushDescriptors
+// (root descriptors are push descriptors there), 0 without VK_KHR_push_descriptor.
+@nodrops declare function Nri_GetRootDescriptorMaxNum(device: NriDeviceHandle): int;
 @nodrops declare function Nri_CreateSampler(device: NriDeviceHandle, filter: NriFilter, addressMode: NriAddressMode, anisotropy: int): NriDescriptorHandle | null;
 // A view of a 2D texture's mips for shaders to read.
 @nodrops declare function Nri_CreateTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
@@ -738,10 +749,23 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // queue and left in NriTextureState.ShaderResource; null if it can't be read.
 @nodrops declare function Nri_LoadTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
 @nodrops declare function Nri_LoadImageTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
-// A DDS file as tools/ktx_to_dds.py writes them (DX10 header; 2D textures and 2D texture arrays) with
+// A DDS file as tools/ktx_to_dds.py writes them (DX10 header; 2D textures, texture arrays, cubemaps) with
 // all its layers and mips (sRGB: 1, RGBA8 as sRGB, as Donut's sRGB loads), R16_UNORM and RGBA16F too,
 // left in NriTextureState.ShaderResource; null if it can't be read. (Nri_LoadTexture reads one layer.)
 @nodrops declare function Nri_LoadDdsTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
+// The first primitive of a glTF file's first mesh, as Donut's loadGltfMesh reads it (the
+// Vulkan-Samples framework's load_model: float3 position, float3 normal, float2 texture coordinates,
+// 32 bytes a vertex; 32-bit indices; the nodes' transforms ignored), uploaded into a vertex and an
+// index buffer; null on failure. Destroyed with Nri_DestroyGltfMesh (its buffers with it).
+@nodrops declare function Nri_LoadGltfMesh(device: NriDeviceHandle, queue: NriQueueHandle, path: string): NriGltfMeshHandle | null;
+@nodrops declare function Nri_DestroyGltfMesh(mesh: NriGltfMeshHandle): void;
+// Valid as long as the mesh.
+@nodrops declare function Nri_GetGltfMeshVertexBuffer(mesh: NriGltfMeshHandle): NriBufferHandle;
+@nodrops declare function Nri_GetGltfMeshIndexBuffer(mesh: NriGltfMeshHandle): NriBufferHandle;
+@nodrops declare function Nri_GetGltfMeshIndexCount(mesh: NriGltfMeshHandle): int;
+// A view of a cubemap's six faces and all its mips for shaders to read (TextureCube; Nri_LoadDdsTexture
+// loads cubemaps).
+@nodrops declare function Nri_CreateTextureCubeView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 // A view of all the layers and mips of a 2D texture array for shaders to read (Texture2DArray).
 @nodrops declare function Nri_CreateTextureArrayView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 
