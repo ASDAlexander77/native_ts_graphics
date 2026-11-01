@@ -1280,6 +1280,13 @@ add_tslang_example_test(threaded_rendering)
 # deferred lighting passes); uses media/nvidia-logo.png, copied with the media folder above.
 add_tslang_example(deferred_shading core/matrix.ts MEDIA nvidia-logo.png)
 add_tslang_example_test(deferred_shading)
+# deferred_shading with NRI and NRIFramework: Donut's G-buffer fill, deferred lighting and blit
+# shaders (shaders/framework), their constants filled by core/nri/nri_donut_constants.cpp.
+add_tslang_nri_example(deferred_shading_nri core/matrix.ts)
+add_tslang_example_test(deferred_shading_nri)
+if (TARGET donut_shaders AND TARGET deferred_shading_nri)
+    add_dependencies(deferred_shading_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' rt_shadows: ray traced sun shadows on Sponza (see DONUT_SAMPLES_MEDIA_DIR
 # above). Ray tracing needs D3D12 or Vulkan, so no DXBC.

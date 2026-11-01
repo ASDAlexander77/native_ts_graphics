@@ -127,6 +127,8 @@ enum NriFormat {
     // instancing_nri's texture array layer (a vertex attribute)
     R32_SINT = 32,
     R32_SFLOAT = 33,
+    // deferred_shading_nri's G-buffer normals (Donut's)
+    RGBA16_SNORM = 27,
     RGBA16_SFLOAT = 30,
     RG32_SFLOAT = 36,
     RGB32_SFLOAT = 39,
@@ -134,7 +136,10 @@ enum NriFormat {
     // a 16-bit depth buffer (async_compute_bloom_nri's shadow map)
     D16_UNORM = 64,
     BC1_RGBA_UNORM = 50,
-    D32_SFLOAT = 66
+    D32_SFLOAT = 66,
+    // deferred_shading_nri's G-buffer depth (Donut's), and the view shaders read it through
+    D24_UNORM_S8_UINT = 65,
+    R24_UNORM_X8 = 68
 }
 
 // nri::CompareOp: a depth test's (None: off).
@@ -608,6 +613,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // (Nri_CreateDepthAttachmentView's): a G-buffer.
 @nodrops declare function Nri_CmdBeginRenderingWithThreeColorsAndDepth(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
     color1: NriDescriptorHandle, color2: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
+// Renders into four color attachments (SV_Target0 to 3) and a depth attachment: Donut's G-buffer.
+@nodrops declare function Nri_CmdBeginRenderingWithFourColorsAndDepth(commandBuffer: NriCommandBufferHandle, color0: NriDescriptorHandle,
+    color1: NriDescriptorHandle, color2: NriDescriptorHandle, color3: NriDescriptorHandle, depthAttachment: NriDescriptorHandle): void;
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
 // Renders into one or two color attachments (color1 null for one), a depth attachment (null for
 // none) and a shading rate attachment (Nri_CreateShadingRateAttachmentView's; null for none).
@@ -625,7 +633,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     primitiveCombiner: NriShadingRateCombiner, attachmentCombiner: NriShadingRateCombiner): void;
 // The blend constants (NriBlendFactor.ConstantColor's, ConstantAlpha's).
 @nodrops declare function Nri_CmdSetBlendConstants(commandBuffer: NriCommandBufferHandle, r: float, g: float, b: float, a: float): void;
-// Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
+// Clears the whole color attachment index (of those a multi-color Nri_CmdBeginRendering* renders
 // into).
 @nodrops declare function Nri_CmdClearColorAttachment(commandBuffer: NriCommandBufferHandle, index: int, r: float, g: float, b: float,
     a: float): void;
@@ -780,14 +788,18 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     descriptorNum: int, type: NriDescriptorType, stages: NriStage, flags: int): void;
 // The register space of set setIndex (on Vulkan, its set number).
 @nodrops declare function Nri_PipelineLayoutDescSetRegisterSpace(desc: NriPipelineLayoutDescHandle, setIndex: int, registerSpace: int): void;
-// size bytes of root constants (push constants) at register b<registerIndex>, space 0, for stages.
+// The register space of the root constants, descriptors and samplers (0 unless this says otherwise;
+// on Vulkan, the set of the root descriptors): one no descriptor set uses.
+@nodrops declare function Nri_PipelineLayoutDescSetRootRegisterSpace(desc: NriPipelineLayoutDescHandle, registerSpace: int): void;
+// size bytes of root constants (push constants) at register b<registerIndex>, in the root register
+// space, for stages.
 @nodrops declare function Nri_PipelineLayoutDescAddRootConstants(desc: NriPipelineLayoutDescHandle, registerIndex: int, size: int, stages: NriStage): void;
 // A root descriptor (push descriptor) of type (a constant buffer, or a structured buffer) at
-// register b, t or u<registerIndex> (by type), space 0, for stages: bound per draw with an offset
-// (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is, or per dispatch.
+// register b, t or u<registerIndex> (by type), in the root register space, for stages: bound per draw
+// with an offset (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is, or per dispatch.
 @nodrops declare function Nri_PipelineLayoutDescAddRootDescriptor(desc: NriPipelineLayoutDescHandle, registerIndex: int, type: NriDescriptorType, stages: NriStage): void;
-// An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification and
-// magnification, mipFilter for mips, addressMode on all axes, for stages.
+// An immutable (static) sampler at register s<registerIndex>, in the root register space: filter for
+// minification and magnification, mipFilter for mips, addressMode on all axes, for stages.
 @nodrops declare function Nri_PipelineLayoutDescAddRootSampler(desc: NriPipelineLayoutDescHandle, registerIndex: int, filter: NriFilter,
     mipFilter: NriFilter, addressMode: NriAddressMode, stages: NriStage): void;
 // The layout the desc describes, for the stages its ranges and root parameters are for; null on failure.
@@ -981,6 +993,37 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateTextureCubeView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 // A view of all the layers and mips of a 2D texture array for shaders to read (Texture2DArray).
 @nodrops declare function Nri_CreateTextureArrayView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// A view of a texture's layers (six per cube) and mips as an array of cubemaps (TextureCubeArray).
+@nodrops declare function Nri_CreateTextureCubeArrayView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// A 1 x 1 RGBA8_UNORM texture of layerNum layers (6 or more: cubemap views too), every texel rgba
+// (0xAABBGGRR), left in state: Donut's CommonRenderPasses black and white textures, which its passes
+// bind for the inputs they aren't given. Null on failure.
+@nodrops declare function Nri_CreateSolidTexture(device: NriDeviceHandle, queue: NriQueueHandle, layerNum: int, rgba: int,
+    state: NriTextureState): NriTextureHandle | null;
+
+// Donut's renderer constants (core/nri/nri_donut_constants.cpp), for the ports of the Donut examples
+// that draw with Donut's passes and shaders: the structs of donut/shaders/*_cb.h, filled as Donut's
+// engine fills them. Matrices: 16 floats, row-major, row-vector convention (donut::math's).
+// The size in bytes of 0 PlanarViewConstants, 1 MaterialConstants, 2 LightConstants,
+// 3 DeferredLightingConstants (multiples of 16); 0 for others.
+@nodrops declare function Nri_GetDonutConstantsSize(which: int): int;
+// A planar view's PlanarViewConstants into dst, as Donut's PlanarView fills them for a viewport of
+// width x height pixels.
+@nodrops declare function Nri_FillDonutPlanarViewConstants(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int,
+    dst: Ref<f32>): void;
+// The MaterialConstants of a Donut material with a base or diffuse texture and default parameters
+// (specularGloss 1: the specular-glossiness model) into dst.
+@nodrops declare function Nri_FillDonutTexturedMaterialConstants(specularGloss: int, dst: Ref<f32>): void;
+// The LightConstants of a white Donut DirectionalLight under an untransformed node, shining along
+// (dirX, dirY, dirZ), angularSize in degrees, without shadows, into dst.
+@nodrops declare function Nri_FillDonutDirectionalLightConstants(dirX: number, dirY: number, dirZ: number, angularSize: number,
+    irradiance: number, dst: Ref<f32>): void;
+// The DeferredLightingConstants DeferredLightingPass::Render writes for the view
+// (Nri_FillDonutPlanarViewConstants' arguments), lightCount lights (LightConstants each, from lights),
+// no shadows, light probes or ambient occlusion, a top and bottom ambient color, into dst.
+@nodrops declare function Nri_FillDonutDeferredLightingConstants(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int,
+    lights: Ref<f32>, lightCount: int, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number,
+    dst: Ref<f32>): void;
 
 // ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
 // Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui

@@ -112,8 +112,11 @@ if (ANDROID)
 endif()
 FetchContent_MakeAvailable(nriframework)
 
-add_library(nri_interop SHARED nri_interop.cpp)
+add_library(nri_interop SHARED nri_interop.cpp nri_donut_constants.cpp)
 target_link_libraries(nri_interop PRIVATE NRIFramework)
+# Donut's header-only math and its shaders' constant structs (nri_donut_constants.cpp), for the ports
+# of the Donut examples that draw with Donut's passes.
+target_include_directories(nri_interop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../external/Donut/include")
 # cgltf, which NRIFramework compiles (and keeps its include directory to itself): Nri_LoadGltfMesh
 # reads glTF files with it, as core/vulkan_samples_gltf.h does for Donut's interop.
 FetchContent_GetProperties(cgltf)

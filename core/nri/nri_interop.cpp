@@ -84,6 +84,8 @@ namespace
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
     static_assert((int)nri::Format::D32_SFLOAT == 66 && (int)nri::Format::BC1_RGBA_UNORM == 50);
+    static_assert((int)nri::Format::RGBA16_SNORM == 27 && (int)nri::Format::D24_UNORM_S8_UINT == 65
+        && (int)nri::Format::R24_UNORM_X8 == 68);
     static_assert((int)nri::CompareOp::NONE == 0 && (int)nri::CompareOp::ALWAYS == 1 && (int)nri::CompareOp::NEVER == 2);
     static_assert((int)nri::CompareOp::LESS == 5 && (int)nri::CompareOp::GREATER_EQUAL == 8);
     static_assert((int)nri::Topology::TRIANGLE_LIST == 3 && (int)nri::Topology::TRIANGLE_STRIP == 4);
@@ -162,7 +164,8 @@ namespace
             std::vector<nri::DescriptorRangeDesc> ranges;
         };
         std::vector<Set> sets;
-        // In register space 0 (NRI's rootRegisterSpace; on Vulkan, set 0).
+        // In register space rootRegisterSpace (on Vulkan, that set: no descriptor set may use it).
+        uint32_t rootRegisterSpace = 0;
         std::vector<nri::RootConstantDesc> rootConstants;
         std::vector<nri::RootDescriptorDesc> rootDescriptors;
         std::vector<nri::RootSamplerDesc> rootSamplers;
@@ -1178,7 +1181,9 @@ extern "C"
         nri::TextureUploadDesc upload = {};
         upload.texture = texture;
         upload.after = TextureState(state);
-        upload.planes = nri::PlaneBits::DEPTH;
+        // (Both planes of a depth-stencil format: Vulkan moves their layouts together.)
+        const bool stencil = (nri::Format)format == nri::Format::D24_UNORM_S8_UINT || (nri::Format)format == nri::Format::D32_SFLOAT_S8_UINT_X24;
+        upload.planes = stencil ? nri::PlaneBits::ALL : nri::PlaneBits::DEPTH;
         if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
         {
             Nri_DestroyTexture(texture);
@@ -2026,7 +2031,19 @@ extern "C"
         NRI.CmdSetBlendConstants(*commandBuffer, color);
     }
 
-    // Clears the whole color attachment index (of those Nri_CmdBeginRenderingWithThreeColors renders
+    // Renders into four color attachments (SV_Target0 to 3) and a depth attachment: Donut's G-buffer.
+    NRI_INTEROP_API void Nri_CmdBeginRenderingWithFourColorsAndDepth(nri::CommandBuffer* commandBuffer, nri::Descriptor* color0,
+        nri::Descriptor* color1, nri::Descriptor* color2, nri::Descriptor* color3, nri::Descriptor* depthAttachment)
+    {
+        nri::Descriptor* colors[] = { color0, color1, color2, color3 };
+        nri::AttachmentsDesc desc = {};
+        desc.colors = colors;
+        desc.colorNum = 4;
+        desc.depthStencil = depthAttachment;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
+    // Clears the whole color attachment index (of those a multi-color Nri_CmdBeginRendering* renders
     // into).
     NRI_INTEROP_API void Nri_CmdClearColorAttachment(nri::CommandBuffer* commandBuffer, int index, float r, float g, float b, float a)
     {
@@ -2627,24 +2644,32 @@ extern "C"
             set->registerSpace = (uint32_t)registerSpace;
     }
 
-    // size bytes of root constants (push constants) at register b<registerIndex>, space 0, for the
-    // stages (NriStage bits).
+    // The register space of the root constants, descriptors and samplers below (0 unless this says
+    // otherwise; on Vulkan, the set of the root descriptors): one no descriptor set uses.
+    NRI_INTEROP_API void Nri_PipelineLayoutDescSetRootRegisterSpace(PipelineLayoutDesc* desc, int registerSpace)
+    {
+        desc->rootRegisterSpace = (uint32_t)registerSpace;
+    }
+
+    // size bytes of root constants (push constants) at register b<registerIndex>, in the root
+    // register space, for the stages (NriStage bits).
     NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootConstants(PipelineLayoutDesc* desc, int registerIndex, int size, int stages)
     {
         desc->rootConstants.push_back({ (uint32_t)registerIndex, (uint32_t)size, (nri::StageBits)stages });
     }
 
     // A root descriptor (push descriptor) of type (an NriDescriptorType: a constant buffer, or a
-    // structured buffer) at register b, t or u<registerIndex> (by type), space 0, for the stages:
-    // bound per draw with an offset (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is, or
-    // per dispatch.
+    // structured buffer) at register b, t or u<registerIndex> (by type), in the root register space,
+    // for the stages: bound per draw with an offset (Nri_CmdSetRootDescriptor), as a dynamic uniform
+    // buffer is, or per dispatch.
     NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootDescriptor(PipelineLayoutDesc* desc, int registerIndex, int type, int stages)
     {
         desc->rootDescriptors.push_back({ (uint32_t)registerIndex, (nri::DescriptorType)type, (nri::StageBits)stages });
     }
 
-    // An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification
-    // and magnification, mipFilter for mips (NriFilter), addressMode on all axes, for the stages.
+    // An immutable (static) sampler at register s<registerIndex>, in the root register space: filter
+    // for minification and magnification, mipFilter for mips (NriFilter), addressMode on all axes,
+    // for the stages.
     NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootSampler(PipelineLayoutDesc* desc, int registerIndex, int filter, int mipFilter,
         int addressMode, int stages)
     {
@@ -2680,6 +2705,7 @@ extern "C"
         layoutDesc.rootDescriptorNum = (uint32_t)desc->rootDescriptors.size();
         layoutDesc.rootSamplers = desc->rootSamplers.data();
         layoutDesc.rootSamplerNum = (uint32_t)desc->rootSamplers.size();
+        layoutDesc.rootRegisterSpace = desc->rootRegisterSpace;
         // The pipelines it's for: graphics (all their stages) if anything is bound for a graphics
         // stage, or nothing is; compute if anything is bound for it.
         nri::StageBits stages = nri::StageBits::NONE;
@@ -3671,6 +3697,18 @@ extern "C"
         return view;
     }
 
+    // A view of a texture's layers (six per cube) and all its mips as an array of cubemaps for
+    // shaders to read (TextureCubeArray).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureCubeArrayView(nri::Texture* texture, int format)
+    {
+        // The layers counted (NRI's D3D11 views make 0 cubes of REMAINING layers).
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_CUBE_ARRAY, (nri::Format)format, 0,
+            nri::REMAINING, 0, NRI.GetTextureDesc(*texture).layerNum };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
     // A view of all the layers and mips of a 2D texture array for shaders to read (Texture2DArray).
     NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureArrayView(nri::Texture* texture, int format)
     {
@@ -3999,6 +4037,32 @@ extern "C"
         nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * rows };
         nri::TextureUploadDesc upload = {};
         upload.subresources = &subresource;
+        upload.texture = texture;
+        upload.after = TextureState(state);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // A 1 x 1 RGBA8_UNORM texture of layerNum layers (6 or more: views of cubemaps too), every texel
+    // rgba (0xAABBGGRR), left in state: Donut's CommonRenderPasses black and white textures, which
+    // its passes bind for the inputs they're not given. Null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateSolidTexture(nri::Device* device, nri::Queue* queue, int layerNum, int rgba, int state)
+    {
+        nri::TextureDesc desc = ShaderResourceTextureDesc(1, 1, (int)nri::Format::RGBA8_UNORM);
+        desc.layerNum = (nri::Dim_t)layerNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        const uint32_t texel = (uint32_t)rgba;
+        std::vector<nri::TextureSubresourceUploadDesc> subresources((size_t)layerNum, { &texel, 1, 4, 4 });
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = subresources.data();
         upload.texture = texture;
         upload.after = TextureState(state);
         upload.planes = nri::PlaneBits::ALL;
