@@ -3638,6 +3638,13 @@ donut_compile_shaders(
 add_tslang_example(bundles core/directx_math.ts core/simple_camera.ts MEDIA bundles)
 add_dxgs_media(bundles bundles Samples/Desktop/D3D12Bundles/src/occcity.bin)
 add_tslang_example_test(bundles)
+# bundles' scene with NRI and NRIFramework instead of Donut (NRI has no bundles: the draws are
+# recorded every frame): bundles' shaders and data file.
+add_tslang_nri_example(bundles_nri SHADERS bundles_shaders core/directx_math.ts core/simple_camera.ts)
+if (TARGET bundles_media)
+    add_dependencies(bundles_nri bundles_media)
+endif()
+add_tslang_example_test(bundles_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingSimpleLighting: a ray traced cube lit by a point
 # light circling it, the closest hit shader interpolating the hit triangle's vertex normals (found
@@ -4270,7 +4277,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)
