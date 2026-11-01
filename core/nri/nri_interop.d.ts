@@ -31,6 +31,8 @@
 // Allocated from a pool, destroyed with it.
 @cpp declare class NriDescriptorSetHandle { private readonly __nriDescriptorSet: index; }
 @cpp declare class NriMemoryHandle { private readonly __nriMemory: index; }
+// A file's bytes (Nri_LoadFile).
+@cpp declare class NriFileHandle { private readonly __nriFile: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
 @cpp declare class NriRandomEngineHandle { private readonly __nriRandomEngine: index; }
 
@@ -74,6 +76,7 @@ enum NriFormat {
     RG32_SFLOAT = 36,
     RGB32_SFLOAT = 39,
     RGBA32_SFLOAT = 42,
+    BC1_RGBA_UNORM = 50,
     D32_SFLOAT = 66
 }
 
@@ -206,6 +209,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // 1 if the key was pressed since the last call (for this key), else 0.
 @nodrops declare function Nri_IsKeyToggled(sample: NriSampleHandle, key: NriKey): int;
 @nodrops declare function Nri_SetWindowTitle(sample: NriSampleHandle, title: string): void;
+// 1 if the key (a GLFW key code: NriKey, or Donut's Key) is down, else 0.
+@nodrops declare function Nri_IsKeyPressed(sample: NriSampleHandle, key: int): int;
 // 1 if the mouse button (0 left, 1 right, 2 middle) is down, else 0.
 @nodrops declare function Nri_IsButtonPressed(sample: NriSampleHandle, button: int): int;
 // How far the mouse moved since the last frame, in pixels (x right, y down).
@@ -444,8 +449,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A width x height texture (one mip) placed in memory at offset bytes; null on failure.
 @nodrops declare function Nri_CreatePlacedTexture(device: NriDeviceHandle, memory: NriMemoryHandle, offset: number, width: int, height: int,
     format: NriFormat): NriTextureHandle | null;
-// Fills the texture's mip 0 with data (Ref of an int array element), rows rowPitch bytes apart, on the
-// queue (which this waits for); leaves it in NriTextureState.ShaderResource. 0 on failure.
+// Fills the texture's mip 0 with data (Ref of an int array element), rows (of blocks, for a
+// block-compressed format) rowPitch bytes apart, on the queue (which this waits for); leaves it in
+// NriTextureState.ShaderResource. 0 on failure.
 @nodrops declare function Nri_UploadTexture(queue: NriQueueHandle, texture: NriTextureHandle, data: Ref<int>, rowPitch: int): int;
 // The application's device memory in use, in bytes.
 @nodrops declare function Nri_GetDeviceMemoryUsage(device: NriDeviceHandle): number;
@@ -459,3 +465,14 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_DestroyRandomEngine(randomEngine: NriRandomEngineHandle): void;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 @nodrops declare function Nri_RandomUniformFloat(randomEngine: NriRandomEngineHandle, a: number, b: number): number;
+
+// Files: read whole from path (relative to the executable's directory, as the shaders), their
+// regions uploaded.
+@nodrops declare function Nri_LoadFile(path: string): NriFileHandle | null;
+@nodrops declare function Nri_DestroyFile(file: NriFileHandle): void;
+// Nri_CreateUploadedBuffer from byteSize bytes of the file at offset; null if they're past its end.
+@nodrops declare function Nri_CreateUploadedBufferFromFile(device: NriDeviceHandle, queue: NriQueueHandle, file: NriFileHandle, offset: int,
+    byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.
+@nodrops declare function Nri_UploadTextureFromFile(queue: NriQueueHandle, texture: NriTextureHandle, file: NriFileHandle, offset: int,
+    rowPitch: int): int;

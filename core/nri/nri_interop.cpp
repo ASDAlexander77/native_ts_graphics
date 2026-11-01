@@ -68,7 +68,7 @@ namespace
     static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
-    static_assert((int)nri::Format::D32_SFLOAT == 66);
+    static_assert((int)nri::Format::D32_SFLOAT == 66 && (int)nri::Format::BC1_RGBA_UNORM == 50);
     static_assert((int)nri::CompareOp::NONE == 0 && (int)nri::CompareOp::ALWAYS == 1 && (int)nri::CompareOp::NEVER == 2);
     static_assert((int)nri::CompareOp::LESS == 5 && (int)nri::CompareOp::GREATER_EQUAL == 8);
     static_assert((int)nri::Topology::TRIANGLE_LIST == 3 && (int)nri::Topology::TRIANGLE_STRIP == 4);
@@ -456,6 +456,12 @@ extern "C"
     NRI_INTEROP_API double Nri_GetMouseWheel(TsSample* sample)
     {
         return sample->GetMouseWheel();
+    }
+
+    // 1 if the key (a GLFW key code: NriKey, or Donut's Key) is down, else 0.
+    NRI_INTEROP_API int Nri_IsKeyPressed(TsSample* sample, int key)
+    {
+        return key >= 0 && key < (int)Key::NUM && sample->IsKeyPressed((Key)key) ? 1 : 0;
     }
 
     NRI_INTEROP_API void Nri_SetWindowTitle(TsSample* sample, const char* title)
@@ -1564,12 +1570,15 @@ extern "C"
         return texture;
     }
 
-    // Fills the texture's mip 0 (one layer) with data, rows rowPitch bytes apart, on the queue (which
-    // this waits for), and leaves it in NriTextureState.ShaderResource; 0 on failure.
+    // Fills the texture's mip 0 (one layer) with data, rows (of blocks, for a block-compressed format)
+    // rowPitch bytes apart, on the queue (which this waits for), and leaves it in
+    // NriTextureState.ShaderResource; 0 on failure.
     NRI_INTEROP_API int Nri_UploadTexture(nri::Queue* queue, nri::Texture* texture, const void* data, int rowPitch)
     {
         const nri::TextureDesc& textureDesc = NRI.GetTextureDesc(*texture);
-        nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * textureDesc.height };
+        const uint32_t blockHeight = nri::nriGetFormatProps(textureDesc.format)->blockHeight;
+        const uint32_t rows = (textureDesc.height + blockHeight - 1) / blockHeight;
+        nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * rows };
         nri::TextureUploadDesc upload = {};
         upload.subresources = &subresource;
         upload.texture = texture;
@@ -1618,5 +1627,46 @@ extern "C"
     NRI_INTEROP_API double Nri_RandomUniformFloat(std::default_random_engine* randomEngine, double a, double b)
     {
         return std::uniform_real_distribution<float>((float)a, (float)b)(*randomEngine);
+    }
+
+    // --- Files ----------------------------------------------------------------------------------
+
+    // A file's bytes, read whole from path (relative to LibraryDirectory(), as the shaders); null if
+    // it can't be read.
+    NRI_INTEROP_API std::vector<uint8_t>* Nri_LoadFile(const char* path)
+    {
+        auto* data = new std::vector<uint8_t>();
+        if (!ReadFile(LibraryDirectory() + path, *data))
+        {
+            delete data;
+            return nullptr;
+        }
+        return data;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyFile(std::vector<uint8_t>* file)
+    {
+        delete file;
+    }
+
+    // Nri_CreateUploadedBuffer from byteSize bytes of the file at offset; null if they're past its end.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBufferFromFile(nri::Device* device, nri::Queue* queue, const std::vector<uint8_t>* file,
+        int offset, int byteSize, int usage)
+    {
+        if (offset < 0 || byteSize <= 0 || (size_t)offset + (size_t)byteSize > file->size())
+            return nullptr;
+        return Nri_CreateUploadedBuffer(device, queue, file->data() + offset, byteSize, usage);
+    }
+
+    // Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.
+    NRI_INTEROP_API int Nri_UploadTextureFromFile(nri::Queue* queue, nri::Texture* texture, const std::vector<uint8_t>* file, int offset,
+        int rowPitch)
+    {
+        const nri::TextureDesc& textureDesc = NRI.GetTextureDesc(*texture);
+        const uint32_t blockHeight = nri::nriGetFormatProps(textureDesc.format)->blockHeight;
+        const size_t size = (size_t)rowPitch * ((textureDesc.height + blockHeight - 1) / blockHeight);
+        if (offset < 0 || (size_t)offset + size > file->size())
+            return 0;
+        return Nri_UploadTexture(queue, texture, file->data() + offset, rowPitch);
     }
 }

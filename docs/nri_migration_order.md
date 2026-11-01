@@ -21,7 +21,8 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | depth_bounds_test_nri (#180) | pipeline descs (`Nri_CreatePipelineDesc`, shaders, vertex attributes, color write mask, depth test and bounds), `Nri_CreateUploadedBuffer` (vertex buffer), `Nri_CreateDepthTexture` (moved to its layout once, at creation), `Nri_CmdBeginRenderingWithDepth`, `Nri_CmdClearDepth`, `Nri_CmdSetVertexBuffer`, `Nri_CmdSetDepthBounds`, `NriFeature.DepthBoundsTest`, the `NriFormat` / `NriCompareOp` enums |
 | small_resources_nri (#181) | pipeline layout descs (descriptor set ranges), descriptor pools and sets, samplers, texture views, committed and placed textures (`Nri_GetPlacedTextureSize`, `Nri_AllocateTextureMemory`), `Nri_UploadTexture`, triangle strips, vertex buffer offsets, `Nri_IsKeyToggled`, `Nri_SetWindowTitle`, `Nri_GetDeviceMemoryUsage`, the example's own options (`Nri_AddExampleOption`, `Nri_GetArg`), extra module sources in `add_tslang_nri_example`; Vulkan binding offsets set to Donut's register shifts |
 | descriptor_indexing_nri (#182) | root constants and root (immutable) samplers, descriptor range flags (bindless variable-sized arrays updated after binding), set register spaces, update-after-set pools, variable-sized set allocation, index buffers and indexed draws, `Nri_StoreInt32`, `Nri_GetFrameTime`, `std::default_random_engine` numbers (`Nri_CreateRandomEngine`) |
-| dynamic_uniform_buffers_nri | host-visible constant buffers (`Nri_CreateHostBuffer`, `Nri_WriteBuffer`), constant buffer views, root descriptors bound per draw with an offset (the sample's dynamic uniform buffer offsets), mouse input (`Nri_IsButtonPressed`, `Nri_GetMouseDeltaX/Y`, `Nri_GetMouseWheel`), normal-distributed random numbers |
+| dynamic_uniform_buffers_nri (#183) | host-visible constant buffers (`Nri_CreateHostBuffer`, `Nri_WriteBuffer`), constant buffer views, root descriptors bound per draw with an offset (the sample's dynamic uniform buffer offsets), mouse input (`Nri_IsButtonPressed`, `Nri_GetMouseDeltaX/Y`, `Nri_GetMouseWheel`), normal-distributed random numbers |
+| bundles_nri | the scene only (NRI has no bundles: the draws are recorded every frame); files (`Nri_LoadFile`, buffers and textures uploaded from file regions), BC1 textures, `Nri_IsKeyPressed` (SimpleCamera, with Donut's Key values: declarations only) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -29,20 +30,19 @@ Descriptor sets, samplers, textures, root constants, bindless arrays and constan
 (dynamic_uniform_buffers_nri). Still to add: structured buffers, offscreen color targets and a
 blit or copy to the swap chain.
 
-1. **bundles**: draws the same scene without D3D12 bundles, since NRI has none. Port only the scene, or skip it.
-2. **dynamic_indexing**
-3. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
+1. **dynamic_indexing**
+2. **vertex_buffer**: adds the first texture loaded from a file (NRIFramework `utils::LoadTexture`).
 
 ## Tier 2: compute and queues
 
 Adds compute pipelines, `CmdDispatch`, storage buffers and textures, compute/copy queues and
 timeline fences.
 
-4. **async_compute**
-5. **timeline_semaphore**
-6. **compute_nbody**
-7. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
-8. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+3. **async_compute**
+4. **timeline_semaphore**
+5. **compute_nbody**
+6. **execute_indirect**: `CmdDrawIndirect` / `CmdDrawIndexedIndirect`.
+7. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
 
 ## Tier 3: ImGui (NRIImgui.h)
 
