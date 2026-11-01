@@ -91,10 +91,15 @@ namespace ThreadedRenderingNri {
         return "";
     }
 
-    // What a frame in flight records into, and its sets (a face's view constants each).
+    // What a frame in flight records into: before the faces (the first frame's mip chains, the cube
+    // map's barrier) and after them (the blits); a face's own allocator and command buffer each (a
+    // worker thread records each); its sets (a face's view constants each).
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public viewSets: NriDescriptorSetHandle[], public viewConstantsViews: NriDescriptorHandle[]) {
+        faceAllocators: NriCommandAllocatorHandle[] = [];
+        faceCommandBuffers: NriCommandBufferHandle[] = [];
+        constructor(public commandAllocator: NriCommandAllocatorHandle, public beforeFaces: NriCommandBufferHandle,
+            public commandBuffer: NriCommandBufferHandle, public viewSets: NriDescriptorSetHandle[],
+            public viewConstantsViews: NriDescriptorHandle[]) {
         }
     }
 
@@ -114,8 +119,13 @@ namespace ThreadedRenderingNri {
 
     // Port of Donut-Samples' threaded_rendering.cpp (as examples/threaded_rendering.ts ports it) to
     // NRI: renders the scene, lit by the ambient light alone, with Donut's forward shading pass into
-    // the six faces of a cube map around the camera, then shows the faces unfolded. WASD/QE and the
-    // left mouse button move the camera (Donut's FirstPersonCamera).
+    // the six faces of a cube map around the camera, each face into its own command buffer, either on
+    // worker threads or one after another (Space toggles), then shows the faces unfolded. WASD/QE and
+    // the left mouse button move the camera (Donut's FirstPersonCamera).
+    //
+    // The faces' recording is C++ (nri_interop's draw passes, replaying a draw list this class makes
+    // once): TypeScript code must not run on the worker threads, which its garbage collector doesn't
+    // know about.
     class ThreadedRendering {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
@@ -142,6 +152,12 @@ namespace ThreadedRenderingNri {
         private materialSets: NriDescriptorSetHandle[] = [];
         private textures: DonutSceneTextures = new DonutSceneTextures();
         private drawItems: DrawItem[] = [];
+        // The draws as a draw list (pipeline slots 0, back faces culled, and 1, none), and a face's
+        // draw pass each.
+        private drawList: NriDrawListHandle | null = null;
+        private facePasses: NriDrawPassHandle[] = [];
+        // Space toggles; -noThreads starts without.
+        useThreads: boolean = true;
 
         // The cube map (Donut_CreateCubemapTarget's: sRGB color, D32 depth, six layers) and a face's
         // views: attachments, and the slice the blit reads.
@@ -261,7 +277,7 @@ namespace ThreadedRenderingNri {
 
             const folder = graphicsAPI == NriGraphicsAPI.VK ? "spirv" : "dxil";
             if (!this.loadScene(device, folder) || !this.createTargets(device) || !this.createPipelines(device, folder)
-                || !this.createDescriptorSets(device, queuedFrameNum)) {
+                || !this.createDescriptorSets(device, queuedFrameNum) || !this.createFacePasses()) {
                 return 0;
             }
 
@@ -550,7 +566,14 @@ namespace ThreadedRenderingNri {
                     viewSets.push(set);
                     views.push(view);
                 }
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), viewSets, views));
+                const queuedFrame = new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator),
+                    Nri_CreateCommandBuffer(commandAllocator), viewSets, views);
+                for (let face = 0; face < NUM_FACES; face++) {
+                    const faceAllocator = Nri_CreateCommandAllocator(this.queue);
+                    queuedFrame.faceAllocators.push(faceAllocator);
+                    queuedFrame.faceCommandBuffers.push(Nri_CreateCommandBuffer(faceAllocator));
+                }
+                this.queuedFrames.push(queuedFrame);
             }
 
             for (let face = 0; face < NUM_FACES; face++) {
@@ -571,6 +594,51 @@ namespace ThreadedRenderingNri {
             return true;
         }
 
+        // The draw list (the draws in order, a pipeline slot, material set and push constants changed
+        // as they change) and a face's pass each: its attachments, cleared to 0 (color and reverse
+        // depth), the shading set, the instances and vertices, the index buffer.
+        createFacePasses() {
+            const layout = this.layout;
+            const descriptorPool = this.descriptorPool;
+            const shadingSet = this.shadingSet;
+            const indexBuffer = this.indexBuffer;
+            const instanceBufferView = this.instanceBufferView;
+            const vertexBufferView = this.vertexBufferView;
+            if (!layout || !descriptorPool || !shadingSet || !indexBuffer || !instanceBufferView) {
+                return false;
+            }
+            if (!vertexBufferView) {
+                return false;
+            }
+            const drawList = Nri_CreateDrawList();
+            this.drawList = drawList;
+            let slot = -1;
+            let material = -1;
+            for (const item of this.drawItems) {
+                const itemSlot = item.doubleSided ? 1 : 0;
+                if (itemSlot != slot) {
+                    Nri_DrawListSetPipeline(drawList, itemSlot);
+                    slot = itemSlot;
+                }
+                if (item.material != material) {
+                    Nri_DrawListSetDescriptorSet(drawList, 0, this.materialSets[item.material]);
+                    material = item.material;
+                }
+                Nri_DrawListSetRootConstants(drawList, 0, Ref(item.pushConstants[0]), PUSH_CONSTANT_WORDS * 4);
+                Nri_DrawListDrawIndexed(drawList, item.indexCount, 1, item.firstIndex, 0, 0);
+            }
+            for (let face = 0; face < NUM_FACES; face++) {
+                const pass = Nri_CreateDrawPass(drawList, this.faceColorAttachments[face], this.faceDepthAttachments[face],
+                    CUBEMAP_RESOLUTION, CUBEMAP_RESOLUTION, layout, descriptorPool);
+                Nri_DrawPassSetDescriptorSet(pass, 2, shadingSet);
+                Nri_DrawPassSetRootDescriptor(pass, 0, instanceBufferView);
+                Nri_DrawPassSetRootDescriptor(pass, 1, vertexBufferView);
+                Nri_DrawPassSetIndexBuffer(pass, indexBuffer);
+                this.facePasses.push(pass);
+            }
+            return true;
+        }
+
         // Where a queued frame's face's view constants are in the constant buffer.
         viewOffset(queuedFrameIndex: int, face: int) {
             return this.lightStride + (queuedFrameIndex * NUM_FACES + face) * this.viewStride;
@@ -582,6 +650,9 @@ namespace ThreadedRenderingNri {
             const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
             Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
             Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            for (const faceAllocator of queuedFrame.faceAllocators) {
+                Nri_ResetCommandAllocator(faceAllocator);
+            }
         }
 
         // The camera (Donut's FirstPersonCamera, unless in test mode, where nothing moves it) and the
@@ -625,46 +696,6 @@ namespace ThreadedRenderingNri {
             this.shadowMapCleared = true;
         }
 
-        // A cube face: cleared (color and depth to 0), the scene's opaque and alpha-tested geometries
-        // drawn by Donut's forward shading pass, as RenderCubemapFace records it.
-        recordFace(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, face: int) {
-            const layout = this.layout;
-            const shadingSet = this.shadingSet;
-            const indexBuffer = this.indexBuffer;
-            const instanceBufferView = this.instanceBufferView;
-            const vertexBufferView = this.vertexBufferView;
-            if (!layout || !shadingSet || !indexBuffer || !instanceBufferView || !vertexBufferView) {
-                return;
-            }
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, this.faceColorAttachments[face], this.faceDepthAttachments[face]);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, CUBEMAP_RESOLUTION, CUBEMAP_RESOLUTION);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, CUBEMAP_RESOLUTION, CUBEMAP_RESOLUTION);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 1, queuedFrame.viewSets[face]);
-            Nri_CmdSetDescriptorSet(commandBuffer, 2, shadingSet);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, instanceBufferView, 0);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, vertexBufferView, 0);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            let pipeline = -1;
-            let material = -1;
-            for (const item of this.drawItems) {
-                const itemPipeline = (item.doubleSided ? 1 : 0) + (this.mirrored ? 2 : 0);
-                if (itemPipeline != pipeline) {
-                    Nri_CmdSetPipeline(commandBuffer, this.pipelines[itemPipeline]);
-                    pipeline = itemPipeline;
-                }
-                if (item.material != material) {
-                    Nri_CmdSetDescriptorSet(commandBuffer, 0, this.materialSets[item.material]);
-                    material = item.material;
-                }
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(item.pushConstants[0]), PUSH_CONSTANT_WORDS * 4);
-                Nri_CmdDrawIndexed(commandBuffer, item.indexCount, 1, item.firstIndex, 0, 0);
-            }
-            Nri_CmdEndRendering(commandBuffer);
-        }
-
         // The faces unfolded over the swap chain texture (between Nri_CmdBeginRendering and
         // Nri_CmdEndRendering): Donut's blit of each slice into its square.
         recordBlits(commandBuffer: NriCommandBufferHandle) {
@@ -687,9 +718,30 @@ namespace ThreadedRenderingNri {
             }
         }
 
+        // The faces' passes record the scene into the queued frame's faces' command buffers, as seen by
+        // its faces' views, with the pipelines of the views' front faces: on worker threads, or one
+        // after another.
+        recordFaces(queuedFrame: QueuedFrame) {
+            for (let face = 0; face < NUM_FACES; face++) {
+                const pass = this.facePasses[face];
+                Nri_DrawPassSetDescriptorSet(pass, 1, queuedFrame.viewSets[face]);
+                Nri_DrawPassSetPipeline(pass, 0, this.pipelines[this.mirrored ? 2 : 0]);
+                Nri_DrawPassSetPipeline(pass, 1, this.pipelines[this.mirrored ? 3 : 1]);
+                if (this.useThreads) {
+                    Nri_RecordDrawPassAsync(pass, queuedFrame.faceCommandBuffers[face]);
+                } else {
+                    Nri_RecordDrawPass(pass, queuedFrame.faceCommandBuffers[face]);
+                }
+            }
+        }
+
         renderFrame(frameIndex: int) {
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
+            if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+                this.useThreads = !this.useThreads;
+                Nri_SetWindowTitle(this.sample, `${WINDOW_TITLE} ${this.useThreads ? "(With threads)" : "(No threads)"}`);
+            }
             this.writeConstants(queuedFrameIndex);
 
             // Acquire a swap chain texture
@@ -710,17 +762,20 @@ namespace ThreadedRenderingNri {
             if (!descriptorPool || !cubeColor) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            // The faces, on their threads; meanwhile, before them: the mip chains and the fallback (the
+            // first frame), the cube map's barrier; after them: their blits.
+            this.recordFaces(queuedFrame);
+            const beforeFaces = queuedFrame.beforeFaces;
+            Nri_BeginCommandBuffer(beforeFaces);
+            Nri_CmdSetDescriptorPool(beforeFaces, descriptorPool);
+            this.textures.recordBlits(beforeFaces);
+            this.clearShadowMap(beforeFaces);
+            Nri_CmdTextureBarrier(beforeFaces, cubeColor, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            Nri_EndCommandBuffer(beforeFaces);
 
-            // Record: the mip chains and the fallback (the first frame), the faces, their blits.
+            const commandBuffer = queuedFrame.commandBuffer;
             Nri_BeginCommandBuffer(commandBuffer);
             Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            this.textures.recordBlits(commandBuffer);
-            this.clearShadowMap(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, cubeColor, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            for (let face = 0; face < NUM_FACES; face++) {
-                this.recordFace(commandBuffer, queuedFrame, face);
-            }
             Nri_CmdTextureBarrier(commandBuffer, cubeColor, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
             Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
             Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
@@ -741,7 +796,14 @@ namespace ThreadedRenderingNri {
             Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(commandBuffer);
 
-            // Submit and present
+            // Submit (once the faces are recorded) and present
+            for (const pass of this.facePasses) {
+                Nri_WaitDrawPass(pass);
+            }
+            Nri_QueueSubmitCommandBuffer(this.queue, beforeFaces);
+            for (const faceCommandBuffer of queuedFrame.faceCommandBuffers) {
+                Nri_QueueSubmitCommandBuffer(this.queue, faceCommandBuffer);
+            }
             Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
             Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
         }
@@ -768,8 +830,20 @@ namespace ThreadedRenderingNri {
         destroy() {
             const device = this.device;
             if (device) {
+                for (const pass of this.facePasses) {
+                    Nri_DestroyDrawPass(pass);
+                }
+                const drawList = this.drawList;
+                if (drawList) {
+                    Nri_DestroyDrawList(drawList);
+                }
                 Nri_DeviceWaitIdle(device);
                 for (const queuedFrame of this.queuedFrames) {
+                    for (let face = 0; face < queuedFrame.faceCommandBuffers.length; face++) {
+                        Nri_DestroyCommandBuffer(queuedFrame.faceCommandBuffers[face]);
+                        Nri_DestroyCommandAllocator(queuedFrame.faceAllocators[face]);
+                    }
+                    Nri_DestroyCommandBuffer(queuedFrame.beforeFaces);
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     for (const view of queuedFrame.viewConstantsViews) {
@@ -864,11 +938,16 @@ namespace ThreadedRenderingNri {
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
         const rendering = new ThreadedRendering(sample);
-        // --scene <path>: relative to the executable's directory.
+        // --scene <path>: relative to the executable's directory; -noThreads: the faces recorded one
+        // after another from the start.
         Nri_AddExampleOptionWithValues(sample, "--scene", 1);
+        Nri_AddExampleOption(sample, "-noThreads");
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "--scene" && i + 1 < argc) {
+            const arg = Nri_GetArg(argc, argv, i);
+            if (arg == "--scene" && i + 1 < argc) {
                 rendering.scenePath = Nri_GetArg(argc, argv, i + 1);
+            } else if (arg == "-noThreads") {
+                rendering.useThreads = false;
             }
         }
         return rendering.run(argc, argv);

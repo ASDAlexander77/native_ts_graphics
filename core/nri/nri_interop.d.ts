@@ -41,6 +41,9 @@
 @cpp declare class NriGltfModelHandle { private readonly __nriGltfModel: index; }
 // A glTF scene as Donut's engine loads it, on the CPU (Nri_LoadDonutScene).
 @cpp declare class NriDonutSceneHandle { private readonly __nriDonutScene: index; }
+// A pass's draws (Nri_CreateDrawList), and a pass recording them (Nri_CreateDrawPass).
+@cpp declare class NriDrawListHandle { private readonly __nriDrawList: index; }
+@cpp declare class NriDrawPassHandle { private readonly __nriDrawPass: index; }
 // A pool of timestamp queries (Nri_CreateTimestampQueryPool).
 @cpp declare class NriQueryPoolHandle { private readonly __nriQueryPool: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
@@ -698,6 +701,47 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Runs the command buffer once waitSemaphore (a swap chain's acquire) is signaled; signals
 // signalSemaphore (the swap chain's release) when done.
 @nodrops declare function Nri_QueueSubmit(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle, waitSemaphore: NriFenceHandle, signalSemaphore: NriFenceHandle): void;
+// Runs the command buffer after the work submitted before it, waiting for and signaling nothing.
+@nodrops declare function Nri_QueueSubmitCommandBuffer(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle): void;
+
+// Draw passes recorded on worker threads: a draw list is a pass's draws (pipelines by slot, sets,
+// root constants, indexed draws), made once; a draw pass records it into a command buffer of its
+// own, set up first (attachments cleared, viewport, layout, sets, root descriptors, index buffer), on
+// the calling thread (Nri_RecordDrawPass) or on a worker thread (Nri_RecordDrawPassAsync, then
+// Nri_WaitDrawPass): C++ doing what TypeScript can't do on threads its garbage collector doesn't
+// know about.
+@nodrops declare function Nri_CreateDrawList(): NriDrawListHandle;
+@nodrops declare function Nri_DestroyDrawList(list: NriDrawListHandle): void;
+// The draws from here on use the pass's pipeline in slot (Nri_DrawPassSetPipeline).
+@nodrops declare function Nri_DrawListSetPipeline(list: NriDrawListHandle, slot: int): void;
+@nodrops declare function Nri_DrawListSetDescriptorSet(list: NriDrawListHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+// size bytes of root constants (copied from data) at root constant index.
+@nodrops declare function Nri_DrawListSetRootConstants(list: NriDrawListHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
+@nodrops declare function Nri_DrawListDrawIndexed(list: NriDrawListHandle, indexNum: int, instanceNum: int, baseIndex: int,
+    baseVertex: int, baseInstance: int): void;
+// A pass recording the list (which must outlive it) into width x height color and depth attachments,
+// with the layout (graphics) and the pool's sets. Destroying it waits for its worker.
+@nodrops declare function Nri_CreateDrawPass(list: NriDrawListHandle, colorAttachment: NriDescriptorHandle,
+    depthAttachment: NriDescriptorHandle, width: int, height: int, layout: NriPipelineLayoutHandle,
+    descriptorPool: NriDescriptorPoolHandle): NriDrawPassHandle;
+@nodrops declare function Nri_DestroyDrawPass(pass: NriDrawPassHandle): void;
+// The attachments' clear values (0 unless this says otherwise).
+@nodrops declare function Nri_DrawPassSetClear(pass: NriDrawPassHandle, r: float, g: float, b: float, a: float, depth: float): void;
+// A set bound before the draws (or replacing the one at setIndex).
+@nodrops declare function Nri_DrawPassSetDescriptorSet(pass: NriDrawPassHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+// A root descriptor (a view) bound before the draws.
+@nodrops declare function Nri_DrawPassSetRootDescriptor(pass: NriDrawPassHandle, rootDescriptorIndex: int, descriptor: NriDescriptorHandle): void;
+// The 32-bit index buffer the indexed draws read.
+@nodrops declare function Nri_DrawPassSetIndexBuffer(pass: NriDrawPassHandle, buffer: NriBufferHandle): void;
+// The pipeline the list's slot means (changeable between recordings).
+@nodrops declare function Nri_DrawPassSetPipeline(pass: NriDrawPassHandle, slot: int, pipeline: NriPipelineHandle): void;
+// Records the pass into the command buffer (beginning and ending it), on this thread.
+@nodrops declare function Nri_RecordDrawPass(pass: NriDrawPassHandle, commandBuffer: NriCommandBufferHandle): void;
+// As Nri_RecordDrawPass, on a worker thread; Nri_WaitDrawPass before submitting the command buffer or
+// changing the pass. Each pass recording at once needs its own command buffer and allocator.
+@nodrops declare function Nri_RecordDrawPassAsync(pass: NriDrawPassHandle, commandBuffer: NriCommandBufferHandle): void;
+@nodrops declare function Nri_WaitDrawPass(pass: NriDrawPassHandle): void;
+
 // Makes the work submitted to the queue from now on wait until the fence reaches value (on the GPU).
 @nodrops declare function Nri_QueueWait(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
 // Runs the command buffer once waitFence (if not null) reaches waitValue (e.g. another queue's
