@@ -2789,6 +2789,9 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(dynamic_uniform_buffers core/vulkan_samples_camera.ts core/matrix.ts)
 add_tslang_example_test(dynamic_uniform_buffers)
+# dynamic_uniform_buffers with NRI and NRIFramework instead of Donut: dynamic_uniform_buffers' shaders.
+add_tslang_nri_example(dynamic_uniform_buffers_nri SHADERS dynamic_uniform_buffers_shaders core/matrix.ts)
+add_tslang_example_test(dynamic_uniform_buffers_nri)
 
 # Port of Vulkan-Samples' texture_loading: a lit quad with a texture loaded with its mip levels,
 # sampled with a level of detail bias set in the UI. It reads fragment_shading_rate's copy of the
@@ -4267,7 +4270,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)

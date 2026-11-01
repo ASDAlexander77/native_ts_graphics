@@ -116,6 +116,7 @@ namespace
         std::vector<Set> sets;
         // In register space 0 (NRI's rootRegisterSpace; on Vulkan, set 0).
         std::vector<nri::RootConstantDesc> rootConstants;
+        std::vector<nri::RootDescriptorDesc> rootDescriptors;
         std::vector<nri::RootSamplerDesc> rootSamplers;
     };
 
@@ -432,6 +433,29 @@ extern "C"
     NRI_INTEROP_API double Nri_GetFrameTime(TsSample* sample)
     {
         return sample->FrameTime() / 1000.0;
+    }
+
+    // 1 if the mouse button (0 left, 1 right, 2 middle) is down, else 0.
+    NRI_INTEROP_API int Nri_IsButtonPressed(TsSample* sample, int button)
+    {
+        return button >= 0 && button < (int)Button::NUM && sample->IsButtonPressed((Button)button) ? 1 : 0;
+    }
+
+    // How far the mouse moved since the last frame, in pixels (x right, y down).
+    NRI_INTEROP_API double Nri_GetMouseDeltaX(TsSample* sample)
+    {
+        return sample->GetMouseDelta().x;
+    }
+
+    NRI_INTEROP_API double Nri_GetMouseDeltaY(TsSample* sample)
+    {
+        return sample->GetMouseDelta().y;
+    }
+
+    // The mouse wheel's turn this frame.
+    NRI_INTEROP_API double Nri_GetMouseWheel(TsSample* sample)
+    {
+        return sample->GetMouseWheel();
     }
 
     NRI_INTEROP_API void Nri_SetWindowTitle(TsSample* sample, const char* title)
@@ -799,6 +823,64 @@ extern "C"
         return Nri_CreateUploadedBuffer(device, queue, data, byteSize, usage);
     }
 
+    // A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for
+    // usage (an NriBufferUsage: 2, constant buffers); null on failure.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateHostBuffer(nri::Device* device, int byteSize, int usage)
+    {
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = (uint64_t)byteSize;
+        switch (usage)
+        {
+        case 2:
+            bufferDesc.usage = nri::BufferUsageBits::CONSTANT_BUFFER;
+            break;
+        default:
+            return nullptr;
+        }
+        nri::Buffer* buffer = nullptr;
+        if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        group.bufferNum = 1;
+        group.buffers = &buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(buffer);
+            return nullptr;
+        }
+        g_BufferMemory[buffer] = std::move(memory);
+        return buffer;
+    }
+
+    // Copies byteSize bytes of data into the buffer (Nri_CreateHostBuffer's) at offset; 0 if it can't
+    // be mapped.
+    NRI_INTEROP_API int Nri_WriteBuffer(nri::Buffer* buffer, int offset, const void* data, int byteSize)
+    {
+        void* mapped = NRI.MapBuffer(*buffer, (uint64_t)offset, (uint64_t)byteSize);
+        if (!mapped)
+            return 0;
+        memcpy(mapped, data, (size_t)byteSize);
+        NRI.UnmapBuffer(*buffer);
+        return 1;
+    }
+
+    // A view of byteSize bytes of the buffer from offset, as a constant buffer.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateConstantBufferView(nri::Buffer* buffer, int offset, int byteSize)
+    {
+        nri::BufferViewDesc desc = {};
+        desc.buffer = buffer;
+        desc.viewType = nri::BufferViewType::CONSTANT;
+        desc.offset = (uint64_t)offset;
+        desc.size = (uint64_t)byteSize;
+        nri::Descriptor* view = nullptr;
+        if (NRI.CreateBufferView(desc, view) != nri::Result::SUCCESS)
+            return nullptr;
+        return view;
+    }
+
     // Destroys the buffer and frees its memory.
     NRI_INTEROP_API void Nri_DestroyBuffer(nri::Buffer* buffer)
     {
@@ -1010,6 +1092,16 @@ extern "C"
     {
         nri::SetRootConstantsDesc desc = { (uint32_t)rootConstantIndex, data, (uint32_t)size, 0, nri::BindPoint::GRAPHICS };
         NRI.CmdSetRootConstants(*commandBuffer, desc);
+    }
+
+    // Binds a view (Nri_CreateConstantBufferView's) as the graphics layout's root descriptor
+    // rootDescriptorIndex (in the order the layout added them), offset bytes further into its buffer
+    // (a multiple of 256).
+    NRI_INTEROP_API void Nri_CmdSetRootDescriptor(nri::CommandBuffer* commandBuffer, int rootDescriptorIndex, nri::Descriptor* descriptor,
+        int offset)
+    {
+        nri::SetRootDescriptorDesc desc = { (uint32_t)rootDescriptorIndex, descriptor, (uint32_t)offset, nri::BindPoint::GRAPHICS };
+        NRI.CmdSetRootDescriptor(*commandBuffer, desc);
     }
 
     // Stores value's bits in a float slot (Ref of an f32 array element): an int field of root
@@ -1288,6 +1380,14 @@ extern "C"
         desc->rootConstants.push_back({ (uint32_t)registerIndex, (uint32_t)size, (nri::StageBits)stages });
     }
 
+    // A root descriptor (push descriptor) of type (an NriDescriptorType: a constant buffer) at
+    // register b<registerIndex> (by type), space 0, for the stages: bound per draw with an offset
+    // (Nri_CmdSetRootDescriptor), as a dynamic uniform buffer is.
+    NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootDescriptor(PipelineLayoutDesc* desc, int registerIndex, int type, int stages)
+    {
+        desc->rootDescriptors.push_back({ (uint32_t)registerIndex, (nri::DescriptorType)type, (nri::StageBits)stages });
+    }
+
     // An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification
     // and magnification, mipFilter for mips (NriFilter), addressMode on all axes, for the stages.
     NRI_INTEROP_API void Nri_PipelineLayoutDescAddRootSampler(PipelineLayoutDesc* desc, int registerIndex, int filter, int mipFilter,
@@ -1321,6 +1421,8 @@ extern "C"
         layoutDesc.descriptorSetNum = (uint32_t)sets.size();
         layoutDesc.rootConstants = desc->rootConstants.data();
         layoutDesc.rootConstantNum = (uint32_t)desc->rootConstants.size();
+        layoutDesc.rootDescriptors = desc->rootDescriptors.data();
+        layoutDesc.rootDescriptorNum = (uint32_t)desc->rootDescriptors.size();
         layoutDesc.rootSamplers = desc->rootSamplers.data();
         layoutDesc.rootSamplerNum = (uint32_t)desc->rootSamplers.size();
         layoutDesc.shaderStages = nri::StageBits::GRAPHICS_SHADERS;
@@ -1488,10 +1590,22 @@ extern "C"
     // --- Random numbers, as the samples' C++ draws them -------------------------------------------
 
     // A std::default_random_engine seeded with seed: the same numbers as the samples' (and as
-    // Donut_CreateRandomEngine's).
+    // Donut_CreateRandomEngine's); a negative seed takes one from std::random_device (different
+    // every run).
     NRI_INTEROP_API std::default_random_engine* Nri_CreateRandomEngine(int seed)
     {
-        return new std::default_random_engine((std::default_random_engine::result_type)seed);
+        return new std::default_random_engine(seed >= 0 ? (std::default_random_engine::result_type)seed
+                                                        : (std::default_random_engine::result_type)std::random_device()());
+    }
+
+    // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst
+    // (Ref of an f32 array element): one distribution object, as the samples keep it (MSVC's makes
+    // values in pairs and keeps the second).
+    NRI_INTEROP_API void Nri_RandomNormalFloats(std::default_random_engine* randomEngine, double mean, double stddev, int count, float* dst)
+    {
+        std::normal_distribution<float> distribution((float)mean, (float)stddev);
+        for (int i = 0; i < count; i++)
+            dst[i] = distribution(*randomEngine);
     }
 
     NRI_INTEROP_API void Nri_DestroyRandomEngine(std::default_random_engine* randomEngine)

@@ -151,7 +151,9 @@ enum NriKey {
 // What Nri_CreateUploadedBuffer's buffer is for.
 enum NriBufferUsage {
     VertexBuffer = 0,
-    IndexBuffer = 1
+    IndexBuffer = 1,
+    // Nri_CreateHostBuffer's
+    ConstantBuffer = 2
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -204,6 +206,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // 1 if the key was pressed since the last call (for this key), else 0.
 @nodrops declare function Nri_IsKeyToggled(sample: NriSampleHandle, key: NriKey): int;
 @nodrops declare function Nri_SetWindowTitle(sample: NriSampleHandle, title: string): void;
+// 1 if the mouse button (0 left, 1 right, 2 middle) is down, else 0.
+@nodrops declare function Nri_IsButtonPressed(sample: NriSampleHandle, button: int): int;
+// How far the mouse moved since the last frame, in pixels (x right, y down).
+@nodrops declare function Nri_GetMouseDeltaX(sample: NriSampleHandle): number;
+@nodrops declare function Nri_GetMouseDeltaY(sample: NriSampleHandle): number;
+// The mouse wheel's turn this frame.
+@nodrops declare function Nri_GetMouseWheel(sample: NriSampleHandle): number;
 // The last frame's duration, in seconds.
 @nodrops declare function Nri_GetFrameTime(sample: NriSampleHandle): number;
 // The frames in flight (2 with v-sync).
@@ -265,6 +274,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A buffer of byteSize bytes in device memory, filled with data's byteSize bytes (Ref of an array
 // element) on the queue, which this waits for; null on failure.
 @nodrops declare function Nri_CreateUploadedBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for usage
+// (NriBufferUsage.ConstantBuffer); null on failure.
+@nodrops declare function Nri_CreateHostBuffer(device: NriDeviceHandle, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
+// Copies byteSize bytes of data (Ref of an f32 array element) into the buffer at offset; 0 on failure.
+@nodrops declare function Nri_WriteBuffer(buffer: NriBufferHandle, offset: int, data: Ref<f32>, byteSize: int): int;
+// A view of byteSize bytes of the buffer from offset, as a constant buffer; null on failure.
+@nodrops declare function Nri_CreateConstantBufferView(buffer: NriBufferHandle, offset: int, byteSize: int): NriDescriptorHandle | null;
 // Nri_CreateUploadedBuffer from an int array (index data).
 @nodrops declare function Nri_CreateUploadedBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
 // The pixels of an 8-bit RGBA or BGRA texture read back into the buffer (rowPitch bytes a row),
@@ -306,6 +322,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdSetPipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
 @nodrops declare function Nri_CmdSetPipeline(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle): void;
 @nodrops declare function Nri_CmdDraw(commandBuffer: NriCommandBufferHandle, vertexNum: int, instanceNum: int, baseVertex: int, baseInstance: int): void;
+// Binds a view (Nri_CreateConstantBufferView's) as the graphics layout's root descriptor
+// rootDescriptorIndex (in the order the layout added them), offset bytes further into its buffer (a
+// multiple of 256).
+@nodrops declare function Nri_CmdSetRootDescriptor(commandBuffer: NriCommandBufferHandle, rootDescriptorIndex: int, descriptor: NriDescriptorHandle, offset: int): void;
 // Binds an index buffer from offset bytes in.
 @nodrops declare function Nri_CmdSetIndexBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, offset: int, indexType: NriIndexType): void;
 @nodrops declare function Nri_CmdDrawIndexed(commandBuffer: NriCommandBufferHandle, indexNum: int, instanceNum: int, baseIndex: int, baseVertex: int, baseInstance: int): void;
@@ -379,6 +399,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineLayoutDescSetRegisterSpace(desc: NriPipelineLayoutDescHandle, setIndex: int, registerSpace: int): void;
 // size bytes of root constants (push constants) at register b<registerIndex>, space 0, for stages.
 @nodrops declare function Nri_PipelineLayoutDescAddRootConstants(desc: NriPipelineLayoutDescHandle, registerIndex: int, size: int, stages: NriStage): void;
+// A root descriptor (push descriptor) of type (a constant buffer) at register b<registerIndex>,
+// space 0, for stages: bound per draw with an offset (Nri_CmdSetRootDescriptor), as a dynamic uniform
+// buffer is.
+@nodrops declare function Nri_PipelineLayoutDescAddRootDescriptor(desc: NriPipelineLayoutDescHandle, registerIndex: int, type: NriDescriptorType, stages: NriStage): void;
 // An immutable (static) sampler at register s<registerIndex>, space 0: filter for minification and
 // magnification, mipFilter for mips, addressMode on all axes, for stages.
 @nodrops declare function Nri_PipelineLayoutDescAddRootSampler(desc: NriPipelineLayoutDescHandle, registerIndex: int, filter: NriFilter,
@@ -426,8 +450,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The application's device memory in use, in bytes.
 @nodrops declare function Nri_GetDeviceMemoryUsage(device: NriDeviceHandle): number;
 
-// Random numbers, as the samples' C++ draws them: a std::default_random_engine seeded with seed.
+// Random numbers, as the samples' C++ draws them: a std::default_random_engine seeded with seed (a
+// negative one: from std::random_device, different every run).
 @nodrops declare function Nri_CreateRandomEngine(seed: int): NriRandomEngineHandle;
+// count numbers from one std::normal_distribution<float>(mean, stddev) into dst (Ref of an f32 array
+// element).
+@nodrops declare function Nri_RandomNormalFloats(randomEngine: NriRandomEngineHandle, mean: number, stddev: number, count: int, dst: Ref<f32>): void;
 @nodrops declare function Nri_DestroyRandomEngine(randomEngine: NriRandomEngineHandle): void;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 @nodrops declare function Nri_RandomUniformFloat(randomEngine: NriRandomEngineHandle, a: number, b: number): number;
