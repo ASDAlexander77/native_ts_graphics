@@ -272,7 +272,7 @@ namespace DepthBoundsTestNri {
                                     Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
                                     Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
                                     Nri_CmdSetPipelineLayout(commandBuffer, this.pipelineLayout);
-                                    Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, VERTEX_STRIDE);
+                                    Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_STRIDE);
 
                                     // Render only the depth of the triangle to prime the depth value
                                     // of the triangle.

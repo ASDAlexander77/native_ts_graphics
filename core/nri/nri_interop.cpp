@@ -24,6 +24,7 @@
 #include "GLFW/glfw3native.h"
 #endif
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <unordered_map>
@@ -61,7 +62,7 @@ namespace
     std::unordered_map<nri::Buffer*, std::vector<nri::Memory*>> g_BufferMemory;
     std::unordered_map<nri::Texture*, std::vector<nri::Memory*>> g_TextureMemory;
 
-    // The nri::Format and nri::CompareOp values nri_interop.d.ts' NriFormat and NriCompareOp name.
+    // The values of nri_interop.d.ts' enums (NriFormat, NriCompareOp, NriTopology, ...).
     static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
     static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
@@ -69,6 +70,13 @@ namespace
     static_assert((int)nri::Format::D32_SFLOAT == 66);
     static_assert((int)nri::CompareOp::NONE == 0 && (int)nri::CompareOp::ALWAYS == 1 && (int)nri::CompareOp::NEVER == 2);
     static_assert((int)nri::CompareOp::LESS == 5 && (int)nri::CompareOp::GREATER_EQUAL == 8);
+    static_assert((int)nri::Topology::TRIANGLE_LIST == 3 && (int)nri::Topology::TRIANGLE_STRIP == 4);
+    static_assert((int)nri::DescriptorType::SAMPLER == 0 && (int)nri::DescriptorType::CONSTANT_BUFFER == 1
+        && (int)nri::DescriptorType::TEXTURE == 2);
+    static_assert((int)nri::StageBits::VERTEX_SHADER == 2 && (int)nri::StageBits::FRAGMENT_SHADER == 128);
+    static_assert((int)nri::Filter::NEAREST == 0 && (int)nri::Filter::LINEAR == 1);
+    static_assert((int)nri::AddressMode::REPEAT == 0 && (int)nri::AddressMode::CLAMP_TO_BORDER == 3);
+    static_assert((int)Key::Space == 32);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -89,6 +97,14 @@ namespace
         nri::DepthAttachmentDesc depth = {};
         nri::Format depthFormat = nri::Format::UNKNOWN;
         nri::CullMode cullMode = nri::CullMode::NONE;
+        nri::Topology topology = nri::Topology::TRIANGLE_LIST;
+    };
+
+    // What Nri_CreatePipelineLayoutFromDesc makes a layout from: descriptor sets 0, 1, ..., each
+    // with its ranges, in the order Nri_PipelineLayoutDescAddRange added them.
+    struct PipelineLayoutDesc
+    {
+        std::vector<std::vector<nri::DescriptorRangeDesc>> sets;
     };
 
     // Where the shaders are instead of next to this library, if Nri_SetDataDirectory was called.
@@ -158,6 +174,8 @@ namespace
             // read and write as DEPTH_READ | DEPTH_WRITE, an invalid combination
             return { nri::AccessBits::DEPTH_STENCIL_ATTACHMENT_WRITE, nri::Layout::DEPTH_STENCIL_ATTACHMENT,
                 nri::StageBits::DEPTH_STENCIL_ATTACHMENT };
+        case 5:
+            return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::FRAGMENT_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -199,6 +217,29 @@ namespace
             return nullptr;
         return pipeline;
     }
+
+    // A width x height 2D texture (one mip) shaders read.
+    nri::TextureDesc ShaderResourceTextureDesc(int width, int height, int format)
+    {
+        nri::TextureDesc desc = {};
+        desc.type = nri::TextureType::TEXTURE_2D;
+        desc.usage = nri::TextureUsageBits::SHADER_RESOURCE;
+        desc.format = (nri::Format)format;
+        desc.width = (nri::Dim_t)width;
+        desc.height = (nri::Dim_t)height;
+        return desc;
+    }
+
+    // The memory such a texture needs in device memory (from a texture made and destroyed).
+    bool GetTextureMemoryDesc(nri::Device* device, int width, int height, int format, nri::MemoryDesc& memoryDesc)
+    {
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateTexture(*device, ShaderResourceTextureDesc(width, height, format), texture) != nri::Result::SUCCESS)
+            return false;
+        NRI.GetTextureMemoryDesc(*texture, nri::MemoryLocation::DEVICE, memoryDesc);
+        NRI.DestroyTexture(texture);
+        return true;
+    }
 }
 
 // NRIFramework's application, its virtual methods calling TypeScript.
@@ -209,6 +250,8 @@ public:
     Callback<FrameFn> m_LatencySleep;
     Callback<FrameFn> m_RenderFrame;
     bool m_Test = false;
+    // The example's own options (Nri_AddExampleOption), which NRIFramework's parser isn't given.
+    std::vector<std::string> m_ExampleOptions;
 
     bool Initialize(nri::GraphicsAPI graphicsAPI, bool) override
     {
@@ -232,6 +275,7 @@ public:
     bool DebugAPI() const { return m_DebugAPI; }
     bool DebugNRI() const { return m_DebugNRI; }
     bool Vsync() const { return m_Vsync; }
+    GLFWwindow* Window() const { return m_Window; }
 };
 
 extern "C"
@@ -315,8 +359,8 @@ extern "C"
                 args.push_back("--alwaysActive");
             }
             // a separator the JIT launchers leave in (run_jitd.bat x.ts -- -test passes -test -- -dx12),
-            // which NRIFramework's parser rejects
-            else if (arg != "--")
+            // which NRIFramework's parser rejects, and the example's options
+            else if (arg != "--" && std::find(sample->m_ExampleOptions.begin(), sample->m_ExampleOptions.end(), arg) == sample->m_ExampleOptions.end())
                 args.push_back(arg);
         }
 
@@ -333,6 +377,19 @@ extern "C"
         sample->RenderLoop();
         fflush(stdout);
         return 0;
+    }
+
+    // An option of the example's (a flag it reads with Nri_GetArg), which Nri_RunSample leaves out of
+    // NRIFramework's command line; before Nri_RunSample.
+    NRI_INTEROP_API void Nri_AddExampleOption(TsSample* sample, const char* option)
+    {
+        sample->m_ExampleOptions.push_back(option);
+    }
+
+    // The command line's argument index (main's argv), "" past its end.
+    NRI_INTEROP_API const char* Nri_GetArg(int argc, const char* const* argv, int index)
+    {
+        return index >= 0 && index < argc ? argv[index] : "";
     }
 
     // -test was given: Nri_RunSample rendered the test's frames.
@@ -352,6 +409,18 @@ extern "C"
     }
 
     // The frames in flight (2 with v-sync).
+    // 1 if the key (an NriKey: GLFW's key code) was pressed since the last call, else 0.
+    NRI_INTEROP_API int Nri_IsKeyToggled(TsSample* sample, int key)
+    {
+        return key >= 0 && key < (int)Key::NUM && sample->IsKeyToggled((Key)key) ? 1 : 0;
+    }
+
+    NRI_INTEROP_API void Nri_SetWindowTitle(TsSample* sample, const char* title)
+    {
+        if (sample->Window())
+            glfwSetWindowTitle(sample->Window(), title);
+    }
+
     NRI_INTEROP_API int Nri_GetQueuedFrameNum(TsSample* sample)
     {
         return sample->GetQueuedFrameNum();
@@ -373,7 +442,9 @@ extern "C"
         desc.enableNRIValidation = sample->DebugNRI();
         desc.enableD3D11CommandBufferEmulation = D3D11_ENABLE_COMMAND_BUFFER_EMULATION;
         desc.disableD3D12EnhancedBarriers = D3D12_DISABLE_ENHANCED_BARRIERS;
-        desc.vkBindingOffsets = VK_BINDING_OFFSETS;
+        // The register shifts the examples' SPIR-V is compiled with (Donut's compileshaders.cmake:
+        // t 0, s 128, b 256, u 384), not NRIFramework's.
+        desc.vkBindingOffsets = { 128, 0, 256, 384 };
         desc.adapterDesc = &adapterDescs[std::min(sample->AdapterIndex(), adapterDescNum - 1)];
         desc.allocationCallbacks = sample->AllocationCallbacks();
         desc.callbackInterface.MessageCallback = MessageCallback;
@@ -838,10 +909,10 @@ extern "C"
         NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
     }
 
-    // Binds a vertex buffer, its vertices stride bytes apart, to stream slot.
-    NRI_INTEROP_API void Nri_CmdSetVertexBuffer(nri::CommandBuffer* commandBuffer, int slot, nri::Buffer* buffer, int stride)
+    // Binds a vertex buffer from offset bytes in, its vertices stride bytes apart, to stream slot.
+    NRI_INTEROP_API void Nri_CmdSetVertexBuffer(nri::CommandBuffer* commandBuffer, int slot, nri::Buffer* buffer, int offset, int stride)
     {
-        nri::VertexBufferDesc desc = { buffer, 0, (uint32_t)stride };
+        nri::VertexBufferDesc desc = { buffer, (uint64_t)offset, (uint32_t)stride };
         NRI.CmdSetVertexBuffers(*commandBuffer, (uint32_t)slot, &desc, 1);
     }
 
@@ -866,6 +937,19 @@ extern "C"
     NRI_INTEROP_API void Nri_CmdSetPipelineLayout(nri::CommandBuffer* commandBuffer, nri::PipelineLayout* pipelineLayout)
     {
         NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::GRAPHICS, *pipelineLayout);
+    }
+
+    // The descriptor pool the command buffer's descriptor sets come from.
+    NRI_INTEROP_API void Nri_CmdSetDescriptorPool(nri::CommandBuffer* commandBuffer, nri::DescriptorPool* descriptorPool)
+    {
+        NRI.CmdSetDescriptorPool(*commandBuffer, *descriptorPool);
+    }
+
+    // Binds a descriptor set (of the graphics pipeline layout's set setIndex) as set setIndex.
+    NRI_INTEROP_API void Nri_CmdSetDescriptorSet(nri::CommandBuffer* commandBuffer, int setIndex, nri::DescriptorSet* descriptorSet)
+    {
+        nri::SetDescriptorSetDesc desc = { (uint32_t)setIndex, descriptorSet, nri::BindPoint::GRAPHICS };
+        NRI.CmdSetDescriptorSet(*commandBuffer, desc);
     }
 
     NRI_INTEROP_API void Nri_CmdSetPipeline(nri::CommandBuffer* commandBuffer, nri::Pipeline* pipeline)
@@ -1043,6 +1127,12 @@ extern "C"
         desc->depth.boundsTest = boundsTest != 0;
     }
 
+    // The primitive topology (an NriTopology).
+    NRI_INTEROP_API void Nri_PipelineDescSetTopology(PipelineDesc* desc, int topology)
+    {
+        desc->topology = (nri::Topology)topology;
+    }
+
     // The pipeline the desc describes, with the layout; null on failure.
     NRI_INTEROP_API nri::Pipeline* Nri_CreatePipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout, PipelineDesc* desc)
     {
@@ -1063,7 +1153,7 @@ extern "C"
         pipelineDesc.pipelineLayout = pipelineLayout;
         if (!desc->attributes.empty())
             pipelineDesc.vertexInput = &vertexInput;
-        pipelineDesc.inputAssembly.topology = nri::Topology::TRIANGLE_LIST;
+        pipelineDesc.inputAssembly.topology = desc->topology;
         pipelineDesc.rasterization.fillMode = nri::FillMode::SOLID;
         pipelineDesc.rasterization.cullMode = desc->cullMode;
         if (desc->color.format != nri::Format::UNKNOWN)
@@ -1080,5 +1170,203 @@ extern "C"
         if (NRI.CreateGraphicsPipeline(*device, pipelineDesc, pipeline) != nri::Result::SUCCESS)
             return nullptr;
         return pipeline;
+    }
+
+    // --- Pipeline layouts with descriptor sets -----------------------------------------------------
+
+    NRI_INTEROP_API PipelineLayoutDesc* Nri_CreatePipelineLayoutDesc()
+    {
+        return new PipelineLayoutDesc();
+    }
+
+    NRI_INTEROP_API void Nri_DestroyPipelineLayoutDesc(PipelineLayoutDesc* desc)
+    {
+        delete desc;
+    }
+
+    // A range of descriptorNum descriptors of type (an NriDescriptorType) from register baseRegister
+    // (t, s, b or u by type) in set setIndex (register space setIndex), seen by the shader stages
+    // (NriStage bits).
+    NRI_INTEROP_API void Nri_PipelineLayoutDescAddRange(PipelineLayoutDesc* desc, int setIndex, int baseRegister, int descriptorNum,
+        int type, int stages)
+    {
+        if (setIndex < 0)
+            return;
+        if ((size_t)setIndex >= desc->sets.size())
+            desc->sets.resize((size_t)setIndex + 1);
+        nri::DescriptorRangeDesc range = {};
+        range.baseRegisterIndex = (uint32_t)baseRegister;
+        range.descriptorNum = (uint32_t)descriptorNum;
+        range.descriptorType = (nri::DescriptorType)type;
+        range.shaderStages = (nri::StageBits)stages;
+        desc->sets[(size_t)setIndex].push_back(range);
+    }
+
+    // The layout the desc describes, for the graphics stages; null on failure.
+    NRI_INTEROP_API nri::PipelineLayout* Nri_CreatePipelineLayoutFromDesc(nri::Device* device, PipelineLayoutDesc* desc)
+    {
+        std::vector<nri::DescriptorSetDesc> sets;
+        for (size_t i = 0; i < desc->sets.size(); i++)
+            sets.push_back({ (uint32_t)i, desc->sets[i].data(), (uint32_t)desc->sets[i].size(), nri::DescriptorSetBits::NONE });
+
+        nri::PipelineLayoutDesc layoutDesc = {};
+        layoutDesc.descriptorSets = sets.data();
+        layoutDesc.descriptorSetNum = (uint32_t)sets.size();
+        layoutDesc.shaderStages = nri::StageBits::GRAPHICS_SHADERS;
+        nri::PipelineLayout* pipelineLayout = nullptr;
+        if (NRI.CreatePipelineLayout(*device, layoutDesc, pipelineLayout) != nri::Result::SUCCESS)
+            return nullptr;
+        return pipelineLayout;
+    }
+
+    // --- Descriptor pools and sets ----------------------------------------------------------------
+
+    // A pool of setMaxNum descriptor sets holding at most samplerMaxNum samplers, constantBufferMaxNum
+    // constant buffers and textureMaxNum textures in all; null on failure.
+    NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPool(nri::Device* device, int setMaxNum, int samplerMaxNum,
+        int constantBufferMaxNum, int textureMaxNum)
+    {
+        nri::DescriptorPoolDesc desc = {};
+        desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
+        desc.samplerMaxNum = (uint32_t)samplerMaxNum;
+        desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
+        desc.textureMaxNum = (uint32_t)textureMaxNum;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorPool;
+    }
+
+    // Destroys the pool and the sets allocated from it.
+    NRI_INTEROP_API void Nri_DestroyDescriptorPool(nri::DescriptorPool* descriptorPool)
+    {
+        NRI.DestroyDescriptorPool(descriptorPool);
+    }
+
+    // Forgets the sets allocated from the pool, which may allocate as many again.
+    NRI_INTEROP_API void Nri_ResetDescriptorPool(nri::DescriptorPool* descriptorPool)
+    {
+        NRI.ResetDescriptorPool(*descriptorPool);
+    }
+
+    // A descriptor set for the layout's set setIndex, from the pool; null on failure.
+    NRI_INTEROP_API nri::DescriptorSet* Nri_AllocateDescriptorSet(nri::DescriptorPool* descriptorPool, nri::PipelineLayout* pipelineLayout,
+        int setIndex)
+    {
+        nri::DescriptorSet* descriptorSet = nullptr;
+        if (NRI.AllocateDescriptorSets(*descriptorPool, *pipelineLayout, (uint32_t)setIndex, &descriptorSet, 1, 0) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorSet;
+    }
+
+    // Puts the descriptor in the set's range rangeIndex (in the order the layout added them), at
+    // element element.
+    NRI_INTEROP_API void Nri_UpdateDescriptor(nri::DescriptorSet* descriptorSet, int rangeIndex, int element, nri::Descriptor* descriptor)
+    {
+        nri::UpdateDescriptorRangeDesc desc = { descriptorSet, (uint32_t)rangeIndex, (uint32_t)element, &descriptor, 1 };
+        NRI.UpdateDescriptorRanges(&desc, 1);
+    }
+
+    // A sampler: filter (an NriFilter) for minification, magnification and mips, addressMode (an
+    // NriAddressMode) on all axes; null on failure.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateSampler(nri::Device* device, int filter, int addressMode)
+    {
+        nri::SamplerDesc desc = {};
+        desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)filter };
+        desc.mipMax = 16.0f;
+        desc.addressModes = { (nri::AddressMode)addressMode, (nri::AddressMode)addressMode, (nri::AddressMode)addressMode };
+        nri::Descriptor* sampler = nullptr;
+        if (NRI.CreateSampler(*device, desc, sampler) != nri::Result::SUCCESS)
+            return nullptr;
+        return sampler;
+    }
+
+    // A view of a 2D texture's mips for shaders to read.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateTextureView(nri::Texture* texture, int format)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::SHADER_RESOURCE_2D, (nri::Format)format };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
+    // --- Textures shaders read: committed, or placed in memory ----------------------------------
+
+    // A width x height texture (one mip) of NRI's choosing (D3D12: a committed resource) in device
+    // memory; null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateCommittedTexture(nri::Device* device, int width, int height, int format)
+    {
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, ShaderResourceTextureDesc(width, height, format), texture)
+            != nri::Result::SUCCESS)
+            return nullptr;
+        return texture;
+    }
+
+    // The bytes a width x height texture (one mip) takes placed in memory, rounded up to its
+    // alignment (D3D12: 4 KB for a small one); 0 on failure.
+    NRI_INTEROP_API double Nri_GetPlacedTextureSize(nri::Device* device, int width, int height, int format)
+    {
+        nri::MemoryDesc memoryDesc = {};
+        if (!GetTextureMemoryDesc(device, width, height, format, memoryDesc))
+            return 0.0;
+        uint64_t alignment = memoryDesc.alignment ? memoryDesc.alignment : 1;
+        return (double)((memoryDesc.size + alignment - 1) / alignment * alignment);
+    }
+
+    // byteSize bytes of device memory for width x height textures of format to be placed in
+    // (Nri_CreatePlacedTexture); null on failure.
+    NRI_INTEROP_API nri::Memory* Nri_AllocateTextureMemory(nri::Device* device, double byteSize, int width, int height, int format)
+    {
+        nri::MemoryDesc memoryDesc = {};
+        if (!GetTextureMemoryDesc(device, width, height, format, memoryDesc))
+            return nullptr;
+        nri::AllocateMemoryDesc desc = {};
+        desc.size = (uint64_t)byteSize;
+        desc.type = memoryDesc.type;
+        nri::Memory* memory = nullptr;
+        if (NRI.AllocateMemory(*device, desc, memory) != nri::Result::SUCCESS)
+            return nullptr;
+        return memory;
+    }
+
+    // Frees memory Nri_AllocateTextureMemory allocated, once the textures placed in it are destroyed.
+    NRI_INTEROP_API void Nri_FreeMemory(nri::Memory* memory)
+    {
+        NRI.FreeMemory(memory);
+    }
+
+    // A width x height texture (one mip) placed in memory at offset bytes; null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreatePlacedTexture(nri::Device* device, nri::Memory* memory, double offset, int width, int height,
+        int format)
+    {
+        nri::Texture* texture = nullptr;
+        if (NRI.CreatePlacedTexture(*device, memory, (uint64_t)offset, ShaderResourceTextureDesc(width, height, format), texture)
+            != nri::Result::SUCCESS)
+            return nullptr;
+        return texture;
+    }
+
+    // Fills the texture's mip 0 (one layer) with data, rows rowPitch bytes apart, on the queue (which
+    // this waits for), and leaves it in NriTextureState.ShaderResource; 0 on failure.
+    NRI_INTEROP_API int Nri_UploadTexture(nri::Queue* queue, nri::Texture* texture, const void* data, int rowPitch)
+    {
+        const nri::TextureDesc& textureDesc = NRI.GetTextureDesc(*texture);
+        nri::TextureSubresourceUploadDesc subresource = { data, 1, (uint32_t)rowPitch, (uint32_t)rowPitch * textureDesc.height };
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = &subresource;
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        return NRI.UploadData(*queue, &upload, 1, nullptr, 0) == nri::Result::SUCCESS ? 1 : 0;
+    }
+
+    // The application's device memory in use (QueryVideoMemoryInfo's usage), in bytes.
+    NRI_INTEROP_API double Nri_GetDeviceMemoryUsage(nri::Device* device)
+    {
+        nri::VideoMemoryInfo info = {};
+        if (NRI.QueryVideoMemoryInfo(*device, nri::MemoryLocation::DEVICE, info) != nri::Result::SUCCESS)
+            return 0.0;
+        return (double)info.usageSize;
     }
 }

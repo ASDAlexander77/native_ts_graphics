@@ -25,6 +25,12 @@
 @cpp declare class NriPipelineHandle { private readonly __nriPipeline: index; }
 // What Nri_CreatePipelineFromDesc makes a pipeline from (Nri_CreatePipelineDesc).
 @cpp declare class NriPipelineDescHandle { private readonly __nriPipelineDesc: index; }
+// What Nri_CreatePipelineLayoutFromDesc makes a layout from (Nri_CreatePipelineLayoutDesc).
+@cpp declare class NriPipelineLayoutDescHandle { private readonly __nriPipelineLayoutDesc: index; }
+@cpp declare class NriDescriptorPoolHandle { private readonly __nriDescriptorPool: index; }
+// Allocated from a pool, destroyed with it.
+@cpp declare class NriDescriptorSetHandle { private readonly __nriDescriptorSet: index; }
+@cpp declare class NriMemoryHandle { private readonly __nriMemory: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -41,7 +47,9 @@ enum NriTextureState {
     CopySource = 2,
     Present = 3,
     // a depth attachment's (Nri_CreateDepthTexture's, from the start)
-    DepthAttachment = 4
+    DepthAttachment = 4,
+    // read by pixel shaders (Nri_UploadTexture's textures, after it)
+    ShaderResource = 5
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -98,6 +106,46 @@ enum NriColorWrite {
     RGBA = 15
 }
 
+// nri::Topology: the primitives a pipeline draws (Nri_PipelineDescSetTopology).
+enum NriTopology {
+    TriangleList = 3,
+    TriangleStrip = 4
+}
+
+// nri::DescriptorType: a descriptor range's.
+enum NriDescriptorType {
+    Sampler = 0,
+    ConstantBuffer = 1,
+    Texture = 2
+}
+
+// nri::StageBits: the shader stages that see a descriptor range.
+enum NriStage {
+    Vertex = 2,
+    Pixel = 128,
+    // vertex and pixel
+    VertexPixel = 130
+}
+
+// nri::Filter (Nri_CreateSampler).
+enum NriFilter {
+    Nearest = 0,
+    Linear = 1
+}
+
+// nri::AddressMode (Nri_CreateSampler).
+enum NriAddressMode {
+    Repeat = 0,
+    MirroredRepeat = 1,
+    ClampToEdge = 2,
+    ClampToBorder = 3
+}
+
+// NRIFramework's Key: GLFW's key codes (Nri_IsKeyToggled).
+enum NriKey {
+    Space = 32
+}
+
 // What Nri_CreateUploadedBuffer's buffer is for.
 enum NriBufferUsage {
     VertexBuffer = 0
@@ -122,10 +170,18 @@ type NriFrameCallback = (frameIndex: int) => void;
 // the examples' options translated to it: -dx11, -dx12, -vk (--api), -debug (--debugAPI
 // --debugNRI), -test (renders testFrames frames, unfocused too, see Nri_IsTest). V-sync is on.
 declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<string>, title: string, testFrames: int): int;
+// An option of the example's (a flag it reads with Nri_GetArg), which Nri_RunSample leaves out of
+// NRIFramework's command line (which would reject it); before Nri_RunSample.
+@nodrops declare function Nri_AddExampleOption(sample: NriSampleHandle, option: string): void;
+// The command line's argument index (main's argc and argv), "" past its end.
+@nodrops declare function Nri_GetArg(argc: int, argv: Ref<string>, index: int): string;
 // -test was given: Nri_RunSample rendered the test's frames.
 @nodrops declare function Nri_IsTest(sample: NriSampleHandle): int;
 @nodrops declare function Nri_GetOutputWidth(sample: NriSampleHandle): int;
 @nodrops declare function Nri_GetOutputHeight(sample: NriSampleHandle): int;
+// 1 if the key was pressed since the last call (for this key), else 0.
+@nodrops declare function Nri_IsKeyToggled(sample: NriSampleHandle, key: NriKey): int;
+@nodrops declare function Nri_SetWindowTitle(sample: NriSampleHandle, title: string): void;
 // The frames in flight (2 with v-sync).
 @nodrops declare function Nri_GetQueuedFrameNum(sample: NriSampleHandle): int;
 
@@ -209,8 +265,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdEndRendering(commandBuffer: NriCommandBufferHandle): void;
 // Clears the whole depth attachment (after Nri_CmdBeginRenderingWithDepth).
 @nodrops declare function Nri_CmdClearDepth(commandBuffer: NriCommandBufferHandle, depth: float): void;
-// Binds a vertex buffer, its vertices stride bytes apart, to stream slot.
-@nodrops declare function Nri_CmdSetVertexBuffer(commandBuffer: NriCommandBufferHandle, slot: int, buffer: NriBufferHandle, stride: int): void;
+// Binds a vertex buffer from offset bytes in, its vertices stride bytes apart, to stream slot.
+@nodrops declare function Nri_CmdSetVertexBuffer(commandBuffer: NriCommandBufferHandle, slot: int, buffer: NriBufferHandle, offset: int, stride: int): void;
+// The descriptor pool the command buffer's descriptor sets come from (before Nri_CmdSetDescriptorSet).
+@nodrops declare function Nri_CmdSetDescriptorPool(commandBuffer: NriCommandBufferHandle, descriptorPool: NriDescriptorPoolHandle): void;
+// Binds a descriptor set (of the graphics pipeline layout's set setIndex) as set setIndex.
+@nodrops declare function Nri_CmdSetDescriptorSet(commandBuffer: NriCommandBufferHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
 // The depth bounds test's range (NriFeature.DepthBoundsTest; a pipeline with the test on).
 @nodrops declare function Nri_CmdSetDepthBounds(commandBuffer: NriCommandBufferHandle, boundsMin: float, boundsMax: float): void;
 // Clears the whole color attachment (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
@@ -268,5 +328,55 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The depth attachment's format, its test (NriCompareOp.None: off), whether it's written (1) and
 // whether the depth bounds test is on (1; NriFeature.DepthBoundsTest).
 @nodrops declare function Nri_PipelineDescSetDepth(desc: NriPipelineDescHandle, format: NriFormat, compareOp: NriCompareOp, write: int, boundsTest: int): void;
+// The primitives drawn (TriangleList by default).
+@nodrops declare function Nri_PipelineDescSetTopology(desc: NriPipelineDescHandle, topology: NriTopology): void;
 // The pipeline the desc describes, with the layout; null on failure.
 @nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;
+
+// Pipeline layouts with descriptor sets, their ranges added one by one.
+@nodrops declare function Nri_CreatePipelineLayoutDesc(): NriPipelineLayoutDescHandle;
+@nodrops declare function Nri_DestroyPipelineLayoutDesc(desc: NriPipelineLayoutDescHandle): void;
+// A range of descriptorNum descriptors of type from register baseRegister (t, s or b by type) in set
+// setIndex (register space setIndex), seen by stages (NriStage).
+@nodrops declare function Nri_PipelineLayoutDescAddRange(desc: NriPipelineLayoutDescHandle, setIndex: int, baseRegister: int,
+    descriptorNum: int, type: NriDescriptorType, stages: NriStage): void;
+// The layout the desc describes, for the graphics stages; null on failure.
+@nodrops declare function Nri_CreatePipelineLayoutFromDesc(device: NriDeviceHandle, desc: NriPipelineLayoutDescHandle): NriPipelineLayoutHandle | null;
+
+// Descriptor pools and sets
+// A pool of setMaxNum descriptor sets holding at most samplerMaxNum samplers, constantBufferMaxNum
+// constant buffers and textureMaxNum textures in all; null on failure.
+@nodrops declare function Nri_CreateDescriptorPool(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
+    constantBufferMaxNum: int, textureMaxNum: int): NriDescriptorPoolHandle | null;
+// Destroys the pool and the sets allocated from it.
+@nodrops declare function Nri_DestroyDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
+// Forgets the sets allocated from the pool, which may allocate as many again.
+@nodrops declare function Nri_ResetDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
+// A descriptor set for the layout's set setIndex, from the pool; null on failure.
+@nodrops declare function Nri_AllocateDescriptorSet(descriptorPool: NriDescriptorPoolHandle, pipelineLayout: NriPipelineLayoutHandle,
+    setIndex: int): NriDescriptorSetHandle | null;
+// Puts the descriptor in the set's range rangeIndex (in the order the layout added them), at element.
+@nodrops declare function Nri_UpdateDescriptor(descriptorSet: NriDescriptorSetHandle, rangeIndex: int, element: int, descriptor: NriDescriptorHandle): void;
+// A sampler: filter for minification, magnification and mips, addressMode on all axes; null on failure.
+@nodrops declare function Nri_CreateSampler(device: NriDeviceHandle, filter: NriFilter, addressMode: NriAddressMode): NriDescriptorHandle | null;
+// A view of a 2D texture's mips for shaders to read.
+@nodrops declare function Nri_CreateTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+
+// Textures shaders read (destroyed with Nri_DestroyTexture): committed, or placed in memory.
+// A width x height texture (one mip) of NRI's choosing (D3D12: a committed resource); null on failure.
+@nodrops declare function Nri_CreateCommittedTexture(device: NriDeviceHandle, width: int, height: int, format: NriFormat): NriTextureHandle | null;
+// The bytes a width x height texture (one mip) takes placed in memory, rounded up to its alignment
+// (D3D12: 4 KB for a small one); 0 on failure.
+@nodrops declare function Nri_GetPlacedTextureSize(device: NriDeviceHandle, width: int, height: int, format: NriFormat): number;
+// byteSize bytes of device memory for width x height textures of format to be placed in; null on failure.
+@nodrops declare function Nri_AllocateTextureMemory(device: NriDeviceHandle, byteSize: number, width: int, height: int, format: NriFormat): NriMemoryHandle | null;
+// Frees memory, once the textures placed in it are destroyed.
+@nodrops declare function Nri_FreeMemory(memory: NriMemoryHandle): void;
+// A width x height texture (one mip) placed in memory at offset bytes; null on failure.
+@nodrops declare function Nri_CreatePlacedTexture(device: NriDeviceHandle, memory: NriMemoryHandle, offset: number, width: int, height: int,
+    format: NriFormat): NriTextureHandle | null;
+// Fills the texture's mip 0 with data (Ref of an int array element), rows rowPitch bytes apart, on the
+// queue (which this waits for); leaves it in NriTextureState.ShaderResource. 0 on failure.
+@nodrops declare function Nri_UploadTexture(queue: NriQueueHandle, texture: NriTextureHandle, data: Ref<int>, rowPitch: int): int;
+// The application's device memory in use, in bytes.
+@nodrops declare function Nri_GetDeviceMemoryUsage(device: NriDeviceHandle): number;

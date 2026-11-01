@@ -1058,19 +1058,25 @@ if (WIN32)
 endif()
 add_dependencies(nri_interop nri_interop_build)
 
-# add_tslang_nri_example(<name> [SHADERS <target>]): examples/nri/<name>.ts, rendering with NRI through
-# core/nri/nri_interop.d.ts, and the shaders it loads, compiled by <target>. It links nri_interop,
-# and nothing of Donut (tslang_core, donut_interop_static). On Android, only the app (<name>_app,
-# <name>_apk): its window is the activity's.
+# add_tslang_nri_example(<name> [SHADERS <target>] [<source>...]): examples/nri/<name>.ts, rendering
+# with NRI through core/nri/nri_interop.d.ts, the shaders it loads, compiled by <target>, and the
+# further sources: modules it imports that need nothing of Donut (core/random.ts). It links
+# nri_interop, and nothing of Donut (tslang_core, donut_interop_static). On Android, only the app
+# (<name>_app, <name>_apk): its window is the activity's.
 function(add_tslang_nri_example name)
     cmake_parse_arguments(PARSE_ARGV 1 EXAMPLE "" "SHADERS" "")
-    set_source_files_properties(examples/nri/${name}.ts PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts")
-    tslang_own_facts(examples/nri/${name}.ts)
+    set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
+    list(FILTER module_ts INCLUDE REGEX "\\.ts$")
+    set(module_ts_paths ${module_ts})
+    list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+    set_source_files_properties(examples/nri/${name}.ts PROPERTIES OBJECT_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts;${module_ts_paths}")
+    tslang_own_facts(examples/nri/${name}.ts ${module_ts})
     if (ANDROID)
-        add_tslang_android_app(${name} "" SHADERS ${EXAMPLE_SHADERS} NRI)
+        add_tslang_android_app(${name} "" SHADERS ${EXAMPLE_SHADERS} NRI ${EXAMPLE_UNPARSED_ARGUMENTS})
         return()
     endif()
-    add_executable(${name} examples/nri/${name}.ts)
+    add_executable(${name} examples/nri/${name}.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} nri_interop)
     if (EXAMPLE_SHADERS)
@@ -3794,6 +3800,10 @@ donut_compile_shaders(
 )
 add_tslang_example(small_resources core/random.ts)
 add_tslang_example_test(small_resources)
+# small_resources with NRI and NRIFramework instead of Donut: small_resources' shaders.
+add_tslang_nri_example(small_resources_nri SHADERS small_resources_shaders core/random.ts)
+add_tslang_example_test(small_resources_nri)
+add_tslang_example_test(small_resources_nri SUFFIX committed ARGS -committed)
 
 # Port of DirectX-Graphics-Samples' D3D12ReservedResources: a quad sampling one level of a reserved
 # (tiled) 256 x 256 texture; the arrow keys pick the level, whose tiles get mapped to its own heap
@@ -4254,7 +4264,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)
