@@ -24,8 +24,9 @@
 #include <donut/shaders/binding_helpers.hlsli>
 
 // The compute shaders write this frame's image, reading the previous frame's (point sampled,
-// repeating: the grid wraps around).
-RWTexture2D<float4> u_ImageOutput : register(u0);
+// repeating: the grid wraps around). The images are RGBA8, their format declared for Vulkan (DXC's
+// default, Rgba32f, doesn't match their views).
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> u_ImageOutput : register(u0);
 Texture2D t_ImageInput : register(t0);
 SamplerState s_ImmutableSampler : register(s0);
 

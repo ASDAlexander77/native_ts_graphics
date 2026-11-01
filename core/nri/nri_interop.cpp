@@ -204,6 +204,9 @@ namespace
             return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::FRAGMENT_SHADER };
         case 6:
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
+        case 7:
+            return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE,
+                nri::StageBits::FRAGMENT_SHADER | nri::StageBits::COMPUTE_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -1237,6 +1240,31 @@ extern "C"
         NRI.CmdDraw(*commandBuffer, { (uint32_t)vertexNum, (uint32_t)instanceNum, (uint32_t)baseVertex, (uint32_t)baseInstance });
     }
 
+    // The compute bind point's Nri_CmdSetPipelineLayout, Nri_CmdSetDescriptorSet and
+    // Nri_CmdSetRootConstants (for Nri_CmdDispatch).
+    NRI_INTEROP_API void Nri_CmdSetComputePipelineLayout(nri::CommandBuffer* commandBuffer, nri::PipelineLayout* pipelineLayout)
+    {
+        NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::COMPUTE, *pipelineLayout);
+    }
+
+    NRI_INTEROP_API void Nri_CmdSetComputeDescriptorSet(nri::CommandBuffer* commandBuffer, int setIndex, nri::DescriptorSet* descriptorSet)
+    {
+        nri::SetDescriptorSetDesc desc = { (uint32_t)setIndex, descriptorSet, nri::BindPoint::COMPUTE };
+        NRI.CmdSetDescriptorSet(*commandBuffer, desc);
+    }
+
+    NRI_INTEROP_API void Nri_CmdSetComputeRootConstants(nri::CommandBuffer* commandBuffer, int rootConstantIndex, const void* data, int size)
+    {
+        nri::SetRootConstantsDesc desc = { (uint32_t)rootConstantIndex, data, (uint32_t)size, 0, nri::BindPoint::COMPUTE };
+        NRI.CmdSetRootConstants(*commandBuffer, desc);
+    }
+
+    // Dispatches x * y * z groups of the compute pipeline set.
+    NRI_INTEROP_API void Nri_CmdDispatch(nri::CommandBuffer* commandBuffer, int x, int y, int z)
+    {
+        NRI.CmdDispatch(*commandBuffer, { (uint32_t)x, (uint32_t)y, (uint32_t)z });
+    }
+
     // Binds an index buffer from offset bytes in, of 16- or 32-bit indices (an NriIndexType).
     NRI_INTEROP_API void Nri_CmdSetIndexBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer, int offset, int indexType)
     {
@@ -1331,6 +1359,30 @@ extern "C"
         nri::QueueSubmitDesc desc = {};
         desc.waitFences = &wait;
         desc.waitFenceNum = 1;
+        std::lock_guard lock(g_QueueMutex);
+        NRI.QueueSubmit(*queue, desc);
+    }
+
+    // Runs the command buffer once waitFence (if not null) reaches waitValue (e.g. another queue's
+    // timeline), and signals signalFence with signalValue when done: one submission.
+    NRI_INTEROP_API void Nri_QueueSubmitWithFences(nri::Queue* queue, nri::CommandBuffer* commandBuffer, nri::Fence* waitFence, int waitValue,
+        nri::Fence* signalFence, int signalValue)
+    {
+        nri::FenceSubmitDesc wait = {};
+        wait.fence = waitFence;
+        wait.value = (uint64_t)waitValue;
+        wait.stages = nri::StageBits::ALL;
+        nri::FenceSubmitDesc signal = {};
+        signal.fence = signalFence;
+        signal.value = (uint64_t)signalValue;
+
+        nri::QueueSubmitDesc desc = {};
+        desc.waitFences = &wait;
+        desc.waitFenceNum = waitFence ? 1 : 0;
+        desc.commandBuffers = &commandBuffer;
+        desc.commandBufferNum = 1;
+        desc.signalFences = &signal;
+        desc.signalFenceNum = 1;
         std::lock_guard lock(g_QueueMutex);
         NRI.QueueSubmit(*queue, desc);
     }

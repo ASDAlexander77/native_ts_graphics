@@ -57,7 +57,9 @@ enum NriTextureState {
     // read by pixel shaders (Nri_UploadTexture's textures, after it)
     ShaderResource = 5,
     // written by compute shaders (Nri_CreateStorageTexture's textures, from the start)
-    Storage = 6
+    Storage = 6,
+    // read by pixel and compute shaders
+    AllShaderResource = 7
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -350,6 +352,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Binds an index buffer from offset bytes in.
 @nodrops declare function Nri_CmdSetIndexBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle, offset: int, indexType: NriIndexType): void;
 @nodrops declare function Nri_CmdDrawIndexed(commandBuffer: NriCommandBufferHandle, indexNum: int, instanceNum: int, baseIndex: int, baseVertex: int, baseInstance: int): void;
+// The compute bind point's Nri_CmdSetPipelineLayout, Nri_CmdSetDescriptorSet and
+// Nri_CmdSetRootConstants (for Nri_CmdDispatch).
+@nodrops declare function Nri_CmdSetComputePipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
+@nodrops declare function Nri_CmdSetComputeDescriptorSet(commandBuffer: NriCommandBufferHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+@nodrops declare function Nri_CmdSetComputeRootConstants(commandBuffer: NriCommandBufferHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
+// Dispatches x * y * z groups of the compute pipeline set.
+@nodrops declare function Nri_CmdDispatch(commandBuffer: NriCommandBufferHandle, x: int, y: int, z: int): void;
 // Sets the graphics layout's root constants rootConstantIndex (in the order the layout added them)
 // to size bytes of data (Ref of an f32 array element).
 @nodrops declare function Nri_CmdSetRootConstants(commandBuffer: NriCommandBufferHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
@@ -368,6 +377,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_QueueSubmit(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle, waitSemaphore: NriFenceHandle, signalSemaphore: NriFenceHandle): void;
 // Makes the work submitted to the queue from now on wait until the fence reaches value (on the GPU).
 @nodrops declare function Nri_QueueWait(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
+// Runs the command buffer once waitFence (if not null) reaches waitValue (e.g. another queue's
+// timeline), and signals signalFence with signalValue when done: one submission.
+@nodrops declare function Nri_QueueSubmitWithFences(queue: NriQueueHandle, commandBuffer: NriCommandBufferHandle, waitFence: NriFenceHandle | null,
+    waitValue: int, signalFence: NriFenceHandle, signalValue: int): void;
 // Signals the fence with value once the work submitted before is done.
 @nodrops declare function Nri_QueueSignal(queue: NriQueueHandle, fence: NriFenceHandle, value: int): void;
 
