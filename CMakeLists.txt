@@ -3523,6 +3523,13 @@ donut_compile_shaders(
 add_tslang_example(dynamic_indexing core/directx_math.ts core/simple_camera.ts MEDIA dynamic_indexing)
 add_dxgs_media(dynamic_indexing dynamic_indexing Samples/Desktop/D3D12DynamicIndexing/src/occcity.bin)
 add_tslang_example_test(dynamic_indexing)
+# dynamic_indexing with NRI and NRIFramework instead of Donut: dynamic_indexing's shaders and data
+# file.
+add_tslang_nri_example(dynamic_indexing_nri SHADERS dynamic_indexing_shaders core/directx_math.ts core/simple_camera.ts)
+if (TARGET dynamic_indexing_media)
+    add_dependencies(dynamic_indexing_nri dynamic_indexing_media)
+endif()
+add_tslang_example_test(dynamic_indexing_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12HDR: SDR and HDR gradients and the Rec.709 and Rec.2020 gamuts
 # drawn linearly into a float target and presented with the display's curve (sRGB, ST.2084 for
@@ -4277,7 +4284,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)
