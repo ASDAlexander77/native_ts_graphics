@@ -28,7 +28,8 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | async_compute_nri (#187) | compute queue, compute pipelines, storage textures and views, `Nri_QueueWait`, a C++ worker thread's async compute loop (`Nri_CreateAsyncComputeLoop`, as Donut's); layouts' stages from what they bind |
 | timeline_semaphore_nri (#188) | `Nri_CmdDispatch` and the compute bind point's layout, sets and root constants on the render thread; `Nri_QueueSubmitWithFences` (a submission waiting for one fence's value and signaling another's: NRI's fences are timeline semaphores); textures read by compute and pixel shaders (`NriTextureState.AllShaderResource`) |
 | compute_nbody_nri (#189) | storage buffers (`Nri_CreateStorageBuffer`, structured views) bound as root descriptors, buffer barriers and copies, additive blending; shaders from ShaderMake permutation blobs (a .cfg line with -D); Donut's ThirdPersonCamera view matrix in float32 |
-| execute_indirect_nri | indexed indirect draws with a count buffer (`Nri_CmdDrawIndexedIndirect`, `NriFeature.DrawIndirectCount`), raw (byte address) buffers as stride-4 structured views, `Nri_CmdZeroBuffer`, host-written structured buffers, per-instance vertex streams |
+| execute_indirect_nri (#190) | indexed indirect draws with a count buffer (`Nri_CmdDrawIndexedIndirect`, `NriFeature.DrawIndirectCount`), raw (byte address) buffers as stride-4 structured views, `Nri_CmdZeroBuffer`, host-written structured buffers, per-instance vertex streams |
+| buffer_device_address_nri | buffers' device addresses (`Nri_GetBufferDeviceAddress`: vkGetBufferDeviceAddress through NRI's Vulkan wrapper, as NRI has no call for it) in push constants, primitive restart; Vulkan only |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -41,9 +42,8 @@ targets and a blit or copy to the swap chain; tier 1's examples are done.
 Compute pipelines, storage textures, the compute queue and cross-queue waits are in
 (async_compute_nri), dispatches from the render thread and fenced submissions
 (timeline_semaphore_nri), storage buffers (compute_nbody_nri), indirect draws
-(execute_indirect_nri). Still to add: a copy queue.
-
-1. **buffer_device_address**: needs the buffer's `deviceAddress` passed to the shader.
+(execute_indirect_nri), device addresses (buffer_device_address_nri). Done; none of these
+examples needed a copy queue.
 
 ## Tier 3: ImGui (NRIImgui.h)
 

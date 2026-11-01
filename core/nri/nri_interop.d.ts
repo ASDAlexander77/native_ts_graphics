@@ -372,6 +372,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // (e.g. a readback buffer).
 @nodrops declare function Nri_CmdCopyBuffer(commandBuffer: NriCommandBufferHandle, dst: NriBufferHandle, src: NriBufferHandle, byteSize: int): void;
 // Zeroes the whole buffer (in NriBufferState.CopyDestination).
+// The buffer's device address (a GPU pointer) as two 32-bit halves at dst (Ref of an f32 array
+// element: push constants, or a table written with Nri_WriteBuffer; only passed on, never computed
+// with: the halves needn't be valid floats); 1, or 0 without one (Vulkan with bufferDeviceAddress only).
+@nodrops declare function Nri_GetBufferDeviceAddress(device: NriDeviceHandle, buffer: NriBufferHandle, dst: Ref<f32>): int;
 @nodrops declare function Nri_CmdZeroBuffer(commandBuffer: NriCommandBufferHandle, buffer: NriBufferHandle): void;
 // drawNum indexed draws whose arguments (5 uints: D3D12_DRAW_INDEXED_ARGUMENTS) are in buffer from
 // offset, stride bytes apart (in NriBufferState.IndirectArgument); with a countBuffer
@@ -477,6 +481,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     offset: int, stream: int): void;
 // The faces culled (None by default), clockwise ones the front.
 // The stream's attributes advance per instance, not per vertex.
+// Primitive restart for indexType's indices (0xFFFF or 0xFFFFFFFF end a strip).
+@nodrops declare function Nri_PipelineDescSetPrimitiveRestart(desc: NriPipelineDescHandle, indexType: NriIndexType): void;
 @nodrops declare function Nri_PipelineDescSetInstanceStream(desc: NriPipelineDescHandle, stream: int): void;
 @nodrops declare function Nri_PipelineDescSetCullMode(desc: NriPipelineDescHandle, cullMode: NriCullMode): void;
 // The color attachment's format and the channels written (NriColorWrite bits).
