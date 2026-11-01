@@ -56,8 +56,40 @@ namespace
     };
     Interfaces NRI = {};
 
-    // The memory Nri_CreateReadbackBuffer bound to each buffer, freed with it.
+    // The memory Nri_CreateReadbackBuffer and Nri_CreateUploadedBuffer bound to each buffer, freed
+    // with it; Nri_CreateDepthTexture's to each texture.
     std::unordered_map<nri::Buffer*, std::vector<nri::Memory*>> g_BufferMemory;
+    std::unordered_map<nri::Texture*, std::vector<nri::Memory*>> g_TextureMemory;
+
+    // The nri::Format and nri::CompareOp values nri_interop.d.ts' NriFormat and NriCompareOp name.
+    static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
+    static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
+    static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
+    static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
+    static_assert((int)nri::Format::D32_SFLOAT == 66);
+    static_assert((int)nri::CompareOp::NONE == 0 && (int)nri::CompareOp::ALWAYS == 1 && (int)nri::CompareOp::NEVER == 2);
+    static_assert((int)nri::CompareOp::LESS == 5 && (int)nri::CompareOp::GREATER_EQUAL == 8);
+
+    // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
+    // states the Nri_PipelineDesc* functions set.
+    struct PipelineDesc
+    {
+        struct Shader
+        {
+            nri::StageBits stage;
+            std::vector<uint8_t> bytecode;
+            std::string entry;
+        };
+        std::vector<Shader> shaders;
+        // The attributes' semantic names (their D3D names) are kept here.
+        std::vector<std::string> semantics;
+        // Stream 0's, if any (their stride is Nri_CmdSetVertexBuffer's).
+        std::vector<nri::VertexAttributeDesc> attributes;
+        nri::ColorAttachmentDesc color = { nri::Format::UNKNOWN, {}, {}, nri::ColorWriteBits::RGBA, false };
+        nri::DepthAttachmentDesc depth = {};
+        nri::Format depthFormat = nri::Format::UNKNOWN;
+        nri::CullMode cullMode = nri::CullMode::NONE;
+    };
 
     // Where the shaders are instead of next to this library, if Nri_SetDataDirectory was called.
     std::string g_DataDirectory;
@@ -121,6 +153,11 @@ namespace
             return { nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE, nri::StageBits::COPY };
         case 3:
             return { nri::AccessBits::NONE, nri::Layout::PRESENT, nri::StageBits::NONE };
+        case 4:
+            // the write access alone (it reads too): D3D12's legacy barriers (no Agility SDK) take
+            // read and write as DEPTH_READ | DEPTH_WRITE, an invalid combination
+            return { nri::AccessBits::DEPTH_STENCIL_ATTACHMENT_WRITE, nri::Layout::DEPTH_STENCIL_ATTACHMENT,
+                nri::StageBits::DEPTH_STENCIL_ATTACHMENT };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -366,6 +403,8 @@ extern "C"
         {
         case 0:
             return desc.features.meshShader ? 1 : 0;
+        case 1:
+            return desc.features.depthBoundsTest ? 1 : 0;
         default:
             return 0;
         }
@@ -523,9 +562,72 @@ extern "C"
         return view;
     }
 
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateDepthAttachmentView(nri::Texture* texture, int format)
+    {
+        nri::Texture2DViewDesc desc = { texture, nri::Texture2DViewType::DEPTH_STENCIL_ATTACHMENT, (nri::Format)format };
+        nri::Descriptor* view = nullptr;
+        NRI.CreateTexture2DView(desc, view);
+        return view;
+    }
+
     NRI_INTEROP_API void Nri_DestroyDescriptor(nri::Descriptor* descriptor)
     {
         NRI.DestroyDescriptor(descriptor);
+    }
+
+    NRI_INTEROP_API void Nri_DestroyTexture(nri::Texture* texture);
+
+    // A width x height depth texture in device memory, bound to it and moved on the queue (which
+    // this waits for) to NriTextureState.DepthAttachment, where it stays; null on failure.
+    NRI_INTEROP_API nri::Texture* Nri_CreateDepthTexture(nri::Device* device, nri::Queue* queue, int width, int height, int format)
+    {
+        nri::TextureDesc textureDesc = {};
+        textureDesc.type = nri::TextureType::TEXTURE_2D;
+        textureDesc.usage = nri::TextureUsageBits::DEPTH_STENCIL_ATTACHMENT;
+        textureDesc.format = (nri::Format)format;
+        textureDesc.width = (nri::Dim_t)width;
+        textureDesc.height = (nri::Dim_t)height;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateTexture(*device, textureDesc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::DEVICE;
+        group.textureNum = 1;
+        group.textures = &texture;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyTexture(texture);
+            return nullptr;
+        }
+        g_TextureMemory[texture] = std::move(memory);
+
+        // No data: the layout alone (as NRISamples do), which D3D12's legacy barriers track from
+        // the texture's initial state.
+        nri::TextureUploadDesc upload = {};
+        upload.texture = texture;
+        upload.after = TextureState(4);
+        upload.planes = nri::PlaneBits::DEPTH;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
+    NRI_INTEROP_API void Nri_DestroyTexture(nri::Texture* texture)
+    {
+        NRI.DestroyTexture(texture);
+        auto memory = g_TextureMemory.find(texture);
+        if (memory != g_TextureMemory.end())
+        {
+            for (nri::Memory* allocation : memory->second)
+                NRI.FreeMemory(allocation);
+            g_TextureMemory.erase(memory);
+        }
     }
 
     // --- Buffers --------------------------------------------------------------------------------
@@ -550,6 +652,50 @@ extern "C"
             return nullptr;
         }
         g_BufferMemory[buffer] = std::move(memory);
+        return buffer;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyBuffer(nri::Buffer* buffer);
+
+    // A buffer of byteSize bytes in device memory, filled with data (byteSize bytes) on the queue
+    // (waiting until it's done) and left in the state of usage, an NriBufferUsage: 0, a vertex
+    // buffer. Null on failure.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBuffer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int usage)
+    {
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = (uint64_t)byteSize;
+        nri::AccessStage after = {};
+        switch (usage)
+        {
+        case 0:
+            bufferDesc.usage = nri::BufferUsageBits::VERTEX_BUFFER;
+            after = { nri::AccessBits::VERTEX_BUFFER, nri::StageBits::VERTEX_SHADER };
+            break;
+        default:
+            return nullptr;
+        }
+        nri::Buffer* buffer = nullptr;
+        if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::DEVICE;
+        group.bufferNum = 1;
+        group.buffers = &buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(buffer);
+            return nullptr;
+        }
+        g_BufferMemory[buffer] = std::move(memory);
+
+        nri::BufferUploadDesc upload = { data, buffer, after };
+        if (NRI.UploadData(*queue, nullptr, 0, &upload, 1) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyBuffer(buffer);
+            return nullptr;
+        }
         return buffer;
     }
 
@@ -657,6 +803,18 @@ extern "C"
         NRI.CmdBeginRendering(*commandBuffer, desc);
     }
 
+    // Renders into one color attachment and a depth attachment (a view Nri_CreateDepthAttachmentView
+    // made).
+    NRI_INTEROP_API void Nri_CmdBeginRenderingWithDepth(nri::CommandBuffer* commandBuffer, nri::Descriptor* colorAttachment,
+        nri::Descriptor* depthAttachment)
+    {
+        nri::AttachmentsDesc desc = {};
+        desc.colors = &colorAttachment;
+        desc.colorNum = 1;
+        desc.depthStencil = depthAttachment;
+        NRI.CmdBeginRendering(*commandBuffer, desc);
+    }
+
     NRI_INTEROP_API void Nri_CmdEndRendering(nri::CommandBuffer* commandBuffer)
     {
         NRI.CmdEndRendering(*commandBuffer);
@@ -669,6 +827,28 @@ extern "C"
         clearDesc.planes = nri::PlaneBits::COLOR;
         clearDesc.value.color.f = { r, g, b, a };
         NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
+    }
+
+    // Clears the whole depth attachment to depth (after Nri_CmdBeginRenderingWithDepth).
+    NRI_INTEROP_API void Nri_CmdClearDepth(nri::CommandBuffer* commandBuffer, float depth)
+    {
+        nri::ClearDesc clearDesc = {};
+        clearDesc.planes = nri::PlaneBits::DEPTH;
+        clearDesc.value.depthStencil.depth = depth;
+        NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
+    }
+
+    // Binds a vertex buffer, its vertices stride bytes apart, to stream slot.
+    NRI_INTEROP_API void Nri_CmdSetVertexBuffer(nri::CommandBuffer* commandBuffer, int slot, nri::Buffer* buffer, int stride)
+    {
+        nri::VertexBufferDesc desc = { buffer, 0, (uint32_t)stride };
+        NRI.CmdSetVertexBuffers(*commandBuffer, (uint32_t)slot, &desc, 1);
+    }
+
+    // The depth bounds test's range (NriFeature.DepthBoundsTest; a pipeline with the test on).
+    NRI_INTEROP_API void Nri_CmdSetDepthBounds(nri::CommandBuffer* commandBuffer, float boundsMin, float boundsMax)
+    {
+        NRI.CmdSetDepthBounds(*commandBuffer, boundsMin, boundsMax);
     }
 
     NRI_INTEROP_API void Nri_CmdSetViewport(nri::CommandBuffer* commandBuffer, float x, float y, float width, float height)
@@ -804,5 +984,101 @@ extern "C"
     NRI_INTEROP_API void Nri_DestroyPipeline(nri::Pipeline* pipeline)
     {
         NRI.DestroyPipeline(pipeline);
+    }
+
+    // --- Pipeline descs: a graphics pipeline's shaders and states, set one by one ----------------
+
+    // Triangles, not culled, no vertex input, no color attachment, no depth: what the setters change.
+    NRI_INTEROP_API PipelineDesc* Nri_CreatePipelineDesc()
+    {
+        return new PipelineDesc();
+    }
+
+    NRI_INTEROP_API void Nri_DestroyPipelineDesc(PipelineDesc* desc)
+    {
+        delete desc;
+    }
+
+    // Adds the shader of stage (an NriShaderStage) read from path (as Nri_CreateGraphicsPipeline's);
+    // 0 if it can't be read.
+    NRI_INTEROP_API int Nri_PipelineDescAddShader(PipelineDesc* desc, int stage, const char* path, const char* entry)
+    {
+        static const nri::StageBits stages[] = { nri::StageBits::VERTEX_SHADER, nri::StageBits::FRAGMENT_SHADER,
+            nri::StageBits::MESH_SHADER, nri::StageBits::TASK_SHADER };
+        if (stage < 0 || stage >= (int)helper::GetCountOf(stages))
+            return 0;
+        PipelineDesc::Shader shader = { stages[stage], {}, entry };
+        if (!ReadFile(LibraryDirectory() + path, shader.bytecode))
+            return 0;
+        desc->shaders.push_back(std::move(shader));
+        return 1;
+    }
+
+    // An attribute of stream 0's vertices: semantic (index 0) on D3D, the next location on Vulkan
+    // (as DXC numbers the vertex shader's inputs), format at offset bytes in the vertex.
+    NRI_INTEROP_API void Nri_PipelineDescAddVertexAttribute(PipelineDesc* desc, const char* semantic, int format, int offset)
+    {
+        nri::VertexAttributeDesc attribute = {};
+        attribute.vk.location = (uint32_t)desc->attributes.size();
+        attribute.offset = (uint32_t)offset;
+        attribute.format = (nri::Format)format;
+        desc->semantics.push_back(semantic);
+        desc->attributes.push_back(attribute);
+    }
+
+    // The color attachment's format and the channels written (NriColorWrite bits).
+    NRI_INTEROP_API void Nri_PipelineDescSetColor(PipelineDesc* desc, int format, int writeMask)
+    {
+        desc->color.format = (nri::Format)format;
+        desc->color.colorWriteMask = (nri::ColorWriteBits)writeMask;
+    }
+
+    // The depth attachment's format and its test (an NriCompareOp, NONE: off), whether it's written,
+    // and whether the depth bounds test is on (NriFeature.DepthBoundsTest, Nri_CmdSetDepthBounds).
+    NRI_INTEROP_API void Nri_PipelineDescSetDepth(PipelineDesc* desc, int format, int compareOp, int write, int boundsTest)
+    {
+        desc->depthFormat = (nri::Format)format;
+        desc->depth.compareOp = (nri::CompareOp)compareOp;
+        desc->depth.write = write != 0;
+        desc->depth.boundsTest = boundsTest != 0;
+    }
+
+    // The pipeline the desc describes, with the layout; null on failure.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreatePipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout, PipelineDesc* desc)
+    {
+        std::vector<nri::ShaderDesc> shaders;
+        for (const PipelineDesc::Shader& shader : desc->shaders)
+            shaders.push_back({ shader.stage, shader.bytecode.data(), shader.bytecode.size(), shader.entry.c_str() });
+
+        for (size_t i = 0; i < desc->attributes.size(); i++)
+            desc->attributes[i].d3d.semanticName = desc->semantics[i].c_str();
+        nri::VertexStreamDesc stream = { 0, nri::VertexStreamStepRate::PER_VERTEX };
+        nri::VertexInputDesc vertexInput = {};
+        vertexInput.attributes = desc->attributes.data();
+        vertexInput.attributeNum = (uint8_t)desc->attributes.size();
+        vertexInput.streams = &stream;
+        vertexInput.streamNum = 1;
+
+        nri::GraphicsPipelineDesc pipelineDesc = {};
+        pipelineDesc.pipelineLayout = pipelineLayout;
+        if (!desc->attributes.empty())
+            pipelineDesc.vertexInput = &vertexInput;
+        pipelineDesc.inputAssembly.topology = nri::Topology::TRIANGLE_LIST;
+        pipelineDesc.rasterization.fillMode = nri::FillMode::SOLID;
+        pipelineDesc.rasterization.cullMode = desc->cullMode;
+        if (desc->color.format != nri::Format::UNKNOWN)
+        {
+            pipelineDesc.outputMerger.colors = &desc->color;
+            pipelineDesc.outputMerger.colorNum = 1;
+        }
+        pipelineDesc.outputMerger.depth = desc->depth;
+        pipelineDesc.outputMerger.depthStencilFormat = desc->depthFormat;
+        pipelineDesc.shaders = shaders.data();
+        pipelineDesc.shaderNum = (uint32_t)shaders.size();
+
+        nri::Pipeline* pipeline = nullptr;
+        if (NRI.CreateGraphicsPipeline(*device, pipelineDesc, pipeline) != nri::Result::SUCCESS)
+            return nullptr;
+        return pipeline;
     }
 }
