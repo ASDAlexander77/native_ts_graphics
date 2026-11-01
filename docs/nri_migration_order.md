@@ -135,6 +135,22 @@ texture_compression_comparison (Donut's interop transcodes its KTX2 textures in 
 calibrated_timestamps (NRI has no calibrated timestamps). That leaves tier 4's Donut-renderer
 examples (deferred_shading, threaded_rendering, environment_map, bindless_rendering).
 
+The Donut-renderer examples draw with Donut's own passes' shaders (shaders/framework, as Donut
+compiles them), their constant structs (donut/shaders/*_cb.h) filled by
+core/nri/nri_donut_constants.cpp with Donut's header-only math, as Donut's engine fills them, so
+the frames match Donut's pixel for pixel. That file is a translation unit of its own:
+NRIFramework's MathLib, in nri_interop.cpp, has global types named like Donut's (float4x4...).
+First: deferred_shading_nri, pixel-exact on D3D11, D3D12 and Vulkan. Donut's G-buffer fill pass
+puts its push constants (b1) and its instance and vertex buffers (t10, t11) in register space 1,
+and NRI's root register space can't be a descriptor set's too: the buffers are root descriptors
+(`Nri_PipelineLayoutDescSetRootRegisterSpace`). Its D3D11 shader reads the instances as a
+ByteAddressBuffer (stride 4), the others as structures. The deferred lighting shader declares
+inputs the example doesn't give it, bound as Donut binds them, CommonRenderPasses' fallbacks
+(`Nri_CreateSolidTexture`): a depth texture array for the shadow maps (Vulkan validates the depth
+comparison's format) and a cubemap array (`Nri_CreateTextureCubeArrayView`, which counts the
+layers: NRI's D3D11 makes 0 cubes of REMAINING). Still to come: threaded_rendering,
+environment_map and bindless_rendering, which load whole Donut scenes.
+
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
