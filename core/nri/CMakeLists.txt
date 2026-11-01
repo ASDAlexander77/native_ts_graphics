@@ -112,7 +112,10 @@ if (ANDROID)
 endif()
 FetchContent_MakeAvailable(nriframework)
 
-add_library(nri_interop SHARED nri_interop.cpp nri_donut_constants.cpp nri_donut_scene.cpp)
+# Donut's math sources (vectorToSnorm8, orthoProjD3DStyle...) with the header-only rest.
+set(DONUT_MATH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../external/Donut/src/core/math")
+add_library(nri_interop SHARED nri_interop.cpp nri_donut_constants.cpp nri_donut_scene.cpp "${DONUT_MATH_DIR}/matrix.cpp"
+    "${DONUT_MATH_DIR}/vector.cpp")
 target_link_libraries(nri_interop PRIVATE NRIFramework)
 # Donut's header-only math and its shaders' constant structs (nri_donut_constants.cpp,
 # nri_donut_scene.cpp), for the ports of the Donut examples that draw with Donut's passes or scenes.

@@ -86,19 +86,13 @@ namespace
         // number order.
         std::vector<std::string> textures;
         std::vector<bool> textureSrgb;
+        // The root node's global bounding box (SceneGraph's): each mesh instance's mesh bounds in
+        // world space, as the node's float transform takes them.
+        box3 bounds = box3::empty();
+        // Each mesh's object-space bounds (MeshInfo::objectSpaceBounds).
+        std::vector<box3> meshBounds;
     };
 
-    // donut::math::vectorToSnorm8 (donut/core/math/vector.cpp, not compiled here): the vector scaled
-    // by 127 / |xyz|, a byte per component (n of them).
-    uint32_t VectorToSnorm8(const float4& v, int n)
-    {
-        float scale = 127.0f / sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-        int x = int(v.x * scale);
-        int y = int(v.y * scale);
-        int z = int(v.z * scale);
-        int w = n == 4 ? int(v.w * scale) : 0;
-        return uint32_t((x & 0xff) | ((y & 0xff) << 8) | ((z & 0xff) << 16) | ((w & 0xff) << 24));
-    }
 
     // MaterialConstants as Material::FillConstantBuffer fills them from a material GltfImporter
     // imports (its textures by slot, numbered, -1 for none), or Donut's default material (null).
@@ -267,7 +261,7 @@ namespace
                 sign = (dot(cross_b, bitangent) > 0) ? -1.f : 1.f;
             }
 
-            tangentWords[v_idx] = VectorToSnorm8(float4(tangent, sign), 4);
+            tangentWords[v_idx] = vectorToSnorm8(float4(tangent, sign));
         }
     }
 
@@ -317,6 +311,7 @@ namespace
                 firstGeometryInstance += other.numGeometries;
             instance.firstGeometryInstanceIndex = firstGeometryInstance;
             scene.instances.push_back(instance);
+            scene.bounds |= scene.meshBounds[mesh] * affine3(localToWorld);
         }
         for (size_t i = 0; i < node.children_count; i++)
             AddInstances(data, *node.children[i], localToWorld, firstGeometry, scene);
@@ -409,6 +404,7 @@ namespace
         for (size_t m = 0; m < data->meshes_count; m++)
         {
             firstGeometry.push_back(uint32_t(scene.geometries.size()));
+            scene.meshBounds.push_back(box3::empty());
             const cgltf_mesh& mesh = data->meshes[m];
             for (size_t p = 0; p < mesh.primitives_count; p++)
             {
@@ -489,7 +485,10 @@ namespace
                 const size_t firstPosition = positions3.size();
                 positions3.resize(firstPosition + count * 3, 0.f);
                 for (size_t v = 0; v < count; v++)
+                {
                     cgltf_accessor_read_float(positions, v, &positions3[firstPosition + v * 3], 3);
+                    scene.meshBounds.back() |= float3(&positions3[firstPosition + v * 3]);
+                }
                 const size_t firstTexCoord = texCoords2.size();
                 texCoords2.resize(firstTexCoord + count * 2, 0.f);
                 if (uvs)
@@ -504,13 +503,13 @@ namespace
                 tangentWords.resize(firstNormal + count, 0);
                 if (normals)
                     for (size_t v = 0; v < count; v++)
-                        normalWords[firstNormal + v] = VectorToSnorm8(float4(normalVectors[v], 0.f), 3);
+                        normalWords[firstNormal + v] = vectorToSnorm8(normalVectors[v]);
                 if (tangents)
                     for (size_t v = 0; v < count && v < tangents->count; v++)
                     {
                         float4 tangent = 0.f;
                         cgltf_accessor_read_float(tangents, v, &tangent.x, 4);
-                        tangentWords[firstNormal + v] = VectorToSnorm8(tangent, 4);
+                        tangentWords[firstNormal + v] = vectorToSnorm8(tangent);
                     }
                 else if (normals && uvs)
                     GenerateTangents(&positions3[firstPosition], &texCoords2[firstTexCoord], normalVectors.data(), count,
@@ -573,8 +572,8 @@ extern "C"
     // One of the scene's buffers, which: 0 the vertices, 1 the indices (both read as
     // ByteAddressBuffer: structures of 4 bytes), 2 the InstanceData, 3 the GeometryData, 4 the
     // MaterialConstants (StructuredBuffer), in device memory, uploaded on the queue
-    // (Nri_CreateUploadedStructuredBuffer's); 5 the indices as an index buffer (32-bit); null on
-    // failure.
+    // (Nri_CreateUploadedStructuredBuffer's); 5 the indices as an index buffer (32-bit); 6 the
+    // InstanceData as a ByteAddressBuffer (D3D11's shaders read them so); null on failure.
     NRI_INTEROP_API void* Nri_CreateDonutSceneBuffer(void* device, void* queue, DonutScene* scene, int which)
     {
         switch (which)
@@ -588,6 +587,8 @@ extern "C"
         case 4: return Nri_CreateUploadedStructuredBuffer(device, queue, scene->materials.data(),
             int(scene->materials.size() * sizeof(MaterialConstants)), int(sizeof(MaterialConstants)));
         case 5: return Nri_CreateUploadedBufferFromInts(device, queue, scene->indices.data(), int(scene->indices.size() * 4), 1);
+        case 6: return Nri_CreateUploadedStructuredBuffer(device, queue, scene->instances.data(),
+            int(scene->instances.size() * sizeof(InstanceData)), 4);
         default: return nullptr;
         }
     }
@@ -644,6 +645,13 @@ extern "C"
     NRI_INTEROP_API int Nri_GetDonutSceneTextureSrgb(DonutScene* scene, int texture)
     {
         return scene->textureSrgb[size_t(texture)] ? 1 : 0;
+    }
+
+    // The scene's bounds (SceneGraph's root's global bounding box): 6 floats, min x, y, z, max x, y, z.
+    NRI_INTEROP_API void Nri_GetDonutSceneBounds(DonutScene* scene, float* dst)
+    {
+        memcpy(dst, &scene->bounds.m_mins, sizeof(float) * 3);
+        memcpy(dst + 3, &scene->bounds.m_maxs, sizeof(float) * 3);
     }
 
     // The byte offset of a vertex stream in the vertex buffer: 0 positions (float3), 1 texture

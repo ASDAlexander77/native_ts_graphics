@@ -260,6 +260,10 @@ enum NriDescriptorType {
     Texture = 2,
     // RWTexture2D (u registers)
     StorageTexture = 3,
+    // Buffer<T> (t registers: Nri_CreateTypedBufferView's)
+    Buffer = 4,
+    // RWBuffer<T> (u registers)
+    StorageBuffer = 5,
     // StructuredBuffer (t registers)
     StructuredBuffer = 6,
     // RWStructuredBuffer (u registers)
@@ -341,7 +345,11 @@ enum NriBufferState {
     VertexAndComputeShaderResource = 6,
     // read and written by pixel shaders (RWStructuredBuffer in a draw); from PixelStorage to
     // PixelStorage, the writes before are seen by the accesses after
-    PixelStorage = 7
+    PixelStorage = 7,
+    // read by compute shaders
+    ComputeShaderResource = 8,
+    // read by pixel shaders
+    PixelShaderResource = 9
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -571,6 +579,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateUninitializedStorageBuffer(device: NriDeviceHandle, queue: NriQueueHandle, byteSize: int, stride: int,
     state: NriBufferState): NriBufferHandle | null;
 @nodrops declare function Nri_CreateStructuredBufferView(buffer: NriBufferHandle, storage: int): NriDescriptorHandle | null;
+// A view of the whole buffer (Nri_CreateStorageBufferFromInts' with stride 0) as elements of a format:
+// written by compute shaders (storage 1: RWBuffer<T>) or read (0: Buffer<T>); null on failure.
+@nodrops declare function Nri_CreateTypedBufferView(buffer: NriBufferHandle, format: NriFormat, storage: int): NriDescriptorHandle | null;
 @nodrops declare function Nri_CreateConstantBufferView(buffer: NriBufferHandle, offset: int, byteSize: int): NriDescriptorHandle | null;
 // Nri_CreateUploadedBuffer from an int array (index data).
 @nodrops declare function Nri_CreateUploadedBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
@@ -874,6 +885,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateDescriptorPoolWithBuffers(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
     constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
     storageStructuredBufferMaxNum: int, updateAfterSet: int): NriDescriptorPoolHandle | null;
+// As Nri_CreateDescriptorPoolWithBuffers, with room for bufferMaxNum typed buffers (Buffer<T>) and
+// storageBufferMaxNum storage ones (RWBuffer<T>) too.
+@nodrops declare function Nri_CreateDescriptorPoolWithTypedBuffers(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
+    constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
+    storageStructuredBufferMaxNum: int, bufferMaxNum: int, storageBufferMaxNum: int): NriDescriptorPoolHandle | null;
 // Destroys the pool and the sets allocated from it.
 @nodrops declare function Nri_DestroyDescriptorPool(descriptorPool: NriDescriptorPoolHandle): void;
 // Forgets the sets allocated from the pool, which may allocate as many again.
@@ -897,6 +913,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A comparison sampler (SamplerComparisonState), linear, clamped, comparing with compareOp, as
 // Donut's createComparisonSampler (NriCompareOp.Less); null on failure.
 @nodrops declare function Nri_CreateComparisonSampler(device: NriDeviceHandle, compareOp: NriCompareOp): NriDescriptorHandle | null;
+// A sampler (filter for minification, magnification and mips) returning the border color, white (1)
+// or transparent black (0), outside [0, 1]: Donut's shadow samplers. Null on failure.
+@nodrops declare function Nri_CreateBorderSampler(device: NriDeviceHandle, filter: NriFilter, white: int): NriDescriptorHandle | null;
 // The device's widest anisotropic filtering (16 on most).
 @nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
 // The most draws one indirect draw call takes: above 1, multi-draw indirect (D3D12 always; Vulkan's
@@ -1072,7 +1091,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // that draw with Donut's passes and shaders: the structs of donut/shaders/*_cb.h, filled as Donut's
 // engine fills them. Matrices: 16 floats, row-major, row-vector convention (donut::math's).
 // The size in bytes of 0 PlanarViewConstants, 1 MaterialConstants, 2 LightConstants,
-// 3 DeferredLightingConstants, 4 ForwardShadingLightConstants (multiples of 16); 0 for others.
+// 3 DeferredLightingConstants, 4 ForwardShadingLightConstants, 5 ShadowConstants, 6 DepthPassConstants,
+// 7 SkyConstants, 8 ToneMappingConstants (multiples of 16); 0 for others.
 @nodrops declare function Nri_GetDonutConstantsSize(which: int): int;
 // A planar view's PlanarViewConstants into dst, as Donut's PlanarView fills them for a viewport of
 // width x height pixels.
@@ -1101,7 +1121,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Nri_GetDonutSceneStreamOffset), 1 the indices (each geometry's from its first vertex; both
 // ByteAddressBuffer: 4-byte structures; bindless buffers 0 and 1), 2 the InstanceData, 3 the
 // GeometryData, 4 the MaterialConstants (StructuredBuffer), uploaded on the queue; 5 the indices as an
-// index buffer (32-bit); null on failure.
+// index buffer (32-bit); 6 the InstanceData as a ByteAddressBuffer (D3D11's shaders read them so);
+// null on failure.
 @nodrops declare function Nri_CreateDonutSceneBuffer(device: NriDeviceHandle, queue: NriQueueHandle, scene: NriDonutSceneHandle,
     which: int): NriBufferHandle | null;
 // The materials' MaterialConstants in a host constant buffer, material m's at m * 256 (a constant
@@ -1119,6 +1140,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetDonutSceneTextureCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneTexturePath(scene: NriDonutSceneHandle, texture: int): string;
 @nodrops declare function Nri_GetDonutSceneTextureSrgb(scene: NriDonutSceneHandle, texture: int): int;
+// The scene's bounds (its scene graph root's global bounding box): 6 floats into dst, min x, y, z, max
+// x, y, z.
+@nodrops declare function Nri_GetDonutSceneBounds(scene: NriDonutSceneHandle, dst: Ref<f32>): void;
 // The byte offset of a vertex stream in the vertex buffer: 0 positions (float3), 1 texture
 // coordinates (float2), 2 normals, 3 tangents (snorm8 each).
 @nodrops declare function Nri_GetDonutSceneStreamOffset(scene: NriDonutSceneHandle, stream: int): int;
@@ -1141,6 +1165,27 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // probes or shadow map, a top and bottom ambient color, into dst.
 @nodrops declare function Nri_FillDonutForwardLightConstants(topR: number, topG: number, topB: number, bottomR: number, bottomG: number,
     bottomB: number, dst: Ref<f32>): void;
+// A Donut PlanarShadowMap (one orthographic view; a D24S8 texture array of one resolution x
+// resolution slice, depth cleared to 1) fitted to the directional light of
+// Nri_FillDonutDirectionalLightConstants' arguments and world-space bounds (Nri_GetDonutSceneBounds'),
+// as Donut_SetupPlanarShadowMapForScene fits it, shadows fading out over fadeRangeWorld at its edges:
+// the DepthPassConstants into depthDst, the ShadowConstants into shadowDst. 1 if its view is mirrored
+// (the depth pass's front faces counterclockwise).
+@nodrops declare function Nri_SetupDonutPlanarShadowMap(dirX: number, dirY: number, dirZ: number, bounds: Ref<f32>, resolution: int,
+    fadeRangeWorld: number, depthDst: Ref<f32>, shadowDst: Ref<f32>): int;
+// The ForwardShadingLightConstants PrepareLights writes for that directional light, its shadow map of
+// shadowMapResolution (its ShadowConstants: Nri_SetupDonutPlanarShadowMap's) or none (0), a top and
+// bottom ambient color, into dst.
+@nodrops declare function Nri_FillDonutForwardSunLightConstants(dirX: number, dirY: number, dirZ: number, angularSize: number,
+    irradiance: number, shadow: Ref<f32>, shadowMapResolution: int, topR: number, topG: number, topB: number, bottomR: number,
+    bottomG: number, bottomB: number, dst: Ref<f32>): void;
+// The SkyConstants EnvironmentMapPass::Render writes for a planar view (Nri_FillDonutPlanarViewConstants'
+// arguments), into dst.
+@nodrops declare function Nri_FillDonutSkyConstants(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int, dst: Ref<f32>): void;
+// The ToneMappingConstants ToneMappingPass writes with its default parameters and no color LUT, for
+// a stage: 0 the histogram of a width x height view, 1 the exposure (adapting over frameTime seconds:
+// 0 keeps it), 2 the tone mapping; into dst.
+@nodrops declare function Nri_FillDonutToneMappingConstants(stage: int, width: int, height: int, frameTime: number, dst: Ref<f32>): void;
 
 // ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
 // Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui
