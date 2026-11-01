@@ -67,12 +67,17 @@ export class DonutFirstPersonCamera {
         this.dragging = false;
     }
 
-    // BaseCamera::BaseLookAt (each coordinate as a float).
+    // BaseCamera::BaseLookAt (each coordinate as a float), up the world's y.
     lookAt(px: number, py: number, pz: number, tx: number, ty: number, tz: number) {
+        this.lookAtWithUp(px, py, pz, tx, ty, tz, 0.0, 1.0, 0.0);
+    }
+
+    // BaseCamera::BaseLookAt with an up direction (each coordinate as a float).
+    lookAtWithUp(px: number, py: number, pz: number, tx: number, ty: number, tz: number, ux: number, uy: number, uz: number) {
         this.position = [f(px), f(py), f(pz)];
         const target = [f(tx), f(ty), f(tz)];
         this.dir = normalize([f(target[0] - this.position[0]), f(target[1] - this.position[1]), f(target[2] - this.position[2])]);
-        this.up = normalize([0.0, 1.0, 0.0]);
+        this.up = normalize([f(ux), f(uy), f(uz)]);
         this.right = normalize(cross(this.dir, this.up));
         this.up = normalize(cross(this.right, this.dir));
     }

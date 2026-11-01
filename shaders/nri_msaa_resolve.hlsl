@@ -25,3 +25,45 @@ float4 resolve_ps(float4 position : SV_Position) : SV_Target
         sum += t_Source.Load(int2(position.xy), i);
     return sum / float(sampleCount);
 }
+
+// A multisampled depth buffer resolved by a shader into an R32_FLOAT color target, as Vulkan's render
+// pass depth resolve modes do (msaa_nri's -depthresolve min|max|average; its sample 0, the default
+// mode, is read from the multisampled depth itself): the smallest, the largest or the average of
+// the pixel's samples. At t1: apart from t_Source.
+Texture2DMS<float> t_Depth : register(t1);
+
+float resolve_depth_min_ps(float4 position : SV_Position) : SV_Target
+{
+    uint width;
+    uint height;
+    uint sampleCount;
+    t_Depth.GetDimensions(width, height, sampleCount);
+    float depth = t_Depth.Load(int2(position.xy), 0);
+    for (uint i = 1; i < sampleCount; i++)
+        depth = min(depth, t_Depth.Load(int2(position.xy), i));
+    return depth;
+}
+
+float resolve_depth_max_ps(float4 position : SV_Position) : SV_Target
+{
+    uint width;
+    uint height;
+    uint sampleCount;
+    t_Depth.GetDimensions(width, height, sampleCount);
+    float depth = t_Depth.Load(int2(position.xy), 0);
+    for (uint i = 1; i < sampleCount; i++)
+        depth = max(depth, t_Depth.Load(int2(position.xy), i));
+    return depth;
+}
+
+float resolve_depth_average_ps(float4 position : SV_Position) : SV_Target
+{
+    uint width;
+    uint height;
+    uint sampleCount;
+    t_Depth.GetDimensions(width, height, sampleCount);
+    float sum = 0.0;
+    for (uint i = 0; i < sampleCount; i++)
+        sum += t_Depth.Load(int2(position.xy), i);
+    return sum / float(sampleCount);
+}

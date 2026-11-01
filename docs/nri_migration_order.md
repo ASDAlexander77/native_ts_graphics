@@ -63,11 +63,16 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | fragment_shading_rate_nri (#197) | variable rate shading (`NriFeature.VariableRateShading`, `Nri_PipelineDescSetShadingRate`, `Nri_CmdSetShadingRate`, `Nri_CmdBeginRenderingWithShadingRate`), shading rate attachments (`Nri_CreateShadingRateTexture`, `NriTextureState.ShadingRateAttachment`), the device's rates (`Nri_GetFragmentShadingRates`, `Nri_GetShadingRateTileSize`); no D3D11 (shader model 6.4) |
 | fragment_shading_rate_dynamic_nri (#197) | shading rates a compute shader writes (storage and shading rate attachment in one texture), render targets compute shaders read (`Nri_CreateRenderTargetStorageTexture`), rect clears (`Nri_CmdClearColorAttachmentRect`, `Nri_CmdClearDepthRect`); no D3D11 |
 | mobile_nerf_nri (#197) | a file's bytes for parsers in TypeScript (`Nri_CopyFileBytes`): core/mobile_nerf_common.ts no longer depends on Donut and is shared with the Donut ports |
-| gshader_to_mshader_nri | glTF models as Donut loads them (`Nri_LoadGltfModel` and its accessors: core/vulkan_samples_gltf.h's GltfModel, shared with Donut's interop) |
-| multi_draw_indirect_nri | `Nri_ReadBufferInts`, `Nri_GetDrawIndirectMaxNum`, a 225-texture array (`NriRangeFlags.Array`), Donut's FirstPersonCamera as a shared module (core/donut_first_person_camera.ts, terrain_tessellation_nri's too); no D3D11 |
-| dynamic_rendering_local_read_nri | three color attachments with depth (`Nri_CmdBeginRenderingWithThreeColorsAndDepth`) |
-| extended_dynamic_state2_nri | depth bias (`Nri_PipelineDescSetDepthBias`); rasterizer discard by skipping the draw, as Donut does |
-| dynamic_multisample_rasterization_nri | multisampled targets (`Nri_PipelineDescSetSampleCount`, `Nri_CreateMultisampledRenderTarget`, `Nri_CreateMultisampledDepthTexture`, `Nri_GetSupportedSampleCounts`), resolved by a shader (shaders/nri_msaa_resolve.hlsl) |
+| gshader_to_mshader_nri (#198) | glTF models as Donut loads them (`Nri_LoadGltfModel` and its accessors: core/vulkan_samples_gltf.h's GltfModel, shared with Donut's interop) |
+| multi_draw_indirect_nri (#198) | `Nri_ReadBufferInts`, `Nri_GetDrawIndirectMaxNum`, a 225-texture array (`NriRangeFlags.Array`), Donut's FirstPersonCamera as a shared module (core/donut_first_person_camera.ts, terrain_tessellation_nri's too); no D3D11 |
+| dynamic_rendering_local_read_nri (#198) | three color attachments with depth (`Nri_CmdBeginRenderingWithThreeColorsAndDepth`) |
+| extended_dynamic_state2_nri (#198) | depth bias (`Nri_PipelineDescSetDepthBias`); rasterizer discard by skipping the draw, as Donut does |
+| dynamic_multisample_rasterization_nri (#198) | multisampled targets (`Nri_PipelineDescSetSampleCount`, `Nri_CreateMultisampledRenderTarget`, `Nri_CreateMultisampledDepthTexture`, `Nri_GetSupportedSampleCounts`), resolved by a shader (shaders/nri_msaa_resolve.hlsl) |
+| msaa_nri | depth resolves by shaders too (shaders/nri_msaa_resolve.hlsl's min, max and average), Vulkan's depth resolve modes (`Nri_GetDepthResolveModes`), sampled multisampled depth |
+| async_compute_bloom_nri | the bloom on the compute queue with fences both ways, `NriTextureState.ComputeShaderResource`, comparison samplers, depth-only passes, D16; NRI patched for D3D12 committed textures' alignment and D3D11's render targets left bound after rendering |
+| render_octomap_nri | nothing new; the octomap reader shared with the Donut example (core/octomap_common.ts) |
+| rasterization_order_attachment_access_nri | `NriFeature.RasterizerOrderedViews` (D3D's ROVs, Vulkan's fragment shader interlock) |
+| texture_mipmap_generation_nri | mip chains drawn level by level (`Nri_LoadDdsTextureWithMipChain`, `Nri_CreateColorAttachmentMipView`, `Nri_CreateTextureMipView`, `Nri_CmdTextureMipBarrier`), samplers with an LOD range |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -124,6 +129,12 @@ multi_draw_indirect_nri, dynamic_rendering_local_read_nri, extended_dynamic_stat
 dynamic_multisample_rasterization_nri. Still to come with models: msaa, async_compute_bloom,
 render_octomap, texture_compression_comparison.
 
+Fifth batch: msaa_nri, async_compute_bloom_nri, render_octomap_nri,
+rasterization_order_attachment_access_nri and texture_mipmap_generation_nri. Left out:
+texture_compression_comparison (Donut's interop transcodes its KTX2 textures in C++) and
+calibrated_timestamps (NRI has no calibrated timestamps). That leaves tier 4's Donut-renderer
+examples (deferred_shading, threaded_rendering, environment_map, bindless_rendering).
+
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
@@ -179,7 +190,20 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   ResolveSubresource on D3D) average linear ones. shaders/nri_msaa_resolve.hlsl resolves through
   sRGB views instead: within 1 of Donut's frames on Vulkan. On D3D11 and D3D12 (identical to each
   other) dynamic_multisample_rasterization_nri also differs by up to 12 along the background's edges
-  seen through the translucent column, above 1x only; Donut's frames are the same on all three APIs.
+  seen through the translucent column, and msaa_nri by up to 19 around its translucent geometry,
+  above 1x only; Donut's frames are the same on all three APIs.
+- NRI's D3D12 committed textures (without the Agility SDK) kept a "small resource" alignment guessed
+  from the first mip's bytes, which D3D12 rejects when its 4 KB tiles don't fit (120 x 67 RGBA16F):
+  `patches/NRI-d3d12-committed-texture-alignment.patch` leaves it to D3D12MA.
+- NRI's D3D11 CmdEndRendering left the render targets bound (in the emulated command buffers'
+  replay too), so a compute pass reading what was just rendered got a null view
+  (`patches/NRI-d3d11-end-rendering.patch`); and its binding tracker kept a slot's earlier binding
+  after another was bound there, unbinding the slot when that earlier one was bound the other way
+  (`patches/NRI-d3d11-binding-slots.patch`): a chain of dispatches each reading the one before's
+  output lost its UAVs.
+- On a D3D12 graphics command list NRI maps every shader read to PIXEL | NON_PIXEL_SHADER_RESOURCE:
+  a barrier between two read states (`ShaderResource`, `ComputeShaderResource`) is rejected as
+  "before and after states must be different". Reads after reads need none: skip it.
 - Donut's test mode passes each frame's 1/60 second as a float: the ports step their animations by
   `Math.fround(1.0 / 60.0)`, or a state that integrates time (atom_orbitals' superposition) drifts.
 - `Nri_RunSample` leaves the example's options out of NRIFramework's command line; an option with

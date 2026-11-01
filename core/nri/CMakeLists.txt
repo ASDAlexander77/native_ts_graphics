@@ -40,6 +40,15 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # logic_op_dynamic_state_nri.
 # Its upload helper maps an upload buffer it didn't create when no buffer has data (only transitions):
 # patched, for oit_linked_lists_nri's uninitialized fragment buffer.
+# Its D3D12 committed textures (without the Agility SDK) keep a "small resource" alignment guessed
+# from the first mip's bytes, which D3D12 rejects when the 4 KB tiles don't fit (a 120 x 67 RGBA16F
+# texture): patched to leave the alignment to D3D12MA, as the Agility SDK path does.
+# Its D3D11 binding tracker keeps a slot's earlier storage (or resource) after another is bound
+# there, and unbinds the slot when that earlier one is bound the other way: a chain of dispatches
+# each reading the one before's output loses its UAVs. Patched to forget a slot's earlier binding.
+# Its D3D11 CmdEndRendering leaves the render targets bound, so a compute pass reading what was
+# just rendered gets a null view (D3D11 drops shader resources still bound as outputs): patched to
+# unbind them (UAVs kept), in the emulated command buffers' replay too.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -61,6 +70,15 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-upload-buffers-without-data.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-committed-texture-alignment.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d11-binding-slots.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d11-end-rendering.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"
