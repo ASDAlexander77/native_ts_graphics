@@ -76,6 +76,7 @@ namespace
     // The values of nri_interop.d.ts' enums (NriFormat, NriCompareOp, NriTopology, ...).
     static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
     static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
+    static_assert((int)nri::Format::R32_UINT == 31);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
     static_assert((int)nri::Format::D32_SFLOAT == 66 && (int)nri::Format::BC1_RGBA_UNORM == 50);
@@ -116,6 +117,8 @@ namespace
         nri::Format depthFormat = nri::Format::UNKNOWN;
         nri::CullMode cullMode = nri::CullMode::NONE;
         nri::Topology topology = nri::Topology::TRIANGLE_LIST;
+        // The streams stepped per instance (Nri_PipelineDescSetInstanceStream), not per vertex.
+        std::vector<uint16_t> instanceStreams;
     };
 
     // What Nri_CreatePipelineLayoutFromDesc makes a layout from: descriptor sets 0, 1, ..., each
@@ -223,6 +226,12 @@ namespace
             return { nri::AccessBits::SHADER_RESOURCE, nri::StageBits::VERTEX_SHADER };
         case 2:
             return { nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY };
+        case 3:
+            return { nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY };
+        case 4:
+            return { nri::AccessBits::ARGUMENT_BUFFER, nri::StageBits::INDIRECT };
+        case 5:
+            return { nri::AccessBits::ARGUMENT_BUFFER | nri::AccessBits::SHADER_RESOURCE, nri::StageBits::INDIRECT | nri::StageBits::COMPUTE_SHADER };
         default:
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER };
         }
@@ -721,6 +730,8 @@ extern "C"
             return desc.features.meshShader ? 1 : 0;
         case 1:
             return desc.features.depthBoundsTest ? 1 : 0;
+        case 2:
+            return desc.features.drawIndirectCount ? 1 : 0;
         default:
             return 0;
         }
@@ -1036,8 +1047,9 @@ extern "C"
     }
 
     // A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for
-    // usage (an NriBufferUsage: 2, constant buffers); null on failure.
-    NRI_INTEROP_API nri::Buffer* Nri_CreateHostBuffer(nri::Device* device, int byteSize, int usage)
+    // usage (an NriBufferUsage: 2, constant buffers; 3, structures stride bytes each, read by
+    // shaders: StructuredBuffer); null on failure.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateHostBufferWithStride(nri::Device* device, int byteSize, int usage, int stride)
     {
         nri::BufferDesc bufferDesc = {};
         bufferDesc.size = (uint64_t)byteSize;
@@ -1045,6 +1057,10 @@ extern "C"
         {
         case 2:
             bufferDesc.usage = nri::BufferUsageBits::CONSTANT_BUFFER;
+            break;
+        case 3:
+            bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE;
+            bufferDesc.structureStride = (uint32_t)stride;
             break;
         default:
             return nullptr;
@@ -1067,6 +1083,12 @@ extern "C"
         return buffer;
     }
 
+    // Nri_CreateHostBufferWithStride's buffer for a constant buffer (usage 2).
+    NRI_INTEROP_API nri::Buffer* Nri_CreateHostBuffer(nri::Device* device, int byteSize, int usage)
+    {
+        return Nri_CreateHostBufferWithStride(device, byteSize, usage, 0);
+    }
+
     // Copies byteSize bytes of data into the buffer (Nri_CreateHostBuffer's) at offset; 0 if it can't
     // be mapped.
     NRI_INTEROP_API int Nri_WriteBuffer(nri::Buffer* buffer, int offset, const void* data, int byteSize)
@@ -1079,15 +1101,18 @@ extern "C"
         return 1;
     }
 
-    // A buffer of byteSize bytes of structures stride bytes each in device memory, which compute
-    // shaders write (RWStructuredBuffer) and shaders read (StructuredBuffer), with data uploaded on
-    // the queue (which this waits for), then in NriBufferState.Storage; null on failure.
-    NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBuffer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int stride)
+    // A buffer of byteSize bytes of structures stride bytes each (4: raw, a ByteAddressBuffer's) in
+    // device memory, which compute shaders write (RWStructuredBuffer), shaders read
+    // (StructuredBuffer) and indirect draws take their arguments from, with data uploaded on the
+    // queue (which this waits for), then in state (an NriBufferState); null on failure.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBufferInState(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int stride,
+        int state)
     {
         nri::BufferDesc bufferDesc = {};
         bufferDesc.size = (uint64_t)byteSize;
         bufferDesc.structureStride = (uint32_t)stride;
-        bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE;
+        bufferDesc.usage = nri::BufferUsageBits::SHADER_RESOURCE | nri::BufferUsageBits::SHADER_RESOURCE_STORAGE
+            | nri::BufferUsageBits::ARGUMENT_BUFFER;
         nri::Buffer* buffer = nullptr;
         if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
             return nullptr;
@@ -1104,13 +1129,26 @@ extern "C"
         }
         g_BufferMemory[buffer] = std::move(memory);
 
-        nri::BufferUploadDesc upload = { data, buffer, BufferState(0) };
+        nri::BufferUploadDesc upload = { data, buffer, BufferState(state) };
         if (NRI.UploadData(*queue, nullptr, 0, &upload, 1) != nri::Result::SUCCESS)
         {
             Nri_DestroyBuffer(buffer);
             return nullptr;
         }
         return buffer;
+    }
+
+    // Nri_CreateStorageBufferInState's buffer, in NriBufferState.Storage.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBuffer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize, int stride)
+    {
+        return Nri_CreateStorageBufferInState(device, queue, data, byteSize, stride, 0);
+    }
+
+    // Nri_CreateStorageBufferInState's buffer from ints (Ref of an int array element).
+    NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBufferFromInts(nri::Device* device, nri::Queue* queue, const void* data, int byteSize,
+        int stride, int state)
+    {
+        return Nri_CreateStorageBufferInState(device, queue, data, byteSize, stride, state);
     }
 
     // A view of the whole buffer (Nri_CreateStorageBuffer's) as structures: written by compute
@@ -1238,6 +1276,22 @@ extern "C"
     }
 
     // Moves the whole texture from one NriTextureState to another.
+    // Zeroes the whole buffer (in NriBufferState.CopyDestination).
+    NRI_INTEROP_API void Nri_CmdZeroBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer)
+    {
+        NRI.CmdZeroBuffer(*commandBuffer, *buffer, 0, nri::WHOLE_SIZE);
+    }
+
+    // drawNum indexed draws whose arguments (5 uints: DrawIndexedDesc, D3D12_DRAW_INDEXED_ARGUMENTS)
+    // are in buffer from offset, stride bytes apart (in NriBufferState.IndirectArgument); with a
+    // countBuffer (NriFeature.DrawIndirectCount), the uint at its countOffset, at most drawNum.
+    NRI_INTEROP_API void Nri_CmdDrawIndexedIndirect(nri::CommandBuffer* commandBuffer, nri::Buffer* buffer, int offset, int drawNum, int stride,
+        nri::Buffer* countBuffer, int countOffset)
+    {
+        NRI.CmdDrawIndexedIndirect(*commandBuffer, *buffer, (uint64_t)offset, (uint32_t)drawNum, (uint32_t)stride, countBuffer,
+            (uint64_t)countOffset);
+    }
+
     // Copies byteSize bytes from the start of src (in NriBufferState.CopySource) to the start of dst
     // (e.g. a readback buffer).
     NRI_INTEROP_API void Nri_CmdCopyBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* dst, nri::Buffer* src, int byteSize)
@@ -1638,6 +1692,12 @@ extern "C"
         Nri_PipelineDescAddVertexAttributeFromStream(desc, semantic, format, offset, 0);
     }
 
+    // The stream's attributes advance per instance (Nri_CmdDraw*'s instances), not per vertex.
+    NRI_INTEROP_API void Nri_PipelineDescSetInstanceStream(PipelineDesc* desc, int stream)
+    {
+        desc->instanceStreams.push_back((uint16_t)stream);
+    }
+
     // The faces culled (an NriCullMode; NONE by default), clockwise ones the front.
     NRI_INTEROP_API void Nri_PipelineDescSetCullMode(PipelineDesc* desc, int cullMode)
     {
@@ -1692,7 +1752,10 @@ extern "C"
         }
         std::vector<nri::VertexStreamDesc> streams;
         for (uint16_t i = 0; i < streamNum; i++)
-            streams.push_back({ i, nri::VertexStreamStepRate::PER_VERTEX });
+        {
+            bool perInstance = std::find(desc->instanceStreams.begin(), desc->instanceStreams.end(), i) != desc->instanceStreams.end();
+            streams.push_back({ i, perInstance ? nri::VertexStreamStepRate::PER_INSTANCE : nri::VertexStreamStepRate::PER_VERTEX });
+        }
         nri::VertexInputDesc vertexInput = {};
         vertexInput.attributes = desc->attributes.data();
         vertexInput.attributeNum = (uint8_t)desc->attributes.size();

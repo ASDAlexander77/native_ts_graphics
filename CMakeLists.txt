@@ -3524,6 +3524,9 @@ donut_compile_shaders(
 )
 add_tslang_example(execute_indirect core/random.ts core/directx_math.ts)
 add_tslang_example_test(execute_indirect)
+# execute_indirect with NRI and NRIFramework instead of Donut: execute_indirect's shaders (D3D12, Vulkan).
+add_tslang_nri_example(execute_indirect_nri SHADERS execute_indirect_shaders core/random.ts core/directx_math.ts)
+add_tslang_example_test(execute_indirect_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12DynamicIndexing: 120 copies of a city, each draw's pixel shader
 # picking the city's material from an array of 120 textures by an index set per draw. Its data file
@@ -4301,7 +4304,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders async_compute_shaders timeline_semaphore_shaders compute_nbody_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders async_compute_shaders timeline_semaphore_shaders compute_nbody_shaders execute_indirect_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)
