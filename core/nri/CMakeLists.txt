@@ -35,6 +35,11 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # full quads.
 # NRI's D3D12 backend also gets patch lists' topology wrong (TRIANGLESTRIP_ADJ + control points
 # instead of 1_CONTROL_POINT_PATCHLIST - 1 + control points): patched, for the tessellation examples.
+# Its D3D11 and D3D12 backends set IndependentBlendEnable with logic operations, which both reject,
+# and D3D12's sets the logic operation only with blending, which it can't be used with: patched, for
+# logic_op_dynamic_state_nri.
+# Its upload helper maps an upload buffer it didn't create when no buffer has data (only transitions):
+# patched, for oit_linked_lists_nri's uninitialized fragment buffer.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -50,6 +55,12 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-patch-list-topology.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-logic-op.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-upload-buffers-without-data.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

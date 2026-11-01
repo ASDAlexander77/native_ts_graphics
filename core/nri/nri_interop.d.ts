@@ -61,7 +61,10 @@ enum NriTextureState {
     // written by compute shaders (Nri_CreateStorageTexture's textures, from the start)
     Storage = 6,
     // read by pixel and compute shaders
-    AllShaderResource = 7
+    AllShaderResource = 7,
+    // read and written by pixel shaders (RWTexture2D in a draw: Nri_CreateStorageTextureWithData's);
+    // from PixelStorage to PixelStorage, the writes before are seen by the accesses after
+    PixelStorage = 8
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -86,7 +89,9 @@ enum NriFeature {
     ShaderQuadControl = 6,
     // shaderFeatures.barycentric: SV_Barycentrics and GetAttributeAtVertex in pixel shaders (D3D12
     // shader model 6.1, Vulkan's VK_KHR_fragment_shader_barycentric)
-    Barycentrics = 7
+    Barycentrics = 7,
+    // features.logicOp: Nri_PipelineDescSetLogicOp (D3D's OutputMergerLogicOp, Vulkan's logicOp)
+    LogicOp = 8
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -97,7 +102,11 @@ enum NriFormat {
     BGRA8_SRGB = 10,
     RGBA8_UNORM = 11,
     RGBA8_SRGB = 12,
+    // logic_op_dynamic_state_nri's color attachment on D3D (logic operations on UINT targets)
+    RGBA8_UINT = 14,
     R32_UINT = 31,
+    // instancing_nri's texture array layer (a vertex attribute)
+    R32_SINT = 32,
     R32_SFLOAT = 33,
     RGBA16_SFLOAT = 30,
     RG32_SFLOAT = 36,
@@ -274,7 +283,10 @@ enum NriBufferState {
     // read by vertex and compute shaders (StructuredBuffer): D3D12's legacy barriers take
     // VertexShaderResource for compute shaders too, so a buffer both read goes between this and
     // Storage
-    VertexAndComputeShaderResource = 6
+    VertexAndComputeShaderResource = 6,
+    // read and written by pixel shaders (RWStructuredBuffer in a draw); from PixelStorage to
+    // PixelStorage, the writes before are seen by the accesses after
+    PixelStorage = 7
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -396,6 +408,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A width x height depth texture in device memory, moved on the queue (which this waits for) to
 // NriTextureState.DepthAttachment, where it stays (no barriers needed); null on failure.
 @nodrops declare function Nri_CreateDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int, format: NriFormat): NriTextureHandle | null;
+// A width x height depth texture that shaders read too (Nri_CreateTextureView with the depth format),
+// left in NriTextureState.ShaderResource: barriers move it to DepthAttachment for the passes that
+// render into it, and back; null on failure.
+@nodrops declare function Nri_CreateSampledDepthTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat): NriTextureHandle | null;
 // Destroys a texture Nri_CreateDepthTexture made and frees its memory.
 @nodrops declare function Nri_DestroyTexture(texture: NriTextureHandle): void;
 
@@ -441,6 +458,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // IndirectArgumentAndComputeResource, indirect draws can take their arguments from it too.
 @nodrops declare function Nri_CreateStorageBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int,
     stride: int, state: NriBufferState): NriBufferHandle | null;
+// Nri_CreateStorageBufferFromInts' buffer without data (its contents undefined), in state.
+@nodrops declare function Nri_CreateUninitializedStorageBuffer(device: NriDeviceHandle, queue: NriQueueHandle, byteSize: int, stride: int,
+    state: NriBufferState): NriBufferHandle | null;
 @nodrops declare function Nri_CreateStructuredBufferView(buffer: NriBufferHandle, storage: int): NriDescriptorHandle | null;
 @nodrops declare function Nri_CreateConstantBufferView(buffer: NriBufferHandle, offset: int, byteSize: int): NriDescriptorHandle | null;
 // Nri_CreateUploadedBuffer from an int array (index data).
@@ -619,6 +639,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Whether primitives are clipped at the near and far planes (1) or not (0: depth clamped, Donut's
 // default). Unset, NRI's default differs by API (clipped on Vulkan, not on D3D).
 @nodrops declare function Nri_PipelineDescSetDepthClip(desc: NriPipelineDescHandle, clip: int): void;
+// The color attachment's logic operation instead of blending (NriFeature.LogicOp; a UNORM or UINT
+// attachment, UINT on D3D12), in Vulkan's VkLogicOp order (0 CLEAR, 3 COPY, 5 NO_OP ... 15 SET).
+// NRI has no NO_OP: the attachment's color writes are turned off instead (the same result).
+@nodrops declare function Nri_PipelineDescSetLogicOp(desc: NriPipelineDescHandle, vkLogicOp: int): void;
 // The pipeline the desc describes, with the layout; null on failure.
 @nodrops declare function Nri_CreatePipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle): NriPipelineHandle | null;
 
@@ -847,6 +871,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // failure. Destroyed with Nri_DestroyTexture.
 @nodrops declare function Nri_CreateStorageTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat): NriTextureHandle | null;
+// As Nri_CreateStorageTexture, filled with data (Ref of an int array element; rows rowPitch bytes
+// apart), left in state (NriTextureState.Storage, or PixelStorage); null on failure.
+@nodrops declare function Nri_CreateStorageTextureWithData(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    format: NriFormat, data: Ref<int>, rowPitch: int, state: NriTextureState): NriTextureHandle | null;
 // A view of a 2D texture's mip 0 for compute shaders to write.
 @nodrops declare function Nri_CreateStorageTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 

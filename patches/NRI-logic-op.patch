@@ -1,0 +1,41 @@
+diff --git a/Source/D3D11/PipelineD3D11.hpp b/Source/D3D11/PipelineD3D11.hpp
+index d789ff36..c7227ba8 100644
+--- a/Source/D3D11/PipelineD3D11.hpp
++++ b/Source/D3D11/PipelineD3D11.hpp
+@@ -146,7 +146,8 @@ Result PipelineD3D11::Create(const GraphicsPipelineDesc& pipelineDesc) {
+ 
+         D3D11_BLEND_DESC1 blendState1 = {};
+         blendState1.AlphaToCoverageEnable = (pipelineDesc.multisample && pipelineDesc.multisample->alphaToCoverage) ? TRUE : FALSE;
+-        blendState1.IndependentBlendEnable = TRUE;
++        // D3D11 rejects logic operations with independent blending (CREATEBLENDSTATE_INVALIDLOGICOPS).
++        blendState1.IndependentBlendEnable = om.logicOp == LogicOp::NONE ? TRUE : FALSE;
+         for (uint32_t i = 0; i < om.colorNum; i++) {
+             const ColorAttachmentDesc& bs = om.colors[i];
+             blendState1.RenderTarget[i].BlendEnable = bs.blendEnabled;
+diff --git a/Source/D3D12/PipelineD3D12.hpp b/Source/D3D12/PipelineD3D12.hpp
+index 8ed83f3e..0d7ab262 100644
+--- a/Source/D3D12/PipelineD3D12.hpp
++++ b/Source/D3D12/PipelineD3D12.hpp
+@@ -160,17 +160,19 @@ static inline void FillBlendState(D3D12_BLEND_DESC& blendDesc, const GraphicsPip
+     const OutputMergerDesc& om = graphicsPipelineDesc.outputMerger;
+ 
+     blendDesc.AlphaToCoverageEnable = (graphicsPipelineDesc.multisample && graphicsPipelineDesc.multisample->alphaToCoverage) ? TRUE : FALSE;
+-    blendDesc.IndependentBlendEnable = TRUE;
++    // D3D12 rejects logic operations with independent blending.
++    blendDesc.IndependentBlendEnable = om.logicOp == LogicOp::NONE ? TRUE : FALSE;
+ 
+     for (uint32_t i = 0; i < om.colorNum; i++) {
+         const ColorAttachmentDesc& colorAttachmentDesc = om.colors[i];
+ 
+         blendDesc.RenderTarget[i].RenderTargetWriteMask = GetRenderTargetWriteMask(colorAttachmentDesc.colorWriteMask);
+         blendDesc.RenderTarget[i].BlendEnable = colorAttachmentDesc.blendEnabled;
++        // Logic operations replace blending (D3D12 takes them with BlendEnable false only).
++        blendDesc.RenderTarget[i].LogicOp = GetLogicOp(om.logicOp);
++        blendDesc.RenderTarget[i].LogicOpEnable = om.logicOp != LogicOp::NONE ? TRUE : FALSE;
+ 
+         if (colorAttachmentDesc.blendEnabled) {
+-            blendDesc.RenderTarget[i].LogicOp = GetLogicOp(om.logicOp);
+-            blendDesc.RenderTarget[i].LogicOpEnable = om.logicOp != LogicOp::NONE ? TRUE : FALSE;
+             blendDesc.RenderTarget[i].SrcBlend = GetBlend(colorAttachmentDesc.colorBlend.srcFactor);
+             blendDesc.RenderTarget[i].DestBlend = GetBlend(colorAttachmentDesc.colorBlend.dstFactor);
+             blendDesc.RenderTarget[i].BlendOp = GetBlendOp(colorAttachmentDesc.colorBlend.op);

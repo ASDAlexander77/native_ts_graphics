@@ -1511,6 +1511,17 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(instancing instancing_media)
 endif()
 
+# instancing with NRI and NRIFramework instead of Donut: instancing's shaders, models and textures, NRIFramework's ImGui.
+add_tslang_nri_example(instancing_nri SHADERS instancing_shaders core/random.ts core/matrix.ts)
+add_tslang_example_test(instancing_nri)
+if (TARGET instancing_media AND TARGET instancing_nri)
+    add_dependencies(instancing_nri instancing_media)
+endif()
+# Donut's blit shaders (shaders/framework).
+if (TARGET donut_shaders AND TARGET instancing_nri)
+    add_dependencies(instancing_nri donut_shaders)
+endif()
+
 # Port of Vulkan-Samples' hdr: a reflective object in front of an HDR environment cube map, rendered
 # to float targets with exposure, then a two-pass bloom of its bright parts. Its models and cube
 # map are Vulkan-Samples' assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF files are
@@ -1758,6 +1769,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     list(APPEND oit_linked_lists_media "${output}")
     add_custom_target(oit_linked_lists_media DEPENDS ${oit_linked_lists_media})
     add_dependencies(oit_linked_lists oit_linked_lists_media)
+endif()
+
+# oit_linked_lists with NRI and NRIFramework instead of Donut: oit_linked_lists' shaders, model and background, NRIFramework's ImGui.
+add_tslang_nri_example(oit_linked_lists_nri SHADERS oit_linked_lists_shaders core/random.ts core/matrix.ts)
+add_tslang_example_test(oit_linked_lists_nri)
+if (TARGET oit_linked_lists_media AND TARGET oit_linked_lists_nri)
+    add_dependencies(oit_linked_lists_nri oit_linked_lists_media)
 endif()
 
 # Port of Vulkan-Samples' gshader_to_mshader: a model's normals drawn by a geometry shader, or by a
@@ -2040,6 +2058,17 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(logic_op_dynamic_state logic_op_dynamic_state_media)
 endif()
 
+# logic_op_dynamic_state with NRI and NRIFramework instead of Donut: logic_op_dynamic_state's shaders, model and environment map, NRIFramework's ImGui.
+add_tslang_nri_example(logic_op_dynamic_state_nri SHADERS logic_op_dynamic_state_shaders core/matrix.ts)
+add_tslang_example_test(logic_op_dynamic_state_nri)
+if (TARGET logic_op_dynamic_state_media AND TARGET logic_op_dynamic_state_nri)
+    add_dependencies(logic_op_dynamic_state_nri logic_op_dynamic_state_media)
+endif()
+# Donut's blit shaders (shaders/framework).
+if (TARGET donut_shaders AND TARGET logic_op_dynamic_state_nri)
+    add_dependencies(logic_op_dynamic_state_nri donut_shaders)
+endif()
+
 # Port of Vulkan-Samples' oit_depth_peeling: order-independent transparency by depth peeling, up to 8
 # layers combined over a background. Its model and texture are Vulkan-Samples' (see
 # VULKAN_SAMPLES_ASSETS_DIR above): the glTF file copied, the KTX texture converted to DDS.
@@ -2073,6 +2102,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     list(APPEND depth_peeling_media "${output}")
     add_custom_target(oit_depth_peeling_media DEPENDS ${depth_peeling_media})
     add_dependencies(oit_depth_peeling oit_depth_peeling_media)
+endif()
+
+# oit_depth_peeling with NRI and NRIFramework instead of Donut: oit_depth_peeling's shaders, model and background, NRIFramework's ImGui.
+add_tslang_nri_example(oit_depth_peeling_nri SHADERS oit_depth_peeling_shaders core/matrix.ts)
+add_tslang_example_test(oit_depth_peeling_nri)
+if (TARGET oit_depth_peeling_media AND TARGET oit_depth_peeling_nri)
+    add_dependencies(oit_depth_peeling_nri oit_depth_peeling_media)
 endif()
 
 # Port of Vulkan-Samples' render_octomap: a SLAM map as an octomap (instanced voxels), a glTF mesh
@@ -2685,6 +2721,13 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
         VERBATIM)
     add_custom_target(patch_control_points_media DEPENDS "${output}")
     add_dependencies(patch_control_points patch_control_points_media)
+endif()
+
+# patch_control_points with NRI and NRIFramework instead of Donut: patch_control_points' shaders and terrain, NRIFramework's ImGui.
+add_tslang_nri_example(patch_control_points_nri SHADERS patch_control_points_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(patch_control_points_nri)
+if (TARGET patch_control_points_media AND TARGET patch_control_points_nri)
+    add_dependencies(patch_control_points_nri patch_control_points_media)
 endif()
 
 # Port of Vulkan-Samples' descriptor_indexing: two grids of rotating quads reading 64 small textures
