@@ -1975,6 +1975,9 @@ donut_compile_shaders(
 )
 add_tslang_example(compute_shader_derivatives)
 add_tslang_example_test(compute_shader_derivatives)
+# compute_shader_derivatives with NRI and NRIFramework instead of Donut: compute_shader_derivatives's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(compute_shader_derivatives_nri SHADERS compute_shader_derivatives_shaders)
+add_tslang_example_test(compute_shader_derivatives_nri)
 
 # Port of Vulkan-Samples' logic_op_dynamic_state: a cube combined with the background by a logic
 # operation picked in the UI (an NVRHI patch adds them, see DONUT_NVRHI_PATCHES above). Its model
@@ -2825,6 +2828,12 @@ add_tslang_example_test(texture_loading)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(texture_loading fragment_shading_rate_media)
 endif()
+# texture_loading with NRI and NRIFramework instead of Donut: texture_loading's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(texture_loading_nri SHADERS texture_loading_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(texture_loading_nri)
+if (TARGET fragment_shading_rate_media AND TARGET texture_loading_nri)
+    add_dependencies(texture_loading_nri fragment_shading_rate_media)
+endif()
 
 # Port of Vulkan-Samples' host_image_copy: texture_loading's lit, textured cube (its shaders), the
 # texture written by the CPU with no staging buffer or command buffer: VK_EXT_host_image_copy on
@@ -2943,6 +2952,12 @@ add_tslang_example(separate_image_sampler core/vulkan_samples_camera.ts core/mat
 add_tslang_example_test(separate_image_sampler)
 if (TARGET fragment_shading_rate_media)
     add_dependencies(separate_image_sampler fragment_shading_rate_media)
+endif()
+# separate_image_sampler with NRI and NRIFramework instead of Donut: separate_image_sampler's shaders, NRIFramework's ImGui.
+add_tslang_nri_example(separate_image_sampler_nri SHADERS separate_image_sampler_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(separate_image_sampler_nri)
+if (TARGET fragment_shading_rate_media AND TARGET separate_image_sampler_nri)
+    add_dependencies(separate_image_sampler_nri fragment_shading_rate_media)
 endif()
 
 # Port of Vulkan-Samples' dynamic_rendering_local_read: deferred shading of a room lit by 64 point
@@ -4307,7 +4322,7 @@ if (NOT ANDROID)
     add_dependencies(jit_runtime donut_interop_shared copy_media)
     # the NRI examples' library, and their shaders
     if (TARGET nri_interop)
-        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders async_compute_shaders timeline_semaphore_shaders compute_nbody_shaders execute_indirect_shaders buffer_device_address_shaders)
+        add_dependencies(jit_runtime nri_interop_build basic_triangle_shaders mesh_shading_shaders meshlets_shaders depth_bounds_test_shaders small_resources_shaders descriptor_indexing_shaders dynamic_uniform_buffers_shaders bundles_shaders dynamic_indexing_shaders vertex_buffer_shaders async_compute_shaders timeline_semaphore_shaders compute_nbody_shaders execute_indirect_shaders buffer_device_address_shaders texture_loading_shaders separate_image_sampler_shaders compute_shader_derivatives_shaders)
     endif()
     get_property(TSLANG_EXAMPLES GLOBAL PROPERTY TSLANG_EXAMPLES)
     foreach(example IN LISTS TSLANG_EXAMPLES)

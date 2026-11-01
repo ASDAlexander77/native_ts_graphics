@@ -22,8 +22,11 @@
 // sample's linear variant numbers its 8 x 8 threads row by row (Slang's [DerivativeGroupLinear]):
 // here the 64 threads of a 1D group are laid out the same way, so a "quad" is 4 pixels in a row.
 
-// Output image for gradient magnitude visualization
-RWTexture2D<float4> gOutputImage : register(u0);
+#include <donut/shaders/binding_helpers.hlsli>
+
+// Output image for gradient magnitude visualization: RGBA8, its format declared for Vulkan (DXC's
+// default, Rgba32f, doesn't match its views).
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> gOutputImage : register(u0);
 
 // The sample's procedural function and its visualization, at a pixel.
 void shade(uint2 tid)
