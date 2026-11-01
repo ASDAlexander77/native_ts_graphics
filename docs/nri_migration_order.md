@@ -38,16 +38,21 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | 16bit_arithmetic_nri (#193) | `NriFeature.Native16Bit` and `Native16BitConstants`, compute permutations (`Nri_CreateComputePipelinePermutation`), structured buffers in descriptor sets (`Nri_CreateDescriptorPoolWithBuffers`), RGBA16F storage textures; no GPU time (no timer queries) |
 | mesh_shader_culling_nri (#193) | nothing new: a task shader's constant buffer as a root descriptor; no pipeline statistics (no queries) |
 | n_body_gravity_nri (#193) | geometry shaders, point lists, blend factors (`Nri_PipelineDescSetBlend`), buffers read by vertex and compute shaders (`NriBufferState.VertexAndComputeShaderResource`); the steps on the graphics queue (the Donut example's path without a compute queue) |
-| meshlet_render_nri | uploaded structured buffers (`Nri_CreateUploadedStructuredBuffer`, from ints, files and native pointers), a loaded file's bytes (`Nri_GetFileData`, `Nri_GetFileSize`) for core/meshlet_model.cpp's loader |
-| meshlet_instancing_nri | nothing new: host-written instances (rewritten after the device is idle when they change) |
-| dynamic_lod_nri | nothing new: buffer arrays in a descriptor set, a constant buffer array |
-| meshlet_cull_nri | the cursor's position (`Nri_GetMouseX/Y`), line lists from mesh shaders |
-| simple_compute_nri | the async compute loop's own root constants, pause and run count (`Nri_SetAsyncComputeConstants`, `Nri_SetAsyncComputePaused`, `Nri_GetAsyncComputeRunCount`), textures the compute queue reads (`Nri_CreateUploadedComputeTexture`), ImGui text drawn anywhere (`Nri_ImguiDrawText`, `Nri_ImguiDrawRect`); the fractal drawn with 16bit_arithmetic's visualization shaders; on D3D11 with the HUD, no async compute (the HUD's command buffer emulation breaks the compute queue) |
-| collision_nri | line lists, CPU-written vertex buffers (`Nri_CreateHostBuffer` with `NriBufferUsage.VertexBuffer`), a captured cursor (`Nri_SetCursorDisabled`) |
-| simple_bezier_nri | hull and domain shaders, patch lists (`Nri_PipelineDescSetPatchControlPoints`), wireframe (`Nri_PipelineDescSetWireframe`); NRI patched for D3D12's patch-list topology |
-| terrain_tessellation_nri | DDS texture arrays with their mips (`Nri_LoadDdsTexture`, `Nri_CreateTextureArrayView`), Donut's own blit shaders into the sRGB swap chain, Donut's FirstPersonCamera in float32 |
-| dynamic_blending_nri | all blend factors and ops, blend constants (`Nri_CmdSetBlendConstants`), more ImGui widgets (`Nri_ImguiColorEdit4`, `Nri_ImguiButton`, `Nri_ImguiRadioButton`, `Nri_ImguiPushID`, `Nri_ImguiSameLine`); no advanced blend operations (NRI has none) |
-| atom_orbitals_nri | front-face winding (`Nri_PipelineDescSetFrontCounterClockwise`), three root descriptors in one layout, `Nri_ImguiSetNextWindowPosPivot`, `Nri_ImguiDragFloat` |
+| meshlet_render_nri (#194) | uploaded structured buffers (`Nri_CreateUploadedStructuredBuffer`, from ints, files and native pointers), a loaded file's bytes (`Nri_GetFileData`, `Nri_GetFileSize`) for core/meshlet_model.cpp's loader |
+| meshlet_instancing_nri (#194) | nothing new: host-written instances (rewritten after the device is idle when they change) |
+| dynamic_lod_nri (#194) | nothing new: buffer arrays in a descriptor set, a constant buffer array |
+| meshlet_cull_nri (#194) | the cursor's position (`Nri_GetMouseX/Y`), line lists from mesh shaders |
+| simple_compute_nri (#194) | the async compute loop's own root constants, pause and run count (`Nri_SetAsyncComputeConstants`, `Nri_SetAsyncComputePaused`, `Nri_GetAsyncComputeRunCount`), textures the compute queue reads (`Nri_CreateUploadedComputeTexture`), ImGui text drawn anywhere (`Nri_ImguiDrawText`, `Nri_ImguiDrawRect`); the fractal drawn with 16bit_arithmetic's visualization shaders; on D3D11 with the HUD, no async compute (the HUD's command buffer emulation breaks the compute queue) |
+| collision_nri (#194) | line lists, CPU-written vertex buffers (`Nri_CreateHostBuffer` with `NriBufferUsage.VertexBuffer`), a captured cursor (`Nri_SetCursorDisabled`) |
+| simple_bezier_nri (#194) | hull and domain shaders, patch lists (`Nri_PipelineDescSetPatchControlPoints`), wireframe (`Nri_PipelineDescSetWireframe`); NRI patched for D3D12's patch-list topology |
+| terrain_tessellation_nri (#194) | DDS texture arrays with their mips (`Nri_LoadDdsTexture`, `Nri_CreateTextureArrayView`), Donut's own blit shaders into the sRGB swap chain, Donut's FirstPersonCamera in float32 |
+| dynamic_blending_nri (#194) | all blend factors and ops, blend constants (`Nri_CmdSetBlendConstants`), more ImGui widgets (`Nri_ImguiColorEdit4`, `Nri_ImguiButton`, `Nri_ImguiRadioButton`, `Nri_ImguiPushID`, `Nri_ImguiSameLine`); no advanced blend operations (NRI has none) |
+| atom_orbitals_nri (#194) | front-face winding (`Nri_PipelineDescSetFrontCounterClockwise`), three root descriptors in one layout, `Nri_ImguiSetNextWindowPosPivot`, `Nri_ImguiDragFloat` |
+| dynamic_rendering_nri | glTF meshes as Donut loads them (`Nri_LoadGltfMesh`: core/vulkan_samples_gltf.h, shared with Donut's interop), DDS cubemaps and cube views (`Nri_CreateTextureCubeView`) |
+| vertex_dynamic_state_nri | nothing new: a pipeline per vertex layout (NRI has no dynamic vertex input) |
+| dynamic_primitive_clipping_nri | depth clipping on or off (`Nri_PipelineDescSetDepthClip`, which sets NRI's depthClamp for the API) |
+| fragment_shader_barycentric_nri | `NriFeature.Barycentrics`; no D3D11 (shader model 6.1) |
+| push_descriptors_nri | root descriptors as Vulkan push descriptors (`Nri_GetRootDescriptorMaxNum`); its own shaders (shaders/push_descriptors_nri.hlsl): NRI has no combined image samplers, so the texture and sampler are in a descriptor set; Vulkan only |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -80,9 +85,15 @@ threads; recorded serially, the port would lose its point).
 
 ## Tier 4: scenes (NRIFramework utils::Scene, cgltf)
 
-This tier covers deferred_shading, threaded_rendering, environment_map, bindless_rendering, and
-the Vulkan-Samples ports that load glTF. NRIFramework's scene loader is not Donut's, so the
-material and vertex layouts need checking for each example.
+This tier covers the Vulkan-Samples ports that load glTF, then deferred_shading,
+threaded_rendering, environment_map and bindless_rendering. The meshes come from Donut's own glTF
+reader (core/vulkan_samples_gltf.h, through `Nri_LoadGltfMesh`), not NRIFramework's utils::Scene,
+whose vertex layout and transforms differ: the frames then match Donut's pixel for pixel.
+
+First batch: dynamic_rendering_nri, vertex_dynamic_state_nri, dynamic_primitive_clipping_nri,
+fragment_shader_barycentric_nri and push_descriptors_nri. deferred_shading, threaded_rendering and
+environment_map draw with Donut's C++ render passes, and bindless_rendering reads Donut's scene
+buffers: they come last.
 
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
@@ -138,6 +149,11 @@ ray_queries. After that come the scene-heavy ray-traced examples.
   them.
 - An animation that the original sample steps in OnUpdate counts the frame before it's drawn
   (frame number = frameIndex + 1), as Donut's test mode does.
+- NRI's `depthClamp` is D3D's DepthClipEnable on D3D11 and D3D12 but Vulkan's depthClampEnable,
+  the opposite: `Nri_PipelineDescSetDepthClip` sets it for the API. With depth clipping off, Donut
+  on Vulkan neither clips nor clamps (VK_EXT_depth_clip_enable without depth clamp), so depths out
+  of range are the driver's: dynamic_primitive_clipping's torus knot (`-object 1`) differs from
+  Donut's Vulkan frame there, while the NRI port clamps on both APIs and matches Donut's D3D12 frame.
 
 ## Excluded
 
