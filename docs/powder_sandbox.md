@@ -56,14 +56,22 @@ material something to react with.
   - **Particles sharing a cell even out** toward the cell's mean (which keeps the heat). Before,
     heat moved only between cells, so water in the same cell as lava never boiled.
 
-### 2. Undo and save/load
+### 2. Undo and save/load (done)
 
 What players build is worth keeping, and on a phone a mistaken stroke is easy.
 
-- **Undo**: a ring of snapshots (cells, particles, the grid's temperatures) taken on GPU, one per
-  stroke start, a few deep; an Undo tile restores the last.
-- **Save/load**: the same snapshot read back and written to a file (app storage on Android), with
-  a small header (version, grid size). A grid of another size is loaded centered.
+- **The state**: the particles, the grid's float sections (temperatures, the pressure the next
+  step starts from, burning and melting), the cells and the free list, one after another: about
+  11.6 MB. The int sections are counts every step remakes, so they're left out.
+- **Undo**: 4 snapshots on the GPU (46 MB), taken as a stroke begins and before Clear and Load;
+  the Undo tile or Ctrl+Z restores the newest (and drops scene strokes still to be painted).
+- **Save/load**: one slot, `powder_sandbox.save` beside the executable (the app's data directory
+  on Android): a header (magic, version, grid width and height, particle slots), then the state.
+  The file is written to a temporary first, so a failed save keeps the old one. A save from a grid
+  of another size is refused with a message (loading it centered is left for later).
+- Interop: `Nri_CmdCopyBufferRegion`, `Nri_SaveBufferToFile`, `Nri_CreateStorageBufferFromFile`.
+- **Test**: `-utube -roundTrip` clears the U-tube halfway (without repainting) and undoes it, then
+  saves, clears and loads; if either restore failed the U-tube would end empty.
 
 ### 3. Real-phone pass
 

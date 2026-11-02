@@ -35,6 +35,7 @@
 #include <chrono>
 #include <cstdio>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -2319,6 +2320,42 @@ extern "C"
         return 1;
     }
 
+    // Writes headerInts ints of header, then the first byteSize bytes of the buffer (a readback buffer,
+    // after the GPU wrote it), to path under LibraryDirectory() (the app's data directory on Android):
+    // to a temporary file first, which then replaces the old one, so a failed save keeps it. 1, or 0
+    // on failure.
+    NRI_INTEROP_API int Nri_SaveBufferToFile(nri::Buffer* buffer, int byteSize, const int* header, int headerInts, const char* path)
+    {
+        const uint8_t* data = (const uint8_t*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
+        if (!data)
+            return 0;
+        const std::string target = LibraryDirectory() + path;
+        const std::string temporary = target + ".tmp";
+        FILE* file = fopen(temporary.c_str(), "wb");
+        bool written = file != nullptr;
+        if (file)
+        {
+            written = fwrite(header, sizeof(int), (size_t)headerInts, file) == (size_t)headerInts
+                && fwrite(data, 1, (size_t)byteSize, file) == (size_t)byteSize;
+            written = fclose(file) == 0 && written;
+        }
+        NRI.UnmapBuffer(*buffer);
+        if (!written)
+        {
+            printf("ERROR: cannot write %s\n", temporary.c_str());
+            remove(temporary.c_str());
+            return 0;
+        }
+        std::error_code error;
+        std::filesystem::rename(temporary, target, error);
+        if (error)
+        {
+            printf("ERROR: cannot replace %s: %s\n", target.c_str(), error.message().c_str());
+            return 0;
+        }
+        return 1;
+    }
+
     // --- Timestamp queries ------------------------------------------------------------------------
 
     // A pool of capacity timestamp queries (QueryType::TIMESTAMP: the graphics queue's); null on
@@ -2752,6 +2789,14 @@ extern "C"
     NRI_INTEROP_API void Nri_CmdCopyBuffer(nri::CommandBuffer* commandBuffer, nri::Buffer* dst, nri::Buffer* src, int byteSize)
     {
         NRI.CmdCopyBuffer(*commandBuffer, *dst, 0, *src, 0, (uint64_t)byteSize);
+    }
+
+    // Copies byteSize bytes of src (in NriBufferState.CopySource) from srcOffset to dst (in
+    // CopyDestination, or a readback buffer) at dstOffset.
+    NRI_INTEROP_API void Nri_CmdCopyBufferRegion(nri::CommandBuffer* commandBuffer, nri::Buffer* dst, int dstOffset, nri::Buffer* src,
+        int srcOffset, int byteSize)
+    {
+        NRI.CmdCopyBuffer(*commandBuffer, *dst, (uint64_t)dstOffset, *src, (uint64_t)srcOffset, (uint64_t)byteSize);
     }
 
     // A barrier moving the buffer from the state before to after (NriBufferState values); from
@@ -4463,6 +4508,16 @@ extern "C"
         if (offset < 0 || byteSize <= 0 || (size_t)offset + (size_t)byteSize > file->size())
             return nullptr;
         return Nri_CreateUploadedStructuredBuffer(device, queue, file->data() + offset, byteSize, stride);
+    }
+
+    // Nri_CreateStorageBufferInState's buffer (structures stride bytes each) holding byteSize bytes of
+    // the file at offset, in state (an NriBufferState); null if they run past its end.
+    NRI_INTEROP_API nri::Buffer* Nri_CreateStorageBufferFromFile(nri::Device* device, nri::Queue* queue, const std::vector<uint8_t>* file,
+        int offset, int byteSize, int stride, int state)
+    {
+        if (offset < 0 || byteSize <= 0 || (size_t)offset + (size_t)byteSize > file->size())
+            return nullptr;
+        return Nri_CreateStorageBufferInState(device, queue, file->data() + offset, byteSize, stride, state);
     }
 
     // Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.

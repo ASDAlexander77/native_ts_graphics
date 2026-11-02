@@ -97,6 +97,29 @@ namespace PowderSandboxNri {
     const ACTION_VIEW = 103;
     const ACTION_CLEAR = 104;
     const ACTION_SHAPE = 105;
+    const ACTION_UNDO = 106;
+    const ACTION_SAVE = 107;
+    const ACTION_LOAD = 108;
+
+    // The simulation's state, for undo and saves: the particles, the grid's float sections (the
+    // temperatures, the pressure the next step starts from, burning and melting), the cells, the free
+    // list (this.buffers' indices), one after another. The int sections are counts every step
+    // remakes.
+    const STATE_BUFFERS = [0, 2, 3, 4];
+    // Snapshots taken as strokes begin (and before Clear and Load), newest restored first.
+    const UNDO_DEPTH = 4;
+    // The save file (in the executable's directory; the app's data directory on Android): a header
+    // (SAVE_MAGIC, SAVE_VERSION, the grid's width and height, the particle slots), then the state.
+    const SAVE_PATH = "powder_sandbox.save";
+    const SAVE_MAGIC = 0x53445750;
+    const SAVE_VERSION = 1;
+    const SAVE_HEADER_INTS = 5;
+    // How long a message (saved, loaded, nothing to undo) shows, in seconds.
+    const MESSAGE_TIME = 2.5;
+    // GLFW's key codes.
+    const KEY_Z = 90;
+    const KEY_LEFT_CONTROL = 341;
+    const KEY_RIGHT_CONTROL = 345;
     const VIEW_NAMES = ["Materials", "Pressure", "Temperature"];
     // Scene 3's ice block, in grid fractions (x0, y0, x1, y1).
     const ICE_BLOCK = [0.12, 0.5, 0.2, 0.72];
@@ -178,6 +201,31 @@ namespace PowderSandboxNri {
         private cellsReadback: NriBufferHandle | null = null;
         // -test: the last frame, read back.
         private frameReadback: NriBufferHandle | null = null;
+        // The byte sizes of this.buffers, and of the state (STATE_BUFFERS' together).
+        private bufferSizes: int[] = [];
+        private stateSize: int = 0;
+        // Undo: UNDO_DEPTH snapshot buffers (in CopyDestination between uses), the newest's index and
+        // how many hold a state.
+        private undoBuffers: NriBufferHandle[] = [];
+        private undoTop: int = 0;
+        private undoCount: int = 0;
+        // What the next frame does to the state before simulating: take a snapshot, restore the
+        // newest, save it, load the save.
+        private snapshotRequested: boolean = false;
+        private undoRequested: boolean = false;
+        private saveRequested: boolean = false;
+        private loadRequested: boolean = false;
+        // This frame's save (read back, written once the frame is done) or load (uploaded from the
+        // file).
+        private saveReadback: NriBufferHandle | null = null;
+        private loadBuffer: NriBufferHandle | null = null;
+        private message: string = "";
+        private messageTime: number = 0.0;
+        // -roundTrip (a test): halfway through, the state is cleared and undone, then saved, cleared
+        // and loaded; the U-tube must still level out.
+        roundTrip: boolean = false;
+        // Whether a Clear repaints the scene's strokes (the round trip's doesn't).
+        private sceneOnClear: boolean = true;
         private rowPitch: int = 0;
 
         private width: int = 0;
@@ -211,6 +259,7 @@ namespace PowderSandboxNri {
         // The pointer: down last frame, where (in cells), whether the press began on the toolbar; a
         // press there: where it began, the scroll then, whether it has dragged the row yet.
         private wasDown: boolean = false;
+        private zWasDown: boolean = false;
         private pressOnToolbar: boolean = false;
         private pressX: number = 0.0;
         private pressScroll: number = 0.0;
@@ -272,6 +321,9 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -383,6 +435,20 @@ namespace PowderSandboxNri {
             const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * this.stride * 4, FLOAT_SECTIONS * this.stride * 4,
                 this.stride * 4, (ALLOC_LIST + CAPACITY) * 4];
             const strides = [PARTICLE_SIZE, 4, 4, 4, 4];
+            for (const size of sizes) {
+                this.bufferSizes.push(size);
+            }
+            for (const i of STATE_BUFFERS) {
+                this.stateSize += sizes[i];
+            }
+            for (let i = 0; i < UNDO_DEPTH; i++) {
+                const undoBuffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, this.stateSize, 4, NriBufferState.CopyDestination);
+                if (!undoBuffer) {
+                    console.log("Cannot create the undo buffers");
+                    return 0;
+                }
+                this.undoBuffers.push(undoBuffer);
+            }
             for (let i = 0; i < 5; i++) {
                 const buffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, sizes[i], strides[i], NriBufferState.Storage);
                 if (!buffer) {
@@ -554,7 +620,14 @@ namespace PowderSandboxNri {
             } else if (action == ACTION_VIEW) {
                 this.overlay = (this.overlay + 1) % 3;
             } else if (action == ACTION_CLEAR) {
+                this.snapshotRequested = true;
                 this.needsInit = true;
+            } else if (action == ACTION_UNDO) {
+                this.undoRequested = true;
+            } else if (action == ACTION_SAVE) {
+                this.saveRequested = true;
+            } else if (action == ACTION_LOAD) {
+                this.loadRequested = true;
             } else if (action == ACTION_SHAPE) {
                 this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
             } else {
@@ -590,10 +663,21 @@ namespace PowderSandboxNri {
             if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
                 this.paused = !this.paused;
             }
+            // Ctrl+Z (each press of Z while Control is down).
+            const control = Nri_IsKeyPressed(this.sample, KEY_LEFT_CONTROL) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT_CONTROL) != 0;
+            const z = Nri_IsKeyPressed(this.sample, KEY_Z) != 0;
+            if (control && z && !this.zWasDown) {
+                this.undoRequested = true;
+            }
+            this.zWasDown = z;
 
             let brushMode = 0;
             if (down && !this.wasDown) {
                 this.pressOnToolbar = overToolbar;
+                // A stroke begins: what it changes can be undone.
+                if (!overToolbar) {
+                    this.snapshotRequested = true;
+                }
                 this.pressX = mx;
                 this.pressScroll = this.toolbarScroll;
                 this.dragging = false;
@@ -700,6 +784,158 @@ namespace PowderSandboxNri {
             }
         }
 
+        // Copies the state (STATE_BUFFERS' buffers, one after another) into snapshot, or out of it back
+        // into them; snapshot is in snapshotState before and after (a readback buffer: CopyDestination).
+        recordStateCopy(commandBuffer: NriCommandBufferHandle, snapshot: NriBufferHandle, toSnapshot: boolean, snapshotState: NriBufferState) {
+            const liveState = toSnapshot ? NriBufferState.CopySource : NriBufferState.CopyDestination;
+            const snapshotUse = toSnapshot ? NriBufferState.CopyDestination : NriBufferState.CopySource;
+            if (snapshotState != snapshotUse) {
+                Nri_CmdBufferBarrier(commandBuffer, snapshot, snapshotState, snapshotUse);
+            }
+            let offset = 0;
+            for (const i of STATE_BUFFERS) {
+                const buffer = this.buffers[i];
+                const size = this.bufferSizes[i];
+                Nri_CmdBufferBarrier(commandBuffer, buffer, NriBufferState.Storage, liveState);
+                if (toSnapshot) {
+                    Nri_CmdCopyBufferRegion(commandBuffer, snapshot, offset, buffer, 0, size);
+                } else {
+                    Nri_CmdCopyBufferRegion(commandBuffer, buffer, 0, snapshot, offset, size);
+                }
+                Nri_CmdBufferBarrier(commandBuffer, buffer, liveState, NriBufferState.Storage);
+                offset += size;
+            }
+            if (snapshotState != snapshotUse) {
+                Nri_CmdBufferBarrier(commandBuffer, snapshot, snapshotUse, snapshotState);
+            }
+        }
+
+        // The frame's requests, before it simulates: undo (the newest snapshot back), load (the save
+        // file's state, after a snapshot of the current one), a snapshot (a stroke or Clear begins),
+        // a save (the state read back, written once the frame is done).
+        recordStateRequests(commandBuffer: NriCommandBufferHandle) {
+            if (this.undoRequested) {
+                this.undoRequested = false;
+                if (this.undoCount > 0) {
+                    this.recordStateCopy(commandBuffer, this.undoBuffers[this.undoTop], false, NriBufferState.CopyDestination);
+                    this.undoTop = (this.undoTop + UNDO_DEPTH - 1) % UNDO_DEPTH;
+                    this.undoCount--;
+                    // The restored state stands as it was: no scene strokes or Clear still to come.
+                    this.script = [];
+                    this.needsInit = false;
+                    this.snapshotRequested = false;
+                } else {
+                    this.showMessage("Nothing to undo");
+                }
+            }
+            if (this.loadRequested) {
+                this.loadRequested = false;
+                const loadBuffer = this.openSave();
+                if (loadBuffer) {
+                    this.pushSnapshot(commandBuffer);
+                    this.recordStateCopy(commandBuffer, loadBuffer, false, NriBufferState.CopySource);
+                    this.loadBuffer = loadBuffer;
+                    this.script = [];
+                    this.needsInit = false;
+                    this.snapshotRequested = false;
+                    this.showMessage("Loaded");
+                }
+            }
+            if (this.snapshotRequested) {
+                this.snapshotRequested = false;
+                this.pushSnapshot(commandBuffer);
+            }
+            if (this.saveRequested) {
+                this.saveRequested = false;
+                const device = this.device;
+                if (device) {
+                    const saveReadback = Nri_CreateReadbackBuffer(device, this.stateSize);
+                    if (saveReadback) {
+                        this.recordStateCopy(commandBuffer, saveReadback, true, NriBufferState.CopyDestination);
+                        this.saveReadback = saveReadback;
+                    } else {
+                        this.showMessage("Cannot save: out of memory");
+                    }
+                }
+            }
+        }
+
+        // The state into the next undo slot (over the oldest once they're all used).
+        pushSnapshot(commandBuffer: NriCommandBufferHandle) {
+            this.undoTop = (this.undoTop + 1) % UNDO_DEPTH;
+            this.undoCount = Math.min(this.undoCount + 1, UNDO_DEPTH);
+            this.recordStateCopy(commandBuffer, this.undoBuffers[this.undoTop], true, NriBufferState.CopyDestination);
+        }
+
+        // The save file's state in a buffer to copy from (CopySource), or null (with a message) when
+        // there's none, or it's from another version or a grid of another size.
+        openSave(): NriBufferHandle | null {
+            const device = this.device;
+            if (!device) {
+                return null;
+            }
+            const file = Nri_LoadFile(SAVE_PATH);
+            if (!file) {
+                this.showMessage("Nothing saved yet");
+                return null;
+            }
+            const bytes: int[] = [];
+            for (let i = 0; i < SAVE_HEADER_INTS * 4; i++) {
+                bytes.push(0);
+            }
+            Nri_CopyFileBytes(file, 0, bytes.length, Ref(bytes[0]));
+            const header: int[] = [];
+            for (let i = 0; i < SAVE_HEADER_INTS; i++) {
+                header.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
+            }
+            let loadBuffer: NriBufferHandle | null = null;
+            if (header[0] != SAVE_MAGIC || header[1] != SAVE_VERSION || header[4] != CAPACITY
+                || Nri_GetFileSize(file) != SAVE_HEADER_INTS * 4 + this.stateSize) {
+                this.showMessage("The save is from another version");
+            } else if (header[2] != this.gridW || header[3] != this.gridH) {
+                this.showMessage(`The save's grid is ${header[2]} x ${header[3]}, this window's ${this.gridW} x ${this.gridH}`);
+            } else {
+                loadBuffer = Nri_CreateStorageBufferFromFile(device, this.queue, file, SAVE_HEADER_INTS * 4, this.stateSize, 4,
+                    NriBufferState.CopySource);
+                if (!loadBuffer) {
+                    this.showMessage("Cannot load: out of memory");
+                }
+            }
+            Nri_DestroyFile(file);
+            return loadBuffer;
+        }
+
+        // After the frame's submission: the save written (once the GPU has read the state back), the
+        // load's buffer freed.
+        finishStateRequests() {
+            const device = this.device;
+            const saveReadback = this.saveReadback;
+            const loadBuffer = this.loadBuffer;
+            if (!device) {
+                return;
+            }
+            if (saveReadback || loadBuffer) {
+                Nri_DeviceWaitIdle(device);
+            }
+            if (saveReadback) {
+                const header: int[] = [SAVE_MAGIC, SAVE_VERSION, this.gridW, this.gridH, CAPACITY];
+                const saved = Nri_SaveBufferToFile(saveReadback, this.stateSize, Ref(header[0]), SAVE_HEADER_INTS, SAVE_PATH) != 0;
+                this.showMessage(saved ? "Saved" : "Cannot save");
+                Nri_DestroyBuffer(saveReadback);
+                this.saveReadback = null;
+            }
+            if (loadBuffer) {
+                Nri_DestroyBuffer(loadBuffer);
+                this.loadBuffer = null;
+            }
+        }
+
+        showMessage(text: string) {
+            console.log(text);
+            this.message = text;
+            this.messageTime = MESSAGE_TIME;
+        }
+
         // An entry over count threads, then a barrier on the buffers in barrierMask.
         dispatch(commandBuffer: NriCommandBufferHandle, entry: int, count: int, barrierMask: int) {
             Nri_CmdSetPipeline(commandBuffer, this.pipelines[entry]);
@@ -722,7 +958,11 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, INIT_GRID, this.stride, B_ALL);
                 this.dispatch(commandBuffer, INIT_PARTICLES, CAPACITY, B_ALL);
                 this.needsInit = false;
-                this.buildScene();
+                if (this.sceneOnClear) {
+                    this.buildScene();
+                } else {
+                    this.script = [];
+                }
             }
             // The scene's strokes, one a frame while the pointer isn't painting.
             if (brushMode == 0 && this.script.length > 0) {
@@ -764,6 +1004,25 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
                 this.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
                 this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
+            }
+        }
+
+        // -roundTrip: halfway, the state cleared (without the scene's strokes) and undone; then saved,
+        // cleared and loaded. If either restore failed the U-tube would end empty.
+        roundTripRequests(frameIndex: int) {
+            const half: int = Math.floor(this.testFrames / 2);
+            if (frameIndex == half) {
+                this.sceneOnClear = false;
+                this.snapshotRequested = true;
+                this.needsInit = true;
+            } else if (frameIndex == half + 1) {
+                this.undoRequested = true;
+            } else if (frameIndex == half + 100) {
+                this.saveRequested = true;
+            } else if (frameIndex == half + 101) {
+                this.needsInit = true;
+            } else if (frameIndex == half + 102) {
+                this.loadRequested = true;
             }
         }
 
@@ -877,6 +1136,9 @@ namespace PowderSandboxNri {
             }
             Nri_ImguiDrawText(8.0, 6.0 + labelHeight, `${formatFixed(this.probeFloats[1], 1)} C   pressure ${formatFixed(this.probeFloats[2], 2)}   ${contents}`,
                 0.85, 0.85, 0.85, 1.0, 0);
+            if (this.messageTime > 0.0) {
+                Nri_ImguiDrawText(8.0, 6.0 + 2.0 * labelHeight, this.message, 1.0, 0.9, 0.4, 1.0, 0);
+            }
             Nri_ImguiRender(this.sample);
         }
 
@@ -902,6 +1164,7 @@ namespace PowderSandboxNri {
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 0.25);
             this.time += frameTime;
+            this.messageTime -= frameTime;
             this.fpsFrames++;
             this.fpsTime += Nri_GetFrameTime(this.sample);
             if (this.fpsTime >= 0.5) {
@@ -933,6 +1196,9 @@ namespace PowderSandboxNri {
                 }
             }
 
+            if (this.test && this.roundTrip) {
+                this.roundTripRequests(frameIndex);
+            }
             const brushMode = this.test ? 0 : this.handleInput();
             this.fillConstants(step);
             if (this.imgui) {
@@ -949,6 +1215,7 @@ namespace PowderSandboxNri {
                 // Record: the simulation's steps, the readout, then the grid drawn and the toolbar
                 // over it.
                 Nri_BeginCommandBuffer(commandBuffer);
+                this.recordStateRequests(commandBuffer);
                 this.recordSimulation(commandBuffer, brushMode, steps);
                 this.dispatch(commandBuffer, PROBE, 1, 0);
                 const alloc = this.buffers[4];
@@ -1005,6 +1272,7 @@ namespace PowderSandboxNri {
 
             // Signaled after the present, as NRISamples do
             Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.finishStateRequests();
         }
 
         // -test: the U-tube's two sides hold water to the same level (its mean depth in cells over
@@ -1199,6 +1467,9 @@ namespace PowderSandboxNri {
                 if (drawLayout) {
                     Nri_DestroyPipelineLayout(drawLayout);
                 }
+                for (const undoBuffer of this.undoBuffers) {
+                    Nri_DestroyBuffer(undoBuffer);
+                }
                 Nri_DestroyFence(this.frameFence);
                 Nri_DestroyDevice(device);
             }
@@ -1211,6 +1482,7 @@ namespace PowderSandboxNri {
         Nri_UseResizableWindow(sample);
         const sandbox = new PowderSandbox(sample);
         Nri_AddExampleOption(sample, "-utube");
+        Nri_AddExampleOption(sample, "-roundTrip");
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
         Nri_AddExampleOptionWithValues(sample, "-view", 1);
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
@@ -1220,6 +1492,8 @@ namespace PowderSandboxNri {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-utube") {
                 sandbox.scene = 1;
+            } else if (arg == "-roundTrip") {
+                sandbox.roundTrip = true;
             } else if (arg == "-substeps" && i + 1 < argc) {
                 sandbox.substeps = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
                 i++;
