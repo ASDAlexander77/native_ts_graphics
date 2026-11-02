@@ -218,6 +218,9 @@ namespace GshaderToMshaderNri {
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views' (createSwapChain's).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private swapChainViewFormat: NriFormat = NriFormat.Unknown;
 
         // The sample's settings: which shader draws the normals (one at most): -gshader, -mshader;
         // -noUI: no overlay.
@@ -283,32 +286,19 @@ namespace GshaderToMshaderNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the
             // Donut example blits into its back buffer).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
             // The depth buffer: D32, reversed (cleared to 0).
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            if (!depthTexture) {
-                console.log("Cannot create the depth buffer");
+            if (!this.createDepth(device)) {
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             this.meshShadersSupported = Nri_IsFeatureSupported(device, NriFeature.MeshShader) != 0;
             if (!this.meshShadersSupported) {
@@ -681,7 +671,78 @@ namespace GshaderToMshaderNri {
             Nri_CmdDrawMeshTasks(commandBuffer, this.meshletCount, 1, 1);
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainViewFormat = viewFormat;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The depth buffer at the swap chain's size.
+        createDepth(device: NriDeviceHandle): boolean {
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!depthTexture) {
+                console.log("Cannot create the depth buffer");
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroyDepth() {
+            const depthAttachment = this.depthAttachment;
+            if (depthAttachment) {
+                Nri_DestroyDescriptor(depthAttachment);
+            }
+            this.depthAttachment = null;
+            const depthTexture = this.depthTexture;
+            if (depthTexture) {
+                Nri_DestroyTexture(depthTexture);
+            }
+            this.depthTexture = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made
+        // again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroyDepth();
+            this.createSwapChain(device);
+            this.createDepth(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -835,6 +896,7 @@ namespace GshaderToMshaderNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const gshaderToMshader = new GshaderToMshader(sample);
         // -gshader / -mshader: start with the normals drawn by the geometry / mesh shader; -noUI: no
         // overlay.

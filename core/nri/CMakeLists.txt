@@ -63,6 +63,9 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # DeviceDesc::other.lineRasterizationModes / lineWidthMax, for dynamic_line_rasterization_nri.
 # It doesn't enable VK_EXT_calibrated_timestamps: patched to, for calibrated_timestamps_nri (whose
 # vkGetCalibratedTimestampsEXT comes through NRI's Vulkan wrapper).
+# Its D3D12 shading rate attachment views have no heap descriptor, yet destroying one gives an empty
+# handle (the first heap's first slot) back to the CBV/SRV/UAV free list, so a later view lands in
+# another heap: patched to give back only allocated handles, for resizing fragment_shading_rate_dynamic_nri.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -108,6 +111,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-calibrated-timestamps.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-shading-rate-descriptor-free.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

@@ -406,7 +406,16 @@ dxr_refit, dynamic_indexing, dynamic_primitive_clipping, dynamic_rendering,
 dynamic_uniform_buffers, execute_indirect, fragment_shader_barycentric, mesh_shader_culling,
 mesh_shading, meshlet_render, meshlets, mobile_nerf, n_body_gravity, patch_control_points,
 push_descriptors, rt_triangle, separate_image_sampler, shader_quad_control, small_resources,
-texture_loading, timeline_semaphore, vertex_buffer, vertex_dynamic_state, wave_intrinsics
+texture_loading, timeline_semaphore, vertex_buffer, vertex_dynamic_state, wave_intrinsics;
+16bit_arithmetic, compute_nbody, conservative_rasterization (its low resolution target follows the
+window, which the sample's keeps at the starting size), dynamic_blending, dynamic_line_rasterization,
+dynamic_lod, dynamic_rendering_local_read, extended_dynamic_state2, fragment_shading_rate,
+fragment_shading_rate_dynamic, gshader_to_mshader, hdr_display, instancing, logic_op_dynamic_state,
+meshlet_instancing, mobile_nerf_rayquery, multithreading, oit_depth_peeling, oit_linked_lists,
+rasterization_order_attachment_access, ray_queries, ray_tracing_position_fetch,
+ray_tracing_reflection, raytracing_simple_lighting, shader_debugprintf, simple_bezier,
+simple_compute, terrain_tessellation, texture_compression_basisu, texture_compression_comparison,
+texture_mipmap_generation, threaded_rendering
 (all `_nri`). The other ports keep fixed windows until converted.
 
 ## Notes

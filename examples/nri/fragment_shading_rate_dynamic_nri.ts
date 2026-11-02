@@ -179,6 +179,9 @@ namespace FragmentShadingRateDynamicNri {
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views' (createSwapChain's).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private swapChainViewFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
         // Whether the frequency content has been cleared once (D3D12 wants render targets cleared
@@ -276,22 +279,14 @@ namespace FragmentShadingRateDynamicNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
+            this.createSwapChain(device);
             const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
             // SV_ShadingRate is shader model 6.4's (the Donut example's shaders: DXIL and SPIR-V).
             if (graphicsAPI == NriGraphicsAPI.D3D11) {
@@ -374,15 +369,13 @@ namespace FragmentShadingRateDynamicNri {
             this.constantBuffer = constantBuffer;
             const paramsBuffer = Nri_CreateHostBufferWithStride(device, PARAMS_INTS * 4, NriBufferUsage.StructuredBuffer, PARAMS_STRIDE);
             this.paramsBuffer = paramsBuffer;
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            if (!constantBuffer || !paramsBuffer || !depthTexture) {
+            const depthCreated = this.createDepth(device);
+            if (!constantBuffer || !paramsBuffer || !depthCreated) {
                 console.log("Cannot create the buffers and the depth buffer");
                 return 0;
             }
             const paramsView = Nri_CreateStructuredBufferView(paramsBuffer, 0);
             this.paramsView = paramsView;
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             // The descriptor sets: per queued frame, one per swap chain texture; the compute
             // shader's, one per swap chain texture.
@@ -396,41 +389,20 @@ namespace FragmentShadingRateDynamicNri {
             }
 
             // The sample's create_shading_rate_attachment and setup_framebuffer, per swap chain
-            // texture: the shading rate attachment first at the lowest rate (the device's first,
-            // largest: (min_shading_rate.height >> 1) | ((min_shading_rate.width << 1) & 12)), the
-            // frequency content.
-            this.shadingRateWidth = Math.ceil(this.width / this.tileSize);
-            this.shadingRateHeight = Math.ceil(this.height / this.tileSize);
-            // The compute shader's parameters, with the shading rate attachment's size.
-            this.writeParams();
-            const initialRateCode = (this.rates[1] >> 1) | ((this.rates[0] << 1) & 12);
-            const initialRates: int[] = [];
-            for (let i = 0; i < Math.floor((this.shadingRateWidth * this.shadingRateHeight + 3) / 4); i++) {
-                initialRates.push(initialRateCode | (initialRateCode << 8) | (initialRateCode << 16) | (initialRateCode << 24));
-            }
+            // texture (createTargets), with the compute shader's parameters for their size.
+            this.setShadingRateSize();
             for (let i = 0; i < textureNum; i++) {
-                const shadingRate = Nri_CreateShadingRateTexture(device, this.queue, this.shadingRateWidth, this.shadingRateHeight,
-                    Ref(initialRates[0]), this.shadingRateWidth, 1);
-                const frequency = Nri_CreateRenderTargetStorageTexture(device, this.queue, this.width, this.height, NriFormat.RG8_UINT,
-                    NriTextureState.PixelStorage);
-                if (!shadingRate || !frequency) {
+                const computeSet = Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0);
+                const targets = this.createTargets(device, computeSet);
+                if (!targets) {
                     console.log("Cannot create the shading rate attachments and the frequency content");
-                    this.destroyTexture(shadingRate);
-                    this.destroyTexture(frequency);
                     return 0;
                 }
-                const computeSet = Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0);
-                const targets = new Targets(shadingRate, Nri_CreateShadingRateAttachmentView(shadingRate),
-                    Nri_CreateStorageTextureView(shadingRate, NriFormat.R8_UINT), frequency,
-                    Nri_CreateColorAttachmentView(frequency, NriFormat.RG8_UINT), Nri_CreateStorageTextureView(frequency, NriFormat.RG8_UINT),
-                    computeSet);
                 this.targets.push(targets);
                 if (!computeSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(computeSet, 0, 0, targets.frequencyStorage);
-                Nri_UpdateDescriptor(computeSet, 0, 1, targets.shadingRateStorage);
                 Nri_UpdateDescriptor(computeSet, 1, 0, paramsView);
             }
 
@@ -745,7 +717,143 @@ namespace FragmentShadingRateDynamicNri {
             Nri_CmdTextureBarrier(commandBuffer, targets.frequency, NriTextureState.Storage, NriTextureState.PixelStorage);
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainViewFormat = viewFormat;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroyDepth();
+            for (const targets of this.targets) {
+                this.destroyTargets(targets);
+            }
+            this.createSwapChain(device);
+            this.createDepth(device);
+            // The shading rate attachments and the frequency content again, in the same descriptor
+            // sets (the swap chain has as many textures as before), cleared again before their first
+            // read; the first frame reads another texture's.
+            this.setShadingRateSize();
+            const targetsList: Targets[] = [];
+            for (const old of this.targets) {
+                const targets = this.createTargets(device, old.computeSet);
+                if (!targets) {
+                    console.log("Cannot create the shading rate attachments and the frequency content");
+                    this.targets = targetsList;
+                    return;
+                }
+                targetsList.push(targets);
+            }
+            this.targets = targetsList;
+            for (const queuedFrame of this.queuedFrames) {
+                for (let i = 0; i < queuedFrame.renderSets.length; i++) {
+                    Nri_UpdateDescriptor(queuedFrame.renderSets[i], 3, 0, targetsList[i].frequencyStorage);
+                }
+            }
+            this.targetsInitialized = false;
+            this.previousIndex = -1;
+        }
+
+        // The depth buffer (D32) at the swap chain's size. False if it can't be created.
+        createDepth(device: NriDeviceHandle): boolean {
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!depthTexture) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroyDepth() {
+            this.destroyDescriptor(this.depthAttachment);
+            this.destroyTexture(this.depthTexture);
+            this.depthAttachment = null;
+            this.depthTexture = null;
+        }
+
+        // The shading rate attachment's size, a tile per texel of the swap chain's size, and the
+        // compute shader's parameters with it.
+        setShadingRateSize() {
+            this.shadingRateWidth = Math.ceil(this.width / this.tileSize);
+            this.shadingRateHeight = Math.ceil(this.height / this.tileSize);
+            this.writeParams();
+        }
+
+        // A swap chain texture's targets: the shading rate attachment first at the lowest rate (the
+        // device's first, largest: (min_shading_rate.height >> 1) | ((min_shading_rate.width << 1) &
+        // 12)), the frequency content (the swap chain's size); computeSet (if any) pointed at both.
+        // Null if they can't be created.
+        createTargets(device: NriDeviceHandle, computeSet: NriDescriptorSetHandle | null): Targets | null {
+            const initialRateCode = (this.rates[1] >> 1) | ((this.rates[0] << 1) & 12);
+            const initialRates: int[] = [];
+            for (let i = 0; i < Math.floor((this.shadingRateWidth * this.shadingRateHeight + 3) / 4); i++) {
+                initialRates.push(initialRateCode | (initialRateCode << 8) | (initialRateCode << 16) | (initialRateCode << 24));
+            }
+            const shadingRate = Nri_CreateShadingRateTexture(device, this.queue, this.shadingRateWidth, this.shadingRateHeight,
+                Ref(initialRates[0]), this.shadingRateWidth, 1);
+            const frequency = Nri_CreateRenderTargetStorageTexture(device, this.queue, this.width, this.height, NriFormat.RG8_UINT,
+                NriTextureState.PixelStorage);
+            if (!shadingRate || !frequency) {
+                this.destroyTexture(shadingRate);
+                this.destroyTexture(frequency);
+                return null;
+            }
+            const targets = new Targets(shadingRate, Nri_CreateShadingRateAttachmentView(shadingRate),
+                Nri_CreateStorageTextureView(shadingRate, NriFormat.R8_UINT), frequency,
+                Nri_CreateColorAttachmentView(frequency, NriFormat.RG8_UINT), Nri_CreateStorageTextureView(frequency, NriFormat.RG8_UINT),
+                computeSet);
+            if (computeSet) {
+                Nri_UpdateDescriptor(computeSet, 0, 0, targets.frequencyStorage);
+                Nri_UpdateDescriptor(computeSet, 0, 1, targets.shadingRateStorage);
+            }
+            return targets;
+        }
+
+        destroyTargets(targets: Targets) {
+            Nri_DestroyDescriptor(targets.shadingRateAttachment);
+            Nri_DestroyDescriptor(targets.shadingRateStorage);
+            Nri_DestroyDescriptor(targets.frequencyAttachment);
+            Nri_DestroyDescriptor(targets.frequencyStorage);
+            Nri_DestroyTexture(targets.shadingRate);
+            Nri_DestroyTexture(targets.frequency);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -843,12 +951,7 @@ namespace FragmentShadingRateDynamicNri {
                     Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
                 }
                 for (const targets of this.targets) {
-                    Nri_DestroyDescriptor(targets.shadingRateAttachment);
-                    Nri_DestroyDescriptor(targets.shadingRateStorage);
-                    Nri_DestroyDescriptor(targets.frequencyAttachment);
-                    Nri_DestroyDescriptor(targets.frequencyStorage);
-                    Nri_DestroyTexture(targets.shadingRate);
-                    Nri_DestroyTexture(targets.frequency);
+                    this.destroyTargets(targets);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
@@ -918,6 +1021,7 @@ namespace FragmentShadingRateDynamicNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const shadingRate = new FragmentShadingRateDynamic(sample);
         // -visualize <0..2>: 0 the render output, 1 the shading rates, 2 the frequency content;
         // -ratio <1..16>: the reduced size pass's ratio; -noattachment: the full rate everywhere;

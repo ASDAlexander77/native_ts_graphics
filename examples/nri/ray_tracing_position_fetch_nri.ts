@@ -255,6 +255,8 @@ namespace RayTracingPositionFetchNri {
         private outputStorage: NriDescriptorHandle | null = null;
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         private imgui: boolean = false;
+        // The swap chain textures' format (its views' are viewFormat).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
         // The output was copied from (after the first frame).
         private outputCopied: boolean = false;
@@ -265,6 +267,7 @@ namespace RayTracingPositionFetchNri {
         private buttons: boolean[] = [false, false, false];
         private ubo: f32[] = [];
         private transform: f32[] = [];
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
         // Set by initialize when the example can't run ("" otherwise): wrongAPI when it needs Vulkan
@@ -339,23 +342,14 @@ namespace RayTracingPositionFetchNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format (the shader writes the values the
             // sample's copy puts in its sRGB back buffer as they are); the UI drawn through sRGB views.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.viewFormat;
 
             if (Nri_IsFeatureSupported(device, NriFeature.RayTracing) == 0
                 || Nri_IsFeatureSupported(device, NriFeature.RayTracingPositionFetch) == 0) {
@@ -404,19 +398,17 @@ namespace RayTracingPositionFetchNri {
             this.topLevelASView = topLevelASView;
 
             // The output the ray generation shader writes, in the back buffer's format, for the copy.
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, format);
-            this.output = output;
+            const created = this.createOutput(device);
             const uboBuffer = Nri_CreateHostBuffer(device, UBO_SLICE * queuedFrameNum, NriBufferUsage.ConstantBuffer);
             this.uboBuffer = uboBuffer;
             const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, queuedFrameNum, 0, queuedFrameNum, 0,
                 queuedFrameNum, 0, queuedFrameNum);
             this.descriptorPool = descriptorPool;
-            if (!output || !uboBuffer || !descriptorPool || !topLevelASView) {
+            if (!created || !uboBuffer || !descriptorPool || !topLevelASView) {
                 console.log("Cannot create the output");
                 return 0;
             }
-            const outputStorage = Nri_CreateStorageTextureView(output, format);
-            this.outputStorage = outputStorage;
+            const outputStorage = this.outputStorage;
 
             // Queued frames: each with its UBO slice's set.
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -584,7 +576,83 @@ namespace RayTracingPositionFetchNri {
             this.outputCopied = true;
         }
 
+        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The output the ray generation shader writes, at the swap chain's size and in its format (for
+        // the copy), and its view; false if the output can't be made. Once the sets exist, their output
+        // slots point at the new view; it starts as made (the first frame's state).
+        createOutput(device: NriDeviceHandle): boolean {
+            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+            this.output = output;
+            if (!output) {
+                return false;
+            }
+            const outputStorage = Nri_CreateStorageTextureView(output, this.swapChainFormat);
+            this.outputStorage = outputStorage;
+            if (outputStorage) {
+                for (const queuedFrame of this.queuedFrames) {
+                    const set = queuedFrame.set;
+                    if (set) {
+                        Nri_UpdateDescriptor(set, 2, 0, outputStorage);
+                    }
+                }
+            }
+            this.outputCopied = false;
+            return true;
+        }
+
+        destroyOutput() {
+            this.destroyDescriptor(this.outputStorage);
+            this.outputStorage = null;
+            const output = this.output;
+            if (output) {
+                Nri_DestroyTexture(output);
+            }
+            this.output = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the ray traced output made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroyOutput();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createOutput(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -677,21 +745,12 @@ namespace RayTracingPositionFetchNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.uboView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyDescriptor(this.outputStorage);
+                this.destroyOutput();
                 this.destroyDescriptor(this.topLevelASView);
-                const output = this.output;
-                if (output) {
-                    Nri_DestroyTexture(output);
-                }
                 const uboBuffer = this.uboBuffer;
                 if (uboBuffer) {
                     Nri_DestroyBuffer(uboBuffer);
@@ -721,7 +780,7 @@ namespace RayTracingPositionFetchNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -736,6 +795,7 @@ namespace RayTracingPositionFetchNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const example = new RayTracingPositionFetch(sample);
         // -mode <n>: display mode 0 (geometric normal) or 1 (vertex position); -noUI: no display mode
         // window.

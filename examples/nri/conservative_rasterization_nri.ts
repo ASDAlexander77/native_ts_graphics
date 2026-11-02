@@ -141,6 +141,8 @@ namespace ConservativeRasterizationNri {
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
+        // The swap chain textures' format (its views' are viewFormat).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
         private sceneLayout: NriPipelineLayoutHandle | null = null;
         private fullscreenLayout: NriPipelineLayoutHandle | null = null;
@@ -162,6 +164,7 @@ namespace ConservativeRasterizationNri {
         private offscreenWidth: int = 0;
         private offscreenHeight: int = 0;
         private imgui: boolean = false;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
         // Set by initialize when the example can't run ("" otherwise).
@@ -234,22 +237,13 @@ namespace ConservativeRasterizationNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.viewFormat;
 
             if (Nri_IsFeatureSupported(device, NriFeature.ConservativeRasterization) == 0) {
                 this.unsupportedReason = "This example needs conservative rasterization";
@@ -277,20 +271,13 @@ namespace ConservativeRasterizationNri {
                 return 0;
             }
 
-            // The low resolution target: the screen's size then (as the sample's offscreen pass, which a
-            // resize leaves as it is).
-            this.offscreenWidth = Math.floor(this.width / ZOOM_FACTOR);
-            this.offscreenHeight = Math.floor(this.height / ZOOM_FACTOR);
-            const offscreenColor = Nri_CreateRenderTargetTexture(device, this.queue, this.offscreenWidth, this.offscreenHeight,
-                NriFormat.RGBA8_UNORM);
-            this.offscreenColor = offscreenColor;
-            if (!offscreenColor) {
+            // The low resolution target: the screen's size divided by ZOOM_FACTOR (made again at the
+            // new size when the window is resized, unlike the sample's offscreen pass).
+            if (!this.createOffscreen(device)) {
                 console.log("Cannot create the low resolution target");
                 return 0;
             }
-            this.offscreenAttachment = Nri_CreateColorAttachmentView(offscreenColor, NriFormat.RGBA8_UNORM);
-            const offscreenView = Nri_CreateTextureView(offscreenColor, NriFormat.RGBA8_UNORM);
-            this.offscreenView = offscreenView;
+            const offscreenView = this.offscreenView;
 
             // The pipelines: conservative_rasterization.hlsl's shaders, as compiled for the Donut
             // example.
@@ -560,7 +547,85 @@ namespace ConservativeRasterizationNri {
             Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
         }
 
+        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The low resolution target at the swap chain's size divided by ZOOM_FACTOR, and its views;
+        // false on failure. Once the full screen set exists, its texture slot points at the new view.
+        createOffscreen(device: NriDeviceHandle): boolean {
+            this.offscreenWidth = Math.floor(this.width / ZOOM_FACTOR);
+            this.offscreenHeight = Math.floor(this.height / ZOOM_FACTOR);
+            const offscreenColor = Nri_CreateRenderTargetTexture(device, this.queue, this.offscreenWidth, this.offscreenHeight,
+                NriFormat.RGBA8_UNORM);
+            this.offscreenColor = offscreenColor;
+            if (!offscreenColor) {
+                return false;
+            }
+            this.offscreenAttachment = Nri_CreateColorAttachmentView(offscreenColor, NriFormat.RGBA8_UNORM);
+            const offscreenView = Nri_CreateTextureView(offscreenColor, NriFormat.RGBA8_UNORM);
+            this.offscreenView = offscreenView;
+            const fullscreenSet = this.fullscreenSet;
+            if (fullscreenSet) {
+                if (offscreenView) {
+                    Nri_UpdateDescriptor(fullscreenSet, 0, 0, offscreenView);
+                }
+            }
+            return true;
+        }
+
+        destroyOffscreen() {
+            this.destroyDescriptor(this.offscreenAttachment);
+            this.offscreenAttachment = null;
+            this.destroyDescriptor(this.offscreenView);
+            this.offscreenView = null;
+            const offscreenColor = this.offscreenColor;
+            if (offscreenColor) {
+                Nri_DestroyTexture(offscreenColor);
+            }
+            this.offscreenColor = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the low resolution target made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroyOffscreen();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createOffscreen(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const descriptorPool = this.descriptorPool;
@@ -653,22 +718,12 @@ namespace ConservativeRasterizationNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     Nri_DestroyDescriptor(queuedFrame.constantView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
                 this.destroyDescriptor(this.sampler);
-                this.destroyDescriptor(this.offscreenAttachment);
-                this.destroyDescriptor(this.offscreenView);
-                const offscreenColor = this.offscreenColor;
-                if (offscreenColor) {
-                    Nri_DestroyTexture(offscreenColor);
-                }
+                this.destroyOffscreen();
                 this.destroyBuffer(this.vertexBuffer);
                 this.destroyBuffer(this.indexBuffer);
                 this.destroyBuffer(this.constantBuffer);
@@ -680,7 +735,7 @@ namespace ConservativeRasterizationNri {
                 this.destroyLayout(this.sceneLayout);
                 this.destroyLayout(this.fullscreenLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -713,6 +768,7 @@ namespace ConservativeRasterizationNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const conservativeRasterization = new ConservativeRasterization(sample);
         // -noconservative: start with conservative rasterization off; -noUI: no overlay.
         Nri_AddExampleOption(sample, "-noconservative");

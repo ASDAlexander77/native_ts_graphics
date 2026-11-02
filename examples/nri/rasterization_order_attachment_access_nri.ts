@@ -175,6 +175,9 @@ namespace RasterizationOrderAttachmentAccessNri {
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views' (createSwapChain's).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private swapChainViewFormat: NriFormat = NriFormat.Unknown;
 
         // The sample's camera: rotation (degrees about x, y, z) and position; the mouse as it last
         // saw it.
@@ -241,8 +244,6 @@ namespace RasterizationOrderAttachmentAccessNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // The sample's ROAA, where the device has rasterizer ordered views (else, as the Donut
@@ -252,16 +253,9 @@ namespace RasterizationOrderAttachmentAccessNri {
 
             // Swap chain: rendered through sRGB views, as Donut's (sRGB) back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
             // The model and the background (KTX 1 files have no color space: the framework takes
             // color textures as sRGB).
@@ -346,24 +340,16 @@ namespace RasterizationOrderAttachmentAccessNri {
             const instanceView = Nri_CreateStructuredBufferView(instanceBuffer, 0);
             this.instanceView = instanceView;
 
-            // The color texture, for the window's size: read and written by pixel shaders, read by
-            // the display pass, in whose state each frame finds it (zeroed: the background covers it
-            // before anything reads it).
-            const zeros: int[] = [];
-            for (let i = 0; i < this.width * this.height; i++) {
-                zeros.push(0);
-            }
-            const colorTexture = Nri_CreateStorageTextureWithData(device, this.queue, this.width, this.height, NriFormat.R32_UINT,
-                Ref(zeros[0]), this.width * 4, NriTextureState.ShaderResource);
-            this.colorTexture = colorTexture;
-            if (!colorTexture || !instanceView) {
+            if (!this.createColorTexture(device) || !instanceView) {
                 console.log("Cannot create the color texture");
                 return 0;
             }
-            const colorStorageView = Nri_CreateStorageTextureView(colorTexture, NriFormat.R32_UINT);
-            const colorView = Nri_CreateTextureView(colorTexture, NriFormat.R32_UINT);
-            this.colorStorageView = colorStorageView;
-            this.colorView = colorView;
+            const colorStorageView = this.colorStorageView;
+            const colorView = this.colorView;
+            if (!colorStorageView || !colorView) {
+                console.log("Cannot create the color texture");
+                return 0;
+            }
 
             // The GPU time's timestamps, a queued frame's each.
             const queryPool = Nri_CreateTimestampQueryPool(device, queuedFrameNum * TIMESTAMPS);
@@ -657,7 +643,108 @@ namespace RasterizationOrderAttachmentAccessNri {
             Nri_CmdWriteTimestamp(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS + index);
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainViewFormat = viewFormat;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The color texture, for the window's size: read and written by pixel shaders, read by the
+        // display pass, in whose state each frame finds it (zeroed: the background covers it before
+        // anything reads it); false on failure.
+        createColorTexture(device: NriDeviceHandle): boolean {
+            const zeros: int[] = [];
+            for (let i = 0; i < this.width * this.height; i++) {
+                zeros.push(0);
+            }
+            const colorTexture = Nri_CreateStorageTextureWithData(device, this.queue, this.width, this.height, NriFormat.R32_UINT,
+                Ref(zeros[0]), this.width * 4, NriTextureState.ShaderResource);
+            this.colorTexture = colorTexture;
+            if (!colorTexture) {
+                return false;
+            }
+            this.colorStorageView = Nri_CreateStorageTextureView(colorTexture, NriFormat.R32_UINT);
+            this.colorView = Nri_CreateTextureView(colorTexture, NriFormat.R32_UINT);
+            return true;
+        }
+
+        destroyColorTexture() {
+            this.destroyDescriptor(this.colorStorageView);
+            this.destroyDescriptor(this.colorView);
+            this.destroyTexture(this.colorTexture);
+            this.colorStorageView = null;
+            this.colorView = null;
+            this.colorTexture = null;
+        }
+
+        // The sets' color texture slots: the current texture's views (the display set's and every
+        // queued frame's background and blend sets).
+        updateColorDescriptors() {
+            const colorStorageView = this.colorStorageView;
+            const colorView = this.colorView;
+            const displaySet = this.displaySet;
+            if (displaySet) {
+                if (colorView) {
+                    Nri_UpdateDescriptor(displaySet, 0, 0, colorView);
+                }
+            }
+            if (!colorStorageView) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                const backgroundSet = queuedFrame.backgroundSet;
+                const blendSet = queuedFrame.blendSet;
+                if (backgroundSet) {
+                    Nri_UpdateDescriptor(backgroundSet, 3, 0, colorStorageView);
+                }
+                if (blendSet) {
+                    Nri_UpdateDescriptor(blendSet, 2, 0, colorStorageView);
+                }
+            }
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the color texture made
+        // again at its size (the sets pointed at the new one), once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroyColorTexture();
+            this.createSwapChain(device);
+            this.createColorTexture(device);
+            this.updateColorDescriptors();
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.readTimestamps(queuedFrame);
@@ -854,6 +941,7 @@ namespace RasterizationOrderAttachmentAccessNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const roaa = new RasterizationOrderAttachmentAccess(sample);
         // -norov: start with a draw and a barrier per sphere; -noUI: no overlay.
         Nri_AddExampleOption(sample, "-norov");
