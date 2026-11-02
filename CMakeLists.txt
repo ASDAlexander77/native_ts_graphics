@@ -1442,6 +1442,8 @@ add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/te
 add_tslang_example_test(powder_sandbox_nri)
 # The materials' showcase: oil on water, a sand pile, burning wood, uranium in a pool, an emitter.
 add_tslang_example_test(powder_sandbox_nri SUFFIX showcase ARGS -scene 2 -testFrames 600)
+# Lava poured into a pool and next to wood: it sets to stone, and the pool's ice block melts.
+add_tslang_example_test(powder_sandbox_nri SUFFIX lava ARGS -scene 3 -testFrames 900)
 
 # Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
 # through their field every frame; the same tracing from the camera lenses the sky behind them.

@@ -28,7 +28,7 @@ namespace PowderSandboxNri {
     const CONSTANTS_FLOATS = 32;
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's gridInt and gridFloat sections, and u_Alloc's free list's start.
-    const INT_SECTIONS = 16;
+    const INT_SECTIONS = 17;
     const FLOAT_SECTIONS = 12;
     const ALLOC_LIST = 16;
     const I_COUNT = 6;
@@ -49,11 +49,14 @@ namespace PowderSandboxNri {
     const OIL = 2;
     const SAND = 3;
     const FIRE = 4;
+    const LAVA = 8;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
     const URANIUM = 19;
     const EMITTER = 20;
+    const ICE = 21;
+    const STONE = 22;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
@@ -95,6 +98,8 @@ namespace PowderSandboxNri {
     const ACTION_CLEAR = 104;
     const ACTION_SHAPE = 105;
     const VIEW_NAMES = ["Materials", "Pressure", "Temperature"];
+    // Scene 3's ice block, in grid fractions (x0, y0, x1, y1).
+    const ICE_BLOCK = [0.12, 0.5, 0.2, 0.72];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -111,11 +116,14 @@ namespace PowderSandboxNri {
         if (material == 5) { return "smoke"; }
         if (material == 6) { return "steam"; }
         if (material == 7) { return "neutron"; }
+        if (material == 8) { return "lava"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
         if (material == 19) { return "uranium"; }
         if (material == 20) { return "emitter"; }
+        if (material == 21) { return "ice"; }
+        if (material == 22) { return "stone"; }
         return "air";
     }
 
@@ -167,6 +175,7 @@ namespace PowderSandboxNri {
         private computeSet: NriDescriptorSetHandle;
         private drawSet: NriDescriptorSetHandle;
         private testReadback: NriBufferHandle | null = null;
+        private cellsReadback: NriBufferHandle | null = null;
         // -test: the last frame, read back.
         private frameReadback: NriBufferHandle | null = null;
         private rowPitch: int = 0;
@@ -218,7 +227,8 @@ namespace PowderSandboxNri {
         private probe: int[] = [];
         private probeFloats: f32[] = [];
 
-        // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials);
+        // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
+        // ice and stone);
         // -substeps N, -iterations N (pressure sweeps).
         scene: int = 0;
         private script: Stroke[] = [];
@@ -245,10 +255,12 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
+            this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
+            this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
             this.tiles.push(new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
             this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
             this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
@@ -420,6 +432,7 @@ namespace PowderSandboxNri {
             }
             if (this.test) {
                 this.testReadback = Nri_CreateReadbackBuffer(device, INT_SECTIONS * this.stride * 4);
+                this.cellsReadback = Nri_CreateReadbackBuffer(device, this.stride * 4);
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
                 this.frameReadback = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
@@ -547,7 +560,7 @@ namespace PowderSandboxNri {
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
-                if (action == WATER || action == OIL || action == SAND || action == FIRE) {
+                if (action == WATER || action == OIL || action == SAND || action == LAVA || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -760,7 +773,8 @@ namespace PowderSandboxNri {
         }
 
         // The starting scene's strokes: 1 the U-tube's water (its divider is init_grid_cs's), 2 a
-        // showcase of the materials.
+        // showcase of the materials, 3 lava poured into a pool with an ice block in it, and next to
+        // a wood block.
         buildScene() {
             this.script = [];
             if (this.scene == 1) {
@@ -781,6 +795,14 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 3) {
+                this.addStroke(GLASS, 0.05, 0.5, 0.055, 1.0, WATER);
+                this.addStroke(GLASS, 0.55, 0.5, 0.555, 1.0, WATER);
+                this.addStroke(WATER, 0.06, 0.65, 0.545, 1.0, WATER);
+                this.addStroke(ICE, ICE_BLOCK[0], ICE_BLOCK[1], ICE_BLOCK[2], ICE_BLOCK[3], WATER);
+                this.addStroke(LAVA, 0.33, 0.2, 0.45, 0.32, WATER);
+                this.addStroke(WOOD, 0.75, 0.85, 0.85, 1.0, WATER);
+                this.addStroke(LAVA, 0.64, 0.55, 0.72, 0.7, WATER);
             }
         }
 
@@ -811,7 +833,12 @@ namespace PowderSandboxNri {
                     label = SHAPE_NAMES[this.brushShape];
                 } else if (tile.tool == EMITTER) {
                     // What it emits, in the middle of its swatch.
-                    const emitted = this.tiles[this.emitType == FIRE ? 3 : this.emitType - 1];
+                    let emitted = tile;
+                    for (const other of this.tiles) {
+                        if (other.tool == this.emitType) {
+                            emitted = other;
+                        }
+                    }
                     const cx = x0 + tileWidth * 0.5;
                     const cy = (top + bottom - labelHeight) * 0.5;
                     const half = tileWidth * 0.15;
@@ -836,9 +863,9 @@ namespace PowderSandboxNri {
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
             if (cell < WALL) {
-                const names = ["water", "oil", "sand", "fire", "smoke", "steam", "neutron"];
+                const names = ["water", "oil", "sand", "fire", "smoke", "steam", "neutron", "lava"];
                 contents = "";
-                for (let m = 0; m < 7; m++) {
+                for (let m = 0; m < names.length; m++) {
                     const n = this.probe[4 + m];
                     if (n > 0) {
                         contents = `${contents}${contents == "" ? "" : ", "}${n} ${names[m]}`;
@@ -934,6 +961,12 @@ namespace PowderSandboxNri {
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.Storage, NriBufferState.CopySource);
                         Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], INT_SECTIONS * this.stride * 4);
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.CopySource, NriBufferState.Storage);
+                        const cellsReadback = this.cellsReadback;
+                        if (cellsReadback) {
+                            Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.Storage, NriBufferState.CopySource);
+                            Nri_CmdCopyBuffer(commandBuffer, cellsReadback, this.buffers[3], this.stride * 4);
+                            Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.CopySource, NriBufferState.Storage);
+                        }
                     }
                 }
                 const shown = B_GRID_INT | B_GRID_FLOAT | B_CELLS;
@@ -1003,6 +1036,12 @@ namespace PowderSandboxNri {
                     }
                 }
             }
+            if (this.scene == 3) {
+                const error = this.checkLavaAndIce();
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.scene == 1) {
                 const leftLevel = this.surfaceLevel(grid, 4, divider - 4);
                 const rightLevel = this.surfaceLevel(grid, divider + 4, this.gridW - 5);
@@ -1043,6 +1082,52 @@ namespace PowderSandboxNri {
             // (the overlays recolor it)
             if (this.overlay == 0 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
+            }
+            return "";
+        }
+
+        // Scene 3: the lava that fell into the water set to stone, and the ice block melted (some of
+        // it, at least: the cells painted ice minus those still ice).
+        checkLavaAndIce(): string {
+            const cellsReadback = this.cellsReadback;
+            if (!cellsReadback) {
+                return "cannot read the cells back";
+            }
+            const cells: int[] = [];
+            for (let i = 0; i < this.gridW * this.gridH; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return "cannot read the cells back";
+            }
+            let stone = 0;
+            let ice = 0;
+            let wood = 0;
+            let painted = 0;
+            for (let y = 0; y < this.gridH; y++) {
+                for (let x = 0; x < this.gridW; x++) {
+                    const m = cells[y * this.gridW + x] & 0xFF;
+                    if (m == STONE) {
+                        stone++;
+                    } else if (m == ICE) {
+                        ice++;
+                    } else if (m == WOOD) {
+                        wood++;
+                    }
+                    // (spawn_cs paints the cells whose centers are inside the stroke)
+                    const cx = (x + 0.5) / this.gridW;
+                    const cy = (y + 0.5) / this.gridH;
+                    if (cx >= ICE_BLOCK[0] && cx <= ICE_BLOCK[2] && cy >= ICE_BLOCK[1] && cy <= ICE_BLOCK[3]) {
+                        painted++;
+                    }
+                }
+            }
+            console.log(`Lava and ice: ${stone} stone cells, ${ice} of ${painted} ice cells left, ${wood} wood cells`);
+            if (stone == 0) {
+                return "no lava set to stone";
+            }
+            if (ice >= painted) {
+                return `the ice didn't melt: ${ice} ice cells, ${painted} painted`;
             }
             return "";
         }
@@ -1090,6 +1175,10 @@ namespace PowderSandboxNri {
                 const testReadback = this.testReadback;
                 if (testReadback) {
                     Nri_DestroyBuffer(testReadback);
+                }
+                const cellsReadback = this.cellsReadback;
+                if (cellsReadback) {
+                    Nri_DestroyBuffer(cellsReadback);
                 }
                 const frameReadback = this.frameReadback;
                 if (frameReadback) {
