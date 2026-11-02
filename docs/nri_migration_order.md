@@ -408,6 +408,7 @@ mesh_shading, meshlet_render, meshlets, mobile_nerf, n_body_gravity, patch_contr
 push_descriptors, rt_triangle, separate_image_sampler, shader_quad_control, small_resources,
 texture_loading, timeline_semaphore, vertex_buffer, vertex_dynamic_state, wave_intrinsics
 (all `_nri`). The other ports keep fixed windows until converted.
+rt_shadows_nri. The other ports keep fixed windows until converted.
 
 ## Notes
 
