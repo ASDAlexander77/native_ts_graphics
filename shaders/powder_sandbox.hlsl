@@ -24,7 +24,9 @@ struct SandboxConstants
     uint substep;
 
     // The brush: tool, mode (0 none, 1 brushRadius around the segment from (x0, y0) to (x1, y1), round
-    // or square (brushShape), 2 the rectangle between them), in cells.
+    // or square (brushShape), 2 the rectangle between them), in cells. The regrid entries, which
+    // don't paint, read tool and brushMode as the old grid's width and height, and emitType and
+    // parity as the offset (in cells, signed) of the old grid's corner in the new one.
     uint tool;
     uint brushMode;
     float brushX0;
@@ -75,18 +77,34 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define SMOKE 5
 #define STEAM 6
 #define NEUTRON 7
+#define LAVA 8
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
 #define URANIUM 19
 #define EMITTER 20
+#define ICE 21
+#define STONE 22
 // Tools that aren't materials.
 #define ERASE 32
 #define HEAT 33
 #define COOL 34
 
-// A cell: material in bits 0-7, an emitter's material in 8-15, BURNING (wood).
+// A cell: material in bits 0-7, an emitter's material in 8-15, BURNING (wood); MELTED: the ice or
+// stone (bits 8-15) that was here melted this step (spawn_cs turns it into water or lava).
 #define BURNING 0x10000
+#define MELTED 0x20000
+
+// Lava's temperature when painted or emitted; it turns to stone below SOLIDIFY_LAVA, stone melts
+// above MELT_STONE. Melting ice and stone takes in their latent heat (in degrees of the cell's own
+// temperature: water's latent heat is about 80 times its specific heat) before they turn liquid.
+#define LAVA_TEMP 1200.0
+#define SOLIDIFY_LAVA 700.0
+#define MELT_STONE 1000.0
+#define FREEZE_WATER -0.5
+#define ICE_TEMP -30.0
+#define LATENT_ICE 80.0
+#define LATENT_STONE 200.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -96,10 +114,11 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_VSUM 3
 #define I_VW 4
 #define I_VM 5
-#define I_COUNT 6 // + material - 1, for WATER .. NEUTRON
-#define I_TSUM 13
-#define I_TCOUNT 14
-#define I_FISSION 15
+#define I_COUNT 6 // + material - 1, for WATER .. LAVA
+#define I_TSUM 14
+#define I_TCOUNT 15
+#define I_FISSION 16
+#define INT_SECTIONS 17
 
 // gridFloat sections.
 #define F_U 0
@@ -116,7 +135,7 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define F_TPRE 8
 #define F_TSRC 9
 #define F_TCELL 10
-// a burning cell's remaining seconds
+// a burning cell's remaining seconds; melting ice's or stone's latent heat taken in so far
 #define F_LIFE 11
 
 // u_Alloc: the free particle slots' count, the HUD's probe, then the free slots.
@@ -161,7 +180,7 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return m >= WATER && m <= SAND;
+    return (m >= WATER && m <= SAND) || m == LAVA;
 }
 
 bool isGasMaterial(uint m)
@@ -171,7 +190,7 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : 1.0);
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : 1.0));
 }
 
 uint cellIndex(int x, int y)
@@ -252,6 +271,30 @@ float3 heatColor(float t)
 #ifdef SIMULATION
 
 RWStructuredBuffer<Particle> u_Particles : register(u0);
+
+// Whole particles read and written member by member: DXC makes `u_Particles[i] = p` (and the read)
+// an OpCopyLogical, which Adreno's compiler (Adreno 740, Android 16) fails to compile.
+Particle loadParticle(uint index)
+{
+    Particle p;
+    p.pos = u_Particles[index].pos;
+    p.vel = u_Particles[index].vel;
+    p.temp = u_Particles[index].temp;
+    p.type = u_Particles[index].type;
+    p.life = u_Particles[index].life;
+    p.origin = u_Particles[index].origin;
+    return p;
+}
+
+void storeParticle(uint index, Particle p)
+{
+    u_Particles[index].pos = p.pos;
+    u_Particles[index].vel = p.vel;
+    u_Particles[index].temp = p.temp;
+    u_Particles[index].type = p.type;
+    u_Particles[index].life = p.life;
+    u_Particles[index].origin = p.origin;
+}
 RWStructuredBuffer<int> u_GridInt : register(u1);
 RWStructuredBuffer<float> u_GridFloat : register(u2);
 RWStructuredBuffer<uint> u_Cells : register(u3);
@@ -292,7 +335,7 @@ int countOf(uint material, int x, int y)
 
 int flipCount(int x, int y)
 {
-    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y);
+    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y);
 }
 
 bool fluidCell(int x, int y)
@@ -340,7 +383,7 @@ void spawn(uint type, float2 pos, float2 vel, float temp, float life, uint origi
     p.type = type;
     p.life = life;
     p.origin = origin;
-    u_Particles[index] = p;
+    storeParticle(index, p);
 }
 
 uint seedOf(uint index, uint salt)
@@ -397,7 +440,7 @@ void init_particles_cs(uint3 id : SV_DispatchThreadID)
         return;
     }
     Particle p = (Particle)0;
-    u_Particles[t] = p;
+    storeParticle(t, p);
     u_Alloc[A_LIST + t] = int(g_C.capacity - 1 - t);
     if (t == 0)
     {
@@ -405,12 +448,115 @@ void init_particles_cs(uint3 id : SV_DispatchThreadID)
     }
 }
 
+// --- Regrid (the grid made again in another shape, a phone turned) ---
+//
+// The old grid's cells and its cell temperatures and life (F_TPRE .. F_LIFE) were copied into
+// u_GridInt (which every step remakes): the cells at 0, section F_TPRE + k at (1 + k) * old stride.
+// What the old grid held inside its walls lands at the offset (dx, dy); what falls outside the new
+// grid's walls is lost.
+
+uint oldGridW()
+{
+    return g_C.tool;
+}
+
+uint oldGridH()
+{
+    return g_C.brushMode;
+}
+
+int2 regridOffset()
+{
+    return int2(int(g_C.emitType), int(g_C.parity));
+}
+
+// The cells (a wall around the new grid), at rest and at the ambient temperature where the old grid
+// had nothing.
+[numthreads(256, 1, 1)]
+void regrid_grid_cs(uint3 id : SV_DispatchThreadID)
+{
+    const uint t = id.x;
+    if (t >= g_C.stride)
+    {
+        return;
+    }
+    for (uint s = 0; s < F_TPRE; s++)
+    {
+        u_GridFloat[gi(s, t)] = 0.0;
+    }
+    u_GridFloat[gi(F_TPRE, t)] = AMBIENT;
+    u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
+    u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
+    u_GridFloat[gi(F_LIFE, t)] = 0.0;
+    if (t >= g_C.gridW * g_C.gridH)
+    {
+        return;
+    }
+    const int x = int(t % g_C.gridW);
+    const int y = int(t / g_C.gridW);
+    uint m = EMPTY;
+    if (x == 0 || y == 0 || x == int(g_C.gridW) - 1 || y == int(g_C.gridH) - 1)
+    {
+        m = WALL;
+    }
+    else
+    {
+        // The old grid's walls aren't carried over: they'd stand inside the new one.
+        const int ow = int(oldGridW());
+        const int oh = int(oldGridH());
+        const int2 o = int2(x, y) - regridOffset();
+        if (o.x >= 1 && o.y >= 1 && o.x < ow - 1 && o.y < oh - 1)
+        {
+            const uint oldStride = uint(ow + 1) * uint(oh + 1);
+            const uint oldCell = uint(o.y) * uint(ow) + uint(o.x);
+            m = uint(u_GridInt[oldCell]);
+            for (uint k = 0; k <= F_LIFE - F_TPRE; k++)
+            {
+                u_GridFloat[gi(F_TPRE + k, t)] = asfloat(u_GridInt[(1 + k) * oldStride + oldCell]);
+            }
+        }
+    }
+    u_Cells[t] = m;
+}
+
+// The particles moved by the offset; those now outside the new grid's walls or in a solid cell freed.
+// After regrid_grid_cs.
+[numthreads(256, 1, 1)]
+void regrid_particles_cs(uint3 id : SV_DispatchThreadID)
+{
+    const uint index = id.x;
+    if (index >= g_C.capacity)
+    {
+        return;
+    }
+    Particle p = loadParticle(index);
+    if (p.type == EMPTY)
+    {
+        return;
+    }
+    p.pos += float2(regridOffset());
+    if (solidAt(p.pos))
+    {
+        p.type = EMPTY;
+        storeParticle(index, p);
+        freeParticle(index);
+        return;
+    }
+    if (p.type == NEUTRON)
+    {
+        // Its birth cell's index in the new grid (none, if that's gone).
+        const int2 birth = int2(int(p.origin % oldGridW()), int(p.origin / oldGridW())) + regridOffset();
+        p.origin = inGrid(birth.x, birth.y) ? cellIndex(birth.x, birth.y) : 0xFFFFFFFFu;
+    }
+    storeParticle(index, p);
+}
+
 // --- A step ---
 
 [numthreads(256, 1, 1)]
 void clear_cs(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x < g_C.stride * 16)
+    if (id.x < g_C.stride * INT_SECTIONS)
     {
         u_GridInt[id.x] = 0;
     }
@@ -432,7 +578,7 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     {
         return;
     }
-    const Particle p = u_Particles[id.x];
+    const Particle p = loadParticle(id.x);
     if (p.type == EMPTY)
     {
         return;
@@ -542,9 +688,13 @@ float conductivity(int x, int y)
     {
         return 0.4;
     }
-    if (m == GLASS)
+    if (m == GLASS || m == ICE)
     {
         return 0.5;
+    }
+    if (m == STONE)
+    {
+        return 0.3;
     }
     if (m == WOOD)
     {
@@ -562,7 +712,9 @@ float conductivity(int x, int y)
     {
         return 0.3;
     }
-    return 0.08;
+    // Empty air: it holds little heat (a three-thousandth of rock's), so it takes little from what
+    // it touches; lava cools in air over seconds, not at once.
+    return 0.002;
 }
 
 // A cell's temperature this step: its particles' mean (or its own, for solids and empty air, which
@@ -635,11 +787,28 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
             flow += min(k, conductivity(nx, ny)) * 0.25 * (gf(F_TSRC, cellIndex(nx, ny)) - t);
         }
     }
-    const float next = t + flow;
+    float next = t + flow;
+    const uint cell = u_Cells[c];
+
+    // Ice and stone hold at their melting point while the heat above it melts them.
+    const uint m = cell & 0xFF;
+    if (m == ICE || m == STONE)
+    {
+        const float meltAt = m == ICE ? 0.0 : MELT_STONE;
+        if (next > meltAt)
+        {
+            const float taken = gf(F_LIFE, c) + (next - meltAt);
+            next = meltAt;
+            u_GridFloat[gi(F_LIFE, c)] = taken;
+            if (taken >= (m == ICE ? LATENT_ICE : LATENT_STONE))
+            {
+                u_Cells[c] = EMPTY | MELTED | (m << 8);
+            }
+        }
+    }
     u_GridFloat[gi(F_TCELL, c)] = next;
 
-    const uint cell = u_Cells[c];
-    if ((cell & 0xFF) == WOOD)
+    if (m == WOOD)
     {
         if ((cell & BURNING) == 0)
         {
@@ -903,7 +1072,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         return;
     }
-    Particle p = u_Particles[index];
+    Particle p = loadParticle(index);
     if (p.type == EMPTY)
     {
         return;
@@ -918,7 +1087,14 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
 
     if (p.type != NEUTRON)
     {
-        p.temp += gf(F_TCELL, c) - gf(F_TPRE, c);
+        // The cell's change, then the particles sharing it evening out toward its mean (which the
+        // change made F_TCELL, so the heat is kept): water in a cell with lava boils.
+        const float cellTemp = gf(F_TCELL, c);
+        p.temp += cellTemp - gf(F_TPRE, c);
+        if (!solidCell(cx, cy))
+        {
+            p.temp = lerp(p.temp, cellTemp, saturate(10.0 * dt));
+        }
     }
 
     if (isFlipMaterial(p.type))
@@ -955,6 +1131,12 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         {
             const float2 old = sampleVelocity(p.pos, true);
             p.vel = lerp(grid, p.vel + (grid - old), g_C.flip);
+            if (p.type == LAVA)
+            {
+                // Thick: its sideways flow damped, less the hotter it is (it still falls freely).
+                const float rate = lerp(12.0, 3.0, saturate((p.temp - SOLIDIFY_LAVA) / 500.0));
+                p.vel.x *= saturate(1.0 - rate * dt);
+            }
             // RK2 through the grid's velocity, plus the drift of a lighter or heavier particle
             // through the mixture around it (oil rising out of water): its buoyancy over a relaxation
             // time.
@@ -1069,12 +1251,12 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     if (kill)
     {
         p.type = EMPTY;
-        u_Particles[index] = p;
+        storeParticle(index, p);
         freeParticle(index);
         return;
     }
     p.pos = clamp(p.pos, float2(0.001, 0.001), float2(w - 0.001, h - 0.001));
-    u_Particles[index] = p;
+    storeParticle(index, p);
 }
 
 float2 randomInCell(int x, int y, uint seed)
@@ -1117,9 +1299,16 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
         {
             if (!isSolidMaterial(m))
             {
+                const float temp = tool == LAVA ? LAVA_TEMP : AMBIENT;
+                // An empty cell takes its new particles' temperature now, not at the next step's
+                // heat_source_cs (before that the cell rules would see lava at the air's).
+                if (flipCount(x, y) == 0)
+                {
+                    u_GridFloat[gi(F_TCELL, c)] = temp;
+                }
                 for (int k = flipCount(x, y); k < int(REST_COUNT); k++)
                 {
-                    spawn(tool, randomInCell(x, y, seedOf(c, 10 + k * 2)), float2(0, 0), AMBIENT, 0.0, 0, 0);
+                    spawn(tool, randomInCell(x, y, seedOf(c, 10 + k * 2)), float2(0, 0), temp, 0.0, 0, 0);
                 }
             }
         }
@@ -1136,13 +1325,47 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
             if (m != tool)
             {
                 u_Cells[c] = painted;
-                u_GridFloat[gi(F_TCELL, c)] = AMBIENT;
+                u_GridFloat[gi(F_TCELL, c)] = tool == ICE ? ICE_TEMP : AMBIENT;
                 u_GridFloat[gi(F_LIFE, c)] = 0.0;
             }
         }
         else if (tool == ERASE)
         {
             u_Cells[c] = EMPTY;
+        }
+        return;
+    }
+
+    if ((cell & MELTED) != 0)
+    {
+        // Melted ice or stone: a cell full of water or lava.
+        const bool ice = ((cell >> 8) & 0xFF) == ICE;
+        for (int k = 0; k < int(REST_COUNT); k++)
+        {
+            spawn(ice ? WATER : LAVA, randomInCell(x, y, seedOf(c, 70 + k * 2)), float2(0, 0), ice ? 0.5 : MELT_STONE, 0.0, 0, 0);
+        }
+        u_Cells[c] = EMPTY;
+        u_GridFloat[gi(F_LIFE, c)] = 0.0;
+        return;
+    }
+    if (m == EMPTY)
+    {
+        // Water cold enough freezes, lava cool enough sets (its particles end up inside the solid,
+        // and g2p frees them).
+        const float t = gf(F_TCELL, c);
+        uint solid = EMPTY;
+        if (countOf(WATER, x, y) >= 2 && t < FREEZE_WATER)
+        {
+            solid = ICE;
+        }
+        else if (countOf(LAVA, x, y) >= 2 && t < SOLIDIFY_LAVA)
+        {
+            solid = STONE;
+        }
+        if (solid != EMPTY)
+        {
+            u_Cells[c] = solid;
+            u_GridFloat[gi(F_LIFE, c)] = 0.0;
         }
         return;
     }
@@ -1164,7 +1387,7 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
             {
                 if (flipCount(nx, ny) < 2 && random01(seed) < 0.5)
                 {
-                    spawn(emitted, randomInCell(nx, ny, seed + 1), float2(offsets[i]) * 10.0, AMBIENT, 0.0, 0, 0);
+                    spawn(emitted, randomInCell(nx, ny, seed + 1), float2(offsets[i]) * 10.0, emitted == LAVA ? LAVA_TEMP : AMBIENT, 0.0, 0, 0);
                 }
             }
             else if (emitted == FIRE && random01(seed) < 0.25)
@@ -1209,7 +1432,7 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     u_Alloc[A_PROBE + 0] = asint(gf(F_TCELL, c));
     u_Alloc[A_PROBE + 1] = asint(gf(F_P, c) / (g_C.dt * g_C.gravity));
     u_Alloc[A_PROBE + 2] = int(u_Cells[c]);
-    for (uint m = WATER; m <= NEUTRON; m++)
+    for (uint m = WATER; m <= LAVA; m++)
     {
         u_Alloc[A_PROBE + 2 + m] = countOf(m, x, y);
     }
@@ -1275,11 +1498,14 @@ float3 materialColor(uint m)
     case SMOKE: return float3(0.4, 0.4, 0.42);
     case STEAM: return float3(0.85, 0.88, 0.92);
     case NEUTRON: return float3(0.5, 1.0, 0.4);
+    case LAVA: return float3(0.55, 0.12, 0.03);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
     case URANIUM: return float3(0.25, 0.65, 0.2);
     case EMITTER: return float3(0.62, 0.22, 0.62);
+    case ICE: return float3(0.75, 0.92, 1.0);
+    case STONE: return float3(0.33, 0.3, 0.29);
     }
     return float3(0.0, 0.0, 0.0);
 }
@@ -1312,11 +1538,13 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float water = sampleCount(g, WATER);
     const float oil = sampleCount(g, OIL);
     const float sand = sampleCount(g, SAND);
-    const float total = water + oil + sand;
+    const float lava = sampleCount(g, LAVA);
+    const float total = water + oil + sand + lava;
     if (total > 0.01)
     {
-        float3 liquid = (water * materialColor(WATER) + oil * materialColor(OIL) + sand * materialColor(SAND)) / total;
-        if (sand > water + oil)
+        float3 liquid = (water * materialColor(WATER) + oil * materialColor(OIL) + sand * materialColor(SAND)
+            + lava * materialColor(LAVA)) / total;
+        if (sand > water + oil + lava)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
@@ -1348,6 +1576,11 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
         {
             color = lerp(color, solid, 0.45) + 0.15 * (1.0 - smoothstep(0.0, 0.2, edge));
         }
+        else if (m == ICE)
+        {
+            // Frosted: mostly opaque, lighter at the cells' edges.
+            color = lerp(color, solid, 0.75) + 0.1 * (1.0 - smoothstep(0.0, 0.25, edge));
+        }
         else
         {
             if (m == WALL)
@@ -1365,6 +1598,10 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
             else if (m == URANIUM)
             {
                 solid *= 0.8 + 0.4 * saturate((t - AMBIENT) / 300.0);
+            }
+            else if (m == STONE)
+            {
+                solid *= 0.8 + 0.3 * random01(uint(c.x) * 131u + uint(c.y) * 977u);
             }
             else if (m == EMITTER)
             {

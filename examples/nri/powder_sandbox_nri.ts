@@ -16,9 +16,14 @@ namespace PowderSandboxNri {
     // must end at the same level.
     const TEST_FRAMES = 1800;
 
-    // The particle slots, and the grid's height in cells (its width follows the window's shape).
+    // The particle slots, and the grid's shorter side in cells (its longer side follows the window's
+    // shape, up to MAX_GRID_LONG cells). The grid's buffers hold GRID_CAPACITY elements a section,
+    // enough for either orientation (a section is (gridW + 1) * (gridH + 1)), so turning a phone
+    // remakes the grid in the same buffers.
     const CAPACITY = 1 << 18;
     const DEFAULT_GRID_HEIGHT = 144;
+    const MAX_GRID_LONG = 432;
+    const GRID_CAPACITY = (DEFAULT_GRID_HEIGHT + 1) * (MAX_GRID_LONG + 1);
     // A toolbar tile's narrowest (its label in ImGui's default font fits).
     const MIN_TILE_WIDTH = 72.0;
     // How far (in pixels) a press on the toolbar moves before it scrolls it instead of tapping a tile.
@@ -28,10 +33,14 @@ namespace PowderSandboxNri {
     const CONSTANTS_FLOATS = 32;
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's gridInt and gridFloat sections, and u_Alloc's free list's start.
-    const INT_SECTIONS = 16;
+    const INT_SECTIONS = 17;
     const FLOAT_SECTIONS = 12;
     const ALLOC_LIST = 16;
     const I_COUNT = 6;
+    // The float sections a regrid carries over (the rest the next step remakes): F_TPRE .. F_LIFE,
+    // the cell temperatures and life.
+    const F_TPRE = 8;
+    const CARRIED_FLOAT_SECTIONS = 4;
     // struct Particle: 8 floats.
     const PARTICLE_SIZE = 32;
     // The HUD's readout: u_Alloc's first 16 ints (free slots, then probe_cs's).
@@ -49,11 +58,14 @@ namespace PowderSandboxNri {
     const OIL = 2;
     const SAND = 3;
     const FIRE = 4;
+    const LAVA = 8;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
     const URANIUM = 19;
     const EMITTER = 20;
+    const ICE = 21;
+    const STONE = 22;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
@@ -72,8 +84,11 @@ namespace PowderSandboxNri {
     const G2P = 10;
     const SPAWN = 11;
     const PROBE = 12;
+    const REGRID_GRID = 13;
+    const REGRID_PARTICLES = 14;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
-        "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs"];
+        "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
+        "regrid_particles_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -94,7 +109,33 @@ namespace PowderSandboxNri {
     const ACTION_VIEW = 103;
     const ACTION_CLEAR = 104;
     const ACTION_SHAPE = 105;
+    const ACTION_UNDO = 106;
+    const ACTION_SAVE = 107;
+    const ACTION_LOAD = 108;
+
+    // The simulation's state, for undo and saves: the particles, the grid's float sections (the
+    // temperatures, the pressure the next step starts from, burning and melting), the cells, the free
+    // list (this.buffers' indices), one after another. The int sections are counts every step
+    // remakes.
+    const STATE_BUFFERS = [0, 2, 3, 4];
+    // Snapshots taken as strokes begin (and before Clear, Load and a regrid), newest restored first.
+    const UNDO_DEPTH = 4;
+    // The save file (in the executable's directory; the app's data directory on Android): a header
+    // (SAVE_MAGIC, SAVE_VERSION, the grid's width and height, the particle slots), then the state.
+    // Version 2: the grid's buffers at GRID_CAPACITY (version 1's were the grid's own size).
+    const SAVE_PATH = "powder_sandbox.save";
+    const SAVE_MAGIC = 0x53445750;
+    const SAVE_VERSION = 2;
+    const SAVE_HEADER_INTS = 5;
+    // How long a message (saved, loaded, nothing to undo) shows, in seconds.
+    const MESSAGE_TIME = 2.5;
+    // GLFW's key codes.
+    const KEY_Z = 90;
+    const KEY_LEFT_CONTROL = 341;
+    const KEY_RIGHT_CONTROL = 345;
     const VIEW_NAMES = ["Materials", "Pressure", "Temperature"];
+    // Scene 3's ice block, in grid fractions (x0, y0, x1, y1).
+    const ICE_BLOCK = [0.12, 0.5, 0.2, 0.72];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -111,11 +152,14 @@ namespace PowderSandboxNri {
         if (material == 5) { return "smoke"; }
         if (material == 6) { return "steam"; }
         if (material == 7) { return "neutron"; }
+        if (material == 8) { return "lava"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
         if (material == 19) { return "uranium"; }
         if (material == 20) { return "emitter"; }
+        if (material == 21) { return "ice"; }
+        if (material == 22) { return "stone"; }
         return "air";
     }
 
@@ -167,8 +211,45 @@ namespace PowderSandboxNri {
         private computeSet: NriDescriptorSetHandle;
         private drawSet: NriDescriptorSetHandle;
         private testReadback: NriBufferHandle | null = null;
+        private cellsReadback: NriBufferHandle | null = null;
         // -test: the last frame, read back.
         private frameReadback: NriBufferHandle | null = null;
+        // The byte sizes of this.buffers, and of the state (STATE_BUFFERS' together).
+        private bufferSizes: int[] = [];
+        private stateSize: int = 0;
+        // Undo: UNDO_DEPTH snapshot buffers (in CopyDestination between uses), the newest's index and
+        // how many hold a state.
+        private undoBuffers: NriBufferHandle[] = [];
+        private undoTop: int = 0;
+        private undoCount: int = 0;
+        // The grid's size each snapshot was taken at.
+        private undoW: int[] = [];
+        private undoH: int[] = [];
+        // What the next frame does to the state before simulating: take a snapshot, restore the
+        // newest, save it, load the save.
+        private snapshotRequested: boolean = false;
+        private undoRequested: boolean = false;
+        private saveRequested: boolean = false;
+        private loadRequested: boolean = false;
+        // This frame's save (read back, written once the frame is done) or load (uploaded from the
+        // file).
+        private saveReadback: NriBufferHandle | null = null;
+        private loadBuffer: NriBufferHandle | null = null;
+        // The loaded save's grid size, and whether it's still to be copied in.
+        private loadW: int = 0;
+        private loadH: int = 0;
+        private loadPending: boolean = false;
+        private message: string = "";
+        private messageTime: number = 0.0;
+        // -roundTrip (a test): halfway through, the state is cleared and undone, then saved, cleared
+        // and loaded; the U-tube must still level out.
+        roundTrip: boolean = false;
+        // -regrid N (a test): halfway through, the grid remade 1 taller, and back 100 frames later
+        // (nothing may be lost); 2 turned (its width and height swapped), cropping it.
+        regrid: int = 0;
+        private regridCount: int = 0;
+        // Whether a Clear repaints the scene's strokes (the round trip's doesn't).
+        private sceneOnClear: boolean = true;
         private rowPitch: int = 0;
 
         private width: int = 0;
@@ -176,6 +257,10 @@ namespace PowderSandboxNri {
         private gridW: int = 0;
         private gridH: int = DEFAULT_GRID_HEIGHT;
         private stride: int = 0;
+        // The size of the grid the buffers hold, as this frame's recording goes: when it's not
+        // gridW x gridH, recordStateRequests remakes it (the window turned).
+        private stateW: int = 0;
+        private stateH: int = 0;
         private toolbarHeight: number = 0.0;
         private tileWidth: number = MIN_TILE_WIDTH;
         private tileHeight: number = 56.0;
@@ -202,6 +287,7 @@ namespace PowderSandboxNri {
         // The pointer: down last frame, where (in cells), whether the press began on the toolbar; a
         // press there: where it began, the scroll then, whether it has dragged the row yet.
         private wasDown: boolean = false;
+        private zWasDown: boolean = false;
         private pressOnToolbar: boolean = false;
         private pressX: number = 0.0;
         private pressScroll: number = 0.0;
@@ -218,11 +304,17 @@ namespace PowderSandboxNri {
         private probe: int[] = [];
         private probeFloats: f32[] = [];
 
-        // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials);
+        // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
+        // ice and stone);
         // -substeps N, -iterations N (pressure sweeps).
         scene: int = 0;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
+        // Time the simulation hasn't stepped through yet (under a step). It steps in fixed steps of
+        // 1 / (60 substeps) s, whatever the frame rate: the pressure each step starts from is the
+        // last step's (in units of dt), so a dt that changes from frame to frame (frame times can
+        // alternate 0.5 / 13 ms) kicks the water apart.
+        private pendingTime: number = 0.0;
         iterations: int = DEFAULT_ITERATIONS;
         // -testFrames N: the test's length instead of TEST_FRAMES.
         testFrames: int = TEST_FRAMES;
@@ -240,10 +332,12 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
+            this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
+            this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
             this.tiles.push(new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
             this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
             this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
@@ -255,6 +349,9 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -300,6 +397,8 @@ namespace PowderSandboxNri {
             const format = this.viewFormat;
             this.fitGrid();
             this.layout();
+            this.stateW = this.gridW;
+            this.stateH = this.gridH;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -363,9 +462,25 @@ namespace PowderSandboxNri {
             }
 
             // The particles, the grid's int and float sections, the cells, the free list.
-            const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * this.stride * 4, FLOAT_SECTIONS * this.stride * 4,
-                this.stride * 4, (ALLOC_LIST + CAPACITY) * 4];
+            const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
+                GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4];
             const strides = [PARTICLE_SIZE, 4, 4, 4, 4];
+            for (const size of sizes) {
+                this.bufferSizes.push(size);
+            }
+            for (const i of STATE_BUFFERS) {
+                this.stateSize += sizes[i];
+            }
+            for (let i = 0; i < UNDO_DEPTH; i++) {
+                const undoBuffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, this.stateSize, 4, NriBufferState.CopyDestination);
+                if (!undoBuffer) {
+                    console.log("Cannot create the undo buffers");
+                    return 0;
+                }
+                this.undoBuffers.push(undoBuffer);
+                this.undoW.push(0);
+                this.undoH.push(0);
+            }
             for (let i = 0; i < 5; i++) {
                 const buffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, sizes[i], strides[i], NriBufferState.Storage);
                 if (!buffer) {
@@ -414,7 +529,8 @@ namespace PowderSandboxNri {
                 Nri_UpdateDescriptor(drawSet, i, 0, this.shaderViews[i]);
             }
             if (this.test) {
-                this.testReadback = Nri_CreateReadbackBuffer(device, INT_SECTIONS * this.stride * 4);
+                this.testReadback = Nri_CreateReadbackBuffer(device, INT_SECTIONS * GRID_CAPACITY * 4);
+                this.cellsReadback = Nri_CreateReadbackBuffer(device, GRID_CAPACITY * 4);
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
                 this.frameReadback = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
@@ -456,7 +572,9 @@ namespace PowderSandboxNri {
 
         // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once
         // the GPU is done with the old one, and the toolbar and the grid's view fitted to it. The grid
-        // keeps its cells (and what's in them), so a window of another shape shows it with margins.
+        // keeps its cells (and what's in them), so a window of another shape shows it with margins;
+        // but when the window turns (a phone turned: wider than tall to taller than wide, or back) the
+        // grid is remade to its shape, what it holds kept on its floor and centered.
         resizeIfNeeded() {
             const device = this.device;
             if (!device) {
@@ -468,8 +586,41 @@ namespace PowderSandboxNri {
             Nri_DeviceWaitIdle(device);
             this.destroySwapChain();
             this.createSwapChain(device);
+            const wide = this.width >= this.height - this.toolbarTileHeight();
+            if (wide != (this.gridW >= this.gridH)) {
+                const oldW = this.gridW;
+                const oldH = this.gridH;
+                this.fitGrid();
+                this.reshaped(oldW, oldH);
+            }
             this.layout();
             this.scrollToolbar(this.toolbarScroll);
+        }
+
+        // The grid's size changed from oldW x oldH (its contents follow in recordStateRequests): the
+        // scene's strokes still to paint moved with them, and a press in progress begun again.
+        reshaped(oldW: int, oldH: int) {
+            const dx = this.regridOffsetX(oldW);
+            const dy = this.gridH - oldH;
+            for (const stroke of this.script) {
+                stroke.x0 += dx;
+                stroke.x1 += dx;
+                stroke.y0 += dy;
+                stroke.y1 += dy;
+            }
+            this.wasDown = false;
+        }
+
+        // Where a grid oldW wide lands across the new one: centered (whole cells).
+        regridOffsetX(oldW: int): int {
+            return Math.floor((this.gridW - oldW) / 2);
+        }
+
+        setGrid(gridW: int, gridH: int) {
+            this.gridW = gridW;
+            this.gridH = gridH;
+            this.stride = (gridW + 1) * (gridH + 1);
+            this.layout();
         }
 
         // The toolbar's height: a share of the window's shorter side, 56 .. 160 pixels.
@@ -477,8 +628,8 @@ namespace PowderSandboxNri {
             return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
         }
 
-        // The grid's size from the shape of the window above the toolbar (DEFAULT_GRID_HEIGHT cells
-        // along its shorter side), once: resizing the window later keeps the grid.
+        // The grid's size from the shape of the window above the toolbar: DEFAULT_GRID_HEIGHT cells
+        // along its shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
         fitGrid() {
             const playHeight = this.height - this.toolbarTileHeight();
             let gridW: int = DEFAULT_GRID_HEIGHT;
@@ -488,8 +639,8 @@ namespace PowderSandboxNri {
             } else {
                 gridH = Math.floor(DEFAULT_GRID_HEIGHT * playHeight / this.width);
             }
-            this.gridW = Math.min(Math.max(gridW, 16), 1024);
-            this.gridH = Math.min(Math.max(gridH, 16), 1024);
+            this.gridW = Math.min(gridW, MAX_GRID_LONG);
+            this.gridH = Math.min(gridH, MAX_GRID_LONG);
             this.stride = (this.gridW + 1) * (this.gridH + 1);
             console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
         }
@@ -536,13 +687,20 @@ namespace PowderSandboxNri {
             } else if (action == ACTION_VIEW) {
                 this.overlay = (this.overlay + 1) % 3;
             } else if (action == ACTION_CLEAR) {
+                this.snapshotRequested = true;
                 this.needsInit = true;
+            } else if (action == ACTION_UNDO) {
+                this.undoRequested = true;
+            } else if (action == ACTION_SAVE) {
+                this.saveRequested = true;
+            } else if (action == ACTION_LOAD) {
+                this.loadRequested = true;
             } else if (action == ACTION_SHAPE) {
                 this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
-                if (action == WATER || action == OIL || action == SAND || action == FIRE) {
+                if (action == WATER || action == OIL || action == SAND || action == LAVA || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -572,10 +730,21 @@ namespace PowderSandboxNri {
             if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
                 this.paused = !this.paused;
             }
+            // Ctrl+Z (each press of Z while Control is down).
+            const control = Nri_IsKeyPressed(this.sample, KEY_LEFT_CONTROL) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT_CONTROL) != 0;
+            const z = Nri_IsKeyPressed(this.sample, KEY_Z) != 0;
+            if (control && z && !this.zWasDown) {
+                this.undoRequested = true;
+            }
+            this.zWasDown = z;
 
             let brushMode = 0;
             if (down && !this.wasDown) {
                 this.pressOnToolbar = overToolbar;
+                // A stroke begins: what it changes can be undone.
+                if (!overToolbar) {
+                    this.snapshotRequested = true;
+                }
                 this.pressX = mx;
                 this.pressScroll = this.toolbarScroll;
                 this.dragging = false;
@@ -682,6 +851,239 @@ namespace PowderSandboxNri {
             }
         }
 
+        // Copies the state (STATE_BUFFERS' buffers, one after another) into snapshot, or out of it back
+        // into them; snapshot is in snapshotState before and after (a readback buffer: CopyDestination).
+        recordStateCopy(commandBuffer: NriCommandBufferHandle, snapshot: NriBufferHandle, toSnapshot: boolean, snapshotState: NriBufferState) {
+            const liveState = toSnapshot ? NriBufferState.CopySource : NriBufferState.CopyDestination;
+            const snapshotUse = toSnapshot ? NriBufferState.CopyDestination : NriBufferState.CopySource;
+            if (snapshotState != snapshotUse) {
+                Nri_CmdBufferBarrier(commandBuffer, snapshot, snapshotState, snapshotUse);
+            }
+            let offset = 0;
+            for (const i of STATE_BUFFERS) {
+                const buffer = this.buffers[i];
+                const size = this.bufferSizes[i];
+                Nri_CmdBufferBarrier(commandBuffer, buffer, NriBufferState.Storage, liveState);
+                if (toSnapshot) {
+                    Nri_CmdCopyBufferRegion(commandBuffer, snapshot, offset, buffer, 0, size);
+                } else {
+                    Nri_CmdCopyBufferRegion(commandBuffer, buffer, 0, snapshot, offset, size);
+                }
+                Nri_CmdBufferBarrier(commandBuffer, buffer, liveState, NriBufferState.Storage);
+                offset += size;
+            }
+            if (snapshotState != snapshotUse) {
+                Nri_CmdBufferBarrier(commandBuffer, snapshot, snapshotUse, snapshotState);
+            }
+        }
+
+        // Before the frame's constants: the grid's size an undo or a load will leave it at. An undo
+        // takes its snapshot's (even if the window has turned since: it's shown with margins rather
+        // than remade, which would lose what the undo brought back); a load its save's, or, if the
+        // save is the other way around from the window, the window's (and is remade to it).
+        prepareStateRequests() {
+            if (this.undoRequested && this.undoCount > 0) {
+                this.setGrid(this.undoW[this.undoTop], this.undoH[this.undoTop]);
+            }
+            if (this.loadRequested) {
+                this.loadRequested = false;
+                const loadBuffer = this.openSave();
+                if (loadBuffer) {
+                    this.loadBuffer = loadBuffer;
+                    this.loadPending = true;
+                    const wide = this.width >= this.height - this.toolbarHeight;
+                    if (wide == (this.loadW >= this.loadH)) {
+                        this.setGrid(this.loadW, this.loadH);
+                    } else {
+                        this.fitGrid();
+                        this.layout();
+                    }
+                }
+            }
+        }
+
+        // The frame's requests, before it simulates: undo (the newest snapshot back), load (the save
+        // file's state, after a snapshot of the current one), a regrid (the grid remade at
+        // gridW x gridH, after a snapshot), a snapshot (a stroke or Clear begins), a save (the state
+        // read back, written once the frame is done).
+        recordStateRequests(commandBuffer: NriCommandBufferHandle) {
+            let snapshotTaken = false;
+            if (this.undoRequested) {
+                this.undoRequested = false;
+                if (this.undoCount > 0) {
+                    this.recordStateCopy(commandBuffer, this.undoBuffers[this.undoTop], false, NriBufferState.CopyDestination);
+                    this.stateW = this.undoW[this.undoTop];
+                    this.stateH = this.undoH[this.undoTop];
+                    this.undoTop = (this.undoTop + UNDO_DEPTH - 1) % UNDO_DEPTH;
+                    this.undoCount--;
+                    // The restored state stands as it was: no scene strokes or Clear still to come.
+                    this.script = [];
+                    this.needsInit = false;
+                    this.snapshotRequested = false;
+                } else {
+                    this.showMessage("Nothing to undo");
+                }
+            }
+            const loadBuffer = this.loadBuffer;
+            if (this.loadPending) {
+                this.loadPending = false;
+                if (loadBuffer) {
+                    this.pushSnapshot(commandBuffer);
+                    snapshotTaken = true;
+                    this.recordStateCopy(commandBuffer, loadBuffer, false, NriBufferState.CopySource);
+                    this.stateW = this.loadW;
+                    this.stateH = this.loadH;
+                    this.script = [];
+                    this.needsInit = false;
+                    this.snapshotRequested = false;
+                    this.showMessage("Loaded");
+                }
+            }
+            if (this.stateW != this.gridW || this.stateH != this.gridH) {
+                if (!snapshotTaken) {
+                    this.pushSnapshot(commandBuffer);
+                }
+                this.recordRegrid(commandBuffer);
+            }
+            if (this.snapshotRequested) {
+                this.snapshotRequested = false;
+                this.pushSnapshot(commandBuffer);
+            }
+            if (this.saveRequested) {
+                this.saveRequested = false;
+                const device = this.device;
+                if (device) {
+                    const saveReadback = Nri_CreateReadbackBuffer(device, this.stateSize);
+                    if (saveReadback) {
+                        this.recordStateCopy(commandBuffer, saveReadback, true, NriBufferState.CopyDestination);
+                        this.saveReadback = saveReadback;
+                    } else {
+                        this.showMessage("Cannot save: out of memory");
+                    }
+                }
+            }
+        }
+
+        // The state into the next undo slot (over the oldest once they're all used).
+        pushSnapshot(commandBuffer: NriCommandBufferHandle) {
+            this.undoTop = (this.undoTop + 1) % UNDO_DEPTH;
+            this.undoCount = Math.min(this.undoCount + 1, UNDO_DEPTH);
+            this.undoW[this.undoTop] = this.stateW;
+            this.undoH[this.undoTop] = this.stateH;
+            this.recordStateCopy(commandBuffer, this.undoBuffers[this.undoTop], true, NriBufferState.CopyDestination);
+        }
+
+        // The grid the buffers hold (stateW x stateH) remade at gridW x gridH: its cells and cell
+        // temperatures copied aside into the int sections (which every step remakes), then
+        // regrid_grid_cs and regrid_particles_cs move them, the old grid's floor on the new one's and
+        // centered across it.
+        recordRegrid(commandBuffer: NriCommandBufferHandle) {
+            const oldW = this.stateW;
+            const oldH = this.stateH;
+            const oldStride = (oldW + 1) * (oldH + 1);
+            const scratch = this.buffers[1];
+            const gridFloat = this.buffers[2];
+            const cells = this.buffers[3];
+            Nri_CmdBufferBarrier(commandBuffer, scratch, NriBufferState.Storage, NriBufferState.CopyDestination);
+            Nri_CmdBufferBarrier(commandBuffer, gridFloat, NriBufferState.Storage, NriBufferState.CopySource);
+            Nri_CmdBufferBarrier(commandBuffer, cells, NriBufferState.Storage, NriBufferState.CopySource);
+            Nri_CmdCopyBufferRegion(commandBuffer, scratch, 0, cells, 0, oldW * oldH * 4);
+            Nri_CmdCopyBufferRegion(commandBuffer, scratch, oldStride * 4, gridFloat, F_TPRE * oldStride * 4,
+                CARRIED_FLOAT_SECTIONS * oldStride * 4);
+            Nri_CmdBufferBarrier(commandBuffer, scratch, NriBufferState.CopyDestination, NriBufferState.Storage);
+            Nri_CmdBufferBarrier(commandBuffer, gridFloat, NriBufferState.CopySource, NriBufferState.Storage);
+            Nri_CmdBufferBarrier(commandBuffer, cells, NriBufferState.CopySource, NriBufferState.Storage);
+
+            const computeLayout = this.computeLayout;
+            if (!computeLayout) {
+                return;
+            }
+            Nri_CmdSetDescriptorPool(commandBuffer, this.descriptorPool);
+            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
+            // (the brush's fields stand for the old grid and the offset)
+            this.setInt(8, oldW);
+            this.setInt(9, oldH);
+            this.setInt(15, this.regridOffsetX(oldW));
+            this.setInt(16, this.gridH - oldH);
+            this.dispatch(commandBuffer, REGRID_GRID, this.stride, B_ALL);
+            this.dispatch(commandBuffer, REGRID_PARTICLES, CAPACITY, B_ALL);
+            this.setInt(8, this.tool);
+            this.setInt(15, this.emitType);
+            this.stateW = this.gridW;
+            this.stateH = this.gridH;
+            console.log(`Grid remade: ${oldW} x ${oldH} to ${this.gridW} x ${this.gridH} cells`);
+        }
+
+        // The save file's state in a buffer to copy from (CopySource) and its grid's size (loadW,
+        // loadH), or null (with a message) when there's none, or it's from another version.
+        openSave(): NriBufferHandle | null {
+            const device = this.device;
+            if (!device) {
+                return null;
+            }
+            const file = Nri_LoadFile(SAVE_PATH);
+            if (!file) {
+                this.showMessage("Nothing saved yet");
+                return null;
+            }
+            const bytes: int[] = [];
+            for (let i = 0; i < SAVE_HEADER_INTS * 4; i++) {
+                bytes.push(0);
+            }
+            Nri_CopyFileBytes(file, 0, bytes.length, Ref(bytes[0]));
+            const header: int[] = [];
+            for (let i = 0; i < SAVE_HEADER_INTS; i++) {
+                header.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
+            }
+            let loadBuffer: NriBufferHandle | null = null;
+            if (header[0] != SAVE_MAGIC || header[1] != SAVE_VERSION || header[4] != CAPACITY
+                || Nri_GetFileSize(file) != SAVE_HEADER_INTS * 4 + this.stateSize
+                || header[2] < 3 || header[3] < 3 || (header[2] + 1) * (header[3] + 1) > GRID_CAPACITY) {
+                this.showMessage("The save is from another version");
+            } else {
+                this.loadW = header[2];
+                this.loadH = header[3];
+                loadBuffer = Nri_CreateStorageBufferFromFile(device, this.queue, file, SAVE_HEADER_INTS * 4, this.stateSize, 4,
+                    NriBufferState.CopySource);
+                if (!loadBuffer) {
+                    this.showMessage("Cannot load: out of memory");
+                }
+            }
+            Nri_DestroyFile(file);
+            return loadBuffer;
+        }
+
+        // After the frame's submission: the save written (once the GPU has read the state back), the
+        // load's buffer freed.
+        finishStateRequests() {
+            const device = this.device;
+            const saveReadback = this.saveReadback;
+            const loadBuffer = this.loadBuffer;
+            if (!device) {
+                return;
+            }
+            if (saveReadback || loadBuffer) {
+                Nri_DeviceWaitIdle(device);
+            }
+            if (saveReadback) {
+                const header: int[] = [SAVE_MAGIC, SAVE_VERSION, this.gridW, this.gridH, CAPACITY];
+                const saved = Nri_SaveBufferToFile(saveReadback, this.stateSize, Ref(header[0]), SAVE_HEADER_INTS, SAVE_PATH) != 0;
+                this.showMessage(saved ? "Saved" : "Cannot save");
+                Nri_DestroyBuffer(saveReadback);
+                this.saveReadback = null;
+            }
+            if (loadBuffer) {
+                Nri_DestroyBuffer(loadBuffer);
+                this.loadBuffer = null;
+            }
+        }
+
+        showMessage(text: string) {
+            console.log(text);
+            this.message = text;
+            this.messageTime = MESSAGE_TIME;
+        }
+
         // An entry over count threads, then a barrier on the buffers in barrierMask.
         dispatch(commandBuffer: NriCommandBufferHandle, entry: int, count: int, barrierMask: int) {
             Nri_CmdSetPipeline(commandBuffer, this.pipelines[entry]);
@@ -691,7 +1093,8 @@ namespace PowderSandboxNri {
             this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
         }
 
-        recordSimulation(commandBuffer: NriCommandBufferHandle, brushMode: int) {
+        // steps: the simulation's fixed steps this frame (0 when the frame took less than one).
+        recordSimulation(commandBuffer: NriCommandBufferHandle, brushMode: int, steps: int) {
             const computeLayout = this.computeLayout;
             if (!computeLayout) {
                 return;
@@ -703,7 +1106,11 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, INIT_GRID, this.stride, B_ALL);
                 this.dispatch(commandBuffer, INIT_PARTICLES, CAPACITY, B_ALL);
                 this.needsInit = false;
-                this.buildScene();
+                if (this.sceneOnClear) {
+                    this.buildScene();
+                } else {
+                    this.script = [];
+                }
             }
             // The scene's strokes, one a frame while the pointer isn't painting.
             if (brushMode == 0 && this.script.length > 0) {
@@ -718,8 +1125,8 @@ namespace PowderSandboxNri {
                 this.setInt(15, stroke.emit);
             }
 
-            if (this.paused) {
-                // Painting still works: the counts, then the brush.
+            if (this.paused || (steps == 0 && brushMode != 0)) {
+                // Painting still works (paused, or between steps): the counts, then the brush.
                 this.setInt(7, 0);
                 this.setInt(9, brushMode);
                 this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
@@ -727,7 +1134,7 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
                 return;
             }
-            for (let s = 0; s < this.substeps; s++) {
+            for (let s = 0; s < steps; s++) {
                 this.setInt(7, s);
                 this.setInt(9, s == 0 ? brushMode : 0);
                 this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
@@ -748,13 +1155,54 @@ namespace PowderSandboxNri {
             }
         }
 
+        // -roundTrip: halfway, the state cleared (without the scene's strokes) and undone; then saved,
+        // cleared and loaded. If either restore failed the U-tube would end empty.
+        roundTripRequests(frameIndex: int) {
+            const half: int = Math.floor(this.testFrames / 2);
+            if (frameIndex == half) {
+                this.sceneOnClear = false;
+                this.snapshotRequested = true;
+                this.needsInit = true;
+            } else if (frameIndex == half + 1) {
+                this.undoRequested = true;
+            } else if (frameIndex == half + 100) {
+                this.saveRequested = true;
+            } else if (frameIndex == half + 101) {
+                this.needsInit = true;
+            } else if (frameIndex == half + 102) {
+                this.loadRequested = true;
+            }
+        }
+
+        // -regrid 1: halfway, the grid remade 20 cells taller (on its floor, so the water stays where it
+        // is), then back; 2: turned, its width and height swapped (the U-tube cropped at its sides
+        // and its divider still in the middle).
+        regridRequests(frameIndex: int) {
+            const half: int = Math.floor(this.testFrames / 2);
+            const oldW = this.gridW;
+            const oldH = this.gridH;
+            if (frameIndex == half) {
+                this.regridCount = CAPACITY - this.probe[0];
+                if (this.regrid == 1) {
+                    this.setGrid(oldW, oldH + 20);
+                } else {
+                    this.setGrid(oldH, oldW);
+                }
+                this.reshaped(oldW, oldH);
+            } else if (frameIndex == half + 100 && this.regrid == 1) {
+                this.setGrid(oldW, oldH - 20);
+                this.reshaped(oldW, oldH);
+            }
+        }
+
         // A rectangle of grid fractions (0..1 across, 0..1 down) painted with tool.
         addStroke(tool: int, x0: number, y0: number, x1: number, y1: number, emit: int) {
             this.script.push(new Stroke(tool, x0 * this.gridW, y0 * this.gridH, x1 * this.gridW, y1 * this.gridH, emit));
         }
 
         // The starting scene's strokes: 1 the U-tube's water (its divider is init_grid_cs's), 2 a
-        // showcase of the materials.
+        // showcase of the materials, 3 lava poured into a pool with an ice block in it, and next to
+        // a wood block.
         buildScene() {
             this.script = [];
             if (this.scene == 1) {
@@ -775,6 +1223,14 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 3) {
+                this.addStroke(GLASS, 0.05, 0.5, 0.055, 1.0, WATER);
+                this.addStroke(GLASS, 0.55, 0.5, 0.555, 1.0, WATER);
+                this.addStroke(WATER, 0.06, 0.65, 0.545, 1.0, WATER);
+                this.addStroke(ICE, ICE_BLOCK[0], ICE_BLOCK[1], ICE_BLOCK[2], ICE_BLOCK[3], WATER);
+                this.addStroke(LAVA, 0.33, 0.2, 0.45, 0.32, WATER);
+                this.addStroke(WOOD, 0.75, 0.85, 0.85, 1.0, WATER);
+                this.addStroke(LAVA, 0.64, 0.55, 0.72, 0.7, WATER);
             }
         }
 
@@ -805,7 +1261,12 @@ namespace PowderSandboxNri {
                     label = SHAPE_NAMES[this.brushShape];
                 } else if (tile.tool == EMITTER) {
                     // What it emits, in the middle of its swatch.
-                    const emitted = this.tiles[this.emitType == FIRE ? 3 : this.emitType - 1];
+                    let emitted = tile;
+                    for (const other of this.tiles) {
+                        if (other.tool == this.emitType) {
+                            emitted = other;
+                        }
+                    }
                     const cx = x0 + tileWidth * 0.5;
                     const cy = (top + bottom - labelHeight) * 0.5;
                     const half = tileWidth * 0.15;
@@ -825,14 +1286,15 @@ namespace PowderSandboxNri {
 
             // Particles in use, the brush, the view; the cell under the pointer.
             const used = CAPACITY - this.probe[0];
-            Nri_ImguiDrawText(8.0, 6.0, `${formatFixed(this.frameRate, 0)} fps   particles ${used} / ${CAPACITY}   brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}   view: ${VIEW_NAMES[this.overlay]}${this.paused ? "   PAUSED" : ""}`,
-                1.0, 1.0, 1.0, 1.0, 0);
+            let y = this.drawWrapped([`${formatFixed(this.frameRate, 0)} fps`, `particles ${used} / ${CAPACITY}`,
+                `brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}`, `view: ${VIEW_NAMES[this.overlay]}`,
+                this.paused ? "PAUSED" : ""], 6.0, labelHeight, 1.0);
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
             if (cell < WALL) {
-                const names = ["water", "oil", "sand", "fire", "smoke", "steam", "neutron"];
+                const names = ["water", "oil", "sand", "fire", "smoke", "steam", "neutron", "lava"];
                 contents = "";
-                for (let m = 0; m < 7; m++) {
+                for (let m = 0; m < names.length; m++) {
                     const n = this.probe[4 + m];
                     if (n > 0) {
                         contents = `${contents}${contents == "" ? "" : ", "}${n} ${names[m]}`;
@@ -842,9 +1304,32 @@ namespace PowderSandboxNri {
                     contents = "air";
                 }
             }
-            Nri_ImguiDrawText(8.0, 6.0 + labelHeight, `${formatFixed(this.probeFloats[1], 1)} C   pressure ${formatFixed(this.probeFloats[2], 2)}   ${contents}`,
-                0.85, 0.85, 0.85, 1.0, 0);
+            y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents],
+                y, labelHeight, 0.85);
+            if (this.messageTime > 0.0) {
+                Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
+            }
             Nri_ImguiRender(this.sample);
+        }
+
+        // The HUD's parts (empty ones left out) on a line from y, three spaces apart, wrapped onto
+        // more lines where the window is too narrow (a phone held upright); the y under them.
+        drawWrapped(parts: string[], y: number, lineHeight: number, gray: number): number {
+            const gap = Nri_ImguiCalcTextWidth("   ");
+            let x = 8.0;
+            for (const part of parts) {
+                if (part == "") {
+                    continue;
+                }
+                const width = Nri_ImguiCalcTextWidth(part);
+                if (x > 8.0 && x + width > this.width - 8.0) {
+                    x = 8.0;
+                    y += lineHeight;
+                }
+                Nri_ImguiDrawText(x, y, part, gray, gray, gray, 1.0, 0);
+                x += width + gap;
+            }
+            return y + lineHeight;
         }
 
         recordDraw(commandBuffer: NriCommandBufferHandle) {
@@ -867,8 +1352,9 @@ namespace PowderSandboxNri {
             this.resizeIfNeeded();
             this.frameIndex = frameIndex;
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
-            const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 1.0 / 30.0);
+            const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 0.25);
             this.time += frameTime;
+            this.messageTime -= frameTime;
             this.fpsFrames++;
             this.fpsTime += Nri_GetFrameTime(this.sample);
             if (this.fpsTime >= 0.5) {
@@ -885,8 +1371,30 @@ namespace PowderSandboxNri {
                 this.probe[0] = CAPACITY;
             }
 
+            // The steps this frame's time covers; after a long frame (over two frames at 60 Hz) the
+            // simulation falls behind rather than taking ever more steps.
+            const step = 1.0 / (60.0 * this.substeps);
+            let steps = this.substeps;
+            if (!this.test) {
+                this.pendingTime += frameTime;
+                steps = Math.floor(this.pendingTime / step);
+                if (steps > 2 * this.substeps) {
+                    steps = 2 * this.substeps;
+                    this.pendingTime = 0.0;
+                } else {
+                    this.pendingTime -= steps * step;
+                }
+            }
+
+            if (this.test && this.roundTrip) {
+                this.roundTripRequests(frameIndex);
+            }
+            if (this.test && this.regrid != 0) {
+                this.regridRequests(frameIndex);
+            }
             const brushMode = this.test ? 0 : this.handleInput();
-            this.fillConstants(frameTime / this.substeps);
+            this.prepareStateRequests();
+            this.fillConstants(step);
             if (this.imgui) {
                 this.buildUI();
             }
@@ -901,7 +1409,8 @@ namespace PowderSandboxNri {
                 // Record: the simulation's steps, the readout, then the grid drawn and the toolbar
                 // over it.
                 Nri_BeginCommandBuffer(commandBuffer);
-                this.recordSimulation(commandBuffer, brushMode);
+                this.recordStateRequests(commandBuffer);
+                this.recordSimulation(commandBuffer, brushMode, steps);
                 this.dispatch(commandBuffer, PROBE, 1, 0);
                 const alloc = this.buffers[4];
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
@@ -913,6 +1422,12 @@ namespace PowderSandboxNri {
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.Storage, NriBufferState.CopySource);
                         Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], INT_SECTIONS * this.stride * 4);
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.CopySource, NriBufferState.Storage);
+                        const cellsReadback = this.cellsReadback;
+                        if (cellsReadback) {
+                            Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.Storage, NriBufferState.CopySource);
+                            Nri_CmdCopyBuffer(commandBuffer, cellsReadback, this.buffers[3], this.stride * 4);
+                            Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.CopySource, NriBufferState.Storage);
+                        }
                     }
                 }
                 const shown = B_GRID_INT | B_GRID_FLOAT | B_CELLS;
@@ -951,6 +1466,7 @@ namespace PowderSandboxNri {
 
             // Signaled after the present, as NRISamples do
             Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.finishStateRequests();
         }
 
         // -test: the U-tube's two sides hold water to the same level (its mean depth in cells over
@@ -980,6 +1496,18 @@ namespace PowderSandboxNri {
                     } else if (x > divider) {
                         right += n;
                     }
+                }
+            }
+            if (this.scene == 3) {
+                const error = this.checkLavaAndIce();
+                if (error != "") {
+                    return error;
+                }
+            }
+            if (this.regrid != 0) {
+                const error = this.checkRegrid(grid);
+                if (error != "") {
+                    return error;
                 }
             }
             if (this.scene == 1) {
@@ -1018,10 +1546,101 @@ namespace PowderSandboxNri {
             }
             const share = 100.0 * blue / pixels.length;
             console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
-            const minShare = this.scene == 1 ? 20.0 : 1.0;
+            // (a turned U-tube is a narrow grid between margins)
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : 1.0;
             // (the overlays recolor it)
             if (this.overlay == 0 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
+            }
+            return "";
+        }
+
+        // Scene 3: the lava that fell into the water set to stone, and the ice block melted (some of
+        // it, at least: the cells painted ice minus those still ice).
+        checkLavaAndIce(): string {
+            const cellsReadback = this.cellsReadback;
+            if (!cellsReadback) {
+                return "cannot read the cells back";
+            }
+            const cells: int[] = [];
+            for (let i = 0; i < this.gridW * this.gridH; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return "cannot read the cells back";
+            }
+            let stone = 0;
+            let ice = 0;
+            let wood = 0;
+            let painted = 0;
+            for (let y = 0; y < this.gridH; y++) {
+                for (let x = 0; x < this.gridW; x++) {
+                    const m = cells[y * this.gridW + x] & 0xFF;
+                    if (m == STONE) {
+                        stone++;
+                    } else if (m == ICE) {
+                        ice++;
+                    } else if (m == WOOD) {
+                        wood++;
+                    }
+                    // (spawn_cs paints the cells whose centers are inside the stroke)
+                    const cx = (x + 0.5) / this.gridW;
+                    const cy = (y + 0.5) / this.gridH;
+                    if (cx >= ICE_BLOCK[0] && cx <= ICE_BLOCK[2] && cy >= ICE_BLOCK[1] && cy <= ICE_BLOCK[3]) {
+                        painted++;
+                    }
+                }
+            }
+            console.log(`Lava and ice: ${stone} stone cells, ${ice} of ${painted} ice cells left, ${wood} wood cells`);
+            if (stone == 0) {
+                return "no lava set to stone";
+            }
+            if (ice >= painted) {
+                return `the ice didn't melt: ${ice} ice cells, ${painted} painted`;
+            }
+            return "";
+        }
+
+        // -regrid: the grid has its wall all around and no particles in a solid cell; remade taller and
+        // back, it kept every particle (the U-tube's water doesn't boil or burn); turned, it lost some
+        // (the sides cropped) but not all.
+        checkRegrid(grid: int[]): string {
+            const cellsReadback = this.cellsReadback;
+            if (!cellsReadback) {
+                return "cannot read the cells back";
+            }
+            const cells: int[] = [];
+            for (let i = 0; i < this.gridW * this.gridH; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return "cannot read the cells back";
+            }
+            let inSolid = 0;
+            for (let y = 0; y < this.gridH; y++) {
+                for (let x = 0; x < this.gridW; x++) {
+                    const m = cells[y * this.gridW + x] & 0xFF;
+                    const border = x == 0 || y == 0 || x == this.gridW - 1 || y == this.gridH - 1;
+                    if (border && m != WALL) {
+                        return `the cell (${x}, ${y}) on the grid's edge isn't wall but ${materialName(m)}`;
+                    }
+                    if (m >= WALL) {
+                        for (let k = 0; k < 8; k++) {
+                            inSolid += grid[(I_COUNT + k) * this.stride + y * this.gridW + x];
+                        }
+                    }
+                }
+            }
+            const used = CAPACITY - this.probe[0];
+            console.log(`Regrid: ${this.gridW} x ${this.gridH} cells, particles ${this.regridCount} before, ${used} after, ${inSolid} in solid cells`);
+            if (inSolid > 0) {
+                return `${inSolid} particles in solid cells`;
+            }
+            if (this.regrid == 1 && used != this.regridCount) {
+                return `the grid remade taller and back kept ${used} of ${this.regridCount} particles`;
+            }
+            if (this.regrid == 2 && (used == 0 || used >= this.regridCount)) {
+                return `the turned grid kept ${used} of ${this.regridCount} particles`;
             }
             return "";
         }
@@ -1070,6 +1689,10 @@ namespace PowderSandboxNri {
                 if (testReadback) {
                     Nri_DestroyBuffer(testReadback);
                 }
+                const cellsReadback = this.cellsReadback;
+                if (cellsReadback) {
+                    Nri_DestroyBuffer(cellsReadback);
+                }
                 const frameReadback = this.frameReadback;
                 if (frameReadback) {
                     Nri_DestroyBuffer(frameReadback);
@@ -1089,6 +1712,9 @@ namespace PowderSandboxNri {
                 if (drawLayout) {
                     Nri_DestroyPipelineLayout(drawLayout);
                 }
+                for (const undoBuffer of this.undoBuffers) {
+                    Nri_DestroyBuffer(undoBuffer);
+                }
                 Nri_DestroyFence(this.frameFence);
                 Nri_DestroyDevice(device);
             }
@@ -1101,6 +1727,8 @@ namespace PowderSandboxNri {
         Nri_UseResizableWindow(sample);
         const sandbox = new PowderSandbox(sample);
         Nri_AddExampleOption(sample, "-utube");
+        Nri_AddExampleOption(sample, "-roundTrip");
+        Nri_AddExampleOptionWithValues(sample, "-regrid", 1);
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
         Nri_AddExampleOptionWithValues(sample, "-view", 1);
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
@@ -1110,6 +1738,11 @@ namespace PowderSandboxNri {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-utube") {
                 sandbox.scene = 1;
+            } else if (arg == "-roundTrip") {
+                sandbox.roundTrip = true;
+            } else if (arg == "-regrid" && i + 1 < argc) {
+                sandbox.regrid = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0), 2);
+                i++;
             } else if (arg == "-substeps" && i + 1 < argc) {
                 sandbox.substeps = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
                 i++;

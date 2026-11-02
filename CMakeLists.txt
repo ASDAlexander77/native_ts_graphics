@@ -1442,6 +1442,14 @@ add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/te
 add_tslang_example_test(powder_sandbox_nri)
 # The materials' showcase: oil on water, a sand pile, burning wood, uranium in a pool, an emitter.
 add_tslang_example_test(powder_sandbox_nri SUFFIX showcase ARGS -scene 2 -testFrames 600)
+# Lava poured into a pool and next to wood: it sets to stone, and the pool's ice block melts.
+add_tslang_example_test(powder_sandbox_nri SUFFIX lava ARGS -scene 3 -testFrames 900)
+# The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
+add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTrip)
+# The U-tube's grid remade halfway (a phone turned): 20 cells taller and back, losing nothing; and
+# turned (its width and height swapped), cropped at its sides. It must still level out.
+add_tslang_example_test(powder_sandbox_nri SUFFIX regrid ARGS -utube -regrid 1)
+add_tslang_example_test(powder_sandbox_nri SUFFIX turned ARGS -utube -regrid 2)
 
 # Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
 # through their field every frame; the same tracing from the camera lenses the sky behind them.

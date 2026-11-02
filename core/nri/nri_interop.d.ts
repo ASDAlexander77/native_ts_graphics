@@ -681,6 +681,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies count 32-bit ints from the start of the buffer (a readback buffer, after the GPU wrote it)
 // to dst (Ref of an int array element); 1, or 0 if it can't be read.
 @nodrops declare function Nri_ReadBufferInts(buffer: NriBufferHandle, dst: Ref<int>, count: int): int;
+// Writes headerInts ints of header (Ref of an int array element), then the first byteSize bytes of the
+// buffer (a readback buffer, after the GPU wrote it), to path (relative to the executable's directory;
+// the app's data directory on Android), replacing the file only once it's written. 1, or 0 on failure.
+@nodrops declare function Nri_SaveBufferToFile(buffer: NriBufferHandle, byteSize: int, header: Ref<int>, headerInts: int, path: string): int;
 // A pool of capacity timestamp queries (the graphics queue's); null on failure.
 @nodrops declare function Nri_CreateTimestampQueryPool(device: NriDeviceHandle, capacity: int): NriQueryPoolHandle | null;
 @nodrops declare function Nri_DestroyQueryPool(queryPool: NriQueryPoolHandle): void;
@@ -793,6 +797,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies byteSize bytes from the start of src (in NriBufferState.CopySource) to the start of dst
 // (e.g. a readback buffer).
 @nodrops declare function Nri_CmdCopyBuffer(commandBuffer: NriCommandBufferHandle, dst: NriBufferHandle, src: NriBufferHandle, byteSize: int): void;
+// Copies byteSize bytes of src (in NriBufferState.CopySource) from srcOffset to dst (in CopyDestination,
+// or a readback buffer) at dstOffset.
+@nodrops declare function Nri_CmdCopyBufferRegion(commandBuffer: NriCommandBufferHandle, dst: NriBufferHandle, dstOffset: int,
+    src: NriBufferHandle, srcOffset: int, byteSize: int): void;
 // Zeroes the whole buffer (in NriBufferState.CopyDestination).
 // The buffer's device address (a GPU pointer) as two 32-bit halves at dst (Ref of an f32 array
 // element: push constants, or a table written with Nri_WriteBuffer; only passed on, never computed
@@ -1238,6 +1246,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // its end.
 @nodrops declare function Nri_CreateUploadedStructuredBufferFromFile(device: NriDeviceHandle, queue: NriQueueHandle, file: NriFileHandle,
     offset: int, byteSize: int, stride: int): NriBufferHandle | null;
+// Nri_CreateStorageBufferFromInts' buffer holding byteSize bytes of the file at offset, in state (e.g.
+// CopySource, to copy regions of it into other buffers); null if they run past its end.
+@nodrops declare function Nri_CreateStorageBufferFromFile(device: NriDeviceHandle, queue: NriQueueHandle, file: NriFileHandle, offset: int,
+    byteSize: int, stride: int, state: NriBufferState): NriBufferHandle | null;
 // Nri_UploadTexture from the file at offset; 0 if the texture's data would run past its end.
 @nodrops declare function Nri_UploadTextureFromFile(queue: NriQueueHandle, texture: NriTextureHandle, file: NriFileHandle, offset: int,
     rowPitch: int): int;
