@@ -230,6 +230,21 @@ acceleration structure state). The rays write the back buffer's own (UNORM) form
 dxr_refit.hlsl's output has no format on Vulkan (`VK_IMAGE_FORMAT_UNKNOWN`): Donut's Vulkan swap
 chain is BGRA8, NRI's RGBA8.
 
+Third: rt_shadows_nri, on D3D12 and Vulkan. Its D3D12 frame is the Donut example's pixel for pixel,
+and its Vulkan frame equals a Donut run's: Donut's own Vulkan runs differ from each other at one or
+two pixels, since its draw order follows the materials' addresses. Sponza is drawn into a G-buffer by
+Donut's GBufferFillPass shaders (environment_map_nri's scene loading and draw list,
+deferred_shading_nri's G-buffer, with reverse depth and the fill pass's pipeline keys: alpha-tested
+pipelines cull nothing, double-sided materials cull nothing, a mirrored view has counterclockwise
+front faces). `Nri_BuildDonutSceneAccelStructs` builds the scene's acceleration structures as
+Donut_BuildSceneAccelStructs does: a BLAS per mesh of its geometries' opaque triangles, and a TLAS of
+the mesh instances (Donut's transforms, mask 1), built once with `Nri_BuildTopLevelASOnQueue`. The
+example's hit group has no shaders: `Nri_CreateShaderTableFromGroups` takes -1 for a null hit record,
+which D3D12 and Vulkan both run no shader for. The G-buffer goes to the rays as
+`NriTextureState.RayTracingShaderResource` (the ray tracing stages, for Vulkan's synchronization).
+rt_shadows.hlsl's output says it's rgba16f on Vulkan, as the G-buffer targets' shaded color is in
+both examples.
+
 ## Notes
 
 - D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is

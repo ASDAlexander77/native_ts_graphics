@@ -40,6 +40,16 @@ extern "C" NRI_INTEROP_API void* Nri_CreateUploadedStructuredBuffer(void* device
 extern "C" NRI_INTEROP_API void* Nri_CreateHostBuffer(void* device, int byteSize, int usage);
 extern "C" NRI_INTEROP_API void* Nri_CreateUploadedBufferFromInts(void* device, void* queue, const void* data, int byteSize, int usage);
 extern "C" NRI_INTEROP_API void Nri_WriteBuffer(void* buffer, int offset, const void* data, int byteSize);
+extern "C" NRI_INTEROP_API void* Nri_CreateBlasDesc();
+extern "C" NRI_INTEROP_API void Nri_DestroyBlasDesc(void* desc);
+extern "C" NRI_INTEROP_API void Nri_BlasDescAddTriangles(void* desc, const float* vertices, int vertexNum, const uint32_t* indices, int indexNum);
+extern "C" NRI_INTEROP_API void* Nri_BuildBlasFromDesc(void* device, void* queue, void* desc, int flags);
+extern "C" NRI_INTEROP_API void Nri_DestroyAccelerationStructure(void* accelerationStructure);
+extern "C" NRI_INTEROP_API void* Nri_CreateTopLevelAS(void* device, int instanceMaxNum, int flags, int bufferNum);
+extern "C" NRI_INTEROP_API void Nri_TopLevelASAddInstance(void* tlas, void* blas, const float* transform, int instanceId, int mask,
+    int hitGroupOffset, int flags);
+extern "C" NRI_INTEROP_API int Nri_BuildTopLevelASOnQueue(void* queue, void* tlas);
+extern "C" NRI_INTEROP_API void Nri_DestroyTopLevelAS(void* tlas);
 
 namespace
 {
@@ -693,5 +703,84 @@ extern "C"
     NRI_INTEROP_API int Nri_GetDonutSceneGeometryMaterial(DonutScene* scene, int instance, int geometry)
     {
         return int(scene->geometries[scene->instances[size_t(instance)].firstGeometryIndex + uint32_t(geometry)].materialIndex);
+    }
+
+    // The scene's acceleration structures as Donut_BuildSceneAccelStructs builds them (nri_interop's
+    // TLAS and the BLASes it references).
+    struct DonutSceneAccelStructs
+    {
+        std::vector<void*> blases;
+        void* tlas = nullptr;
+    };
+
+    NRI_INTEROP_API void Nri_DestroyDonutSceneAccelStructs(DonutSceneAccelStructs* accelStructs);
+
+    // As Donut_BuildSceneAccelStructs: a BLAS per mesh (each geometry's opaque triangles, its
+    // positions and indices), a TLAS of the mesh instances (their transforms, mask 1, instance ID and
+    // hit group offset 0, no flags), built on the queue (which this waits for); null on failure.
+    NRI_INTEROP_API DonutSceneAccelStructs* Nri_BuildDonutSceneAccelStructs(void* device, void* queue, DonutScene* scene)
+    {
+        auto* accelStructs = new DonutSceneAccelStructs();
+        // A mesh's BLAS, by its first geometry (the instances of a mesh share it).
+        std::map<uint32_t, void*> meshBlases;
+        const float* positions = (const float*)scene->vertices.data() + scene->streamOffsets[VertexStream_Position] / 4;
+        for (const InstanceData& instance : scene->instances)
+        {
+            if (instance.numGeometries == 0 || meshBlases.count(instance.firstGeometryIndex))
+                continue;
+            void* desc = Nri_CreateBlasDesc();
+            for (uint32_t g = instance.firstGeometryIndex; g < instance.firstGeometryIndex + instance.numGeometries; g++)
+            {
+                const GeometryData& geometry = scene->geometries[g];
+                Nri_BlasDescAddTriangles(desc, positions + size_t(scene->firstVertices[g]) * 3, int(geometry.numVertices),
+                    scene->indices.data() + geometry.indexOffset / 4, int(geometry.numIndices));
+            }
+            void* blas = Nri_BuildBlasFromDesc(device, queue, desc, 0);
+            Nri_DestroyBlasDesc(desc);
+            if (!blas)
+            {
+                Nri_DestroyDonutSceneAccelStructs(accelStructs);
+                return nullptr;
+            }
+            meshBlases[instance.firstGeometryIndex] = blas;
+            accelStructs->blases.push_back(blas);
+        }
+
+        accelStructs->tlas = Nri_CreateTopLevelAS(device, int(scene->instances.size()), 0, 1);
+        if (!accelStructs->tlas)
+        {
+            Nri_DestroyDonutSceneAccelStructs(accelStructs);
+            return nullptr;
+        }
+        for (const InstanceData& instance : scene->instances)
+        {
+            if (instance.numGeometries == 0)
+                continue;
+            // affineToColumnMajor's float3x4, as NVRHI's AffineTransform takes it.
+            float transform[12];
+            memcpy(transform, &instance.transform, sizeof(transform));
+            Nri_TopLevelASAddInstance(accelStructs->tlas, meshBlases[instance.firstGeometryIndex], transform, 0, 1, 0, 0);
+        }
+        if (!Nri_BuildTopLevelASOnQueue(queue, accelStructs->tlas))
+        {
+            Nri_DestroyDonutSceneAccelStructs(accelStructs);
+            return nullptr;
+        }
+        return accelStructs;
+    }
+
+    // The TLAS (an NriTopLevelASHandle), valid as long as the structures.
+    NRI_INTEROP_API void* Nri_GetDonutSceneTopLevelAS(DonutSceneAccelStructs* accelStructs)
+    {
+        return accelStructs->tlas;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyDonutSceneAccelStructs(DonutSceneAccelStructs* accelStructs)
+    {
+        if (accelStructs->tlas)
+            Nri_DestroyTopLevelAS(accelStructs->tlas);
+        for (void* blas : accelStructs->blases)
+            Nri_DestroyAccelerationStructure(blas);
+        delete accelStructs;
     }
 }

@@ -341,6 +341,9 @@ namespace
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::RAYGEN_SHADER };
         case 14:
             return { nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY };
+        case 15:
+            // read by ray tracing shaders (a G-buffer the ray generation shader decodes)
+            return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::RAY_TRACING_SHADERS };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -5164,8 +5167,9 @@ extern "C"
 
     // The shader table of a ray tracing pipeline whose records are its shader groups raygenGroup,
     // missGroups (missNum of them: miss shader index i is missGroups[i]) and hitGroups (hitGroupNum:
-    // hit group index i, the instance's offset plus the ray's, is hitGroups[i]), in device memory,
-    // uploaded on the queue (which this waits for); null on failure.
+    // hit group index i, the instance's offset plus the ray's, is hitGroups[i]; -1, a null record: a
+    // hit runs no shader), in device memory, uploaded on the queue (which this waits for); null on
+    // failure.
     NRI_INTEROP_API ShaderTable* Nri_CreateShaderTableFromGroups(nri::Device* device, nri::Queue* queue, nri::Pipeline* pipeline,
         int raygenGroup, const int* missGroups, int missNum, const int* hitGroups, int hitGroupNum)
     {
@@ -5184,6 +5188,9 @@ extern "C"
 
         std::vector<uint8_t> data((size_t)size, 0);
         auto write = [&](int group, uint64_t offset) {
+            // A null shader identifier (zeros): D3D12 and Vulkan run no shader for it.
+            if (group < 0)
+                return true;
             return NRI.WriteShaderGroupIdentifiers(*pipeline, (uint32_t)group, 1, data.data() + offset) == nri::Result::SUCCESS;
         };
         bool written = write(raygenGroup, 0);
@@ -5404,6 +5411,13 @@ extern "C"
         barriers[0].after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::RAY_TRACING_SHADERS };
         barrierDesc.bufferNum = 1;
         NRI.CmdBarrier(*commandBuffer, barrierDesc);
+    }
+
+    // Builds the TLAS from its instances on the queue (instance buffer 0), and waits: for a scene
+    // that doesn't move, built before the first frame. 0 on failure.
+    NRI_INTEROP_API int Nri_BuildTopLevelASOnQueue(nri::Queue* queue, TopLevelAS* tlas)
+    {
+        return SubmitAndWait(queue, [&](nri::CommandBuffer& commandBuffer) { Nri_CmdBuildTopLevelAS(&commandBuffer, tlas, 0, 0); }) ? 1 : 0;
     }
 
     NRI_INTEROP_API void Nri_DestroyTopLevelAS(TopLevelAS* tlas)
