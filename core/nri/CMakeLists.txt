@@ -54,6 +54,9 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # CreateStateObject rejects: patched to export each shader's entry point alone, for rt_triangle_nri.
 # Its Vulkan conservative rasterization has no extra overestimation (0 always): patched with a
 # RasterizationDesc field for it, as Donut's NVRHI patch gives conservative_rasterization's Vulkan pipeline.
+# Its validation layer unwraps the HAS_BUFFER marker of a bottom level structure's creation desc as a
+# buffer (an access violation with -debug): patched to pass it through, for ray_tracing_extended_nri's
+# updatable BLAS.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -90,6 +93,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-conservative-extra-overestimation.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-validation-has-buffer.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

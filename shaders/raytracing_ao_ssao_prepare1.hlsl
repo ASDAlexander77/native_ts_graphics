@@ -15,15 +15,15 @@
 Texture2D<float> Depth : register(t0);
 Texture2D<float4> GBufferNormals : register(t1);
 
-RWTexture2D<float> LinearZ : register(u0);
-RWTexture2D<float2> DS2x : register(u1);
-RWTexture2DArray<float> DS2xAtlas : register(u2);
-RWTexture2D<float2> DS4x : register(u3);
-RWTexture2DArray<float> DS4xAtlas : register(u4);
-RWTexture2D<float4> Normals2x : register(u5);
-RWTexture2DArray<float4> Normals2xAtlas : register(u6);
-RWTexture2D<float4> Normals4x : register(u7);
-RWTexture2DArray<float4> Normals4xAtlas : register(u8);
+VK_IMAGE_FORMAT("r16f") RWTexture2D<float> LinearZ : register(u0);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float2> DS2x : register(u1);
+VK_IMAGE_FORMAT("r16f") RWTexture2DArray<float> DS2xAtlas : register(u2);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float2> DS4x : register(u3);
+VK_IMAGE_FORMAT("r16f") RWTexture2DArray<float> DS4xAtlas : register(u4);
+VK_IMAGE_FORMAT("rgb10a2") RWTexture2D<float4> Normals2x : register(u5);
+VK_IMAGE_FORMAT("rgb10a2") RWTexture2DArray<float4> Normals2xAtlas : register(u6);
+VK_IMAGE_FORMAT("rgb10a2") RWTexture2D<float4> Normals4x : register(u7);
+VK_IMAGE_FORMAT("rgb10a2") RWTexture2DArray<float4> Normals4xAtlas : register(u8);
 
 groupshared float g_CacheW[256];
 groupshared float3 g_CacheNormals[256];

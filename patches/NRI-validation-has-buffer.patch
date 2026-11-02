@@ -1,0 +1,26 @@
+diff --git a/Source/Validation/ConversionVal.hpp b/Source/Validation/ConversionVal.hpp
+index 7d1a1fca..d727f1c1 100644
+--- a/Source/Validation/ConversionVal.hpp
++++ b/Source/Validation/ConversionVal.hpp
+@@ -8,9 +8,10 @@ void nri::ConvertBotomLevelGeometries(const BottomLevelGeometryDesc* geometries,
+         dst = src;
+ 
+         if (src.type == BottomLevelGeometryType::TRIANGLES) {
+-            dst.triangles.vertexBuffer = NRI_GET_IMPL(Buffer, src.triangles.vertexBuffer);
+-            dst.triangles.indexBuffer = NRI_GET_IMPL(Buffer, src.triangles.indexBuffer);
+-            dst.triangles.transformBuffer = NRI_GET_IMPL(Buffer, src.triangles.transformBuffer);
++            // "HAS_BUFFER" (a buffer's presence, at creation) isn't a wrapped buffer: passed through
++            dst.triangles.vertexBuffer = src.triangles.vertexBuffer == HAS_BUFFER ? HAS_BUFFER : NRI_GET_IMPL(Buffer, src.triangles.vertexBuffer);
++            dst.triangles.indexBuffer = src.triangles.indexBuffer == HAS_BUFFER ? HAS_BUFFER : NRI_GET_IMPL(Buffer, src.triangles.indexBuffer);
++            dst.triangles.transformBuffer = src.triangles.transformBuffer == HAS_BUFFER ? HAS_BUFFER : NRI_GET_IMPL(Buffer, src.triangles.transformBuffer);
+ 
+             if (src.triangles.micromap) {
+                 dst.triangles.micromap = outMicromaps++;
+@@ -20,6 +21,6 @@ void nri::ConvertBotomLevelGeometries(const BottomLevelGeometryDesc* geometries,
+                 dst.triangles.micromap->indexBuffer = NRI_GET_IMPL(Buffer, src.triangles.micromap->indexBuffer);
+             }
+         } else
+-            dst.aabbs.buffer = NRI_GET_IMPL(Buffer, src.aabbs.buffer);
++            dst.aabbs.buffer = src.aabbs.buffer == HAS_BUFFER ? HAS_BUFFER : NRI_GET_IMPL(Buffer, src.aabbs.buffer);
+     }
+ }

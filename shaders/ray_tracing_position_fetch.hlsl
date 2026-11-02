@@ -22,11 +22,15 @@
 // NVAPI only. Positions and directions are in the sample's world, its matrices as they are: the rays
 // are the sample's and land in the same pixels.
 
+#include <donut/shaders/binding_helpers.hlsli>
+
 // The matrices come in glm's layout (columns): read as row-major, they're for mul(vector, matrix).
 #pragma pack_matrix(row_major)
 
 RaytracingAccelerationStructure t_TopLevelAS : register(t0);
-RWTexture2D<float4> u_Image : register(u0);
+// The back buffer's format without sRGB (BGRA with Donut's Vulkan swap chain, RGBA with NRI's), so no
+// format here: NRIFramework's validation rejects the Rgba32f DXC would give it otherwise.
+VK_IMAGE_FORMAT_UNKNOWN RWTexture2D<float4> u_Image : register(u0);
 
 cbuffer c_Ubo : register(b0)
 {

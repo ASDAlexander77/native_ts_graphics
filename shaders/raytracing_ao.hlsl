@@ -22,7 +22,7 @@ ConstantBuffer<SceneConstantBuffer> g_sceneCB : register(b0);
 ConstantBuffer<AOConstantBuffer> g_aoCB : register(b1);
 ConstantBuffer<AOOptionsConstantBuffer> g_optionsCB : register(b2);
 
-RWTexture2D<float4> RenderTarget : register(u0);
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> RenderTarget : register(u0);
 
 RaytracingAccelerationStructure Scene : register(t0, space0);
 

@@ -25,7 +25,7 @@ Texture2D<float> LoResAO2 : register(t3);
 Texture2D<float> HiResAO : register(t4);
 #endif
 
-RWTexture2D<float> AoResult : register(u0);
+VK_IMAGE_FORMAT("r8") RWTexture2D<float> AoResult : register(u0);
 
 SamplerState LinearSampler : register(s0);
 

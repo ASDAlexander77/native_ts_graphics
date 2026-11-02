@@ -1692,6 +1692,15 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(ray_tracing_extended ray_tracing_extended_media)
 endif()
 
+# ray_tracing_extended with NRI and NRIFramework instead of Donut: its shaders, its scene and
+# textures (ray_tracing_extended_media); the refraction sheet's BLAS updated in place every frame.
+add_tslang_nri_example(ray_tracing_extended_nri SHADERS ray_tracing_extended_shaders core/matrix.ts core/random.ts
+    core/donut_first_person_camera.ts)
+add_tslang_example_test(ray_tracing_extended_nri)
+if (TARGET ray_tracing_extended_media AND TARGET ray_tracing_extended_nri)
+    add_dependencies(ray_tracing_extended_nri ray_tracing_extended_media)
+endif()
+
 # Port of Vulkan-Samples' multi_draw_indirect: 225 meshes drawn by one indirect draw call, culled on
 # the CPU or by a compute shader that writes the draws' instance counts. Its scene is Vulkan-Samples'
 # assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene is copied and the meshes' KTX
@@ -2411,6 +2420,14 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     endforeach()
     add_custom_target(ray_tracing_position_fetch_media DEPENDS ${position_fetch_media})
     add_dependencies(ray_tracing_position_fetch ray_tracing_position_fetch_media)
+endif()
+
+# ray_tracing_position_fetch with NRI and NRIFramework instead of Donut: its shaders and scene; Vulkan
+# only, as the Donut example.
+add_tslang_nri_example(ray_tracing_position_fetch_nri SHADERS ray_tracing_position_fetch_shaders core/matrix.ts)
+add_tslang_example_test(ray_tracing_position_fetch_nri APIS vk)
+if (TARGET ray_tracing_position_fetch_media AND TARGET ray_tracing_position_fetch_nri)
+    add_dependencies(ray_tracing_position_fetch_nri ray_tracing_position_fetch_media)
 endif()
 
 # Port of Vulkan-Samples' fragment_shading_rate_dynamic: a scene drawn with a shading rate image
@@ -3552,6 +3569,19 @@ add_atg_media(raytracing_ao raytracing_ao
     Media/Meshes/Dragon/Dragon_Normal.dds
     Media/Meshes/Maze/Maze1.sdkmesh)
 
+# raytracing_ao with NRI and NRIFramework instead of Donut: raytracing_ao's shaders (D3D12 and Vulkan:
+# ray tracing; their storage textures' Vulkan formats declared for NRIFramework's validation), the
+# sample's SDKMESH models (the reader is in nri_interop) and texture (raytracing_ao_media), Donut's
+# blit shaders (donut_shaders), its HUD drawn by NRIFramework's ImGui.
+add_tslang_nri_example(raytracing_ao_nri SHADERS raytracing_ao_shaders core/matrix.ts core/text_format.ts core/sdk_mesh.ts)
+add_tslang_example_test(raytracing_ao_nri)
+if (TARGET raytracing_ao_media AND TARGET raytracing_ao_nri)
+    add_dependencies(raytracing_ao_nri raytracing_ao_media)
+endif()
+if (TARGET donut_shaders AND TARGET raytracing_ao_nri)
+    add_dependencies(raytracing_ao_nri donut_shaders)
+endif()
+
 # Port of the Xbox ATG SimplePBR12_UWP sample (UWPSamples/Graphics/SimplePBR12_UWP): physically based
 # rendering (ATGTK's PBREffect: Disney-style, image based lighting from radiance and irradiance cube
 # maps) of a toy robot, blocks and a floor (SDKMESH, core/sdkmesh.cpp) with albedo, normal and
@@ -3975,6 +4005,14 @@ add_tslang_example(hdr_display MEDIA fonts)
 add_tslang_example_test(hdr_display)
 add_tslang_example_test(hdr_display SUFFIX 10bit ARGS -testFormat 10)
 add_tslang_example_test(hdr_display SUFFIX 16bit ARGS -testFormat 16)
+
+# hdr_display with NRI and NRIFramework instead of Donut: hdr_display's shaders (D3D12 and Vulkan
+# only, as the Donut example's), its UI layer's text drawn by NRIFramework's ImGui; 8-bit, 10-bit
+# and 16-bit float swap chains (-testFormat).
+add_tslang_nri_example(hdr_display_nri SHADERS hdr_display_shaders)
+add_tslang_example_test(hdr_display_nri)
+add_tslang_example_test(hdr_display_nri SUFFIX 10bit ARGS -testFormat 10)
+add_tslang_example_test(hdr_display_nri SUFFIX 16bit ARGS -testFormat 16)
 
 # Port of DirectX-Graphics-Samples' D3D12nBodyGravity: two clusters of 5000 particles, every particle
 # pulling on every other, stepped by a compute shader on the compute queue and drawn as additive point

@@ -11,6 +11,9 @@
 #ifndef RAYTRACING_AO_HLSLI
 #define RAYTRACING_AO_HLSLI
 
+// VK_IMAGE_FORMAT: the storage textures' Vulkan formats, as the views bound to them have.
+#include <donut/shaders/binding_helpers.hlsli>
+
 // --- GlobalSharedHlslCompat.h ---------------------------------------------------------------
 
 #define NEAR_PLANE 1.f
