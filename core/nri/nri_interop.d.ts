@@ -58,6 +58,8 @@
 @cpp declare class NriRayTracingPipelineDescHandle { private readonly __nriRayTracingPipelineDesc: index; }
 // A top level acceleration structure with its instance list, built in frames (Nri_CreateTopLevelAS).
 @cpp declare class NriTopLevelASHandle { private readonly __nriTopLevelAS: index; }
+// A Donut scene's BLASes and TLAS (Nri_BuildDonutSceneAccelStructs).
+@cpp declare class NriDonutSceneAccelStructsHandle { private readonly __nriDonutSceneAccelStructs: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -91,7 +93,9 @@ enum NriTextureState {
     // written by ray generation shaders (RWTexture2D in Nri_CmdDispatchRays)
     RayTracingStorage = 13,
     // copied into (Nri_CmdCopyTexture's destination)
-    CopyDestination = 14
+    CopyDestination = 14,
+    // read by ray tracing shaders (a G-buffer the ray generation shader decodes)
+    RayTracingShaderResource = 15
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -1414,7 +1418,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     desc: NriRayTracingPipelineDescHandle, payloadSize: int, attributeSize: int, recursionMaxDepth: int): NriPipelineHandle | null;
 // The shader table whose records are the pipeline's groups raygenGroup, missGroups (missNum ints: miss
 // shader index i is missGroups[i]) and hitGroups (hitGroupNum ints: hit group index i, an instance's
-// hit group offset plus the ray's contribution, is hitGroups[i]); null on failure.
+// hit group offset plus the ray's contribution, is hitGroups[i]; -1, a null record: a hit runs no
+// shader); null on failure.
 @nodrops declare function Nri_CreateShaderTableFromGroups(device: NriDeviceHandle, queue: NriQueueHandle, pipeline: NriPipelineHandle,
     raygenGroup: int, missGroups: Ref<int>, missNum: int, hitGroups: Ref<int>, hitGroupNum: int): NriShaderTableHandle | null;
 // A top level acceleration structure of instanceMaxNum instances at most, with flags (AllowUpdate to
@@ -1438,3 +1443,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Copies the whole of src into dst (same size and format; src in NriTextureState.CopySource, dst in
 // CopyDestination).
 @nodrops declare function Nri_CmdCopyTexture(commandBuffer: NriCommandBufferHandle, dst: NriTextureHandle, src: NriTextureHandle): void;
+// Builds the TLAS from its instances on the queue, and waits (a scene that doesn't move); 0 on failure.
+@nodrops declare function Nri_BuildTopLevelASOnQueue(queue: NriQueueHandle, tlas: NriTopLevelASHandle): int;
+// The scene's acceleration structures as Donut_BuildSceneAccelStructs builds them: a BLAS per mesh
+// (its geometries' opaque triangles), a TLAS of the mesh instances (their transforms, mask 1, instance
+// ID and hit group offset 0, no flags), built on the queue (which this waits for); null on failure.
+@nodrops declare function Nri_BuildDonutSceneAccelStructs(device: NriDeviceHandle, queue: NriQueueHandle,
+    scene: NriDonutSceneHandle): NriDonutSceneAccelStructsHandle | null;
+@nodrops declare function Nri_GetDonutSceneTopLevelAS(accelStructs: NriDonutSceneAccelStructsHandle): NriTopLevelASHandle;
+@nodrops declare function Nri_DestroyDonutSceneAccelStructs(accelStructs: NriDonutSceneAccelStructsHandle): void;

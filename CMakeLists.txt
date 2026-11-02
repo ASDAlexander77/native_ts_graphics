@@ -1314,6 +1314,14 @@ donut_compile_shaders(
 )
 add_tslang_example(rt_shadows core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(rt_shadows)
+# rt_shadows with NRI and NRIFramework instead of Donut: rt_shadows' shader library, Donut's G-buffer fill and
+# blit shaders (shaders/framework), the scene loaded as Donut loads it (core/nri/nri_donut_scene.cpp).
+add_tslang_nri_example(rt_shadows_nri SHADERS rt_shadows_shaders core/matrix.ts core/donut_first_person_camera.ts
+    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+add_tslang_example_test(rt_shadows_nri)
+if (TARGET donut_shaders AND TARGET rt_shadows_nri)
+    add_dependencies(rt_shadows_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' variable_shading: variable rate shading of Sponza (see
 # DONUT_SAMPLES_MEDIA_DIR above) from a compute-generated shading rate surface. D3D12 or Vulkan.

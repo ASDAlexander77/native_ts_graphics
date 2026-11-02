@@ -25,6 +25,7 @@
 #include <donut/shaders/gbuffer.hlsli>
 #include <donut/shaders/lighting.hlsli>
 #include "rt_shadows_lighting_cb.h"
+#include <donut/shaders/binding_helpers.hlsli>
 
 // ---[ Structures ]---
 
@@ -37,7 +38,8 @@ struct HitInfo
 
 ConstantBuffer<LightingConstants> g_Lighting : register(b0);
 
-RWTexture2D<float4> u_Output : register(u0);
+// The G-buffer targets' RGBA16F shaded color, on Vulkan too (not the Rgba32f float4 implies).
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> u_Output : register(u0);
 
 RaytracingAccelerationStructure SceneBVH : register(t0);
 Texture2D t_GBufferDepth : register(t1);
