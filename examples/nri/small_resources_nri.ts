@@ -142,6 +142,8 @@ namespace SmallResourcesNri {
         private frameFence: NriFenceHandle;
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
+        // The swap chain textures' format.
+        private swapChainFormat: NriFormat = 0;
         private queuedFrames: QueuedFrame[] = [];
         private pipelineLayout: NriPipelineLayoutHandle | null = null;
         private pipeline: NriPipelineHandle | null = null;
@@ -209,20 +211,12 @@ namespace SmallResourcesNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: the sample's R8G8B8A8_UNORM back buffers, rendered into as they are.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -401,8 +395,50 @@ namespace SmallResourcesNri {
             }
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+            this.swapChainFormat = format;
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its
+        // size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+        }
+
         // PopulateCommandList: the grid, a quad (triangle strip) per texture.
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
 
             // Acquire a swap chain texture
@@ -490,11 +526,6 @@ namespace SmallResourcesNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 this.releaseTextures();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
@@ -522,7 +553,7 @@ namespace SmallResourcesNri {
                 }
                 if (this.unsupportedReason == "") {
                     Nri_DestroyFence(this.frameFence);
-                    Nri_DestroySwapChain(this.swapChain);
+                    this.destroySwapChain();
                 }
                 Nri_DestroyDevice(device);
             }
@@ -532,6 +563,7 @@ namespace SmallResourcesNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const smallResources = new SmallResources(sample);
         // -committed: start with committed resources (the sample starts with placed ones).
         Nri_AddExampleOption(sample, "-committed");

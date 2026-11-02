@@ -129,6 +129,7 @@ namespace WaveIntrinsicsNri {
         private sceneTarget: Target | null = null;
         private uiTarget: Target | null = null;
         private imgui: boolean = false;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
         // Set by initialize when the example can't run ("" otherwise).
@@ -194,22 +195,13 @@ namespace WaveIntrinsicsNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered in its own (UNORM) format, as the sample's R8G8B8A8_UNORM back
             // buffers (the Donut example's UnormBackBuffer).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.format = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.format;
 
             // Shader model 6 with wave intrinsics: D3D12 or Vulkan (the Donut example's shaders have
             // no DXBC).
@@ -279,23 +271,10 @@ namespace WaveIntrinsicsNri {
                 return 0;
             }
 
-            // LoadSizeDependentResources: pass 1's texture and the UI layer's, and pass 2's rectangle,
-            // its x scaled by the aspect ratio as the orthographic projection unscales it.
-            const a = Math.fround(this.width / this.height);
-            const quad: f32[] = [
-                -a, -1.0, 0.0, 0.0, 1.0,
-                -a, 1.0, 0.0, 0.0, 0.0,
-                a, 1.0, 0.0, 1.0, 0.0,
-
-                -a, -1.0, 0.0, 0.0, 1.0,
-                a, 1.0, 0.0, 1.0, 0.0,
-                a, -1.0, 0.0, 1.0, 1.0,
-            ];
+            // LoadSizeDependentResources: pass 1's texture and the UI layer's, and pass 2's rectangle.
             this.triangleBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(TRIANGLE_VERTICES[0]), TRIANGLE_VERTICES.length * 4,
                 NriBufferUsage.VertexBuffer);
-            this.quadBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(quad[0]), quad.length * 4, NriBufferUsage.VertexBuffer);
-            this.sceneTarget = this.createTarget(device);
-            this.uiTarget = this.createTarget(device);
+            this.createSizeDependentResources(device);
             const sceneTarget = this.sceneTarget;
             const uiTarget = this.uiTarget;
             if (!this.triangleBuffer || !this.quadBuffer || !sceneTarget || !uiTarget) {
@@ -329,12 +308,11 @@ namespace WaveIntrinsicsNri {
                 }
                 Nri_UpdateDescriptor(sceneSet, 0, 0, constantView);
                 Nri_UpdateDescriptor(composeSet, 0, 0, constantView);
-                Nri_UpdateDescriptor(composeSet, 1, 0, sceneTarget.view);
-                Nri_UpdateDescriptor(composeSet, 1, 1, uiTarget.view);
                 Nri_UpdateDescriptor(composeSet, 2, 0, sampler);
                 this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), constantView, sceneSet,
                     composeSet));
             }
+            this.updateTargetDescriptors();
 
             // The UI layer's text.
             if (!this.noUI) {
@@ -351,6 +329,89 @@ namespace WaveIntrinsicsNri {
                 this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
             }
             return 1;
+        }
+
+        // The swap chain at the window's size, its textures' views (their own UNORM format) and
+        // semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.format),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The resources of the swap chain's size: pass 2's rectangle (its x scaled by the aspect ratio,
+        // as the orthographic projection unscales it), pass 1's texture and the UI layer's.
+        createSizeDependentResources(device: NriDeviceHandle) {
+            const a = Math.fround(this.width / this.height);
+            const quad: f32[] = [
+                -a, -1.0, 0.0, 0.0, 1.0,
+                -a, 1.0, 0.0, 0.0, 0.0,
+                a, 1.0, 0.0, 1.0, 0.0,
+
+                -a, -1.0, 0.0, 0.0, 1.0,
+                a, 1.0, 0.0, 1.0, 0.0,
+                a, -1.0, 0.0, 1.0, 1.0,
+            ];
+            this.quadBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(quad[0]), quad.length * 4, NriBufferUsage.VertexBuffer);
+            this.sceneTarget = this.createTarget(device);
+            this.uiTarget = this.createTarget(device);
+        }
+
+        destroySizeDependentResources() {
+            this.destroyTarget(this.sceneTarget);
+            this.destroyTarget(this.uiTarget);
+            this.destroyBuffer(this.quadBuffer);
+            this.sceneTarget = null;
+            this.uiTarget = null;
+            this.quadBuffer = null;
+        }
+
+        // Pass 2's sets read the two layers.
+        updateTargetDescriptors() {
+            const sceneTarget = this.sceneTarget;
+            const uiTarget = this.uiTarget;
+            if (!sceneTarget || !uiTarget) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                Nri_UpdateDescriptor(queuedFrame.composeSet, 1, 0, sceneTarget.view);
+                Nri_UpdateDescriptor(queuedFrame.composeSet, 1, 1, uiTarget.view);
+            }
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain, the layers and the rectangle made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySizeDependentResources();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createSizeDependentResources(device);
+            this.updateTargetDescriptors();
         }
 
         // A layer: an RGBA8_UNORM render target the swap chain's size, read by pass 2.
@@ -488,6 +549,7 @@ namespace WaveIntrinsicsNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const descriptorPool = this.descriptorPool;
@@ -576,11 +638,6 @@ namespace WaveIntrinsicsNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     Nri_DestroyDescriptor(queuedFrame.constantView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -589,10 +646,8 @@ namespace WaveIntrinsicsNri {
                 if (sampler) {
                     Nri_DestroyDescriptor(sampler);
                 }
-                this.destroyTarget(this.sceneTarget);
-                this.destroyTarget(this.uiTarget);
+                this.destroySizeDependentResources();
                 this.destroyBuffer(this.triangleBuffer);
-                this.destroyBuffer(this.quadBuffer);
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
                 this.destroyPipeline(this.wavePipeline);
@@ -600,7 +655,7 @@ namespace WaveIntrinsicsNri {
                 this.destroyLayout(this.sceneLayout);
                 this.destroyLayout(this.composeLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -635,6 +690,7 @@ namespace WaveIntrinsicsNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const waveIntrinsics = new WaveIntrinsics(sample);
         // -noUI: no UI layer text.
         Nri_AddExampleOption(sample, "-noUI");

@@ -158,8 +158,10 @@ namespace DxrRefitNri {
         // A row-major 3x4 instance transform.
         private transform: f32[] = [];
         private rotation: number = 0.0;
+        // The swap chain's size (the window's when it was made) and its textures' format.
         private width: int = 0;
         private height: int = 0;
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -218,20 +220,13 @@ namespace DxrRefitNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format: the shader writes sRGB-encoded
             // values, as the tutorial's CopyResource into its sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -281,17 +276,14 @@ namespace DxrRefitNri {
             this.colorBufferView = colorBufferView;
 
             // The output the ray generation shader writes, in the back buffer's format, for the copy.
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, format);
-            this.output = output;
+            const outputCreated = this.createOutput(device);
             const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, 1, 0, 1, 0, 1, 0, 1);
             this.descriptorPool = descriptorPool;
             const topLevelASView = this.topLevelASView;
-            if (!output || !descriptorPool || !topLevelASView || !colorBufferView) {
+            if (!outputCreated || !descriptorPool || !topLevelASView || !colorBufferView) {
                 console.log("Cannot create the output");
                 return 0;
             }
-            const outputStorage = Nri_CreateStorageTextureView(output, format);
-            this.outputStorage = outputStorage;
             const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
             this.set = set;
             if (!set) {
@@ -299,7 +291,7 @@ namespace DxrRefitNri {
                 return 0;
             }
             Nri_UpdateDescriptor(set, 0, 0, topLevelASView);
-            Nri_UpdateDescriptor(set, 1, 0, outputStorage);
+            this.updateOutputDescriptor();
             Nri_UpdateDescriptor(set, 2, 0, colorBufferView);
 
             if (this.test) {
@@ -309,6 +301,79 @@ namespace DxrRefitNri {
                 this.readbackFormat = format;
             }
             return 1;
+        }
+
+        // The swap chain at the window's size, and its textures' semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The output at the swap chain's size and format and its storage view, not written yet (in
+        // NriTextureState.Storage, as created: no barrier before its first rays). False on failure.
+        createOutput(device: NriDeviceHandle): boolean {
+            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+            this.output = output;
+            this.outputCopied = false;
+            if (!output) {
+                return false;
+            }
+            this.outputStorage = Nri_CreateStorageTextureView(output, this.swapChainFormat);
+            return true;
+        }
+
+        destroyOutput() {
+            this.destroyDescriptor(this.outputStorage);
+            this.outputStorage = null;
+            const output = this.output;
+            if (output) {
+                Nri_DestroyTexture(output);
+            }
+            this.output = null;
+        }
+
+        updateOutputDescriptor() {
+            const set = this.set;
+            const outputStorage = this.outputStorage;
+            if (set) {
+                if (outputStorage) {
+                    Nri_UpdateDescriptor(set, 1, 0, outputStorage);
+                }
+            }
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the output made again at
+        // its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroyOutput();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createOutput(device);
+            this.updateOutputDescriptor();
         }
 
         // The tutorial's createRtPipelineState and createShaderTable: the ray generation shader, the
@@ -460,6 +525,7 @@ namespace DxrRefitNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
 
             // Acquire a swap chain texture
@@ -524,21 +590,13 @@ namespace DxrRefitNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyDescriptor(this.outputStorage);
+                this.destroyOutput();
                 this.destroyDescriptor(this.colorBufferView);
                 this.destroyDescriptor(this.topLevelASView);
-                const output = this.output;
-                if (output) {
-                    Nri_DestroyTexture(output);
-                }
                 const colorBuffer = this.colorBuffer;
                 if (colorBuffer) {
                     Nri_DestroyBuffer(colorBuffer);
@@ -567,7 +625,7 @@ namespace DxrRefitNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -582,6 +640,7 @@ namespace DxrRefitNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const dxrRefit = new DxrRefit(sample);
         // -benchmark: 0.005 radians a frame; -rebuild: the TLAS built anew every frame.
         Nri_AddExampleOption(sample, "-benchmark");

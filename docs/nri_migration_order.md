@@ -400,7 +400,14 @@ read the stored size every frame.
 
 Converted so far (each resize-tested on D3D12 and Vulkan, D3D11 where it runs: several sizes,
 minimize/restore and maximize under `-debug`): basic_triangle_nri, deferred_shading_nri,
-rt_shadows_nri. The other ports keep fixed windows until converted.
+rt_shadows_nri; then async_compute, bindless_rendering, buffer_device_address, bundles,
+color_write_enable, compute_shader_derivatives, depth_bounds_test, descriptor_indexing,
+dxr_refit, dynamic_indexing, dynamic_primitive_clipping, dynamic_rendering,
+dynamic_uniform_buffers, execute_indirect, fragment_shader_barycentric, mesh_shader_culling,
+mesh_shading, meshlet_render, meshlets, mobile_nerf, n_body_gravity, patch_control_points,
+push_descriptors, rt_triangle, separate_image_sampler, shader_quad_control, small_resources,
+texture_loading, timeline_semaphore, vertex_buffer, vertex_dynamic_state, wave_intrinsics
+(all `_nri`). The other ports keep fixed windows until converted.
 
 ## Notes
 

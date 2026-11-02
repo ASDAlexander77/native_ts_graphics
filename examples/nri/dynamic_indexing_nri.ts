@@ -186,8 +186,11 @@ namespace DynamicIndexingNri {
         private sampler: NriDescriptorHandle | null = null;
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         private descriptorSet: NriDescriptorSetHandle | null = null;
+        // The swap chain's size (the window's when it was made), its textures' format and their views'.
         private width: int = 0;
         private height: int = 0;
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private viewFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize on D3D11 ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -274,29 +277,18 @@ namespace DynamicIndexingNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: the sample's R8G8B8A8_UNORM back buffers, rendered into as they are.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // The depth buffer: D32.
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            if (!depthTexture) {
+            if (!this.createDepth(device)) {
                 console.log("Cannot create the depth buffer");
                 return 0;
             }
-            this.depthTexture = depthTexture;
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -340,6 +332,72 @@ namespace DynamicIndexingNri {
                 this.readbackFormat = format;
             }
             return 1;
+        }
+
+        // The swap chain at the window's size, its textures' views (their own format, as the sample's UNORM back buffers) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = this.swapChainFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The D32 depth buffer at the swap chain's size; false on failure.
+        createDepth(device: NriDeviceHandle): boolean {
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!depthTexture) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroyDepth() {
+            const depthAttachment = this.depthAttachment;
+            if (depthAttachment) {
+                Nri_DestroyDescriptor(depthAttachment);
+            }
+            this.depthAttachment = null;
+            const depthTexture = this.depthTexture;
+            if (depthTexture) {
+                Nri_DestroyTexture(depthTexture);
+            }
+            this.depthTexture = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroyDepth();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createDepth(device);
         }
 
         // LoadAssets: the city's mesh and diffuse texture from the data file, the material textures,
@@ -488,6 +546,7 @@ namespace DynamicIndexingNri {
 
         // PopulateCommandList: clear, the cities.
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             this.update();
 
@@ -559,11 +618,6 @@ namespace DynamicIndexingNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -602,21 +656,14 @@ namespace DynamicIndexingNri {
                 if (indexBuffer) {
                     Nri_DestroyBuffer(indexBuffer);
                 }
-                const depthAttachment = this.depthAttachment;
-                if (depthAttachment) {
-                    Nri_DestroyDescriptor(depthAttachment);
-                }
-                const depthTexture = this.depthTexture;
-                if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
-                }
+                this.destroyDepth();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     Nri_DestroyBuffer(readbackBuffer);
                 }
                 if (this.unsupportedReason == "") {
                     Nri_DestroyFence(this.frameFence);
-                    Nri_DestroySwapChain(this.swapChain);
+                    this.destroySwapChain();
                 }
                 Nri_DestroyDevice(device);
             }
@@ -625,7 +672,9 @@ namespace DynamicIndexingNri {
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const dynamicIndexing = new DynamicIndexing(Nri_CreateSample());
+        const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
+        const dynamicIndexing = new DynamicIndexing(sample);
         return dynamicIndexing.run(argc, argv);
     }
 }
