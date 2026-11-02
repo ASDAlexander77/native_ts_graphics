@@ -327,9 +327,12 @@ namespace ComputeNBodyCollisions {
         private contactBuffer: BufferHandle;
         // The free slots (u_Free): 2 counts, then up to numParticles indices.
         private freeBuffer: BufferHandle;
+        // u_Pending: the particles absorb_cs and fragment_cs leave for the next pass to write back.
+        private pendingBuffer: BufferHandle;
         private freeCounts: f32[];
         private collectFreePipeline: ComputePipelineHandle;
         private fragmentPipeline: ComputePipelineHandle;
+        private splitPipeline: ComputePipelineHandle;
         // The share of the particles placed left as free slots at the start (the one running, and the
         // UI's for the next restart), and how many were placed.
         private fragmentRoom: number;
@@ -494,6 +497,7 @@ namespace ComputeNBodyCollisions {
             const killShader = this.app.createShaderWithDefine(shaderFile, "kill_cs", ShaderType.Compute, "SIMULATION", "1");
             const collectFreeShader = this.app.createShaderWithDefine(shaderFile, "collect_free_cs", ShaderType.Compute, "SIMULATION", "1");
             const fragmentShader = this.app.createShaderWithDefine(shaderFile, "fragment_cs", ShaderType.Compute, "SIMULATION", "1");
+            const splitShader = this.app.createShaderWithDefine(shaderFile, "split_cs", ShaderType.Compute, "SIMULATION", "1");
             this.compositeVertexShader = this.app.createShader(shaderFile, "composite_vs", ShaderType.Vertex);
             this.compositePixelShader = this.app.createShader(shaderFile, "composite_ps", ShaderType.Pixel);
             const postFile = "compute_nbody_collisions_post.hlsl";
@@ -508,7 +512,7 @@ namespace ComputeNBodyCollisions {
             // The gizmo's pixel shader: a plain color.
             this.planePixelShader = this.axisPixelShader;
             if (!this.compositeVertexShader || !this.compositePixelShader || !thresholdShader || !blurDownShader || !blurUpShader
-                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !collectFreeShader || !fragmentShader || !integrateShader) {
+                || !this.planeVertexShader || !this.trailVertexShader || !this.axisVertexShader || !this.axisPixelShader || !this.vertexShader || !this.pixelShader || !calculateShader || !countShader || !collideShader || !absorbShader || !killShader || !collectFreeShader || !fragmentShader || !splitShader || !integrateShader) {
                 return false;
             }
 
@@ -535,12 +539,14 @@ namespace ComputeNBodyCollisions {
             compositeLayoutDesc.layoutSampler(0);
             this.compositeBindingLayout = this.app.createBindingLayout(compositeLayoutDesc, ShaderType.Pixel);
 
-            // Compute: the particles, their contacts and the SimulationConstants push constants.
+            // Compute: the particles, their contacts, the free slots, the pending particles and the
+            // SimulationConstants push constants.
             const computeLayoutDesc = BindingLayoutDesc.create();
             computeLayoutDesc.layoutPushConstants(0, SIMULATION_CONSTANTS_SIZE);
             computeLayoutDesc.layoutStructuredBufferUAV(0);
             computeLayoutDesc.layoutStructuredBufferUAV(1);
             computeLayoutDesc.layoutStructuredBufferUAV(2);
+            computeLayoutDesc.layoutStructuredBufferUAV(3);
             const computeBindingLayout = this.app.createBindingLayout(computeLayoutDesc, ShaderType.Compute);
             this.computeBindingLayout = computeBindingLayout;
 
@@ -551,6 +557,7 @@ namespace ComputeNBodyCollisions {
             this.killPipeline = this.app.createComputePipelineWithLayout(killShader, computeBindingLayout);
             this.collectFreePipeline = this.app.createComputePipelineWithLayout(collectFreeShader, computeBindingLayout);
             this.fragmentPipeline = this.app.createComputePipelineWithLayout(fragmentShader, computeBindingLayout);
+            this.splitPipeline = this.app.createComputePipelineWithLayout(splitShader, computeBindingLayout);
             this.integratePipeline = this.app.createComputePipelineWithLayout(integrateShader, computeBindingLayout);
 
             RawMemory.storeInt32(Ref(this.simulationConstants[2]), 1);
@@ -786,6 +793,8 @@ namespace ComputeNBodyCollisions {
                     Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                 if (fragmenting) {
                     commandList.dispatchWithPushConstants(this.fragmentPipeline, this.computeBindingSet,
+                        Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
+                    commandList.dispatchWithPushConstants(this.splitPipeline, this.computeBindingSet,
                         Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE, groups, 1, 1);
                 }
             }
@@ -1291,6 +1300,8 @@ namespace ComputeNBodyCollisions {
             // Written by collide_cs before integrate_cs reads it, every frame.
             this.contactBuffer = this.app.createRWStructuredBuffer(CONTACT_FLOATS * 4, this.numParticles, "Contacts");
             this.freeBuffer = this.app.createRWStructuredBuffer(4, this.numParticles + 2, "Free slots");
+            // Written by absorb_cs and fragment_cs before kill_cs and split_cs read it.
+            this.pendingBuffer = this.app.createRWStructuredBuffer(PARTICLE_FLOATS * 4, this.numParticles, "Pending particles");
             RawMemory.storeInt32(Ref(this.simulationConstants[1]), this.numParticles);
             this.aliveCount = this.placedCount;
         }
@@ -1302,6 +1313,7 @@ namespace ComputeNBodyCollisions {
             computeSetDesc.bindStructuredBufferUAV(0, this.particleBuffer);
             computeSetDesc.bindStructuredBufferUAV(1, this.contactBuffer);
             computeSetDesc.bindStructuredBufferUAV(2, this.freeBuffer);
+            computeSetDesc.bindStructuredBufferUAV(3, this.pendingBuffer);
             this.computeBindingSet = this.app.createBindingSetForLayout(computeSetDesc, this.computeBindingLayout);
 
             const drawSetDesc = BindingSetDesc.create();
@@ -1520,6 +1532,7 @@ namespace ComputeNBodyCollisions {
             this.app.releaseResource(this.particleBuffer);
             this.app.releaseResource(this.contactBuffer);
             this.app.releaseResource(this.freeBuffer);
+            this.app.releaseResource(this.pendingBuffer);
 
             this.numAttractors = this.uiAttractors;
             this.particlesPerAttractor = this.uiParticles;

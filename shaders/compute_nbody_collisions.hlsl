@@ -110,9 +110,14 @@ struct SimulationConstants
 DECLARE_PUSH_CONSTANTS(SimulationConstants, g_Simulation, 0, 0);
 RWStructuredBuffer<Particle> u_Particles : register(u0);
 RWStructuredBuffer<Contact> u_Contacts : register(u1);
-// The free slots for the fragments: [0] = how many (collect_free_cs), [1] = how many are taken
-// (fragment_cs), then their indices. The application zeroes the counts every step.
+// The free slots for the fragments: [0] = how many (collect_free_cs), [1] unused, then their
+// indices in order. The application zeroes the counts every step.
 RWStructuredBuffer<uint> u_Free : register(u2);
+// A particle as a pass that reads the others left it, for the next pass to write back: absorb_cs's
+// survivors (applied by kill_cs) and fragment_cs's particles that break (split_cs). Written to
+// u_Particles in the same pass, it would change the particles the pass's other threads are reading,
+// and what they read would depend on the order the GPU runs them in.
+RWStructuredBuffer<Particle> u_Pending : register(u3);
 
 #define WORKGROUP_SIZE 256
 // The gravity pass's stride over the particles, as in compute_nbody.hlsl: a body feels a quarter
@@ -765,7 +770,8 @@ float PairPotential(float distance, float mass, float otherMass, float soften)
 // The survivor and the absorbed take their own collision impulses (Contact, from the particles that
 // bounce off them) before they merge, and the survivor's are then spent: an absorbed particle's
 // would be lost with it, and the particle it bounced off would keep its half of the impulse.
-// Only the survivors write, and only the particles they read (the absorbed) are not survivors.
+// Only the survivors write: their particle to u_Pending (kill_cs applies it), as the others' loops
+// read it; their own contact, of which the others read only the flag and the target, kept.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void absorb_cs(uint3 globalId : SV_DispatchThreadID)
 {
@@ -895,7 +901,10 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
         const float trueRadius = particle.marker.w;
         const float pushed = min(trueRadius, radius + GROWTH_PER_STEP * trueRadius);
         if (pushed <= radius)
+        {
+            u_Pending[index] = particle;
             return;
+        }
         float clearance = trueRadius;
         float growthEnergy = 0.0;
         for (uint k = 0; k < particleCount; k++)
@@ -923,7 +932,8 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
                 u_Contacts[index].velocity.w -= g_Simulation.heatFactor * growthEnergy / mass;
             }
         }
-        u_Particles[index].info.w = grown;
+        particle.info.w = grown;
+        u_Pending[index] = particle;
         return;
     }
 
@@ -994,7 +1004,7 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     // collide_cs's growth was for where it was: none more this step.
     particle.info.w = radius;
     particle.marker.w = trueRadius;
-    u_Particles[index] = particle;
+    u_Pending[index] = particle;
 
     // Spent (integrate_cs adds them): keep the flag and the target, which kill_cs reads.
     Contact spent = own;
@@ -1004,8 +1014,8 @@ void absorb_cs(uint3 globalId : SV_DispatchThreadID)
     u_Contacts[index] = spent;
 }
 
-// After absorb_cs: the particles that were absorbed are gone (a negative radius, no mass, nothing
-// drawn or collided with).
+// After absorb_cs: the survivors take what it left them in u_Pending, and the particles that were
+// absorbed are gone (a negative radius, no mass, nothing drawn or collided with).
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void kill_cs(uint3 globalId : SV_DispatchThreadID)
 {
@@ -1015,8 +1025,15 @@ void kill_cs(uint3 globalId : SV_DispatchThreadID)
 
     const Contact own = u_Contacts[index];
     const uint target = uint(own.spin.w);
-    if (own.shift.w == 0.0 || target == index)
+    if (own.shift.w == 0.0)
         return;
+    // A survivor, as absorb_cs picks them (it wrote every one).
+    if (target == index)
+    {
+        if (u_Particles[index].info.x >= 0.0)
+            u_Particles[index] = u_Pending[index];
+        return;
+    }
     // Its target is merging into another: this one waits for the next step.
     if (uint(u_Contacts[target].spin.w) != target)
         return;
@@ -1072,15 +1089,22 @@ void integrate_cs(uint3 globalId : SV_DispatchThreadID)
     u_Particles[index] = particle;
 }
 
-// Before fragment_cs: the slots of the particles merged away (or left free), listed in u_Free.
+// Before fragment_cs: the slots of the particles merged away (or left free), listed in u_Free in the
+// order of their indices (an atomic counter's order would change from run to run, and with it
+// which slot each half takes).
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void collect_free_cs(uint3 globalId : SV_DispatchThreadID)
 {
     const uint index = globalId.x;
     if (index >= uint(g_Simulation.particleCount) || u_Particles[index].info.x >= 0.0)
         return;
-    uint slot;
-    InterlockedAdd(u_Free[0], 1, slot);
+    uint slot = 0;
+    for (uint k = 0; k < index; k++)
+    {
+        if (u_Particles[k].info.x < 0.0)
+            slot++;
+    }
+    InterlockedAdd(u_Free[0], 1);
     u_Free[2 + slot] = index;
 }
 
@@ -1095,6 +1119,10 @@ void collect_free_cs(uint3 globalId : SV_DispatchThreadID)
 // raised, and so does the contact springs' energy the halves would add with the neighbors they
 // reach into: with too little heat (or heating off), it doesn't break.
 // Color and marker are the particle's.
+//
+// It reads every other particle, so it doesn't split them yet: those that break leave their
+// particle, the heat paid, in u_Pending, and split_cs splits them. The others' flag (fragment.w) is
+// cleared, so that split_cs finds those that break by their flags alone.
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void fragment_cs(uint3 globalId : SV_DispatchThreadID)
 {
@@ -1103,15 +1131,19 @@ void fragment_cs(uint3 globalId : SV_DispatchThreadID)
         return;
     const Contact contact = u_Contacts[index];
     Particle particle = u_Particles[index];
-    if (contact.fragment.w == 0.0 || particle.info.x < 0.0)
+    if (contact.fragment.w == 0.0)
         return;
+    if (particle.info.x < 0.0)
+    {
+        u_Contacts[index].fragment.w = 0.0;
+        return;
+    }
 
     // 2^(-1/3): half the volume.
     const float radius = particle.info.x * 0.7937005;
     const float speed = length(contact.fragment.xyz);
     const float3 normal = speed > 1e-6 ? contact.fragment.xyz / speed : float3(1, 0, 0);
     const float3 center = particle.pos.xyz;
-    const float3 velocity = particle.vel.xyz;
     // The halves are solid spheres (inertia 2/5 r^2 over the mass), with the particle's angular
     // momentum in their spins.
     const float halfInertia = 0.4 * radius * radius;
@@ -1154,14 +1186,46 @@ void fragment_cs(uint3 globalId : SV_DispatchThreadID)
     // Paid from the heat; with too little (or heating off), the particle doesn't break.
     const float heatEnergy = g_Simulation.heatFactor > 0.0 ? particle.info.y * particle.pos.w / g_Simulation.heatFactor : 0.0;
     if (g_Simulation.heating == 0 || gained > heatEnergy)
+    {
+        u_Contacts[index].fragment.w = 0.0;
         return;
+    }
     particle.info.y -= g_Simulation.heatFactor * gained / particle.pos.w;
+    u_Pending[index] = particle;
+}
 
-    uint taken;
-    InterlockedAdd(u_Free[1], 1, taken);
+// After fragment_cs: the particles that break, in the order of their indices, take the free slots
+// in theirs (collect_free_cs) for their second halves; with none left, a particle doesn't break, and
+// keeps the heat fragment_cs would have paid. It reads the flags and u_Pending, not the particles it
+// writes.
+[numthreads(WORKGROUP_SIZE, 1, 1)]
+void split_cs(uint3 globalId : SV_DispatchThreadID)
+{
+    const uint index = globalId.x;
+    if (index >= uint(g_Simulation.particleCount))
+        return;
+    const Contact contact = u_Contacts[index];
+    if (contact.fragment.w == 0.0)
+        return;
+    uint taken = 0;
+    for (uint k = 0; k < index; k++)
+    {
+        if (u_Contacts[k].fragment.w != 0.0)
+            taken++;
+    }
     if (taken >= u_Free[0])
         return;
     const uint slot = u_Free[2 + taken];
+
+    Particle particle = u_Pending[index];
+    // As fragment_cs: 2^(-1/3), half the volume; the halves are solid spheres.
+    const float radius = particle.info.x * 0.7937005;
+    const float speed = length(contact.fragment.xyz);
+    const float3 normal = speed > 1e-6 ? contact.fragment.xyz / speed : float3(1, 0, 0);
+    const float3 center = particle.pos.xyz;
+    const float3 velocity = particle.vel.xyz;
+    const float halfInertia = 0.4 * radius * radius;
+    const float3 halfSpin = particle.spin.xyz * particle.spin.w / halfInertia;
 
     particle.pos = float4(center + normal * radius, 0.5 * particle.pos.w);
     particle.vel.xyz = velocity + 0.5 * contact.fragment.xyz;
