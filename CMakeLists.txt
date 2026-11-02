@@ -1393,8 +1393,9 @@ add_tslang_example_test(compute_nbody_collisions SUFFIX fragment ARGS -fullgravi
 # lose is heat, so kinetic, potential and heat energy add up to what they started at.
 add_tslang_example_test(compute_nbody_collisions SUFFIX energy ARGS -fullgravity -nocool -fragment 10 -room 50)
 # And with merging: what a merge loses (motion, spins, the gravity's potential energy, the springs) is
-# heat too. (Not with breaking as well: its free slots are taken in whatever order the GPU's atomics
-# give, so the runs differ, and now and then one drifts past the limit.)
+# heat too. (Breaking used to be left out here: its free slots were taken in whatever order the GPU's
+# atomics gave, so the runs differed and now and then one drifted past the limit. They are now taken
+# in index order, and -merge 2 -fragment 10 -room 50 repeats.)
 add_tslang_example_test(compute_nbody_collisions SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
 
 # compute_nbody_collisions with NRI and NRIFramework instead of Donut: compute_nbody_collisions' shaders,

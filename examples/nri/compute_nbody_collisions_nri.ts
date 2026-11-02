@@ -316,9 +316,10 @@ namespace ComputeNBodyCollisionsNri {
         private height: int = 0;
 
         // The simulation's layout and pipelines: the SimulationConstants (root constants, b0), the
-        // particles, contacts and free slots (u0 to u2, root descriptors).
+        // particles, contacts, free slots and pending particles (u0 to u3, a descriptor set).
         private computeLayout: NriPipelineLayoutHandle | null = null;
-        // The simulation's descriptor set (the particles, contacts and free slots) and its pool.
+        // The simulation's descriptor set (the particles, contacts, free slots and pending particles)
+        // and its pool.
         private computePool: NriDescriptorPoolHandle | null = null;
         private computeSet: NriDescriptorSetHandle | null = null;
         private calculatePipeline: NriPipelineHandle | null = null;
@@ -328,6 +329,7 @@ namespace ComputeNBodyCollisionsNri {
         private killPipeline: NriPipelineHandle | null = null;
         private collectFreePipeline: NriPipelineHandle | null = null;
         private fragmentPipeline: NriPipelineHandle | null = null;
+        private splitPipeline: NriPipelineHandle | null = null;
         private integratePipeline: NriPipelineHandle | null = null;
         // The draws' layouts: the particles' and planes' (view b1, particles t0, trail b3), the
         // gizmo's (b2), the composite's (a set: the scene t4, the bloom t5, the sampler s0), the
@@ -346,14 +348,17 @@ namespace ComputeNBodyCollisionsNri {
         private blurUpPipeline: NriPipelineHandle | null = null;
 
         // The particles (Storage while the passes run, VertexShaderResource for the draws), their
-        // contacts and the free slots (u_Free: 2 counts, then up to numParticles indices).
+        // contacts, the free slots (u_Free: 2 counts, then up to numParticles indices) and the
+        // particles absorb_cs and fragment_cs leave for the next pass to write back (u_Pending).
         private particleBuffer: NriBufferHandle | null = null;
         private contactBuffer: NriBufferHandle | null = null;
         private freeBuffer: NriBufferHandle | null = null;
+        private pendingBuffer: NriBufferHandle | null = null;
         private particlesStorage: NriDescriptorHandle | null = null;
         private particlesView: NriDescriptorHandle | null = null;
         private contactsStorage: NriDescriptorHandle | null = null;
         private freeStorage: NriDescriptorHandle | null = null;
+        private pendingStorage: NriDescriptorHandle | null = null;
         private particleState: NriBufferState = NriBufferState.Storage;
         // The particles copied back (for the alive count and the test).
         private particleReadbackBuffer: NriBufferHandle | null = null;
@@ -642,9 +647,9 @@ namespace ComputeNBodyCollisionsNri {
         createLayouts(device: NriDeviceHandle): boolean {
             const computeDesc = Nri_CreatePipelineLayoutDesc();
             Nri_PipelineLayoutDescAddRootConstants(computeDesc, 0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
-            // The particles, contacts and free slots (u0 to u2) in a descriptor set, as the Donut example's
-            // binding set.
-            Nri_PipelineLayoutDescAddRange(computeDesc, 0, 0, 3, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            // The particles, contacts, free slots and pending particles (u0 to u3) in a descriptor set,
+            // as the Donut example's binding set.
+            Nri_PipelineLayoutDescAddRange(computeDesc, 0, 0, 4, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
             this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeDesc);
             Nri_DestroyPipelineLayoutDesc(computeDesc);
 
@@ -700,6 +705,7 @@ namespace ComputeNBodyCollisionsNri {
             this.killPipeline = this.createSimulationPipeline(device, computeLayout, shaders, "kill_cs");
             this.collectFreePipeline = this.createSimulationPipeline(device, computeLayout, shaders, "collect_free_cs");
             this.fragmentPipeline = this.createSimulationPipeline(device, computeLayout, shaders, "fragment_cs");
+            this.splitPipeline = this.createSimulationPipeline(device, computeLayout, shaders, "split_cs");
             this.integratePipeline = this.createSimulationPipeline(device, computeLayout, shaders, "integrate_cs");
             this.thresholdPipeline = Nri_CreateComputePipeline(device, blurLayout, `${shaders}_post_threshold_cs.bin`, "threshold_cs");
             this.blurDownPipeline = Nri_CreateComputePipeline(device, blurLayout, `${shaders}_post_blur_down_cs.bin`, "blur_down_cs");
@@ -715,7 +721,7 @@ namespace ComputeNBodyCollisionsNri {
             this.compositePipeline = this.createPipeline(device, compositeLayout, shaders, "composite_vs", "composite_ps", this.viewFormat, 0);
 
             if (!this.calculatePipeline || !this.countPipeline || !this.collidePipeline || !this.absorbPipeline || !this.killPipeline
-                || !this.collectFreePipeline || !this.fragmentPipeline || !this.integratePipeline || !this.thresholdPipeline
+                || !this.collectFreePipeline || !this.fragmentPipeline || !this.splitPipeline || !this.integratePipeline || !this.thresholdPipeline
                 || !this.blurDownPipeline || !this.blurUpPipeline || !this.graphicsPipeline || !this.trailPipeline || !this.planePipeline
                 || !this.gizmoPipeline || !this.compositePipeline) {
                 console.log("Cannot load the compute n-body collisions shaders");
@@ -970,11 +976,14 @@ namespace ComputeNBodyCollisionsNri {
             const particleBuffer = this.particleBuffer;
             const contactBuffer = this.contactBuffer;
             const freeBuffer = this.freeBuffer;
+            const pendingBuffer = this.pendingBuffer;
             const particlesStorage = this.particlesStorage;
             const contactsStorage = this.contactsStorage;
             const freeStorage = this.freeStorage;
+            const pendingStorage = this.pendingStorage;
             const computeSet = this.computeSet;
-            if (!pipeline || !particleBuffer || !contactBuffer || !freeBuffer || !particlesStorage || !contactsStorage || !freeStorage) {
+            if (!pipeline || !particleBuffer || !contactBuffer || !freeBuffer || !pendingBuffer || !particlesStorage || !contactsStorage
+                || !freeStorage || !pendingStorage) {
                 return;
             }
             if (!computeSet) {
@@ -988,6 +997,7 @@ namespace ComputeNBodyCollisionsNri {
             Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.Storage, NriBufferState.Storage);
             Nri_CmdBufferBarrier(commandBuffer, contactBuffer, NriBufferState.Storage, NriBufferState.Storage);
             Nri_CmdBufferBarrier(commandBuffer, freeBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            Nri_CmdBufferBarrier(commandBuffer, pendingBuffer, NriBufferState.Storage, NriBufferState.Storage);
         }
 
         // Gravity, collisions, integration. Paused, nothing moves: the collision pass would still
@@ -1025,6 +1035,7 @@ namespace ComputeNBodyCollisionsNri {
             this.dispatch(commandBuffer, this.integratePipeline);
             if (fragmenting) {
                 this.dispatch(commandBuffer, this.fragmentPipeline);
+                this.dispatch(commandBuffer, this.splitPipeline);
             }
         }
 
@@ -1559,36 +1570,41 @@ namespace ComputeNBodyCollisionsNri {
 
             const particleBuffer = Nri_CreateStorageBuffer(device, this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4,
                 PARTICLE_FLOATS * 4);
-            // The contacts and free slots zeroed, as the Donut example's new buffers come.
+            // The contacts, free slots and pending particles zeroed, as the Donut example's new buffers come.
             const zeros: int[] = [];
-            for (let i = 0; i < Math.max(this.numParticles * CONTACT_FLOATS, this.numParticles + 2); i++) {
+            for (let i = 0; i < Math.max(this.numParticles * PARTICLE_FLOATS, this.numParticles + 2); i++) {
                 zeros.push(0);
             }
             const contactBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), this.numParticles * CONTACT_FLOATS * 4,
                 CONTACT_FLOATS * 4, NriBufferState.Storage);
             const freeBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), (this.numParticles + 2) * 4, 4,
                 NriBufferState.Storage);
+            const pendingBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), this.numParticles * PARTICLE_FLOATS * 4,
+                PARTICLE_FLOATS * 4, NriBufferState.Storage);
             this.particleBuffer = particleBuffer;
             this.contactBuffer = contactBuffer;
             this.freeBuffer = freeBuffer;
+            this.pendingBuffer = pendingBuffer;
             this.particleState = NriBufferState.Storage;
             this.particleReadbackBuffer = Nri_CreateReadbackBuffer(device, this.numParticles * PARTICLE_FLOATS * 4);
-            if (!particleBuffer || !contactBuffer || !freeBuffer || !this.particleReadbackBuffer) {
+            if (!particleBuffer || !contactBuffer || !freeBuffer || !pendingBuffer || !this.particleReadbackBuffer) {
                 return false;
             }
             this.particlesStorage = Nri_CreateStructuredBufferView(particleBuffer, 1);
             this.particlesView = Nri_CreateStructuredBufferView(particleBuffer, 0);
             this.contactsStorage = Nri_CreateStructuredBufferView(contactBuffer, 1);
             this.freeStorage = Nri_CreateStructuredBufferView(freeBuffer, 1);
+            this.pendingStorage = Nri_CreateStructuredBufferView(pendingBuffer, 1);
             const particlesStorage = this.particlesStorage;
             const contactsStorage = this.contactsStorage;
             const freeStorage = this.freeStorage;
+            const pendingStorage = this.pendingStorage;
             const computeLayout = this.computeLayout;
-            if (!particlesStorage || !this.particlesView || !contactsStorage || !freeStorage || !computeLayout) {
+            if (!particlesStorage || !this.particlesView || !contactsStorage || !freeStorage || !pendingStorage || !computeLayout) {
                 return false;
             }
             // The simulation's set, in a pool of its own (made again with the buffers).
-            const computePool = Nri_CreateDescriptorPoolWithBuffers(device, 1, 0, 0, 0, 0, 0, 3, 0);
+            const computePool = Nri_CreateDescriptorPoolWithBuffers(device, 1, 0, 0, 0, 0, 0, 4, 0);
             this.computePool = computePool;
             const computeSet = computePool ? Nri_AllocateDescriptorSet(computePool, computeLayout, 0, 0) : null;
             this.computeSet = computeSet;
@@ -1598,6 +1614,7 @@ namespace ComputeNBodyCollisionsNri {
             Nri_UpdateDescriptor(computeSet, 0, 0, particlesStorage);
             Nri_UpdateDescriptor(computeSet, 0, 1, contactsStorage);
             Nri_UpdateDescriptor(computeSet, 0, 2, freeStorage);
+            Nri_UpdateDescriptor(computeSet, 0, 3, pendingStorage);
             Nri_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
             this.aliveCount = this.placedCount;
             return true;
@@ -1615,17 +1632,21 @@ namespace ComputeNBodyCollisionsNri {
             this.destroyDescriptor(this.particlesView);
             this.destroyDescriptor(this.contactsStorage);
             this.destroyDescriptor(this.freeStorage);
+            this.destroyDescriptor(this.pendingStorage);
             this.destroyBuffer(this.particleBuffer);
             this.destroyBuffer(this.contactBuffer);
             this.destroyBuffer(this.freeBuffer);
+            this.destroyBuffer(this.pendingBuffer);
             this.destroyBuffer(this.particleReadbackBuffer);
             this.particlesStorage = null;
             this.particlesView = null;
             this.contactsStorage = null;
             this.freeStorage = null;
+            this.pendingStorage = null;
             this.particleBuffer = null;
             this.contactBuffer = null;
             this.freeBuffer = null;
+            this.pendingBuffer = null;
             this.particleReadbackBuffer = null;
         }
 
@@ -2280,6 +2301,7 @@ namespace ComputeNBodyCollisionsNri {
                 this.destroyPipeline(this.killPipeline);
                 this.destroyPipeline(this.collectFreePipeline);
                 this.destroyPipeline(this.fragmentPipeline);
+                this.destroyPipeline(this.splitPipeline);
                 this.destroyPipeline(this.integratePipeline);
                 this.destroyPipeline(this.thresholdPipeline);
                 this.destroyPipeline(this.blurDownPipeline);

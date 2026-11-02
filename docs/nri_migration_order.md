@@ -308,13 +308,19 @@ Donut's UI on D3D12 and Vulkan, with these exceptions:
   and its Vulkan frame is Donut's pixel for pixel.
 - gravity_light_bending_nri's D3D11 frame differs at 151 scattered pixels by 1 (D3D12 and Vulkan
   match exactly).
-- compute_nbody_collisions_nri matches with merging and fragmenting off. With them on (-merge,
-  -fragment) the frames depend on the GPU's scheduling: absorb_cs reads its neighbors' particles
-  and contacts (u_Particles[k], u_Contacts[k]) while those that are survivors themselves write theirs
-  in the same dispatch. The Donut example's runs happen to repeat; the port's, with two frames in
-  flight, vary on D3D12 (with one frame in flight they equal Donut's). The fix is the shader's (the
-  merge's results written apart and applied in a pass after it), which changes the Donut example's
-  frames as well.
+- compute_nbody_collisions_nri matches on Vulkan with merging and fragmenting on as well (-merge 2,
+  -fullgravity -fragment 10 -room 50), and on D3D12 with them off. The shader used to race with them
+  on: absorb_cs read its neighbors' particles while the survivors among them wrote theirs in the same
+  dispatch, and fragment_cs did the same, with its free slots handed out in the order of the GPU's
+  atomics (the Donut example's -fragment runs didn't repeat either). Now the survivors and the
+  particles that break leave their results in u_Pending, written back by kill_cs and a new split_cs,
+  and the free slots go in index order; the Donut example repeats on D3D12 and Vulkan.
+  With merging or fragmenting on, the port's D3D12 runs still vary with two frames in flight: from
+  about frame 100 on, a step comes out an ulp off for thousands of particles at once (mostly their
+  heat). With one frame in flight (the device waited for after each frame) they repeat and equal
+  Donut's frame outside its UI. Ruled out: the alive count's readback, UAV barriers at the start of
+  each frame, volatile descriptor data, the driver recompiling shaders after a delay, the step on the
+  CPU, and integrate_cs's exp.
 
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
