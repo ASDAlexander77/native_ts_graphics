@@ -98,6 +98,8 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | raytracing_ao_nri | BLAS triangles from interleaved vertices (`Nri_BlasDescAddTrianglesFromPointer`), storage texture arrays; its shaders' storage textures get Vulkan formats (`VK_IMAGE_FORMAT`) |
 | ray_tracing_extended_nri | updatable BLASes over the example's buffers (`Nri_CreateUpdatableTriangleBlas`, `Nri_CmdUpdateUpdatableBlas`; NRI's validation layer patched to pass `HAS_BUFFER` through), host buffers that builds read (`NriBufferUsage.AccelerationStructureInput`) |
 | ray_tracing_position_fetch_nri | `NriFeature.RayTracingPositionFetch`, `NriAccelerationStructureFlags.AllowDataAccess`, per-geometry BLAS transforms (`Nri_BlasDescSetTransform`) |
+| rt_particles_nri | a dynamic mesh in a Donut scene (`Nri_AddDonutSceneDynamicMesh`), BLASes rebuilt every frame from host buffers (`Nri_CreateDynamicTriangleBlas`), a scene's per-instance BLASes and transforms for the example's own TLAS, TLAS barriers for ray queries in compute and pixel shaders, more ImGui widgets |
+| rt_bindless_nri | animated Donut scenes (`Nri_LoadDonutAnimatedScene`: scene files, glTF skins and animations sampled as Donut's engine does, Donut's skinning shader, a BLAS per skinned instance rebuilt as it moves: `Nri_CreateBufferBlas`), non-opaque BLAS geometries, ray tracing pipelines from permutation blobs |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -350,6 +352,14 @@ to Donut's raw back buffer texels in 8, 10 and 16 bits on both APIs (the PNGs of
 back buffers differ by the CPU against GPU sRGB encoding, as for simple_hdr_nri); its UI text
 differs at about 120 pixels by at most 3 (NRIFramework's ImGui against Donut's). Donut's hdr_display
 draws its UI layer under `-noUI` too, so compare it with `--ui-less`.
+
+Batch 9: rt_particles_nri and rt_bindless_nri. rt_bindless_nri (Sponza with the two skinned, dancing
+BrainStem robots) matches Donut pixel for pixel on D3D12, and with `-rayQuery` on Vulkan too; with
+Vulkan's ray tracing pipeline about 900 pixels of Sponza differ, almost all by 1 (deterministic: both
+examples repeat their frames). rt_particles_nri matches on D3D12 and Vulkan outside the settings
+window, which Donut draws under `-noUI` too, but for 7 scattered pixels. Donut's rt_particles test
+counts the window's colored widgets among the particles: the port passes it with its window drawn
+(as CTest runs it), not under `-noUI`.
 
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut

@@ -4332,6 +4332,18 @@ donut_compile_shaders(
 add_tslang_example(rt_bindless core/matrix.ts MEDIA sponza-plus.scene.json glTF-Sample-Assets/Models/Sponza glTF-Sample-Assets/Models/BrainStem)
 add_tslang_example_test(rt_bindless)
 
+# rt_bindless with NRI and NRIFramework instead of Donut: rt_bindless' shaders (the ray tracing library
+# and, -rayQuery, the compute shader: one permutation blob), Donut's skinning and blit shaders
+# (shaders/framework), the scene loaded and animated as Donut's engine does it
+# (core/nri/nri_donut_scene.cpp's Nri_LoadDonutAnimatedScene). D3D12 or Vulkan.
+add_tslang_nri_example(rt_bindless_nri SHADERS rt_bindless_shaders core/matrix.ts core/donut_first_person_camera.ts
+    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+add_tslang_example_test(rt_bindless_nri)
+add_tslang_example_test(rt_bindless_nri SUFFIX rayquery ARGS -rayQuery)
+if (TARGET donut_shaders AND TARGET rt_bindless_nri)
+    add_dependencies(rt_bindless_nri donut_shaders)
+endif()
+
 # Port of Donut-Samples' bindless_rendering: Sponza (see DONUT_SAMPLES_MEDIA_DIR above) drawn with
 # no vertex or index buffers bound, the vertex shader fetching them, and the pixel shader the
 # material textures, from the scene's bindless buffer and texture arrays. Bindless needs D3D12 or
@@ -4433,6 +4445,17 @@ donut_compile_shaders(
 )
 add_tslang_example(rt_particles core/random.ts core/matrix.ts MEDIA rt_particles nvidia-logo.png)
 add_tslang_example_test(rt_particles)
+
+# rt_particles with NRI and NRIFramework instead of Donut: rt_particles' shaders (D3D12 and Vulkan:
+# ray queries), its scene as Donut's engine loads it (core/nri/nri_donut_scene.cpp) with the particle
+# mesh added, its textures (media/rt_particles, nvidia-logo.png: copied at configure), Donut's blit
+# shaders (donut_shaders).
+add_tslang_nri_example(rt_particles_nri SHADERS rt_particles_shaders core/matrix.ts core/random.ts
+    core/donut_third_person_camera.ts core/nri_donut_textures.ts core/nri_donut_blit.ts)
+add_tslang_example_test(rt_particles_nri)
+if (TARGET donut_shaders AND TARGET rt_particles_nri)
+    add_dependencies(rt_particles_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' work_graphs: deferred shading of a procedural scene with one D3D12 work
 # graph (light culling and per-material shading nodes), or with two compute dispatches. D3D12 only,

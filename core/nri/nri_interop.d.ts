@@ -64,6 +64,11 @@
 @cpp declare class NriImguiFontHandle { private readonly __nriImguiFont: index; }
 // An updatable bottom level acceleration structure (Nri_CreateUpdatableTriangleBlas).
 @cpp declare class NriUpdatableBlasHandle { private readonly __nriUpdatableBlas: index; }
+// A BLAS of geometries whose vertices a buffer the GPU writes holds (Nri_CreateBufferBlas).
+@cpp declare class NriBufferBlasHandle { private readonly __nriBufferBlas: index; }
+// An animated Donut scene (Nri_LoadDonutAnimatedScene) and its acceleration structures.
+@cpp declare class NriDonutAnimatedSceneHandle { private readonly __nriDonutAnimatedScene: index; }
+@cpp declare class NriDonutAnimatedSceneAccelStructsHandle { private readonly __nriDonutAnimatedSceneAccelStructs: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -428,7 +433,10 @@ enum NriBufferState {
     // read by compute shaders
     ComputeShaderResource = 8,
     // read by pixel shaders
-    PixelShaderResource = 9
+    PixelShaderResource = 9,
+    // read by acceleration structure builds (their vertices) and by ray tracing and compute shaders
+    // (ByteAddressBuffer): skinned vertices once skinned
+    AccelerationStructureInput = 10
 }
 
 // nri::IndexType (Nri_CmdSetIndexBuffer).
@@ -670,7 +678,15 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Nri_CreateStorageBufferFromInts' buffer without data (its contents undefined), in state.
 @nodrops declare function Nri_CreateUninitializedStorageBuffer(device: NriDeviceHandle, queue: NriQueueHandle, byteSize: int, stride: int,
     state: NriBufferState): NriBufferHandle | null;
+// Nri_CreateUninitializedStorageBuffer's buffer (structures stride bytes each; 4: raw), which
+// acceleration structure builds read too (Nri_CmdBuildBufferBlas' vertices), in NriBufferState.Storage.
+@nodrops declare function Nri_CreateAccelerationStructureInputStorageBuffer(device: NriDeviceHandle, queue: NriQueueHandle, byteSize: int,
+    stride: int): NriBufferHandle | null;
 @nodrops declare function Nri_CreateStructuredBufferView(buffer: NriBufferHandle, storage: int): NriDescriptorHandle | null;
+// A view of byteSize bytes of the buffer from offset (a multiple of its structure stride and of 256)
+// as its structures: written by compute shaders (storage 1) or read (0); null on failure.
+@nodrops declare function Nri_CreateStructuredBufferRangeView(buffer: NriBufferHandle, offset: int, byteSize: int,
+    storage: int): NriDescriptorHandle | null;
 // A view of the whole buffer (Nri_CreateStorageBufferFromInts' with stride 0) as elements of a format:
 // written by compute shaders (storage 1: RWBuffer<T>) or read (0: Buffer<T>); null on failure.
 @nodrops declare function Nri_CreateTypedBufferView(buffer: NriBufferHandle, format: NriFormat, storage: int): NriDescriptorHandle | null;
@@ -1278,6 +1294,20 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetDonutSceneGeometryFirstIndex(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
 @nodrops declare function Nri_GetDonutSceneGeometryFirstVertex(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
 @nodrops declare function Nri_GetDonutSceneGeometryMaterial(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
+// A dynamic mesh (Donut_CreateDynamicMesh + Donut_AttachDynamicMesh) added to the scene: one geometry of
+// maxVertices float3 positions followed by maxVertices float2 texture coordinates in bindless buffer
+// vertexBufferIndex and maxIndices 32-bit indices in bindless buffer indexBufferIndex, its material
+// alpha-blended (Donut's default otherwise), an instance (identity transform) after the scene's. Create
+// the scene's buffers 2 to 4 after it. The instance's index.
+@nodrops declare function Nri_AddDonutSceneDynamicMesh(scene: NriDonutSceneHandle, maxVertices: int, maxIndices: int,
+    vertexBufferIndex: int, indexBufferIndex: int): int;
+// A material's base or diffuse texture (its bindless texture index; -1: none), as
+// Donut_SetDynamicMeshTexture sets the dynamic mesh's. Create the scene's buffer 4 after it.
+@nodrops declare function Nri_SetDonutSceneMaterialBaseTexture(scene: NriDonutSceneHandle, material: int, textureIndex: int): void;
+// The world-space position of a glTF file's node (path relative to the executable's folder; nodePath like
+// "/Emitter"), as Donut's Scene.getNodePosition: 3 floats into dst (Ref of an f32 array element). 0 if there's
+// no such node.
+@nodrops declare function Nri_GetDonutSceneNodePosition(path: string, nodePath: string, dst: Ref<f32>): int;
 // The PlanarViewConstants (ForwardShadingViewConstants) of one face (0 to 5) of a Donut CubemapView
 // around the camera (its world-to-view matrix, 16 floats) with its reverse infinite projection from
 // zNear, a resolution x resolution face, into dst.
@@ -1367,6 +1397,13 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_ImguiSetNextWindowPosPivot(x: number, y: number, pivotX: number, pivotY: number): void;
 // A value dragged by speed per pixel, within min and max; the new value.
 @nodrops declare function Nri_ImguiDragFloat(label: string, value: number, speed: number, min: number, max: number): number;
+// A line between the widgets above and below.
+@nodrops declare function Nri_ImguiSeparator(): void;
+// The widgets that follow indented, until Nri_ImguiUnindent.
+@nodrops declare function Nri_ImguiIndent(): void;
+@nodrops declare function Nri_ImguiUnindent(): void;
+// Three values (Ref of an f32 array element, changed in place) dragged by speed per pixel; 1 when changed.
+@nodrops declare function Nri_ImguiDragFloat3(label: string, values: Ref<f32>, speed: number): int;
 // A color edit of the 4 floats at values (RGBA), width wide; 1 when changed.
 @nodrops declare function Nri_ImguiColorEdit4(label: string, values: Ref<f32>, width: number): int;
 // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in the
@@ -1476,6 +1513,31 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The structure (for Nri_TopLevelASAddInstance).
 @nodrops declare function Nri_GetUpdatableBlasAccelerationStructure(blas: NriUpdatableBlasHandle): NriAccelerationStructureHandle;
 @nodrops declare function Nri_DestroyUpdatableBlas(blas: NriUpdatableBlasHandle): void;
+// A BLAS of triangle geometries whose vertices are in a buffer the GPU writes, built again each time
+// they move (Donut's skinned meshes'): created with flags (NriAccelerationStructureFlags), geometries
+// added (vertexNum float3 positions at vertexOffset bytes in the builds' vertex buffer; indexNum 32-bit
+// indices from indices, copied; opaque 1 or 0), then Nri_BufferBlasCreate (0 on failure); each build
+// recorded with Nri_CmdBuildBufferBlas from vertexBuffer (in NriBufferState.AccelerationStructureInput).
+@nodrops declare function Nri_CreateBufferBlas(flags: NriAccelerationStructureFlags): NriBufferBlasHandle;
+@nodrops declare function Nri_BufferBlasAddTriangles(blas: NriBufferBlasHandle, vertexOffset: int, vertexNum: int, indices: Ref<int>,
+    indexNum: int, opaque: int): void;
+@nodrops declare function Nri_BufferBlasCreate(device: NriDeviceHandle, blas: NriBufferBlasHandle): int;
+@nodrops declare function Nri_CmdBuildBufferBlas(commandBuffer: NriCommandBufferHandle, blas: NriBufferBlasHandle, vertexBuffer: NriBufferHandle): void;
+@nodrops declare function Nri_GetBufferBlasAccelerationStructure(blas: NriBufferBlasHandle): NriAccelerationStructureHandle;
+@nodrops declare function Nri_DestroyBufferBlas(blas: NriBufferBlasHandle): void;
+// A bottom level acceleration structure of one triangle geometry rebuilt every frame from buffers the
+// example owns (NriBufferUsage.AccelerationStructureInput), as Donut's dynamic meshes': room for
+// maxVertexNum float3 positions vertexStride bytes apart and maxIndexNum 32-bit indices, flags
+// (PreferFastTrace, as Donut's), opaque or (0) not (ray queries see its triangles as candidates); not
+// built yet. Null on failure. Destroyed with Nri_DestroyUpdatableBlas; its structure is
+// Nri_GetUpdatableBlasAccelerationStructure's.
+@nodrops declare function Nri_CreateDynamicTriangleBlas(device: NriDeviceHandle, maxVertexNum: int, vertexStride: int, maxIndexNum: int,
+    flags: NriAccelerationStructureFlags, opaque: int): NriUpdatableBlasHandle | null;
+// Records its build from scratch from vertexNum vertices at vertexOffset in vertexBuffer and indexNum
+// indices at indexOffset in indexBuffer (0: empty), between barriers (after the ray queries and top level
+// builds that read it before, before those that read it next).
+@nodrops declare function Nri_CmdBuildDynamicTriangleBlas(commandBuffer: NriCommandBufferHandle, blas: NriUpdatableBlasHandle,
+    vertexBuffer: NriBufferHandle, vertexOffset: int, vertexNum: int, indexBuffer: NriBufferHandle, indexOffset: int, indexNum: int): void;
 // The top level acceleration structure of one instance of blas, as Donut's examples make it (identity
 // transform, instance ID 0, mask 1, counter-clockwise front faces), built on the queue (which this
 // waits for); null on failure.
@@ -1495,6 +1557,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructuresAndTypedBuffers(device: NriDeviceHandle, setMaxNum: int,
     samplerMaxNum: int, constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
     bufferMaxNum: int, accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
+// As Nri_CreateDescriptorPoolWithAccelerationStructures, with room for storageStructuredBufferMaxNum
+// storage structured buffers (RWStructuredBuffer, RWByteAddressBuffer) too.
+@nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructuresAndStorageBuffers(device: NriDeviceHandle, setMaxNum: int,
+    samplerMaxNum: int, constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
+    storageStructuredBufferMaxNum: int, accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
 // A ray tracing pipeline of the library read from path (a .cfg's "-T lib" line, one blob), whose
 // shader groups are the ray generation shader raygen, the miss shader miss and the hit group of the
 // closest hit shader closestHit. Rays carry payloadSize bytes, hits attributeSize bytes; no recursion.
@@ -1531,6 +1598,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The last geometry added (a triangle one)'s transform: a row-major 3 x 4 matrix (12 floats from Ref of
 // an f32 array element; copied), applied to its positions as the structure is built.
 @nodrops declare function Nri_BlasDescSetTransform(desc: NriBlasDescHandle, transform: Ref<f32>): void;
+// The last geometry added: opaque (1, the default) or not (0: any-hit shaders run on its hits, ray
+// queries see them as non-opaque candidates), as Donut's alpha-tested geometries.
+@nodrops declare function Nri_BlasDescSetOpaque(desc: NriBlasDescHandle, opaque: int): void;
 @nodrops declare function Nri_BuildBlasFromDesc(device: NriDeviceHandle, queue: NriQueueHandle, desc: NriBlasDescHandle,
     flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
 // Ray tracing pipelines of named shaders and groups: Nri_RayTracingPipelineDescAddShader adds the
@@ -1547,6 +1617,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // (1: the ray generation shader's alone). Null on failure.
 @nodrops declare function Nri_CreateRayTracingPipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, path: string,
     desc: NriRayTracingPipelineDescHandle, payloadSize: int, attributeSize: int, recursionMaxDepth: int): NriPipelineHandle | null;
+// As Nri_CreateRayTracingPipelineFromDesc, of a ShaderMake permutation blob (a .cfg line with -D), the
+// library whose defines are permutation ("NAME=VALUE").
+@nodrops declare function Nri_CreateRayTracingPipelineFromDescPermutation(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle,
+    path: string, permutation: string, desc: NriRayTracingPipelineDescHandle, payloadSize: int, attributeSize: int,
+    recursionMaxDepth: int): NriPipelineHandle | null;
 // The shader table whose records are the pipeline's groups raygenGroup, missGroups (missNum ints: miss
 // shader index i is missGroups[i]) and hitGroups (hitGroupNum ints: hit group index i, an instance's
 // hit group offset plus the ray's contribution, is hitGroups[i]; -1, a null record: a hit runs no
@@ -1568,7 +1643,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     instanceId: int, mask: int, hitGroupOffset: int, flags: int): void;
 // Records the build of the TLAS from its instances (written to instance buffer bufferIndex: the
 // frame's), or with update (1; AllowUpdate) its refit in place once it's built, between the barriers
-// after the rays that read it before and before the rays that read it next.
+// after the shaders that read it before (ray tracing shaders, ray queries in compute and pixel
+// shaders) and before those that read it next.
 @nodrops declare function Nri_CmdBuildTopLevelAS(commandBuffer: NriCommandBufferHandle, tlas: NriTopLevelASHandle, bufferIndex: int, update: int): void;
 @nodrops declare function Nri_DestroyTopLevelAS(tlas: NriTopLevelASHandle): void;
 // Copies the whole of src into dst (same size and format; src in NriTextureState.CopySource, dst in
@@ -1588,4 +1664,55 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_BuildDonutSceneAccelStructsWithHitGroupStride(device: NriDeviceHandle, queue: NriQueueHandle,
     scene: NriDonutSceneHandle, hitGroupStride: int): NriDonutSceneAccelStructsHandle | null;
 @nodrops declare function Nri_GetDonutSceneTopLevelAS(accelStructs: NriDonutSceneAccelStructsHandle): NriTopLevelASHandle;
+// The BLAS Nri_BuildDonutSceneAccelStructs built for an instance's mesh, for TLASes the example builds
+// itself (Nri_TopLevelASAddInstance); null if it built none for it.
+@nodrops declare function Nri_GetDonutSceneInstanceBlas(scene: NriDonutSceneHandle, accelStructs: NriDonutSceneAccelStructsHandle,
+    instance: int): NriAccelerationStructureHandle | null;
+// An instance's transform, as the TLAS takes it (12 floats into dst, Ref of an f32 array element).
+@nodrops declare function Nri_GetDonutSceneInstanceTransform(scene: NriDonutSceneHandle, instance: int, dst: Ref<f32>): void;
 @nodrops declare function Nri_DestroyDonutSceneAccelStructs(accelStructs: NriDonutSceneAccelStructsHandle): void;
+// An animated Donut scene: a scene file (Donut's .scene.json: models instanced by a node graph) or a glTF
+// file (path relative to the executable's folder) with its skins and animations, as Donut's engine loads
+// it; null on failure. Its static data is a Donut scene (Nri_GetDonutAnimatedSceneScene: valid as long as
+// it) for Nri_CreateDonutSceneBuffer (0 the vertices, joint indices and weights: bindless buffer 0; 1
+// the indices: bindless buffer 1; 3 the GeometryData; 4 the MaterialConstants) and its textures; the
+// skinned instances' vertices are a buffer of their own (bindless buffer 2,
+// Nri_GetDonutSkinnedVertexBufferSize bytes: Nri_CreateAccelerationStructureInputStorageBuffer).
+@nodrops declare function Nri_LoadDonutAnimatedScene(path: string): NriDonutAnimatedSceneHandle | null;
+@nodrops declare function Nri_DestroyDonutAnimatedScene(scene: NriDonutAnimatedSceneHandle): void;
+@nodrops declare function Nri_GetDonutAnimatedSceneScene(scene: NriDonutAnimatedSceneHandle): NriDonutSceneHandle;
+// The animations (the scene graph's order), each's duration in seconds; an animation's nodes posed at
+// time seconds into it (SceneGraphAnimation::Apply(float(time))).
+@nodrops declare function Nri_GetDonutAnimationCount(scene: NriDonutAnimatedSceneHandle): int;
+@nodrops declare function Nri_GetDonutAnimationDuration(scene: NriDonutAnimatedSceneHandle, index: int): number;
+@nodrops declare function Nri_ApplyDonutAnimation(scene: NriDonutAnimatedSceneHandle, index: int, time: number): void;
+// After animations: the nodes' transforms, the instances' InstanceData, the joint matrices (Scene::Refresh).
+@nodrops declare function Nri_RefreshDonutAnimatedScene(scene: NriDonutAnimatedSceneHandle): void;
+// The instances' InstanceData (bindless.h's): size and stride in bytes; written into a host buffer at offset.
+@nodrops declare function Nri_GetDonutAnimatedSceneInstanceDataSize(scene: NriDonutAnimatedSceneHandle): int;
+@nodrops declare function Nri_GetDonutAnimatedSceneInstanceDataStride(scene: NriDonutAnimatedSceneHandle): int;
+@nodrops declare function Nri_WriteDonutAnimatedSceneInstances(scene: NriDonutAnimatedSceneHandle, buffer: NriBufferHandle, offset: int): void;
+// The skinned instances, each's joint count and joint matrices (float4x4 each: Donut's skinning shader's
+// t1) written into a host buffer at offset, its SkinningConstants (15 uints into dst, Ref of an f32
+// array element; SkinningFlag_FirstFrame the first time only): dispatch numVertices (the first) / 256
+// groups, rounded up.
+@nodrops declare function Nri_GetDonutSkinnedInstanceCount(scene: NriDonutAnimatedSceneHandle): int;
+@nodrops declare function Nri_GetDonutSkinnedJointCount(scene: NriDonutAnimatedSceneHandle, skinned: int): int;
+// The skinned instance's vertex count (SkinningConstants::numVertices).
+@nodrops declare function Nri_GetDonutSkinnedVertexCount(scene: NriDonutAnimatedSceneHandle, skinned: int): int;
+@nodrops declare function Nri_WriteDonutSkinnedJoints(scene: NriDonutAnimatedSceneHandle, skinned: int, buffer: NriBufferHandle, offset: int): void;
+@nodrops declare function Nri_GetDonutSkinningConstants(scene: NriDonutAnimatedSceneHandle, skinned: int, dst: Ref<f32>): void;
+@nodrops declare function Nri_GetDonutSkinnedVertexBufferSize(scene: NriDonutAnimatedSceneHandle): int;
+// As Donut_CreateAnimatedSceneAccelStructs: the static meshes' BLASes built on the queue (which this
+// waits for), the skinned instances' and the TLAS (its instances in one of bufferNum buffers a frame)
+// created; null on failure. Nri_CmdBuildDonutAnimatedSceneAccelStructs, as Donut_UpdateSceneAccelStructs:
+// with rebuildSkinned the skinned BLASes built from skinnedVertexBuffer (in
+// NriBufferState.AccelerationStructureInput), then the TLAS from the current transforms (instance IDs the
+// instance indices), its instances in buffer bufferIndex.
+@nodrops declare function Nri_CreateDonutAnimatedSceneAccelStructs(device: NriDeviceHandle, queue: NriQueueHandle,
+    scene: NriDonutAnimatedSceneHandle, bufferNum: int): NriDonutAnimatedSceneAccelStructsHandle | null;
+@nodrops declare function Nri_GetDonutAnimatedSceneTopLevelAS(accelStructs: NriDonutAnimatedSceneAccelStructsHandle): NriTopLevelASHandle;
+@nodrops declare function Nri_CmdBuildDonutAnimatedSceneAccelStructs(commandBuffer: NriCommandBufferHandle,
+    accelStructs: NriDonutAnimatedSceneAccelStructsHandle, scene: NriDonutAnimatedSceneHandle, skinnedVertexBuffer: NriBufferHandle,
+    bufferIndex: int, rebuildSkinned: int): void;
+@nodrops declare function Nri_DestroyDonutAnimatedSceneAccelStructs(accelStructs: NriDonutAnimatedSceneAccelStructsHandle): void;
