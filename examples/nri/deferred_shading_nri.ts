@@ -293,7 +293,10 @@ namespace DeferredShadingNri {
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
+        // The swap chain textures' format and the views' (sRGB).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
+        // The size the swap chain and the window-size targets were made at: the window's then.
         private width: int = 0;
         private height: int = 0;
 
@@ -414,22 +417,12 @@ namespace DeferredShadingNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             if (!this.createTargets(device) || !this.createMesh(device, graphicsAPI) || !this.createLayouts(device)
                 || !this.createPipelines(device, graphicsAPI) || !this.createDescriptorSets(device, queuedFrameNum)) {
@@ -452,10 +445,61 @@ namespace DeferredShadingNri {
             return 1;
         }
 
-        // The G-buffer (GBufferRenderTargets' formats; the depth: the first of Donut's choices,
-        // D24S8), the shaded color (RGBA16_FLOAT, written by the lighting shader) and Donut's
-        // fallback textures.
+        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // chain and the window-size targets made again at its size, and the sets pointed at them.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroySizedTargets();
+            this.createSwapChain(device);
+            if (this.createSizedTargets(device)) {
+                this.updateSizedDescriptors();
+            }
+        }
+
+        // The G-buffer, its depth and the shaded color (createSizedTargets), Donut's fallback textures.
         createTargets(device: NriDeviceHandle) {
+            return this.createSizedTargets(device) && this.createFallbackTextures(device);
+        }
+
+        // The window-size targets: the G-buffer (GBufferRenderTargets' formats; the depth: the first
+        // of Donut's choices, D24S8) and the shaded color (RGBA16_FLOAT, written by the lighting
+        // shader), in the states their creation leaves them in.
+        createSizedTargets(device: NriDeviceHandle) {
+            this.gbufferState = NriTextureState.ShaderResource;
+            this.shadedColorState = NriTextureState.Storage;
             const formats = [NriFormat.RGBA8_SRGB, NriFormat.RGBA8_SRGB, NriFormat.RGBA16_SNORM, NriFormat.RGBA16_SFLOAT];
             for (const format of formats) {
                 const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, format);
@@ -481,7 +525,29 @@ namespace DeferredShadingNri {
             }
             this.shadedColorStorage = Nri_CreateStorageTextureView(shadedColor, NriFormat.RGBA16_SFLOAT);
             this.shadedColorView = Nri_CreateTextureView(shadedColor, NriFormat.RGBA16_SFLOAT);
+            return true;
+        }
 
+        destroySizedTargets() {
+            for (const target of this.gbuffer) {
+                this.destroyTarget(target);
+            }
+            this.gbuffer = [];
+            const depth = this.depth;
+            if (depth) {
+                this.destroyTarget(depth);
+            }
+            this.depth = null;
+            this.destroyDescriptor(this.shadedColorStorage);
+            this.destroyDescriptor(this.shadedColorView);
+            this.destroyTexture(this.shadedColor);
+            this.shadedColorStorage = null;
+            this.shadedColorView = null;
+            this.shadedColor = null;
+        }
+
+        // Donut's CommonRenderPasses fallback textures (black, white, black cubes, the shadow map).
+        createFallbackTextures(device: NriDeviceHandle) {
             const black = Nri_CreateSolidTexture(device, this.queue, 1, 0xFF000000, NriTextureState.AllShaderResource);
             const white = Nri_CreateSolidTexture(device, this.queue, 1, 0xFFFFFFFF, NriTextureState.AllShaderResource);
             const blackCubes = Nri_CreateSolidTexture(device, this.queue, 6, 0xFF000000, NriTextureState.AllShaderResource);
@@ -729,15 +795,10 @@ namespace DeferredShadingNri {
                 Nri_UpdateDescriptor(lightingSet, 1, 1, blackCubeArrayView);
                 Nri_UpdateDescriptor(lightingSet, 1, 2, blackCubeArrayView);
                 Nri_UpdateDescriptor(lightingSet, 1, 3, blackView);
-                Nri_UpdateDescriptor(lightingSet, 2, 0, depth.view);
-                for (let k = 0; k < this.gbuffer.length; k++) {
-                    Nri_UpdateDescriptor(lightingSet, 2, 1 + k, this.gbuffer[k].view);
-                }
                 Nri_UpdateDescriptor(lightingSet, 3, 0, blackView);
                 Nri_UpdateDescriptor(lightingSet, 3, 1, blackView);
                 Nri_UpdateDescriptor(lightingSet, 3, 2, blackView);
                 Nri_UpdateDescriptor(lightingSet, 3, 3, whiteView);
-                Nri_UpdateDescriptor(lightingSet, 4, 0, shadedColorStorage);
                 for (let k = 0; k < 4; k++) {
                     Nri_UpdateDescriptor(lightingSet, 5, k, this.samplers[1 + k]);
                 }
@@ -757,9 +818,32 @@ namespace DeferredShadingNri {
             for (let k = 1; k < 7; k++) {
                 Nri_UpdateDescriptor(materialSet, 1, k, blackView);
             }
-            Nri_UpdateDescriptor(blitSet, 0, 0, shadedColorView);
             Nri_UpdateDescriptor(blitSet, 1, 0, this.samplers[4]);
+            this.updateSizedDescriptors();
             return true;
+        }
+
+        // The window-size targets' views in the sets: each queued frame's lighting set (the depth,
+        // the G-buffer, the shaded color written) and the blit's (the shaded color read).
+        updateSizedDescriptors() {
+            const depth = this.depth;
+            const shadedColorStorage = this.shadedColorStorage;
+            const shadedColorView = this.shadedColorView;
+            const blitSet = this.blitSet;
+            if (!depth || !shadedColorStorage || !shadedColorView || !blitSet) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                const lightingSet = queuedFrame.lightingSet;
+                if (lightingSet) {
+                    Nri_UpdateDescriptor(lightingSet, 2, 0, depth.view);
+                    for (let k = 0; k < this.gbuffer.length; k++) {
+                        Nri_UpdateDescriptor(lightingSet, 2, 1 + k, this.gbuffer[k].view);
+                    }
+                    Nri_UpdateDescriptor(lightingSet, 4, 0, shadedColorStorage);
+                }
+            }
+            Nri_UpdateDescriptor(blitSet, 0, 0, shadedColorView);
         }
 
         // Waits for the frame that last used this frame's command allocator.
@@ -911,6 +995,7 @@ namespace DeferredShadingNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.animate();
@@ -984,11 +1069,7 @@ namespace DeferredShadingNri {
                     this.destroyDescriptor(queuedFrame.viewConstantsView);
                     this.destroyDescriptor(queuedFrame.lightingConstantsView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
+                this.destroySwapChain();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -996,16 +1077,7 @@ namespace DeferredShadingNri {
                 for (const sampler of this.samplers) {
                     this.destroyDescriptor(sampler);
                 }
-                for (const target of this.gbuffer) {
-                    this.destroyTarget(target);
-                }
-                const depth = this.depth;
-                if (depth) {
-                    this.destroyTarget(depth);
-                }
-                this.destroyDescriptor(this.shadedColorStorage);
-                this.destroyDescriptor(this.shadedColorView);
-                this.destroyTexture(this.shadedColor);
+                this.destroySizedTargets();
                 this.destroyDescriptor(this.blackView);
                 this.destroyDescriptor(this.whiteView);
                 this.destroyDescriptor(this.shadowMapView);
@@ -1033,7 +1105,6 @@ namespace DeferredShadingNri {
                 this.destroyLayout(this.lightingLayout);
                 this.destroyLayout(this.blitLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1078,6 +1149,7 @@ namespace DeferredShadingNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         return new DeferredShading(sample).run(argc, argv);
     }
 }

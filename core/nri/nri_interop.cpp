@@ -784,9 +784,29 @@ public:
 
     void RenderFrame(uint32_t frameIndex) override
     {
+        // A resizable window (Nri_UseResizableWindow): its framebuffer's size is the output size the
+        // example sees this frame (Nri_GetOutputWidth/Height), so it recreates its swap chain and the
+        // targets of that size when they differ. While it has no area (minimized) this waits for it
+        // to have one again: the frame still runs, so the example's frame fence keeps counting.
+        if (m_Resizable && m_Window)
+        {
+            int width = 0;
+            int height = 0;
+            glfwGetFramebufferSize(m_Window, &width, &height);
+            while ((width <= 0 || height <= 0) && !glfwWindowShouldClose(m_Window))
+            {
+                glfwWaitEvents();
+                glfwGetFramebufferSize(m_Window, &width, &height);
+            }
+            if (width > 0 && height > 0)
+                m_OutputResolution = uint2((uint32_t)width, (uint32_t)height);
+        }
         if (m_RenderFrame)
             m_RenderFrame.method(m_RenderFrame.thisVal, (int)frameIndex);
     }
+
+    void SetResizable(bool resizable) { m_Resizable = resizable; }
+    bool Resizable() const { return m_Resizable; }
 
     nri::AllocationCallbacks& AllocationCallbacks() { return m_AllocationCallbacks; }
     uint32_t AdapterIndex() const { return m_AdapterIndex; }
@@ -856,6 +876,15 @@ extern "C"
         sample->m_WindowHeight = height;
     }
 
+    // The window can be resized (before Nri_RunSample; not under -test, whose frames are the window's
+    // size): Nri_GetOutputWidth/Height follow its framebuffer from frame to frame, and the example
+    // recreates its swap chain (Nri_DeviceWaitIdle, Nri_DestroySwapChain, Nri_CreateSwapChain) and its
+    // targets of that size when the size it made them at differs.
+    NRI_INTEROP_API void Nri_UseResizableWindow(TsSample* sample)
+    {
+        sample->SetResizable(true);
+    }
+
     // Parses the command line, makes the window (calling the Initialize callback) and renders until
     // it's closed. Returns 0, or 1 if the command line or the initialization failed.
     // The command line is NRIFramework's (--api=D3D12, --debugAPI, --frameNum=<n>, --help, ...), with
@@ -906,6 +935,9 @@ extern "C"
 
         // NRIFramework prints the command line's errors and usage with printf: flushed here, as this
         // library's output isn't flushed with the executable's.
+        // -test renders at the size it asked for.
+        if (sample->m_Test)
+            sample->SetResizable(false);
         bool created = sample->Create((int32_t)pointers.size(), pointers.data(), title);
         fflush(stdout);
         if (!created)
