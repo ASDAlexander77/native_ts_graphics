@@ -112,6 +112,8 @@ namespace TerrainTessellationNri {
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
+        // The swap chain textures' format (its views' are viewFormat).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
         private camera: DonutFirstPersonCamera = new DonutFirstPersonCamera(MOVE_SPEED, ROTATE_SPEED);
 
@@ -135,6 +137,7 @@ namespace TerrainTessellationNri {
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         private blitSet: NriDescriptorSetHandle | null = null;
         private imgui: boolean = false;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
 
@@ -193,22 +196,13 @@ namespace TerrainTessellationNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: blitted into through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.viewFormat;
 
             // The textures, as the sample (vkb) loads KTX 1 files: color as sRGB, the heightmap as is.
             this.heightmap = Nri_LoadDdsTexture(device, this.queue, HEIGHTMAP_PATH, 0);
@@ -241,17 +235,10 @@ namespace TerrainTessellationNri {
 
             // The color buffer (RGBA8, as the Donut example's) and the depth buffer, the swap chain's
             // size.
-            const colorBuffer = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.colorBuffer = colorBuffer;
-            this.depthTexture = depthTexture;
-            if (!colorBuffer || !depthTexture) {
+            if (!this.createSizeTargets(device)) {
                 console.log("Cannot create the color and depth buffers");
                 return 0;
             }
-            this.colorAttachment = Nri_CreateColorAttachmentView(colorBuffer, NriFormat.RGBA8_UNORM);
-            this.colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA8_UNORM);
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             // The layouts: the terrain's (and the sky's) constants (b0), textures (t0 to t2) and
             // samplers (s0 to s2) for every stage; the blit's constants (b0) and its source (t0, s0).
@@ -548,7 +535,87 @@ namespace TerrainTessellationNri {
             Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
         }
 
+        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The color buffer (RGBA8, as the Donut example's) and the depth buffer at the swap chain's size,
+        // and their views; false on failure. Once the blit's set exists, its source points at the new
+        // color buffer.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const colorBuffer = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.colorBuffer = colorBuffer;
+            this.depthTexture = depthTexture;
+            if (!colorBuffer || !depthTexture) {
+                return false;
+            }
+            this.colorAttachment = Nri_CreateColorAttachmentView(colorBuffer, NriFormat.RGBA8_UNORM);
+            const colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA8_UNORM);
+            this.colorView = colorView;
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            const blitSet = this.blitSet;
+            if (blitSet) {
+                if (colorView) {
+                    Nri_UpdateDescriptor(blitSet, 0, 0, colorView);
+                }
+            }
+            return true;
+        }
+
+        destroySizeTargets() {
+            this.destroyDescriptor(this.colorAttachment);
+            this.colorAttachment = null;
+            this.destroyDescriptor(this.colorView);
+            this.colorView = null;
+            this.destroyDescriptor(this.depthAttachment);
+            this.depthAttachment = null;
+            this.destroyTexture(this.colorBuffer);
+            this.colorBuffer = null;
+            this.destroyTexture(this.depthTexture);
+            this.depthTexture = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the color and depth buffers made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySizeTargets();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createSizeTargets(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -656,11 +723,6 @@ namespace TerrainTessellationNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.constantBufferView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -671,14 +733,10 @@ namespace TerrainTessellationNri {
                 for (const sampler of this.samplers) {
                     Nri_DestroyDescriptor(sampler);
                 }
-                this.destroyDescriptor(this.colorAttachment);
-                this.destroyDescriptor(this.colorView);
-                this.destroyDescriptor(this.depthAttachment);
+                this.destroySizeTargets();
                 this.destroyTexture(this.heightmap);
                 this.destroyTexture(this.terrainLayers);
                 this.destroyTexture(this.sky);
-                this.destroyTexture(this.colorBuffer);
-                this.destroyTexture(this.depthTexture);
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
                     Nri_DestroyBuffer(constantBuffer);
@@ -694,7 +752,7 @@ namespace TerrainTessellationNri {
                 this.destroyLayout(this.terrainLayout);
                 this.destroyLayout(this.blitLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -727,6 +785,7 @@ namespace TerrainTessellationNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const terrain = new TerrainTessellation(sample);
         // -noUI: no settings window.
         Nri_AddExampleOption(sample, "-noUI");

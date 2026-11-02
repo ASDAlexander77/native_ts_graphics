@@ -131,6 +131,8 @@ namespace FragmentShadingRateNri {
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
+        // The swap chain textures' format (its views' are viewFormat).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
         private pipelineLayout: NriPipelineLayoutHandle | null = null;
         private skyspherePipeline: NriPipelineHandle | null = null;
@@ -149,6 +151,7 @@ namespace FragmentShadingRateNri {
         private constantBuffer: NriBufferHandle | null = null;
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         private imgui: boolean = false;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
         // Set by initialize when the example can't run ("" otherwise).
@@ -233,22 +236,13 @@ namespace FragmentShadingRateNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.viewFormat;
 
             // SV_ShadingRate is shader model 6.4's (the Donut example's shaders: DXIL and SPIR-V).
             if (graphicsAPI == NriGraphicsAPI.D3D11) {
@@ -288,21 +282,12 @@ namespace FragmentShadingRateNri {
                 Nri_GetMaxSamplerAnisotropy(device));
             this.sampler = sampler;
 
-            // The targets (for the window's size): the depth buffer and the shading rate attachment,
-            // its rings made once.
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            const rateWidth = Math.ceil(this.width / this.tileSize);
-            const rateHeight = Math.ceil(this.height / this.tileSize);
-            const pattern = this.shadingRatePattern(rateWidth, rateHeight);
-            const shadingRateTexture = Nri_CreateShadingRateTexture(device, this.queue, rateWidth, rateHeight, Ref(pattern[0]), rateWidth, 0);
-            this.shadingRateTexture = shadingRateTexture;
-            if (!depthTexture || !shadingRateTexture) {
+            // The targets (for the window's size, made again when it is resized): the depth buffer and
+            // the shading rate attachment.
+            if (!this.createSizeTargets(device)) {
                 console.log("Cannot create the depth buffer and the shading rate attachment");
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
-            this.shadingRateAttachment = Nri_CreateShadingRateAttachmentView(shadingRateTexture);
 
             // The layout: the sample's descriptor set (the UBO at b0, the sky sphere's texture and
             // sampler at t0 and s0, the cubes' at t1 and s1) and push constants (b1: root constants).
@@ -587,7 +572,79 @@ namespace FragmentShadingRateNri {
             }
         }
 
+        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The targets at the swap chain's size: the depth buffer and the shading rate attachment (a
+        // texel per tile, its rings made for its size), and their views; false on failure.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            const rateWidth = Math.ceil(this.width / this.tileSize);
+            const rateHeight = Math.ceil(this.height / this.tileSize);
+            const pattern = this.shadingRatePattern(rateWidth, rateHeight);
+            const shadingRateTexture = Nri_CreateShadingRateTexture(device, this.queue, rateWidth, rateHeight, Ref(pattern[0]), rateWidth, 0);
+            this.shadingRateTexture = shadingRateTexture;
+            if (!depthTexture || !shadingRateTexture) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.shadingRateAttachment = Nri_CreateShadingRateAttachmentView(shadingRateTexture);
+            return true;
+        }
+
+        destroySizeTargets() {
+            this.destroyDescriptor(this.depthAttachment);
+            this.depthAttachment = null;
+            this.destroyDescriptor(this.shadingRateAttachment);
+            this.shadingRateAttachment = null;
+            this.destroyTexture(this.depthTexture);
+            this.depthTexture = null;
+            this.destroyTexture(this.shadingRateTexture);
+            this.shadingRateTexture = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain, the depth buffer and the shading rate attachment made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySizeTargets();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createSizeTargets(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -682,11 +739,6 @@ namespace FragmentShadingRateNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.constantBufferView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -694,12 +746,9 @@ namespace FragmentShadingRateNri {
                 this.destroyDescriptor(this.skysphereTextureView);
                 this.destroyDescriptor(this.sceneTextureView);
                 this.destroyDescriptor(this.sampler);
-                this.destroyDescriptor(this.depthAttachment);
-                this.destroyDescriptor(this.shadingRateAttachment);
+                this.destroySizeTargets();
                 this.destroyTexture(this.skysphereTexture);
                 this.destroyTexture(this.sceneTexture);
-                this.destroyTexture(this.depthTexture);
-                this.destroyTexture(this.shadingRateTexture);
                 this.destroyMesh(this.skysphereMesh);
                 this.destroyMesh(this.sceneMesh);
                 const constantBuffer = this.constantBuffer;
@@ -717,7 +766,7 @@ namespace FragmentShadingRateNri {
                     Nri_DestroyPipelineLayout(pipelineLayout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -750,6 +799,7 @@ namespace FragmentShadingRateNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const shadingRate = new FragmentShadingRate(sample);
         // -color: the shading rates shown; -noattachment: the full rate everywhere; -nosky: without
         // the sky sphere; -noUI: no overlay.

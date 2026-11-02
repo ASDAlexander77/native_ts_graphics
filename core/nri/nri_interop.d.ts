@@ -1479,6 +1479,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_ImguiCreateFont(path: string, size: number): NriImguiFontHandle | null;
 // Draws with the font until Nri_ImguiPopFont.
 @nodrops declare function Nri_ImguiPushFont(font: NriImguiFontHandle): void;
+// Draws with the font at this size (pixels, as Nri_ImguiCreateFont's) until Nri_ImguiPopFont: one font
+// serves every size.
+@nodrops declare function Nri_ImguiPushFontSized(font: NriImguiFontHandle, size: number): void;
 @nodrops declare function Nri_ImguiPopFont(): void;
 // The widgets, as Donut's ImGui wrappers.
 @nodrops declare function Nri_ImguiSetNextWindowPos(x: number, y: number): void;

@@ -93,7 +93,15 @@ namespace PowderSandboxNri {
     const ACTION_PAUSE = 102;
     const ACTION_VIEW = 103;
     const ACTION_CLEAR = 104;
+    const ACTION_SHAPE = 105;
     const VIEW_NAMES = ["Materials", "Pressure", "Temperature"];
+    // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
+    // release, the line (brush-wide) or the rectangle from where the press began.
+    const SHAPE_CIRCLE = 0;
+    const SHAPE_SQUARE = 1;
+    const SHAPE_LINE = 2;
+    const SHAPE_BOX = 3;
+    const SHAPE_NAMES = ["Circle", "Square", "Line", "Box"];
 
     function materialName(material: int): string {
         if (material == 1) { return "water"; }
@@ -181,6 +189,7 @@ namespace PowderSandboxNri {
         private tool: int = WATER;
         private emitType: int = WATER;
         private brushRadius: number = 3.0;
+        private brushShape: int = SHAPE_CIRCLE;
         private paused: boolean = false;
         // -view N: 0 materials, 1 pressure, 2 temperature.
         overlay: int = 0;
@@ -201,6 +210,9 @@ namespace PowderSandboxNri {
         private lastGridY: number = 0.0;
         private mouseGridX: number = 0.0;
         private mouseGridY: number = 0.0;
+        // Where a press on the grid began (in cells): a line's or a box's first corner.
+        private anchorX: number = 0.0;
+        private anchorY: number = 0.0;
 
         private constants: f32[] = [];
         private probe: int[] = [];
@@ -237,6 +249,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
             this.tiles.push(new Tile("Cool", COOL, 0.3, 0.6, 1.0));
             this.tiles.push(new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
+            this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
@@ -277,25 +290,16 @@ namespace PowderSandboxNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
             if (this.test && this.scene == 0) {
                 this.scene = 1;
             }
-            this.layout();
 
-            // Swap chain: rendered through UNORM views (the display writes its colors as they are).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.viewFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.viewFormat;
+            this.fitGrid();
+            this.layout();
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -424,15 +428,59 @@ namespace PowderSandboxNri {
             return 1;
         }
 
-        // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
-        // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); the
-        // grid's size from the shape of the window above it (DEFAULT_GRID_HEIGHT cells along its
-        // shorter side), and where the grid's drawn.
-        layout() {
-            this.tileHeight = Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
-            this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
-            this.toolbarHeight = this.tileHeight;
-            const playHeight = this.height - this.toolbarHeight;
+        // The swap chain at the window's size, rendered through UNORM views (the display writes its
+        // colors as they are), its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = format;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once
+        // the GPU is done with the old one, and the toolbar and the grid's view fitted to it. The grid
+        // keeps its cells (and what's in them), so a window of another shape shows it with margins.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.layout();
+            this.scrollToolbar(this.toolbarScroll);
+        }
+
+        // The toolbar's height: a share of the window's shorter side, 56 .. 160 pixels.
+        toolbarTileHeight(): number {
+            return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
+        }
+
+        // The grid's size from the shape of the window above the toolbar (DEFAULT_GRID_HEIGHT cells
+        // along its shorter side), once: resizing the window later keeps the grid.
+        fitGrid() {
+            const playHeight = this.height - this.toolbarTileHeight();
             let gridW: int = DEFAULT_GRID_HEIGHT;
             let gridH: int = DEFAULT_GRID_HEIGHT;
             if (this.width >= playHeight) {
@@ -443,10 +491,20 @@ namespace PowderSandboxNri {
             this.gridW = Math.min(Math.max(gridW, 16), 1024);
             this.gridH = Math.min(Math.max(gridH, 16), 1024);
             this.stride = (this.gridW + 1) * (this.gridH + 1);
+            console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
+        }
+
+        // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
+        // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); and
+        // where the grid's drawn: as large as fits above it, centered.
+        layout() {
+            this.tileHeight = this.toolbarTileHeight();
+            this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
+            this.toolbarHeight = this.tileHeight;
+            const playHeight = this.height - this.toolbarHeight;
             this.cellPixels = Math.min(this.width / this.gridW, playHeight / this.gridH);
             this.viewX = (this.width - this.gridW * this.cellPixels) * 0.5;
             this.viewY = (playHeight - this.gridH * this.cellPixels) * 0.5;
-            console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
         }
 
         // Waits for the frame that last used this frame's command allocator.
@@ -479,6 +537,8 @@ namespace PowderSandboxNri {
                 this.overlay = (this.overlay + 1) % 3;
             } else if (action == ACTION_CLEAR) {
                 this.needsInit = true;
+            } else if (action == ACTION_SHAPE) {
+                this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
@@ -521,6 +581,8 @@ namespace PowderSandboxNri {
                 this.dragging = false;
                 this.lastGridX = gx;
                 this.lastGridY = gy;
+                this.anchorX = gx;
+                this.anchorY = gy;
             }
             // On the toolbar: a drag scrolls the row, a release that didn't drag taps the tile there.
             if (this.pressOnToolbar) {
@@ -538,7 +600,10 @@ namespace PowderSandboxNri {
                     }
                 }
             }
-            if (down && !this.pressOnToolbar) {
+            // On the grid: circles and squares paint along the path; lines and boxes when released.
+            const stretches = this.brushShape == SHAPE_LINE || this.brushShape == SHAPE_BOX;
+            const pressOnGrid = this.wasDown && !this.pressOnToolbar;
+            if (down && !this.pressOnToolbar && !stretches) {
                 brushMode = 1;
                 this.setFloat(10, this.lastGridX);
                 this.setFloat(11, this.lastGridY);
@@ -546,7 +611,33 @@ namespace PowderSandboxNri {
                 this.setFloat(13, gy);
                 this.lastGridX = gx;
                 this.lastGridY = gy;
+            } else if (!down && pressOnGrid && stretches) {
+                brushMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                this.setFloat(10, this.anchorX);
+                this.setFloat(11, this.anchorY);
+                this.setFloat(12, gx);
+                this.setFloat(13, gy);
             }
+
+            // The cursor: the brush at the pointer, or the line or box being stretched; none over
+            // the toolbar or while dragging it.
+            let cursorMode = 1;
+            let cursorX = gx;
+            let cursorY = gy;
+            if (down && !this.pressOnToolbar && stretches) {
+                cursorMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                cursorX = this.anchorX;
+                cursorY = this.anchorY;
+            } else if (this.brushShape == SHAPE_BOX) {
+                cursorMode = 2;
+            }
+            if (overToolbar || (down && this.pressOnToolbar)) {
+                cursorMode = 0;
+            }
+            const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
+            this.setInt(27, shape | (cursorMode << 4));
+            this.setFloat(28, cursorX);
+            this.setFloat(29, cursorY);
             this.wasDown = down;
             return brushMode;
         }
@@ -710,6 +801,8 @@ namespace PowderSandboxNri {
                 let label = tile.label;
                 if (tile.tool == ACTION_PAUSE && this.paused) {
                     label = "Play";
+                } else if (tile.tool == ACTION_SHAPE) {
+                    label = SHAPE_NAMES[this.brushShape];
                 } else if (tile.tool == EMITTER) {
                     // What it emits, in the middle of its swatch.
                     const emitted = this.tiles[this.emitType == FIRE ? 3 : this.emitType - 1];
@@ -732,7 +825,7 @@ namespace PowderSandboxNri {
 
             // Particles in use, the brush, the view; the cell under the pointer.
             const used = CAPACITY - this.probe[0];
-            Nri_ImguiDrawText(8.0, 6.0, `${formatFixed(this.frameRate, 0)} fps   particles ${used} / ${CAPACITY}   brush ${formatFixed(this.brushRadius, 0)}   view: ${VIEW_NAMES[this.overlay]}${this.paused ? "   PAUSED" : ""}`,
+            Nri_ImguiDrawText(8.0, 6.0, `${formatFixed(this.frameRate, 0)} fps   particles ${used} / ${CAPACITY}   brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}   view: ${VIEW_NAMES[this.overlay]}${this.paused ? "   PAUSED" : ""}`,
                 1.0, 1.0, 1.0, 1.0, 0);
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
@@ -771,6 +864,7 @@ namespace PowderSandboxNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             this.frameIndex = frameIndex;
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 1.0 / 30.0);
@@ -961,11 +1055,7 @@ namespace PowderSandboxNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     Nri_DestroyBuffer(queuedFrame.probeReadback);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
+                this.destroySwapChain();
                 for (const view of this.storageViews) {
                     Nri_DestroyDescriptor(view);
                 }
@@ -1000,7 +1090,6 @@ namespace PowderSandboxNri {
                     Nri_DestroyPipelineLayout(drawLayout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1009,6 +1098,7 @@ namespace PowderSandboxNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const sandbox = new PowderSandbox(sample);
         Nri_AddExampleOption(sample, "-utube");
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);

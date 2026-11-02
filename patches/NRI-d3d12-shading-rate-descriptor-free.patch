@@ -1,0 +1,15 @@
+diff --git a/Source/D3D12/DescriptorD3D12.h b/Source/D3D12/DescriptorD3D12.h
+index 8cc973c1..1c3df518 100644
+--- a/Source/D3D12/DescriptorD3D12.h
++++ b/Source/D3D12/DescriptorD3D12.h
+@@ -14,7 +14,9 @@ struct DescriptorD3D12 final : public DebugNameBase {
+     }
+ 
+     inline ~DescriptorD3D12() {
+-        m_Device.FreeDescriptorHandle(m_Handle);
++        // Views without a heap descriptor (a shading rate attachment's) have no handle to give back
++        if (m_DescriptorHandleCPU)
++            m_Device.FreeDescriptorHandle(m_Handle);
+     }
+ 
+     inline operator ID3D12Resource*() const {

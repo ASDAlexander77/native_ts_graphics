@@ -276,6 +276,9 @@ namespace DynamicRenderingLocalReadNri {
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views' (createSwapChain's).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private swapChainViewFormat: NriFormat = NriFormat.Unknown;
 
         private camera: FirstPersonCamera = new FirstPersonCamera(CAMERA_POSITION, CAMERA_ROTATION);
         // The mouse buttons and the camera's keys as the camera last saw them.
@@ -342,42 +345,18 @@ namespace DynamicRenderingLocalReadNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
-            // The sample's create_attachments: the G-buffer (position and linear depth, normal,
-            // albedo; cleared before every read) and the depth buffer (D32, cleared to 0: reversed).
-            const gbufferFormats = [NriFormat.RGBA16_SFLOAT, NriFormat.RGBA16_SFLOAT, NriFormat.RGBA8_UNORM];
-            for (let i = 0; i < 3; i++) {
-                const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, gbufferFormats[i]);
-                if (!texture) {
-                    console.log("Cannot create the G-buffer");
-                    return 0;
-                }
-                this.gbuffer.push(new GBufferTarget(texture, Nri_CreateColorAttachmentView(texture, gbufferFormats[i]),
-                    Nri_CreateTextureView(texture, gbufferFormats[i])));
-            }
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            if (!depthTexture) {
-                console.log("Cannot create the depth buffer");
+            // The sample's create_attachments (createSizeTargets).
+            if (!this.createSizeTargets(device)) {
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             // The scenes and the glass texture (sRGB), its sampler as the framework's load_texture's:
             // trilinear, repeating, the device's widest anisotropic filtering.
@@ -738,7 +717,105 @@ namespace DynamicRenderingLocalReadNri {
             this.drawScene(commandBuffer, this.transparentScene, this.transparentPipeline);
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainViewFormat = viewFormat;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroySizeTargets();
+            this.createSwapChain(device);
+            if (!this.createSizeTargets(device)) {
+                return;
+            }
+            // The composition and every queued frame's glass read the new G-buffer.
+            const compositionSet = this.compositionSet;
+            if (compositionSet) {
+                for (let i = 0; i < 3; i++) {
+                    Nri_UpdateDescriptor(compositionSet, 0, i, this.gbuffer[i].shaderResource);
+                }
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                const transparentSet = queuedFrame.transparentSet;
+                if (transparentSet) {
+                    Nri_UpdateDescriptor(transparentSet, 1, 0, this.gbuffer[0].shaderResource);
+                }
+            }
+        }
+
+        // The sample's create_attachments: the G-buffer (position and linear depth, normal, albedo;
+        // cleared before every read) and the depth buffer (D32, cleared to 0: reversed), at the swap
+        // chain's size. False if they can't be created.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const gbufferFormats = [NriFormat.RGBA16_SFLOAT, NriFormat.RGBA16_SFLOAT, NriFormat.RGBA8_UNORM];
+            for (let i = 0; i < 3; i++) {
+                const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, gbufferFormats[i]);
+                if (!texture) {
+                    console.log("Cannot create the G-buffer");
+                    return false;
+                }
+                this.gbuffer.push(new GBufferTarget(texture, Nri_CreateColorAttachmentView(texture, gbufferFormats[i]),
+                    Nri_CreateTextureView(texture, gbufferFormats[i])));
+            }
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!depthTexture) {
+                console.log("Cannot create the depth buffer");
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroySizeTargets() {
+            for (const target of this.gbuffer) {
+                Nri_DestroyDescriptor(target.attachment);
+                Nri_DestroyDescriptor(target.shaderResource);
+                Nri_DestroyTexture(target.texture);
+            }
+            this.gbuffer = [];
+            this.destroyDescriptor(this.depthAttachment);
+            this.destroyTexture(this.depthTexture);
+            this.depthAttachment = null;
+            this.depthTexture = null;
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -909,6 +986,7 @@ namespace DynamicRenderingLocalReadNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const localRead = new LocalRead(sample);
         // -benchmark: the lights seeded with 0 (as under -test); -noUI: no overlay.
         Nri_AddExampleOption(sample, "-benchmark");

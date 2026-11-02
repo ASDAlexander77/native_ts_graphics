@@ -174,6 +174,9 @@ namespace LogicOpDynamicStateNri {
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views' (createSwapChain's).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private swapChainViewFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -262,23 +265,14 @@ namespace LogicOpDynamicStateNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
             this.uintLogicOps = graphicsAPI != NriGraphicsAPI.VK;
 
             // Swap chain: blitted into through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
             if (Nri_IsFeatureSupported(device, NriFeature.LogicOp) == 0) {
                 this.unsupportedReason = "This example needs logic operations in blend states (OutputMergerLogicOp, Vulkan's logicOp)";
@@ -309,20 +303,11 @@ namespace LogicOpDynamicStateNri {
             this.linearClamp = linearClamp;
 
             // The color buffer (RGBA8, its views as above) and the depth buffer, the swap chain's size.
-            const colorBuffer = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.colorBuffer = colorBuffer;
-            this.depthTexture = depthTexture;
-            if (!colorBuffer || !depthTexture || !anisotropicWrap || !linearClamp) {
+            if (!this.createSizeTargets(device) || !anisotropicWrap || !linearClamp) {
                 console.log("Cannot create the color and depth buffers");
                 return 0;
             }
-            this.colorAttachment = Nri_CreateColorAttachmentView(colorBuffer, NriFormat.RGBA8_UNORM);
-            this.logicOpAttachment = Nri_CreateColorAttachmentView(colorBuffer,
-                this.uintLogicOps ? NriFormat.RGBA8_UINT : NriFormat.RGBA8_UNORM);
-            const colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA8_SRGB);
-            this.colorView = colorView;
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            const colorView = this.colorView;
 
             // The layouts: the sample's descriptor set, as one for both pipelines (the common UBO at
             // b0, the lighting UBO at b1, the cube map at t0 and its sampler at s0) and the cube's push
@@ -712,7 +697,95 @@ namespace LogicOpDynamicStateNri {
             Nri_CmdEndRendering(commandBuffer);
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainViewFormat = viewFormat;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroySizeTargets();
+            this.createSwapChain(device);
+            this.createSizeTargets(device);
+            // The blit reads the new color buffer.
+            const blitSet = this.blitSet;
+            const colorView = this.colorView;
+            if (blitSet) {
+                if (colorView) {
+                    Nri_UpdateDescriptor(blitSet, 0, 0, colorView);
+                }
+            }
+        }
+
+        // The color buffer (RGBA8: its UNORM attachment, the logic operations' one, UINT on D3D, and
+        // the blit's sRGB view) and the depth buffer, at the swap chain's size. False if either can't
+        // be created.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const colorBuffer = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.colorBuffer = colorBuffer;
+            this.depthTexture = depthTexture;
+            if (!colorBuffer || !depthTexture) {
+                return false;
+            }
+            this.colorAttachment = Nri_CreateColorAttachmentView(colorBuffer, NriFormat.RGBA8_UNORM);
+            this.logicOpAttachment = Nri_CreateColorAttachmentView(colorBuffer,
+                this.uintLogicOps ? NriFormat.RGBA8_UINT : NriFormat.RGBA8_UNORM);
+            this.colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA8_SRGB);
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroySizeTargets() {
+            this.destroyDescriptor(this.colorAttachment);
+            this.destroyDescriptor(this.logicOpAttachment);
+            this.destroyDescriptor(this.colorView);
+            this.destroyDescriptor(this.depthAttachment);
+            this.destroyTexture(this.colorBuffer);
+            this.destroyTexture(this.depthTexture);
+            this.colorAttachment = null;
+            this.logicOpAttachment = null;
+            this.colorView = null;
+            this.depthAttachment = null;
+            this.colorBuffer = null;
+            this.depthTexture = null;
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -883,6 +956,7 @@ namespace LogicOpDynamicStateNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const logicOp = new LogicOpDynamicState(sample);
         // -op <0..15>: the logic operation at start (Vulkan's order: 3 is COPY); -noUI: no overlay.
         Nri_AddExampleOptionWithValues(sample, "-op", 1);

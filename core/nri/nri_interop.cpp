@@ -5217,6 +5217,13 @@ extern "C"
         ImGui::PushFont(font, font->LegacySize);
     }
 
+    // Draws with the font at this size (pixels, as Nri_ImguiCreateFont's) until Nri_ImguiPopFont: ImGui
+    // 1.92 bakes glyphs per size as needed, so one font serves every size.
+    NRI_INTEROP_API void Nri_ImguiPushFontSized(ImFont* font, double size)
+    {
+        ImGui::PushFont(font, float(size));
+    }
+
     NRI_INTEROP_API void Nri_ImguiPopFont()
     {
         ImGui::PopFont();

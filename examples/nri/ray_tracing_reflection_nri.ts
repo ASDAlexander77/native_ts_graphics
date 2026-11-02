@@ -207,8 +207,11 @@ namespace RayTracingReflectionNri {
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         // The output was copied from (after the first frame).
         private outputCopied: boolean = false;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format.
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -274,20 +277,13 @@ namespace RayTracingReflectionNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format, as the sample's vkCmdCopyImage: the
             // UNORM values become the back buffer's encoded ones.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Queued frames (their sets come below)
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -335,18 +331,16 @@ namespace RayTracingReflectionNri {
 
             // The storage image the ray generation shader writes, in the back buffer's format, for the
             // copy.
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, format);
-            this.output = output;
+            const created = this.createOutput(device);
             const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, queuedFrameNum, 0, queuedFrameNum, 0,
                 queuedFrameNum, 5 * queuedFrameNum, queuedFrameNum);
             this.descriptorPool = descriptorPool;
             const topLevelASView = this.topLevelASView;
-            if (!uniformBuffer || !output || !descriptorPool || !topLevelASView) {
+            if (!uniformBuffer || !created || !descriptorPool || !topLevelASView) {
                 console.log("Cannot create the output");
                 return 0;
             }
-            const outputStorage = Nri_CreateStorageTextureView(output, format);
-            this.outputStorage = outputStorage;
+            const outputStorage = this.outputStorage;
             if (!outputStorage) {
                 console.log("Cannot create the output's view");
                 return 0;
@@ -602,7 +596,80 @@ namespace RayTracingReflectionNri {
             }
         }
 
+        // The swap chain at the window's size, its textures' semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The storage image the ray generation shader writes, at the swap chain's size and in its format
+        // (for the copy), and its view; false if the image can't be made. Once the sets exist, their
+        // output slots point at the new view; it starts as made (the first frame's state).
+        createOutput(device: NriDeviceHandle): boolean {
+            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+            this.output = output;
+            if (!output) {
+                return false;
+            }
+            const outputStorage = Nri_CreateStorageTextureView(output, this.swapChainFormat);
+            this.outputStorage = outputStorage;
+            if (outputStorage) {
+                for (const queuedFrame of this.queuedFrames) {
+                    const set = queuedFrame.set;
+                    if (set) {
+                        Nri_UpdateDescriptor(set, 3, 0, outputStorage);
+                    }
+                }
+            }
+            this.outputCopied = false;
+            return true;
+        }
+
+        destroyOutput() {
+            this.destroyDescriptor(this.outputStorage);
+            this.outputStorage = null;
+            const output = this.output;
+            if (output) {
+                Nri_DestroyTexture(output);
+            }
+            this.output = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the ray traced output made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroyOutput();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createOutput(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             this.handleMouse();
 
@@ -669,22 +736,14 @@ namespace RayTracingReflectionNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.uniformView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyDescriptor(this.outputStorage);
+                this.destroyOutput();
                 this.destroyDescriptor(this.topLevelASView);
                 for (const view of this.bufferViews) {
                     Nri_DestroyDescriptor(view);
-                }
-                const output = this.output;
-                if (output) {
-                    Nri_DestroyTexture(output);
                 }
                 for (const buffer of this.buffers) {
                     Nri_DestroyBuffer(buffer);
@@ -717,7 +776,7 @@ namespace RayTracingReflectionNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -732,6 +791,7 @@ namespace RayTracingReflectionNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         return new RayTracingReflection(sample).run(argc, argv);
     }
 }

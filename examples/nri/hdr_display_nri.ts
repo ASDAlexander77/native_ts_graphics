@@ -297,18 +297,10 @@ namespace HdrDisplayNri {
             }
 
             // The scene (RGBA16_FLOAT) and the UI layer (RGBA8_UNORM): the window's size.
-            const sceneTexture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
-            const uiTexture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
-            this.sceneTexture = sceneTexture;
-            this.uiTexture = uiTexture;
-            if (!sceneTexture || !uiTexture) {
+            if (!this.createTargets(device)) {
                 console.log("Cannot create the render targets");
                 return 0;
             }
-            this.sceneAttachment = Nri_CreateColorAttachmentView(sceneTexture, NriFormat.RGBA16_SFLOAT);
-            this.sceneView = Nri_CreateTextureView(sceneTexture, NriFormat.RGBA16_SFLOAT);
-            this.uiAttachment = Nri_CreateColorAttachmentView(uiTexture, NriFormat.RGBA8_UNORM);
-            this.uiView = Nri_CreateTextureView(uiTexture, NriFormat.RGBA8_UNORM);
             // The sample's static sampler: point filtering (its border addressing only ever reached
             // outside the window; Donut's point clamp sampler).
             this.sampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
@@ -324,8 +316,6 @@ namespace HdrDisplayNri {
             // The set: the scene, the UI layer, the sampler.
             const descriptorPool = Nri_CreateDescriptorPool(device, 1, 1, 0, 2, 0, 0);
             this.descriptorPool = descriptorPool;
-            const sceneView = this.sceneView;
-            const uiView = this.uiView;
             const sampler = this.sampler;
             if (!descriptorPool || !sampler) {
                 console.log("Cannot create the descriptors");
@@ -337,8 +327,7 @@ namespace HdrDisplayNri {
                 console.log("Cannot create the descriptor set");
                 return 0;
             }
-            Nri_UpdateDescriptor(descriptorSet, 0, 0, sceneView);
-            Nri_UpdateDescriptor(descriptorSet, 0, 1, uiView);
+            this.updateTargetDescriptors();
             Nri_UpdateDescriptor(descriptorSet, 1, 0, sampler);
 
             // The gradients: the SDR one [0, 1] at the top, the HDR one [0, 3] (9 perceptually) at
@@ -396,8 +385,7 @@ namespace HdrDisplayNri {
                 return 0;
             }
             this.imgui = true;
-            this.font = Nri_ImguiCreateFont(FONT_PATH, FONT_SCALE * this.height / 30.0);
-            this.smallFont = Nri_ImguiCreateFont(FONT_PATH, FONT_SCALE * this.height / 40.0);
+            this.createFonts();
             if (!this.font || !this.smallFont) {
                 console.log("Cannot load the font");
                 return 0;
@@ -550,6 +538,84 @@ namespace HdrDisplayNri {
             return vertices;
         }
 
+        // The scene (RGBA16_FLOAT) and the UI layer (RGBA8_UNORM) at the window's size, in
+        // ShaderResource (as the frames leave them); false on failure.
+        createTargets(device: NriDeviceHandle): boolean {
+            const sceneTexture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+            const uiTexture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+            this.sceneTexture = sceneTexture;
+            this.uiTexture = uiTexture;
+            if (!sceneTexture || !uiTexture) {
+                return false;
+            }
+            this.sceneAttachment = Nri_CreateColorAttachmentView(sceneTexture, NriFormat.RGBA16_SFLOAT);
+            this.sceneView = Nri_CreateTextureView(sceneTexture, NriFormat.RGBA16_SFLOAT);
+            this.uiAttachment = Nri_CreateColorAttachmentView(uiTexture, NriFormat.RGBA8_UNORM);
+            this.uiView = Nri_CreateTextureView(uiTexture, NriFormat.RGBA8_UNORM);
+            return true;
+        }
+
+        destroyTargets() {
+            this.destroyDescriptor(this.sceneAttachment);
+            this.destroyDescriptor(this.sceneView);
+            this.destroyDescriptor(this.uiAttachment);
+            this.destroyDescriptor(this.uiView);
+            this.destroyTexture(this.sceneTexture);
+            this.destroyTexture(this.uiTexture);
+            this.sceneAttachment = null;
+            this.sceneView = null;
+            this.uiAttachment = null;
+            this.uiView = null;
+            this.sceneTexture = null;
+            this.uiTexture = null;
+        }
+
+        // The set's scene and UI layer: the current targets' views.
+        updateTargetDescriptors() {
+            const descriptorSet = this.descriptorSet;
+            const sceneView = this.sceneView;
+            const uiView = this.uiView;
+            if (descriptorSet) {
+                if (sceneView) {
+                    Nri_UpdateDescriptor(descriptorSet, 0, 0, sceneView);
+                }
+                if (uiView) {
+                    Nri_UpdateDescriptor(descriptorSet, 0, 1, uiView);
+                }
+            }
+        }
+
+        // The UI's fonts, at the window's starting height (1/30 and 1/40 of it, the sample's); buildUI
+        // draws them at the current height's sizes (Nri_ImguiPushFontSized), so a resize needs no new ones.
+        createFonts() {
+            this.font = Nri_ImguiCreateFont(FONT_PATH, FONT_SCALE * this.height / 30.0);
+            this.smallFont = Nri_ImguiCreateFont(FONT_PATH, FONT_SCALE * this.height / 40.0);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain (its format as before), the
+        // scene and UI layer and the gamut triangles (kept in the window's aspect ratio), once the GPU is
+        // done with the old ones. The fonts follow the height in buildUI.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.destroySwapChain();
+            this.createSwapChain();
+            this.destroyTargets();
+            this.createTargets(device);
+            this.updateTargetDescriptors();
+            this.destroyBuffer(this.trianglesBuffer);
+            const triangles = this.gamutTriangles();
+            this.trianglesBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(triangles[0]), triangles.length * 4, NriBufferUsage.VertexBuffer);
+        }
+
         // Waits for the frame that last used this frame's command allocator.
         latencySleep(frameIndex: int) {
             const queuedFrameNum = this.queuedFrames.length;
@@ -612,7 +678,7 @@ namespace HdrDisplayNri {
             const fontSize = h / 30.0;
             const smallFontSize = h / 40.0;
             const meta = META_DATA_POOL[this.metaDataIndex];
-            Nri_ImguiPushFont(font);
+            Nri_ImguiPushFontSized(font, FONT_SCALE * h / 30.0);
             this.drawLabel(`Back Buffer Format = ${FORMAT_NAMES[this.bitDepth]}`, 0.0, w, 0.0, true);
             this.drawLabel(`Output Signal = ${CURVE_NAMES[this.displayCurve]}`, 0.0, w, fontSize, true);
             this.drawLabel(`Current Output HDR Support = ${this.hdrSupport ? "true" : "false"}`, 0.0, w, fontSize * 2.0, true);
@@ -621,7 +687,7 @@ namespace HdrDisplayNri {
             this.drawLabel("Rec 709", w * 0.5, w * 0.8, h * 0.25 + fontSize, true);
             this.drawLabel("Rec 2020", w * 0.5, w * 0.8, h * 0.75 + fontSize, true);
             Nri_ImguiPopFont();
-            Nri_ImguiPushFont(smallFont);
+            Nri_ImguiPushFontSized(smallFont, FONT_SCALE * h / 40.0);
             this.drawLabel("PgUp/PgDn    Change back buffer format", smallFontSize, w, h - fontSize * 5.0, false);
             this.drawLabel("H    Toggle between sRGB and ST.2084 (10-bit swap chain only)", smallFontSize, w, h - fontSize * 3.0, false);
             this.drawLabel("U    Toggle UI Visibility", smallFontSize, w, h - fontSize * 2.0, false);
@@ -718,6 +784,7 @@ namespace HdrDisplayNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.handleKeys();
@@ -817,13 +884,8 @@ namespace HdrDisplayNri {
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyDescriptor(this.sceneAttachment);
-                this.destroyDescriptor(this.sceneView);
-                this.destroyDescriptor(this.uiAttachment);
-                this.destroyDescriptor(this.uiView);
+                this.destroyTargets();
                 this.destroyDescriptor(this.sampler);
-                this.destroyTexture(this.sceneTexture);
-                this.destroyTexture(this.uiTexture);
                 this.destroyBuffer(this.gradientBuffer);
                 this.destroyBuffer(this.trianglesBuffer);
                 this.destroyBuffer(this.presentBuffer);
@@ -867,6 +929,7 @@ namespace HdrDisplayNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const hdrDisplay = new HdrDisplay(sample);
         // -noUI: without the UI layer (U), as the Donut example. -testFormat 8|10|16: the bits of
         // the swap chain of -test (8 by default).
