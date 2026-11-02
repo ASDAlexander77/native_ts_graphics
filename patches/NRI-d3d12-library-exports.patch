@@ -1,0 +1,46 @@
+--- a/Source/D3D12/PipelineD3D12.hpp
++++ b/Source/D3D12/PipelineD3D12.hpp
+@@ -394,26 +394,33 @@
+         stateSubobjectNum++;
+     }
+ 
++    Vector<std::wstring> wEntryPointNames(rayTracingPipelineDesc.shaderLibrary->shaderNum, m_Device.GetStdAllocator());
++    for (uint32_t i = 0; i < rayTracingPipelineDesc.shaderLibrary->shaderNum; i++) {
++        const ShaderDesc& shader = rayTracingPipelineDesc.shaderLibrary->shaders[i];
++        const size_t entryPointNameLength = shader.entryPointName != nullptr ? strlen(shader.entryPointName) + 1 : 0;
++        wEntryPointNames[i].resize(entryPointNameLength);
++        ConvertCharToWchar(shader.entryPointName, wEntryPointNames[i].data(), entryPointNameLength);
++    }
++
++    // Each library exports its shader's entry point alone (all its exports without one): libraries sharing a blob,
++    // one shader each, would otherwise export the same names more than once, which "CreateStateObject" rejects
++    Scratch<D3D12_EXPORT_DESC> exportDescs = AllocateScratch(m_Device, D3D12_EXPORT_DESC, rayTracingPipelineDesc.shaderLibrary->shaderNum);
+     Scratch<D3D12_DXIL_LIBRARY_DESC> libraryDescs = AllocateScratch(m_Device, D3D12_DXIL_LIBRARY_DESC, rayTracingPipelineDesc.shaderLibrary->shaderNum);
+     for (uint32_t i = 0; i < rayTracingPipelineDesc.shaderLibrary->shaderNum; i++) {
++        exportDescs[i].Name = wEntryPointNames[i].c_str();
++        exportDescs[i].ExportToRename = nullptr;
++        exportDescs[i].Flags = D3D12_EXPORT_FLAG_NONE;
++
+         libraryDescs[i].DXILLibrary.pShaderBytecode = rayTracingPipelineDesc.shaderLibrary->shaders[i].bytecode;
+         libraryDescs[i].DXILLibrary.BytecodeLength = (size_t)rayTracingPipelineDesc.shaderLibrary->shaders[i].size;
+-        libraryDescs[i].NumExports = 0;
+-        libraryDescs[i].pExports = nullptr;
++        libraryDescs[i].NumExports = rayTracingPipelineDesc.shaderLibrary->shaders[i].entryPointName ? 1 : 0;
++        libraryDescs[i].pExports = libraryDescs[i].NumExports ? &exportDescs[i] : nullptr;
+ 
+         stateSubobjects[stateSubobjectNum].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+         stateSubobjects[stateSubobjectNum].pDesc = &libraryDescs[i];
+         stateSubobjectNum++;
+     }
+ 
+-    Vector<std::wstring> wEntryPointNames(rayTracingPipelineDesc.shaderLibrary->shaderNum, m_Device.GetStdAllocator());
+-    for (uint32_t i = 0; i < rayTracingPipelineDesc.shaderLibrary->shaderNum; i++) {
+-        const ShaderDesc& shader = rayTracingPipelineDesc.shaderLibrary->shaders[i];
+-        const size_t entryPointNameLength = shader.entryPointName != nullptr ? strlen(shader.entryPointName) + 1 : 0;
+-        wEntryPointNames[i].resize(entryPointNameLength);
+-        ConvertCharToWchar(shader.entryPointName, wEntryPointNames[i].data(), entryPointNameLength);
+-    }
+-
+     uint32_t hitGroupNum = 0;
+     Scratch<D3D12_HIT_GROUP_DESC> hitGroups = AllocateScratch(m_Device, D3D12_HIT_GROUP_DESC, rayTracingPipelineDesc.shaderGroupNum);
+     memset(&hitGroups[0], 0, rayTracingPipelineDesc.shaderGroupNum * sizeof(D3D12_HIT_GROUP_DESC)); // some fields can stay untouched

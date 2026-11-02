@@ -61,8 +61,9 @@ namespace
     using FrameFn = void (*)(void* thisVal, int frameIndex);
 
     // The interfaces of the device Nri_CreateDevice made last. MeshShaderInterface's functions are
-    // null on a device without mesh shaders.
-    struct Interfaces : nri::CoreInterface, nri::HelperInterface, nri::SwapChainInterface, nri::MeshShaderInterface
+    // null on a device without mesh shaders, RayTracingInterface's on one without ray tracing.
+    struct Interfaces : nri::CoreInterface, nri::HelperInterface, nri::SwapChainInterface, nri::MeshShaderInterface,
+                        nri::RayTracingInterface
     {
     };
     Interfaces NRI = {};
@@ -76,6 +77,8 @@ namespace
     // with it; Nri_CreateDepthTexture's to each texture.
     std::unordered_map<nri::Buffer*, std::vector<nri::Memory*>> g_BufferMemory;
     std::unordered_map<nri::Texture*, std::vector<nri::Memory*>> g_TextureMemory;
+    // Nri_BuildTriangleBLAS's and Nri_BuildSingleInstanceTLAS's acceleration structures' memory.
+    std::unordered_map<nri::AccelerationStructure*, nri::Memory*> g_AccelerationStructureMemory;
 
     // The values of nri_interop.d.ts' enums (NriFormat, NriCompareOp, NriTopology, ...).
     static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
@@ -108,6 +111,9 @@ namespace
     static_assert((int)nri::StageBits::TESS_CONTROL_SHADER == 4 && (int)nri::StageBits::TESS_EVALUATION_SHADER == 8);
     static_assert((int)nri::Format::R16_UNORM != 0);
     static_assert((int)nri::StageBits::MESH_SHADER == 64 && (int)nri::StageBits::GRAPHICS_SHADERS == 254);
+    static_assert((int)nri::DescriptorType::ACCELERATION_STRUCTURE == 8 && (int)nri::StageBits::RAYGEN_SHADER == 2048
+        && (int)nri::StageBits::MISS_SHADER == 4096 && (int)nri::StageBits::CLOSEST_HIT_SHADER == 16384);
+    static_assert((int)nri::StageBits::RAY_TRACING_SHADERS == 129024);
 
     // What Nri_CreatePipelineFromDesc makes a graphics pipeline from: the shaders' bytecode and the
     // states the Nri_PipelineDesc* functions set.
@@ -330,6 +336,9 @@ namespace
             // read by compute shaders only: what the compute queue can read (D3D12's
             // NON_PIXEL_SHADER_RESOURCE; AllShaderResource's pixel bit isn't a compute queue state)
             return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::COMPUTE_SHADER };
+        case 13:
+            // written by ray generation shaders (RWTexture2D in Nri_CmdDispatchRays)
+            return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::RAYGEN_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -966,6 +975,8 @@ extern "C"
         }
         if (NRI.GetDeviceDesc(*device).features.meshShader)
             nri::nriGetInterface(*device, NRI_INTERFACE(nri::MeshShaderInterface), (nri::MeshShaderInterface*)&NRI);
+        if (NRI.GetDeviceDesc(*device).features.rayTracing)
+            nri::nriGetInterface(*device, NRI_INTERFACE(nri::RayTracingInterface), (nri::RayTracingInterface*)&NRI);
         return device;
     }
 
@@ -1056,6 +1067,10 @@ extern "C"
             // Rasterizer ordered views in pixel shaders (D3D's ROVsSupported, Vulkan's fragment shader
             // pixel and sample interlock, which NRI enables where the device has them)
             return desc.shaderFeatures.rasterizedOrderedView ? 1 : 0;
+        case 24:
+            // Ray tracing pipelines and acceleration structures (D3D12's DXR tier 1.0, Vulkan's
+            // VK_KHR_ray_tracing_pipeline): NVRHI's Feature::RayTracingPipeline
+            return desc.features.rayTracing && NRI.CreateRayTracingPipeline ? 1 : 0;
         default:
             return 0;
         }
@@ -3035,11 +3050,14 @@ extern "C"
             addStages(rootDescriptor.shaderStages);
         for (const nri::RootSamplerDesc& rootSampler : desc->rootSamplers)
             addStages(rootSampler.shaderStages);
+        // Ray tracing (all its stages) if anything is bound for a ray tracing stage, alone.
+        const bool rayTracing = stages != nri::StageBits::NONE && (stages & nri::StageBits::RAY_TRACING_SHADERS);
         const bool compute = stages != nri::StageBits::NONE && (stages & nri::StageBits::COMPUTE_SHADER);
         const bool graphics = stages == nri::StageBits::NONE || (stages & nri::StageBits::GRAPHICS_SHADERS);
-        layoutDesc.shaderStages = graphics && compute ? nri::StageBits::GRAPHICS_SHADERS | nri::StageBits::COMPUTE_SHADER
-                                  : compute         ? nri::StageBits::COMPUTE_SHADER
-                                                    : nri::StageBits::GRAPHICS_SHADERS;
+        layoutDesc.shaderStages = rayTracing          ? nri::StageBits::RAY_TRACING_SHADERS
+                                  : graphics && compute ? nri::StageBits::GRAPHICS_SHADERS | nri::StageBits::COMPUTE_SHADER
+                                  : compute             ? nri::StageBits::COMPUTE_SHADER
+                                                        : nri::StageBits::GRAPHICS_SHADERS;
         nri::PipelineLayout* pipelineLayout = nullptr;
         if (NRI.CreatePipelineLayout(*device, layoutDesc, pipelineLayout) != nri::Result::SUCCESS)
             return nullptr;
@@ -4723,5 +4741,408 @@ extern "C"
     NRI_INTEROP_API int Nri_GetAsyncComputeRunCount(AsyncComputeLoop* loop)
     {
         return loop->runCount.load();
+    }
+
+    // --- Ray tracing ------------------------------------------------------------------------------
+
+    // A buffer of byteSize bytes of usage in memory the CPU writes, holding data (byteSize bytes);
+    // null on failure. Destroyed with Nri_DestroyBuffer.
+    nri::Buffer* CreateHostBufferWithData(nri::Device* device, const void* data, uint64_t byteSize, nri::BufferUsageBits usage)
+    {
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = byteSize;
+        bufferDesc.usage = usage;
+        nri::Buffer* buffer = nullptr;
+        if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::HOST_UPLOAD;
+        group.bufferNum = 1;
+        group.buffers = &buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(buffer);
+            return nullptr;
+        }
+        g_BufferMemory[buffer] = std::move(memory);
+
+        void* mapped = NRI.MapBuffer(*buffer, 0, byteSize);
+        if (!mapped)
+        {
+            Nri_DestroyBuffer(buffer);
+            return nullptr;
+        }
+        memcpy(mapped, data, (size_t)byteSize);
+        NRI.UnmapBuffer(*buffer);
+        return buffer;
+    }
+
+    // Records record(commandBuffer) into a command buffer of its own, submits it to the queue and
+    // waits for the queue; false on failure. (C++ linkage: a template.)
+    extern "C++" template <typename Record>
+    bool SubmitAndWait(nri::Queue* queue, Record record)
+    {
+        nri::CommandAllocator* commandAllocator = nullptr;
+        if (NRI.CreateCommandAllocator(*queue, commandAllocator) != nri::Result::SUCCESS)
+            return false;
+        nri::CommandBuffer* commandBuffer = nullptr;
+        if (NRI.CreateCommandBuffer(*commandAllocator, commandBuffer) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyCommandAllocator(commandAllocator);
+            return false;
+        }
+        bool done = NRI.BeginCommandBuffer(*commandBuffer, nullptr) == nri::Result::SUCCESS;
+        if (done)
+        {
+            record(*commandBuffer);
+            done = NRI.EndCommandBuffer(*commandBuffer) == nri::Result::SUCCESS;
+        }
+        if (done)
+        {
+            std::lock_guard lock(g_QueueMutex);
+            nri::QueueSubmitDesc submit = {};
+            submit.commandBuffers = &commandBuffer;
+            submit.commandBufferNum = 1;
+            done = NRI.QueueSubmit(*queue, submit) == nri::Result::SUCCESS && NRI.QueueWaitIdle(queue) == nri::Result::SUCCESS;
+        }
+        NRI.DestroyCommandBuffer(commandBuffer);
+        NRI.DestroyCommandAllocator(commandAllocator);
+        return done;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyAccelerationStructure(nri::AccelerationStructure* accelerationStructure);
+
+    // An acceleration structure of the desc in device memory of its own; null on failure.
+    nri::AccelerationStructure* CreateAccelerationStructure(nri::Device* device, const nri::AccelerationStructureDesc& desc)
+    {
+        nri::AccelerationStructure* accelerationStructure = nullptr;
+        if (NRI.CreateAccelerationStructure(*device, desc, accelerationStructure) != nri::Result::SUCCESS)
+            return nullptr;
+        nri::MemoryDesc memoryDesc = {};
+        NRI.GetAccelerationStructureMemoryDesc(*accelerationStructure, nri::MemoryLocation::DEVICE, memoryDesc);
+        nri::AllocateMemoryDesc allocate = {};
+        allocate.size = memoryDesc.size;
+        allocate.type = memoryDesc.type;
+        nri::Memory* memory = nullptr;
+        if (NRI.AllocateMemory(*device, allocate, memory) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyAccelerationStructure(accelerationStructure);
+            return nullptr;
+        }
+        g_AccelerationStructureMemory[accelerationStructure] = memory;
+        nri::BindAccelerationStructureMemoryDesc bind = { accelerationStructure, memory, 0 };
+        if (NRI.BindAccelerationStructureMemory(&bind, 1) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyAccelerationStructure(accelerationStructure);
+            return nullptr;
+        }
+        return accelerationStructure;
+    }
+
+    // A scratch buffer of byteSize bytes in device memory (for acceleration structure builds); null
+    // on failure. Destroyed with Nri_DestroyBuffer.
+    nri::Buffer* CreateScratchBuffer(nri::Device* device, uint64_t byteSize)
+    {
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = byteSize;
+        bufferDesc.usage = nri::BufferUsageBits::SCRATCH_BUFFER;
+        nri::Buffer* buffer = nullptr;
+        if (NRI.CreateBuffer(*device, bufferDesc, buffer) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::DEVICE;
+        group.bufferNum = 1;
+        group.buffers = &buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(buffer);
+            return nullptr;
+        }
+        g_BufferMemory[buffer] = std::move(memory);
+        return buffer;
+    }
+
+    // The bottom level acceleration structure of an opaque triangle mesh: vertexNum float3
+    // positions from vertices, indexNum 32-bit indices from indices, with flags
+    // (NriAccelerationStructureFlags). Built on the queue (which this waits for), as Donut's
+    // examples build theirs before the first frame; null on failure. Destroyed with
+    // Nri_DestroyAccelerationStructure.
+    NRI_INTEROP_API nri::AccelerationStructure* Nri_BuildTriangleBLAS(nri::Device* device, nri::Queue* queue, const float* vertices,
+        int vertexNum, const uint32_t* indices, int indexNum, int flags)
+    {
+        // The positions, then the indices, in one buffer the build reads.
+        const uint64_t vertexBytes = (uint64_t)vertexNum * 3 * sizeof(float);
+        const uint64_t indexBytes = (uint64_t)indexNum * sizeof(uint32_t);
+        std::vector<uint8_t> data((size_t)(vertexBytes + indexBytes));
+        memcpy(data.data(), vertices, (size_t)vertexBytes);
+        memcpy(data.data() + vertexBytes, indices, (size_t)indexBytes);
+        nri::Buffer* input = CreateHostBufferWithData(device, data.data(), data.size(), nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
+        if (!input)
+            return nullptr;
+
+        nri::BottomLevelGeometryDesc geometry = {};
+        geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+        geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
+        geometry.triangles.vertexBuffer = input;
+        geometry.triangles.vertexNum = (uint32_t)vertexNum;
+        geometry.triangles.vertexStride = 3 * sizeof(float);
+        geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
+        geometry.triangles.indexBuffer = input;
+        geometry.triangles.indexOffset = vertexBytes;
+        geometry.triangles.indexNum = (uint32_t)indexNum;
+        geometry.triangles.indexType = nri::IndexType::UINT32;
+
+        nri::AccelerationStructureDesc desc = {};
+        desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
+        desc.flags = (nri::AccelerationStructureBits)flags;
+        desc.geometryOrInstanceNum = 1;
+        desc.geometries = &geometry;
+        nri::AccelerationStructure* blas = CreateAccelerationStructure(device, desc);
+        nri::Buffer* scratch = blas ? CreateScratchBuffer(device, NRI.GetAccelerationStructureBuildScratchBufferSize(*blas)) : nullptr;
+        bool built = scratch && SubmitAndWait(queue, [&](nri::CommandBuffer& commandBuffer) {
+            nri::BuildBottomLevelAccelerationStructureDesc build = {};
+            build.dst = blas;
+            build.geometries = &geometry;
+            build.geometryNum = 1;
+            build.scratchBuffer = scratch;
+            NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &build, 1);
+        });
+        if (scratch)
+            Nri_DestroyBuffer(scratch);
+        Nri_DestroyBuffer(input);
+        if (!built && blas)
+        {
+            Nri_DestroyAccelerationStructure(blas);
+            return nullptr;
+        }
+        return blas;
+    }
+
+    // The top level acceleration structure of one instance of blas, as Donut's examples make it
+    // (identity transform, instance ID 0, mask 1, counter-clockwise front faces), with flags
+    // (NriAccelerationStructureFlags). Built on the queue (which this waits for); null on failure.
+    // Destroyed with Nri_DestroyAccelerationStructure.
+    NRI_INTEROP_API nri::AccelerationStructure* Nri_BuildSingleInstanceTLAS(nri::Device* device, nri::Queue* queue,
+        nri::AccelerationStructure* blas, int flags)
+    {
+        nri::TopLevelInstance instance = {};
+        instance.transform[0][0] = 1.0f;
+        instance.transform[1][1] = 1.0f;
+        instance.transform[2][2] = 1.0f;
+        instance.mask = 1;
+        instance.flags = nri::TopLevelInstanceBits::TRIANGLE_FLIP_FACING;
+        instance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*blas);
+        nri::Buffer* input = CreateHostBufferWithData(device, &instance, sizeof(instance), nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
+        if (!input)
+            return nullptr;
+
+        nri::AccelerationStructureDesc desc = {};
+        desc.type = nri::AccelerationStructureType::TOP_LEVEL;
+        desc.flags = (nri::AccelerationStructureBits)flags;
+        desc.geometryOrInstanceNum = 1;
+        nri::AccelerationStructure* tlas = CreateAccelerationStructure(device, desc);
+        nri::Buffer* scratch = tlas ? CreateScratchBuffer(device, NRI.GetAccelerationStructureBuildScratchBufferSize(*tlas)) : nullptr;
+        bool built = scratch && SubmitAndWait(queue, [&](nri::CommandBuffer& commandBuffer) {
+            nri::BuildTopLevelAccelerationStructureDesc build = {};
+            build.dst = tlas;
+            build.instanceNum = 1;
+            build.instanceBuffer = input;
+            build.scratchBuffer = scratch;
+            NRI.CmdBuildTopLevelAccelerationStructures(commandBuffer, &build, 1);
+        });
+        if (scratch)
+            Nri_DestroyBuffer(scratch);
+        Nri_DestroyBuffer(input);
+        if (!built && tlas)
+        {
+            Nri_DestroyAccelerationStructure(tlas);
+            return nullptr;
+        }
+        return tlas;
+    }
+
+    // The view of a top level acceleration structure that shaders trace rays into
+    // (RaytracingAccelerationStructure, a t register); null on failure.
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateAccelerationStructureDescriptor(nri::AccelerationStructure* accelerationStructure)
+    {
+        nri::Descriptor* descriptor = nullptr;
+        if (NRI.CreateAccelerationStructureDescriptor(*accelerationStructure, descriptor) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptor;
+    }
+
+    // Destroys the acceleration structure and frees its memory.
+    NRI_INTEROP_API void Nri_DestroyAccelerationStructure(nri::AccelerationStructure* accelerationStructure)
+    {
+        NRI.DestroyAccelerationStructure(accelerationStructure);
+        auto memory = g_AccelerationStructureMemory.find(accelerationStructure);
+        if (memory != g_AccelerationStructureMemory.end())
+        {
+            NRI.FreeMemory(memory->second);
+            g_AccelerationStructureMemory.erase(memory);
+        }
+    }
+
+    // As Nri_CreateDescriptorPoolWithBuffers (no storage structured buffers), with room for
+    // accelerationStructureMaxNum acceleration structures too.
+    NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPoolWithAccelerationStructures(nri::Device* device, int setMaxNum,
+        int samplerMaxNum, int constantBufferMaxNum, int textureMaxNum, int storageTextureMaxNum, int structuredBufferMaxNum,
+        int accelerationStructureMaxNum)
+    {
+        nri::DescriptorPoolDesc desc = {};
+        desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
+        desc.samplerMaxNum = (uint32_t)samplerMaxNum;
+        desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
+        desc.textureMaxNum = (uint32_t)textureMaxNum;
+        desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
+        desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.accelerationStructureMaxNum = (uint32_t)accelerationStructureMaxNum;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorPool;
+    }
+
+    // A ray tracing pipeline of the DXIL / SPIR-V library read from path (one blob: a .cfg's
+    // "-T lib" line), whose shader groups are 0, the ray generation shader raygen; 1, the miss
+    // shader miss; 2, the hit group of the closest hit shader closestHit. Rays carry payloadSize
+    // bytes, hits attributeSize bytes; no recursion. Null on failure.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateRayTracingPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
+        const char* path, const char* raygen, const char* miss, const char* closestHit, int payloadSize, int attributeSize)
+    {
+        std::vector<uint8_t> library;
+        if (!ReadShader(LibraryDirectory() + path, library))
+            return nullptr;
+        nri::ShaderDesc shaders[] = {
+            { nri::StageBits::RAYGEN_SHADER, library.data(), library.size(), raygen },
+            { nri::StageBits::MISS_SHADER, library.data(), library.size(), miss },
+            { nri::StageBits::CLOSEST_HIT_SHADER, library.data(), library.size(), closestHit },
+        };
+        nri::ShaderLibraryDesc shaderLibrary = {};
+        shaderLibrary.shaders = shaders;
+        shaderLibrary.shaderNum = helper::GetCountOf(shaders);
+        // Shader indices count from 1.
+        const nri::ShaderGroupDesc shaderGroups[] = { { 1 }, { 2 }, { 3 } };
+
+        nri::RayTracingPipelineDesc desc = {};
+        desc.pipelineLayout = pipelineLayout;
+        desc.shaderLibrary = &shaderLibrary;
+        desc.shaderGroups = shaderGroups;
+        desc.shaderGroupNum = helper::GetCountOf(shaderGroups);
+        desc.recursionMaxDepth = 1;
+        desc.rayPayloadMaxSize = (uint32_t)payloadSize;
+        desc.rayHitAttributeMaxSize = (uint32_t)attributeSize;
+        nri::Pipeline* pipeline = nullptr;
+        if (NRI.CreateRayTracingPipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
+            return nullptr;
+        return pipeline;
+    }
+
+    // A ray tracing pipeline's shader binding table: the ray generation shader's record, then the
+    // miss shaders', then the hit groups', each section aligned as the device needs.
+    struct ShaderTable
+    {
+        nri::Buffer* buffer = nullptr;
+        uint64_t recordSize = 0;
+        uint64_t missOffset = 0;
+        uint64_t hitGroupOffset = 0;
+        uint32_t missNum = 0;
+        uint32_t hitGroupNum = 0;
+    };
+
+    NRI_INTEROP_API void Nri_DestroyShaderTable(ShaderTable* shaderTable);
+
+    // The shader table of a ray tracing pipeline whose groups are the ray generation shader, missNum
+    // miss shaders, then hitGroupNum hit groups (Nri_CreateRayTracingPipeline's: 1 and 1), in device
+    // memory, uploaded on the queue (which this waits for); null on failure.
+    NRI_INTEROP_API ShaderTable* Nri_CreateShaderTable(nri::Device* device, nri::Queue* queue, nri::Pipeline* pipeline, int missNum,
+        int hitGroupNum)
+    {
+        const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*device);
+        const uint64_t identifierSize = deviceDesc.shaderStage.rayTracing.shaderGroupIdentifierSize;
+        const uint64_t alignment = deviceDesc.memoryAlignment.shaderBindingTable;
+        auto align = [alignment](uint64_t size) { return (size + alignment - 1) / alignment * alignment; };
+
+        auto* shaderTable = new ShaderTable();
+        shaderTable->recordSize = identifierSize;
+        shaderTable->missOffset = align(identifierSize);
+        shaderTable->hitGroupOffset = align(shaderTable->missOffset + identifierSize * (uint64_t)missNum);
+        shaderTable->missNum = (uint32_t)missNum;
+        shaderTable->hitGroupNum = (uint32_t)hitGroupNum;
+        const uint64_t size = align(shaderTable->hitGroupOffset + identifierSize * (uint64_t)hitGroupNum);
+
+        std::vector<uint8_t> data((size_t)size, 0);
+        bool written = NRI.WriteShaderGroupIdentifiers(*pipeline, 0, 1, data.data()) == nri::Result::SUCCESS
+            && NRI.WriteShaderGroupIdentifiers(*pipeline, 1, (uint32_t)missNum, data.data() + shaderTable->missOffset) == nri::Result::SUCCESS
+            && NRI.WriteShaderGroupIdentifiers(*pipeline, 1 + (uint32_t)missNum, (uint32_t)hitGroupNum, data.data() + shaderTable->hitGroupOffset)
+                   == nri::Result::SUCCESS;
+
+        nri::BufferDesc bufferDesc = {};
+        bufferDesc.size = size;
+        bufferDesc.usage = nri::BufferUsageBits::SHADER_BINDING_TABLE;
+        if (!written || NRI.CreateBuffer(*device, bufferDesc, shaderTable->buffer) != nri::Result::SUCCESS)
+        {
+            delete shaderTable;
+            return nullptr;
+        }
+        nri::ResourceGroupDesc group = {};
+        group.memoryLocation = nri::MemoryLocation::DEVICE;
+        group.bufferNum = 1;
+        group.buffers = &shaderTable->buffer;
+        std::vector<nri::Memory*> memory(NRI.CalculateAllocationNumber(*device, group), nullptr);
+        if (NRI.AllocateAndBindMemory(*device, group, memory.data()) != nri::Result::SUCCESS)
+        {
+            NRI.DestroyBuffer(shaderTable->buffer);
+            delete shaderTable;
+            return nullptr;
+        }
+        g_BufferMemory[shaderTable->buffer] = std::move(memory);
+
+        nri::BufferUploadDesc upload = { data.data(), shaderTable->buffer,
+            { nri::AccessBits::SHADER_BINDING_TABLE, nri::StageBits::RAY_TRACING_SHADERS } };
+        if (NRI.UploadData(*queue, nullptr, 0, &upload, 1) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyShaderTable(shaderTable);
+            return nullptr;
+        }
+        return shaderTable;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyShaderTable(ShaderTable* shaderTable)
+    {
+        Nri_DestroyBuffer(shaderTable->buffer);
+        delete shaderTable;
+    }
+
+    // The ray tracing bind point's Nri_CmdSetPipelineLayout and Nri_CmdSetDescriptorSet (for
+    // Nri_CmdDispatchRays).
+    NRI_INTEROP_API void Nri_CmdSetRayTracingPipelineLayout(nri::CommandBuffer* commandBuffer, nri::PipelineLayout* pipelineLayout)
+    {
+        NRI.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::RAY_TRACING, *pipelineLayout);
+    }
+
+    NRI_INTEROP_API void Nri_CmdSetRayTracingDescriptorSet(nri::CommandBuffer* commandBuffer, int setIndex, nri::DescriptorSet* descriptorSet)
+    {
+        nri::SetDescriptorSetDesc desc = { (uint32_t)setIndex, descriptorSet, nri::BindPoint::RAY_TRACING };
+        NRI.CmdSetDescriptorSet(*commandBuffer, desc);
+    }
+
+    // Launches width x height rays of the ray tracing pipeline set, with its shader table's shaders.
+    NRI_INTEROP_API void Nri_CmdDispatchRays(nri::CommandBuffer* commandBuffer, ShaderTable* shaderTable, int width, int height)
+    {
+        nri::DispatchRaysDesc desc = {};
+        desc.raygenShader = { shaderTable->buffer, 0, shaderTable->recordSize, shaderTable->recordSize };
+        desc.missShaders = { shaderTable->buffer, shaderTable->missOffset, shaderTable->recordSize * shaderTable->missNum,
+            shaderTable->recordSize };
+        desc.hitShaderGroups = { shaderTable->buffer, shaderTable->hitGroupOffset, shaderTable->recordSize * shaderTable->hitGroupNum,
+            shaderTable->recordSize };
+        desc.x = (uint32_t)width;
+        desc.y = (uint32_t)height;
+        desc.z = 1;
+        NRI.CmdDispatchRays(*commandBuffer, desc);
     }
 }

@@ -48,6 +48,10 @@
 @cpp declare class NriQueryPoolHandle { private readonly __nriQueryPool: index; }
 // A std::default_random_engine (Nri_CreateRandomEngine).
 @cpp declare class NriRandomEngineHandle { private readonly __nriRandomEngine: index; }
+// A bottom or top level acceleration structure (Nri_BuildTriangleBLAS, Nri_BuildSingleInstanceTLAS).
+@cpp declare class NriAccelerationStructureHandle { private readonly __nriAccelerationStructure: index; }
+// A ray tracing pipeline's shader binding table (Nri_CreateShaderTable).
+@cpp declare class NriShaderTableHandle { private readonly __nriShaderTable: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -77,7 +81,9 @@ enum NriTextureState {
     // read as the shading rate attachment (Nri_CreateShadingRateTexture's, from the start)
     ShadingRateAttachment = 9,
     // read by compute shaders only: what a compute queue can read (D3D12's NON_PIXEL_SHADER_RESOURCE)
-    ComputeShaderResource = 12
+    ComputeShaderResource = 12,
+    // written by ray generation shaders (RWTexture2D in Nri_CmdDispatchRays)
+    RayTracingStorage = 13
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -111,7 +117,11 @@ enum NriFeature {
     VariableRateShading = 11,
     // shaderFeatures.rasterizedOrderedView: RasterizerOrderedTexture2D and friends in pixel shaders
     // (D3D's ROVs, Vulkan's VK_EXT_fragment_shader_interlock: pixel and sample interlock)
-    RasterizerOrderedViews = 23
+    RasterizerOrderedViews = 23,
+    // features.rayTracing: ray tracing pipelines and acceleration structures (Nri_CreateRayTracingPipeline,
+    // Nri_BuildTriangleBLAS, ...; D3D12's DXR, Vulkan's VK_KHR_ray_tracing_pipeline), NVRHI's
+    // Feature::RayTracingPipeline
+    RayTracing = 24
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -267,7 +277,9 @@ enum NriDescriptorType {
     // StructuredBuffer (t registers)
     StructuredBuffer = 6,
     // RWStructuredBuffer (u registers)
-    StorageStructuredBuffer = 7
+    StorageStructuredBuffer = 7,
+    // RaytracingAccelerationStructure (t registers: Nri_CreateAccelerationStructureDescriptor's)
+    AccelerationStructure = 8
 }
 
 // nri::StageBits: the shader stages that see a descriptor range.
@@ -289,7 +301,20 @@ enum NriStage {
     VertexTessellationPixel = 142,
     // every graphics stage (vertex to pixel, task and mesh)
     AllGraphics = 254,
-    Compute = 1024
+    Compute = 1024,
+    RayGen = 2048,
+    Miss = 4096,
+    ClosestHit = 16384,
+    // every ray tracing stage (ray generation, miss, intersection, hit and callable shaders)
+    RayTracing = 129024
+}
+
+// nri::AccelerationStructureBits: how an acceleration structure is built.
+enum NriAccelerationStructureFlags {
+    None = 0,
+    AllowUpdate = 1,
+    PreferFastTrace = 32,
+    PreferFastBuild = 64
 }
 
 // nri::Filter (Nri_CreateSampler).
@@ -1315,3 +1340,42 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_SetAsyncComputePaused(loop: NriAsyncComputeLoopHandle, paused: int): void;
 // Runs the worker has submitted so far.
 @nodrops declare function Nri_GetAsyncComputeRunCount(loop: NriAsyncComputeLoopHandle): int;
+
+// Ray tracing (a device with NriFeature.RayTracing; not D3D11)
+// The bottom level acceleration structure of an opaque triangle mesh: vertexNum float3 positions
+// (Ref of an f32 array element), indexNum 32-bit indices (Ref of an int array element). Built on the
+// queue (which this waits for); null on failure. Destroyed with Nri_DestroyAccelerationStructure.
+@nodrops declare function Nri_BuildTriangleBLAS(device: NriDeviceHandle, queue: NriQueueHandle, vertices: Ref<f32>, vertexNum: int,
+    indices: Ref<int>, indexNum: int, flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
+// The top level acceleration structure of one instance of blas, as Donut's examples make it (identity
+// transform, instance ID 0, mask 1, counter-clockwise front faces), built on the queue (which this
+// waits for); null on failure.
+@nodrops declare function Nri_BuildSingleInstanceTLAS(device: NriDeviceHandle, queue: NriQueueHandle, blas: NriAccelerationStructureHandle,
+    flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
+// The view of a top level acceleration structure that shaders trace rays into (a set's
+// NriDescriptorType.AccelerationStructure range); null on failure.
+@nodrops declare function Nri_CreateAccelerationStructureDescriptor(accelerationStructure: NriAccelerationStructureHandle): NriDescriptorHandle | null;
+@nodrops declare function Nri_DestroyAccelerationStructure(accelerationStructure: NriAccelerationStructureHandle): void;
+// As Nri_CreateDescriptorPoolWithBuffers (no storage structured buffers), with room for
+// accelerationStructureMaxNum acceleration structures too.
+@nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructures(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
+    constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
+    accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
+// A ray tracing pipeline of the library read from path (a .cfg's "-T lib" line, one blob), whose
+// shader groups are the ray generation shader raygen, the miss shader miss and the hit group of the
+// closest hit shader closestHit. Rays carry payloadSize bytes, hits attributeSize bytes; no recursion.
+// Null on failure.
+@nodrops declare function Nri_CreateRayTracingPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, path: string,
+    raygen: string, miss: string, closestHit: string, payloadSize: int, attributeSize: int): NriPipelineHandle | null;
+// The shader table of a ray tracing pipeline whose groups are the ray generation shader, missNum miss
+// shaders, then hitGroupNum hit groups (Nri_CreateRayTracingPipeline's: 1 and 1), uploaded on the
+// queue (which this waits for); null on failure.
+@nodrops declare function Nri_CreateShaderTable(device: NriDeviceHandle, queue: NriQueueHandle, pipeline: NriPipelineHandle, missNum: int,
+    hitGroupNum: int): NriShaderTableHandle | null;
+@nodrops declare function Nri_DestroyShaderTable(shaderTable: NriShaderTableHandle): void;
+// The ray tracing bind point's Nri_CmdSetPipelineLayout and Nri_CmdSetDescriptorSet (for
+// Nri_CmdDispatchRays; the pipeline is set with Nri_CmdSetPipeline).
+@nodrops declare function Nri_CmdSetRayTracingPipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
+@nodrops declare function Nri_CmdSetRayTracingDescriptorSet(commandBuffer: NriCommandBufferHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
+// Launches width x height rays of the ray tracing pipeline set, with its shader table's shaders.
+@nodrops declare function Nri_CmdDispatchRays(commandBuffer: NriCommandBufferHandle, shaderTable: NriShaderTableHandle, width: int, height: int): void;
