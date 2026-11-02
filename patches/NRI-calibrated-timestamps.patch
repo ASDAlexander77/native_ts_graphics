@@ -1,0 +1,12 @@
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index 548d135d..6010af5e 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -291,6 +291,7 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
+     APPEND_EXT(true, VK_KHR_SHADER_QUAD_CONTROL_EXTENSION_NAME);
+     APPEND_EXT(true, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+     APPEND_EXT(true, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME);
++    APPEND_EXT(true, VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME); // vkGetCalibratedTimestampsEXT (through "GetDeviceProcAddrVK")
+     APPEND_EXT(true, VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME);
+     APPEND_EXT(true, VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
+     APPEND_EXT(true, VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);

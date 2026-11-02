@@ -1,0 +1,133 @@
+diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
+index 016de6ff..8badb818 100644
+--- a/Include/NRIDescs.h
++++ b/Include/NRIDescs.h
+@@ -1201,6 +1201,19 @@ NriStruct(RasterizationDesc) {
+     bool conservativeRaster;    // requires "tiers.conservativeRaster != 0"
+     bool shadingRate;           // requires "tiers.shadingRate != 0", expects "CmdSetShadingRate" and optionally "AttachmentsDesc::shadingRate"
+     float conservativeRasterExtraOverestimation; // VK: "extraPrimitiveOverestimationSize" in pixels (D3D has none)
++
++    // Lines (see "other.lineRasterizationModes" and "other.lineWidthMax"):
++    //  - "lineRasterization": 0 - default, 1 - rectangular, 2 - Bresenham, 3 - smooth (VK: "VkLineRasterizationModeKHR",
++    //    other than default requires the mode's feature; D3D: rectangular = quadrilateral lines ("MultisampleEnable"),
++    //    Bresenham and default = aliased, smooth = alpha antialiased ("AntialiasedLineEnable"))
++    //  - "lineWidth": VK only, 0 or 1 - one pixel wide (wider requires "wideLines")
++    //  - "lineStipple": VK only, each bit of "lineStipplePattern" (from the lowest) a run of "lineStippleFactor" pixels
++    //    drawn if set (requires the mode's stippled lines)
++    uint8_t lineRasterization;
++    bool lineStipple;
++    uint16_t lineStipplePattern;
++    uint32_t lineStippleFactor;
++    float lineWidth;
+ };
+ 
+ NriStruct(MultisampleDesc) {
+@@ -1841,6 +1854,8 @@ NriStruct(DeviceDesc) {
+         uint8_t combinedClipAndCullDistanceMaxNum;
+         uint8_t viewMaxNum;                         // multiview is supported if > 1
+         uint8_t shadingRateAttachmentTileSize;      // square size
++        uint8_t lineRasterizationModes;             // "RasterizationDesc::lineRasterization" modes: 1 rectangular, 2 Bresenham, 4 smooth; 8, 16, 32 the same stippled
++        float lineWidthMax;                         // "RasterizationDesc::lineWidth" max (1 - no wide lines)
+     } other;
+ 
+     // Tiers (0 - unsupported)
+diff --git a/Source/D3D11/DeviceD3D11.hpp b/Source/D3D11/DeviceD3D11.hpp
+index 4a6d6294..100311b1 100644
+--- a/Source/D3D11/DeviceD3D11.hpp
++++ b/Source/D3D11/DeviceD3D11.hpp
+@@ -511,6 +511,8 @@ void DeviceD3D11::FillDesc() {
+     m_Desc.features.textureFilterMinMax = options1.MinMaxFiltering != 0;
+     m_Desc.features.logicOp = options.OutputMergerLogicOp != 0;
+     m_Desc.features.lineSmoothing = true;
++    m_Desc.other.lineRasterizationModes = 1 | 2 | 4; // quadrilateral, aliased, alpha antialiased
++    m_Desc.other.lineWidthMax = 1.0f;
+     m_Desc.features.enhancedBarriers = true;  // don't care, but advertise support
+     m_Desc.features.waitableSwapChain = true; // TODO: swap chain version >= 2?
+     m_Desc.features.resizableSwapChain = true;
+diff --git a/Source/D3D11/PipelineD3D11.hpp b/Source/D3D11/PipelineD3D11.hpp
+index c7227ba8..29243aa7 100644
+--- a/Source/D3D11/PipelineD3D11.hpp
++++ b/Source/D3D11/PipelineD3D11.hpp
+@@ -86,6 +86,11 @@ Result PipelineD3D11::Create(const GraphicsPipelineDesc& pipelineDesc) {
+         rasterizerDesc.ScissorEnable = TRUE;
+         rasterizerDesc.AntialiasedLineEnable = r.lineSmoothing;
+         rasterizerDesc.MultisampleEnable = sampleNum > 1 ? TRUE : FALSE;
++        // Lines: rectangular - quadrilateral, smooth - alpha antialiased (else aliased)
++        if (r.lineRasterization == 1)
++            rasterizerDesc.MultisampleEnable = TRUE;
++        else if (r.lineRasterization == 3)
++            rasterizerDesc.AntialiasedLineEnable = TRUE;
+         // D3D11_RASTERIZER_DESC1
+         // TODO: rasterizerDesc.ForcedSampleCount?
+         // D3D11_RASTERIZER_DESC2
+diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
+index 64068911..e5bf6256 100644
+--- a/Source/D3D12/DeviceD3D12.hpp
++++ b/Source/D3D12/DeviceD3D12.hpp
+@@ -797,6 +797,8 @@ void DeviceD3D12::FillDesc(bool disableD3D12EnhancedBarrier) {
+     m_Desc.features.depthBoundsTest = options2.DepthBoundsTestSupported != 0;
+     m_Desc.features.drawIndirectCount = true;
+     m_Desc.features.lineSmoothing = true;
++    m_Desc.other.lineRasterizationModes = 1 | 2 | 4; // quadrilateral, aliased, alpha antialiased
++    m_Desc.other.lineWidthMax = 1.0f;
+     m_Desc.features.regionResolve = true;
+     m_Desc.features.flexibleMultiview = options3.ViewInstancingTier != D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+     m_Desc.features.layerBasedMultiview = options3.ViewInstancingTier != D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+diff --git a/Source/D3D12/PipelineD3D12.hpp b/Source/D3D12/PipelineD3D12.hpp
+index 8e4af1b7..68a06ccc 100644
+--- a/Source/D3D12/PipelineD3D12.hpp
++++ b/Source/D3D12/PipelineD3D12.hpp
+@@ -95,6 +95,12 @@ static inline void FillRasterizerState(D3D12_RASTERIZER_DESC& rasterizerDesc, co
+         rasterizerDesc.MultisampleEnable = graphicsPipelineDesc.multisample->sampleNum > 1 ? TRUE : FALSE;
+         // TODO: rasterizerDesc.ForcedSampleCount?
+     }
++
++    // Lines: rectangular - quadrilateral, smooth - alpha antialiased (else aliased)
++    if (r.lineRasterization == 1)
++        rasterizerDesc.MultisampleEnable = TRUE;
++    else if (r.lineRasterization == 3)
++        rasterizerDesc.AntialiasedLineEnable = TRUE;
+ }
+ 
+ #if NRI_ENABLE_AGILITY_SDK_SUPPORT
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index e955ab51..548d135d 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -1030,6 +1030,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         m_Desc.features.depthBoundsTest = features.features.depthBounds;
+         m_Desc.features.drawIndirectCount = features12.drawIndirectCount;
+         m_Desc.features.lineSmoothing = features14.smoothLines;
++        m_Desc.other.lineRasterizationModes = (features14.rectangularLines ? 1 : 0) | (features14.bresenhamLines ? 2 : 0) | (features14.smoothLines ? 4 : 0)
++            | (features14.stippledRectangularLines ? 8 : 0) | (features14.stippledBresenhamLines ? 16 : 0) | (features14.stippledSmoothLines ? 32 : 0);
++        m_Desc.other.lineWidthMax = features.features.wideLines ? limits.lineWidthRange[1] : 1.0f;
+         m_Desc.features.copyQueueTimestamp = limits.timestampComputeAndGraphics;
+         m_Desc.features.meshShaderPipelineStats = MeshShaderFeatures.meshShaderQueries == VK_TRUE;
+         m_Desc.features.dynamicDepthBias = true;
+diff --git a/Source/VK/PipelineVK.hpp b/Source/VK/PipelineVK.hpp
+index 8d98fca1..9af2f81a 100644
+--- a/Source/VK/PipelineVK.hpp
++++ b/Source/VK/PipelineVK.hpp
+@@ -140,7 +140,7 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+     rasterizationState.depthBiasConstantFactor = r.depthBias.constant;
+     rasterizationState.depthBiasClamp = r.depthBias.clamp;
+     rasterizationState.depthBiasSlopeFactor = r.depthBias.slope;
+-    rasterizationState.lineWidth = 1.0f;
++    rasterizationState.lineWidth = r.lineWidth > 1.0f ? r.lineWidth : 1.0f;
+ 
+     const void** tail = &rasterizationState.pNext;
+     VkPipelineRasterizationConservativeStateCreateInfoEXT consetvativeRasterizationState = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT};
+@@ -152,8 +152,11 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+     }
+ 
+     VkPipelineRasterizationLineStateCreateInfoKHR lineState = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_KHR};
+-    if (r.lineSmoothing) {
+-        lineState.lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_KHR;
++    if (r.lineSmoothing || r.lineRasterization != 0 || r.lineStipple) {
++        lineState.lineRasterizationMode = r.lineSmoothing ? VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_KHR : (VkLineRasterizationModeKHR)r.lineRasterization;
++        lineState.stippledLineEnable = r.lineStipple ? VK_TRUE : VK_FALSE;
++        lineState.lineStippleFactor = r.lineStippleFactor ? r.lineStippleFactor : 1;
++        lineState.lineStipplePattern = r.lineStipplePattern;
+         APPEND_STRUCT(lineState);
+     }
+ 

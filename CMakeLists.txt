@@ -1652,6 +1652,15 @@ if (TARGET hdr_media)
 endif()
 add_tslang_example_test(calibrated_timestamps)
 
+# calibrated_timestamps with NRI and NRIFramework instead of Donut: hdr's shaders (the Donut
+# example's calibrated_timestamps_shaders), models and cube map (hdr_media); the calibrated timestamps
+# VK_EXT_calibrated_timestamps' (NRI patched to enable it) or D3D12's clock calibration. No D3D11.
+add_tslang_nri_example(calibrated_timestamps_nri SHADERS calibrated_timestamps_shaders core/matrix.ts)
+add_tslang_example_test(calibrated_timestamps_nri)
+if (TARGET hdr_media AND TARGET calibrated_timestamps_nri)
+    add_dependencies(calibrated_timestamps_nri hdr_media)
+endif()
+
 # Port of Vulkan-Samples' ray_tracing_extended: Sponza ray traced with shadows and ambient
 # occlusion, a refracting sheet whose BLAS is updated every frame, and flame particles instanced
 # in a TLAS rebuilt every frame. Its scene and textures are Vulkan-Samples' assets too (see
@@ -2615,6 +2624,16 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(dynamic_line_rasterization core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
 add_tslang_example_test(dynamic_line_rasterization)
 
+# dynamic_line_rasterization with NRI and NRIFramework instead of Donut: its shaders, NRIFramework's
+# ImGui; the lines' rasterization mode, width and stipple through an NRI patch
+# (patches/NRI-line-rasterization.patch). The test variants cover each mode and a wide line (Vulkan's).
+add_tslang_nri_example(dynamic_line_rasterization_nri SHADERS dynamic_line_rasterization_shaders core/vulkan_samples_camera.ts
+    core/matrix.ts core/text_format.ts)
+add_tslang_example_test(dynamic_line_rasterization_nri)
+add_tslang_example_test(dynamic_line_rasterization_nri SUFFIX bresenham ARGS -mode 2)
+add_tslang_example_test(dynamic_line_rasterization_nri SUFFIX smooth ARGS -mode 3)
+add_tslang_example_test(dynamic_line_rasterization_nri SUFFIX wide APIS vk ARGS -mode 1 -width 5 -nostipple)
+
 # Port of Vulkan-Samples' extended_dynamic_state2: primitives over an environment cube map, each
 # with depth bias and rasterizer discard switched in the UI, a cube of triangle strips with
 # primitive restart (an NVRHI patch adds it, see DONUT_NVRHI_PATCHES above) and a tessellated
@@ -3217,6 +3236,16 @@ if (TARGET fragment_shading_rate_dynamic_media)
     add_dependencies(shader_debugprintf fragment_shading_rate_dynamic_media)
 endif()
 add_tslang_example_test(shader_debugprintf APIS vk)
+
+# shader_debugprintf with NRI and NRIFramework instead of Donut: its shaders (SPIR-V), the sky
+# sphere and its texture (fragment_shading_rate_dynamic's copies), shader printf through the Vulkan
+# validation layer (Nri_UseShaderPrintf: the layer and its printf setting on for this example's
+# device, a messenger of the interop's own for its messages). Vulkan only, as the Donut example.
+add_tslang_nri_example(shader_debugprintf_nri SHADERS shader_debugprintf_shaders core/matrix.ts)
+add_tslang_example_test(shader_debugprintf_nri APIS vk)
+if (TARGET fragment_shading_rate_dynamic_media AND TARGET shader_debugprintf_nri)
+    add_dependencies(shader_debugprintf_nri fragment_shading_rate_dynamic_media)
+endif()
 
 # Port of Vulkan-Samples' push_descriptors: two textured cubes, each draw's descriptors (the
 # scene's and the cube's uniform buffers, its texture) pushed into the command buffer

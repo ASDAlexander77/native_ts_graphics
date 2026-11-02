@@ -41,6 +41,8 @@
 @cpp declare class NriGltfModelHandle { private readonly __nriGltfModel: index; }
 // A texture's levels gathered on the CPU (Nri_CreateTextureLevels), for Nri_CreateTextureFromLevels.
 @cpp declare class NriTextureLevelsHandle { private readonly __nriTextureLevels: index; }
+// Timestamps of several time domains sampled together (Nri_CreateCalibratedTimestamps).
+@cpp declare class NriCalibratedTimestampsHandle { private readonly __nriCalibratedTimestamps: index; }
 // A glTF scene as Donut's engine loads it, on the CPU (Nri_LoadDonutScene).
 @cpp declare class NriDonutSceneHandle { private readonly __nriDonutScene: index; }
 // A pass's draws (Nri_CreateDrawList), and a pass recording them (Nri_CreateDrawPass).
@@ -260,6 +262,35 @@ enum NriTopology {
     TriangleStrip = 4,
     // patches of Nri_PipelineDescSetPatchControlPoints's control points (hull and domain shaders)
     PatchList = 9
+}
+
+
+// RasterizationDesc's lineRasterization (VkLineRasterizationModeKHR's order): Default draws Vulkan's
+// default lines (rectangular, with strictLines) and D3D's aliased ones.
+enum NriLineRasterizationMode {
+    Default = 0,
+    Rectangular = 1,
+    Bresenham = 2,
+    Smooth = 3
+}
+
+// Nri_GetLineRasterizationModes' bits.
+enum NriLineRasterizationBits {
+    Rectangular = 1,
+    Bresenham = 2,
+    Smooth = 4,
+    StippledRectangular = 8,
+    StippledBresenham = 16,
+    StippledSmooth = 32
+}
+
+
+// VkTimeDomainEXT: the clocks calibrated timestamps come from.
+enum NriTimeDomain {
+    Device = 0,
+    ClockMonotonic = 1,
+    ClockMonotonicRaw = 2,
+    QueryPerformanceCounter = 3
 }
 
 // nri::BlendFactor: Nri_PipelineDescSetBlend's.
@@ -529,6 +560,18 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The device of the adapter and with the validation the command line chose, null on failure.
 @nodrops declare function Nri_CreateDevice(sample: NriSampleHandle, graphicsAPI: NriGraphicsAPI): NriDeviceHandle | null;
 @nodrops declare function Nri_DestroyDevice(device: NriDeviceHandle): void;
+// Shaders' printf (Vulkan: the validation layer's, as Donut's AppOptions.ShaderPrintf), asked for before
+// Nri_RunSample: the Vulkan device gets the layer with its printf setting (without -debug too) and a
+// messenger for its messages.
+@nodrops declare function Nri_UseShaderPrintf(sample: NriSampleHandle): void;
+// 1 if shaders' printf output reaches Nri_UpdateShaderPrintfOutput (a Vulkan device made after
+// Nri_UseShaderPrintf, the validation layer installed), else 0.
+@nodrops declare function Nri_HasShaderPrintf(): int;
+// Takes the printf messages the layer has delivered since the last call (once the GPU has finished the
+// commands that printed them); their count, Nri_GetShaderPrintfLine's lines until the next call.
+@nodrops declare function Nri_UpdateShaderPrintfOutput(): int;
+// The index-th message Nri_UpdateShaderPrintfOutput took (the layer's text, the shader's output at its end).
+@nodrops declare function Nri_GetShaderPrintfLine(index: int): string;
 @nodrops declare function Nri_DeviceWaitIdle(device: NriDeviceHandle): void;
 // "D3D12", "VK", ...
 @nodrops declare function Nri_GetGraphicsAPIString(graphicsAPI: NriGraphicsAPI): string;
@@ -648,6 +691,23 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The milliseconds between two timestamps a readback buffer holds at byte offsets begin and end;
 // -1 if it can't be read.
 @nodrops declare function Nri_ReadTimestampIntervalMs(device: NriDeviceHandle, buffer: NriBufferHandle, begin: int, end: int): number;
+// The nanoseconds of one tick of the device's timestamps (Vulkan's timestampPeriod, 1e9 / D3D's
+// timestamp frequency); 0 if unknown.
+@nodrops declare function Nri_GetTimestampPeriod(device: NriDeviceHandle): number;
+// Timestamps of several time domains (clocks) sampled together, the device's among them: Vulkan's
+// VK_EXT_calibrated_timestamps (NriTimeDomain values), D3D12's clock calibration of the queue (the device's
+// and QueryPerformanceCounter's). Null if the device can't (D3D11, Vulkan without the extension).
+@nodrops declare function Nri_CreateCalibratedTimestamps(device: NriDeviceHandle, queue: NriQueueHandle): NriCalibratedTimestampsHandle | null;
+@nodrops declare function Nri_DestroyCalibratedTimestamps(calibratedTimestamps: NriCalibratedTimestampsHandle): void;
+// Its time domains: their number, and each one's NriTimeDomain (-1 out of range).
+@nodrops declare function Nri_GetCalibratedTimeDomainCount(calibratedTimestamps: NriCalibratedTimestampsHandle): int;
+@nodrops declare function Nri_GetCalibratedTimeDomain(calibratedTimestamps: NriCalibratedTimestampsHandle, index: int): int;
+// Samples the timestamps of all its domains at once; 0 on failure.
+@nodrops declare function Nri_SampleCalibratedTimestamps(calibratedTimestamps: NriCalibratedTimestampsHandle): int;
+// The last sample's timestamp of domain index, in its domain's ticks (the device's: of Nri_GetTimestampPeriod
+// nanoseconds); the sample's maximum deviation between the domains in nanoseconds (0 on D3D12).
+@nodrops declare function Nri_GetCalibratedTimestamp(calibratedTimestamps: NriCalibratedTimestampsHandle, index: int): number;
+@nodrops declare function Nri_GetCalibratedTimestampsMaxDeviation(calibratedTimestamps: NriCalibratedTimestampsHandle): number;
 // A buffer of byteSize bytes in device memory, filled with data's byteSize bytes (Ref of an array
 // element) on the queue, which this waits for; null on failure.
 @nodrops declare function Nri_CreateUploadedBuffer(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<f32>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
@@ -962,6 +1022,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Vulkan's extra overestimation of conservative rasterization, in pixels (0 by default; at most
 // Nri_GetVulkanConservativeRasterizationProperties' maxExtraPrimitiveOverestimationSize); ignored on D3D.
 @nodrops declare function Nri_PipelineDescSetConservativeRasterExtraOverestimation(desc: NriPipelineDescHandle, size: float): void;
+// How lines are drawn: their rasterization mode (NriLineRasterizationMode; Nri_GetLineRasterizationModes
+// tells which the device has), width (up to Nri_GetMaxLineWidth) and stipple (stipple 1: each bit of the
+// 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D draws rectangular lines
+// as quadrilateral lines, Bresenham ones aliased, smooth ones alpha antialiased, and has no width or stipple.
+@nodrops declare function Nri_PipelineDescSetLineRasterization(desc: NriPipelineDescHandle, mode: NriLineRasterizationMode, width: float,
+    stipple: int, stippleFactor: int, stipplePattern: int): void;
+// The line rasterization modes pipelines can have: NriLineRasterizationBits (Vulkan's line rasterization
+// features; D3D's three kinds of lines, unstippled).
+@nodrops declare function Nri_GetLineRasterizationModes(device: NriDeviceHandle): int;
+// The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1 (D3D).
+@nodrops declare function Nri_GetMaxLineWidth(device: NriDeviceHandle): number;
 // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
 @nodrops declare function Nri_PipelineDescSetFrontCounterClockwise(desc: NriPipelineDescHandle, counterClockwise: int): void;
 // Whether primitives are clipped at the near and far planes (1) or not (0: depth clamped, Donut's
