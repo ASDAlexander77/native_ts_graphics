@@ -40,8 +40,12 @@ struct Vertex
     float3 normal;
 };
 
+#include <donut/shaders/binding_helpers.hlsli>
+
 RaytracingAccelerationStructure Scene : register(t0, space0);
-RWTexture2D<float4> RenderTarget : register(u0);
+// Written as the back buffer's format (BGRA8 on Donut's Vulkan swap chain, RGBA8 on NRI's): no format
+// on Vulkan, rather than the Rgba32f float4 implies.
+VK_IMAGE_FORMAT_UNKNOWN RWTexture2D<float4> RenderTarget : register(u0);
 ByteAddressBuffer Indices : register(t1, space0);
 StructuredBuffer<Vertex> Vertices : register(t2, space0);
 

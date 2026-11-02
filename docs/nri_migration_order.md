@@ -73,6 +73,13 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | render_octomap_nri | nothing new; the octomap reader shared with the Donut example (core/octomap_common.ts) |
 | rasterization_order_attachment_access_nri | `NriFeature.RasterizerOrderedViews` (D3D's ROVs, Vulkan's fragment shader interlock) |
 | texture_mipmap_generation_nri | mip chains drawn level by level (`Nri_LoadDdsTextureWithMipChain`, `Nri_CreateColorAttachmentMipView`, `Nri_CreateTextureMipView`, `Nri_CmdTextureMipBarrier`), samplers with an LOD range |
+| rt_triangle_nri (#204) | ray tracing (see tier 5) |
+| dxr_refit_nri (#205) | general BLAS, ray tracing pipeline, shader table and TLAS interop (see tier 5) |
+| rt_shadows_nri (#206) | a Donut scene's acceleration structures (`Nri_BuildDonutSceneAccelStructs`), null hit records |
+| raytracing_simple_lighting_nri | nothing new: structured and raw (stride-4 structured) buffers that closest hit shaders read |
+| ray_tracing_reflection_nri | nothing new: instances without face culling (`TopLevelInstanceBits::TRIANGLE_CULL_DISABLE`) |
+| ray_queries_nri | inline ray tracing (`NriFeature.RayQuery`): a TLAS in a pixel shader's descriptor set |
+| mobile_nerf_rayquery_nri | nothing new beyond `NriFeature.RayQuery` |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -244,6 +251,23 @@ which D3D12 and Vulkan both run no shader for. The G-buffer goes to the rays as
 `NriTextureState.RayTracingShaderResource` (the ray tracing stages, for Vulkan's synchronization).
 rt_shadows.hlsl's output says it's rgba16f on Vulkan, as the G-buffer targets' shaded color is in
 both examples.
+
+rt_reflections comes later, if at all: its reflection hit group reads each geometry's buffers and
+textures through a local binding set (a D3D12 local root signature, which is why the Donut example
+is D3D12 only), and NRI's shader tables hold shader identifiers alone. A port would need its own
+shader, finding the geometry's resources in bindless arrays by its instance and geometry index.
+
+Fourth batch, four examples, each pixel for pixel the Donut example's on D3D12 and Vulkan:
+raytracing_simple_lighting_nri and ray_tracing_reflection_nri (ray tracing pipelines whose closest
+hit shaders read the scene's vertices and indices from structured buffers in the set: the BLASes get
+their own tightly packed copies, as `Nri_BlasDescAddTriangles` takes them), and ray_queries_nri and
+mobile_nerf_rayquery_nri (rasterized, their pixel shaders tracing inline ray queries against a TLAS
+in the draw's descriptor set: `NriFeature.RayQuery`, NRI's ray tracing tier 2, which NRI's Vulkan
+device enables with ray tracing). mobile_nerf_rayquery_nri's BLAS positions have each model's
+translation added, as NRI's BLAS geometry has no transform. raytracing_simple_lighting.hlsl and
+ray_tracing_reflection.hlsl's outputs have no format on Vulkan now (`VK_IMAGE_FORMAT_UNKNOWN`), as
+dxr_refit.hlsl's. Creating a D3D12 constant buffer view whose size isn't a multiple of 256 bytes
+removes the device (no debug layer message says why): the MLPs' view is rounded up.
 
 ## Notes
 

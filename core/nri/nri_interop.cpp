@@ -1063,6 +1063,10 @@ extern "C"
         case 8:
             // Logic operations in the output merger (D3D's OutputMergerLogicOp, Vulkan's logicOp)
             return desc.features.logicOp ? 1 : 0;
+        case 10:
+            // Inline ray tracing (RayQuery) in any shader (D3D12's DXR tier 1.1, Vulkan's
+            // VK_KHR_ray_query, which NRI enables with ray tracing): NVRHI's Feature::RayQuery
+            return desc.features.rayTracing && desc.tiers.rayTracing >= 2 ? 1 : 0;
         case 11:
             // Variable rate shading with shading rate attachments (D3D12 tier 2, Vulkan's
             // VK_KHR_fragment_shading_rate with attachment and primitive rates): NVRHI's
