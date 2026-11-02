@@ -93,8 +93,12 @@ namespace RtTriangleNri {
         private blit: DonutBlit = new DonutBlit();
         // The render target is read by the blit (after the first frame).
         private renderTargetBlitted: boolean = false;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views'.
+        private swapChainFormat: NriFormat = 0;
+        private swapChainViewFormat: NriFormat = 0;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -144,21 +148,13 @@ namespace RtTriangleNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: blitted into through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -229,18 +225,19 @@ namespace RtTriangleNri {
 
             // The render target the rays write (RGBA8_UNORM, as Donut's createUAVTextureForFrame), read
             // by the blit.
-            const renderTarget = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
-            this.renderTarget = renderTarget;
+            const created = this.createRenderTarget(device);
             const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, 2, 1, 0, 1, 1, 0, 1);
             this.descriptorPool = descriptorPool;
-            if (!renderTarget || !descriptorPool || !topLevelASView) {
+            if (!created || !descriptorPool || !topLevelASView) {
                 console.log("Cannot create the render target");
                 return 0;
             }
-            const renderTargetStorage = Nri_CreateStorageTextureView(renderTarget, NriFormat.RGBA8_UNORM);
-            const renderTargetView = Nri_CreateTextureView(renderTarget, NriFormat.RGBA8_UNORM);
-            this.renderTargetStorage = renderTargetStorage;
-            this.renderTargetView = renderTargetView;
+            const renderTargetStorage = this.renderTargetStorage;
+            const renderTargetView = this.renderTargetView;
+            if (!renderTargetStorage || !renderTargetView) {
+                console.log("Cannot create the render target");
+                return 0;
+            }
             const rayTracingSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
             this.rayTracingSet = rayTracingSet;
             this.blitSet = this.blit.createSet(descriptorPool, renderTargetView);
@@ -258,6 +255,90 @@ namespace RtTriangleNri {
                 this.readbackFormat = format;
             }
             return 1;
+        }
+
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainViewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainViewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The storage texture the rays write (at the swap chain's size), created in
+        // NriTextureState.Storage, with its storage and shader resource views; false on failure.
+        createRenderTarget(device: NriDeviceHandle): boolean {
+            const renderTarget = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+            this.renderTarget = renderTarget;
+            if (!renderTarget) {
+                return false;
+            }
+            this.renderTargetStorage = Nri_CreateStorageTextureView(renderTarget, NriFormat.RGBA8_UNORM);
+            this.renderTargetView = Nri_CreateTextureView(renderTarget, NriFormat.RGBA8_UNORM);
+            // Its first frame needs no barrier into the rays' state (D3D12 rejects same-state ones).
+            this.renderTargetBlitted = false;
+            return true;
+        }
+
+        destroyRenderTarget() {
+            this.destroyDescriptor(this.renderTargetStorage);
+            this.destroyDescriptor(this.renderTargetView);
+            this.renderTargetStorage = null;
+            this.renderTargetView = null;
+            const renderTarget = this.renderTarget;
+            if (renderTarget) {
+                Nri_DestroyTexture(renderTarget);
+            }
+            this.renderTarget = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // size) made again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroyRenderTarget();
+            this.createSwapChain(device);
+            this.createRenderTarget(device);
+            // The sets point at the new render target's views.
+            const rayTracingSet = this.rayTracingSet;
+            const renderTargetStorage = this.renderTargetStorage;
+            if (rayTracingSet) {
+                if (renderTargetStorage) {
+                    Nri_UpdateDescriptor(rayTracingSet, 1, 0, renderTargetStorage);
+                }
+            }
+            const blitSet = this.blitSet;
+            const renderTargetView = this.renderTargetView;
+            if (blitSet) {
+                if (renderTargetView) {
+                    Nri_UpdateDescriptor(blitSet, 0, 0, renderTargetView);
+                }
+            }
         }
 
         // Waits for the frame that last used this frame's command allocator.
@@ -300,6 +381,7 @@ namespace RtTriangleNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
 
             // Acquire a swap chain texture
@@ -366,23 +448,13 @@ namespace RtTriangleNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
                 this.blit.destroy();
-                this.destroyDescriptor(this.renderTargetStorage);
-                this.destroyDescriptor(this.renderTargetView);
+                this.destroyRenderTarget();
                 this.destroyDescriptor(this.topLevelASView);
-                const renderTarget = this.renderTarget;
-                if (renderTarget) {
-                    Nri_DestroyTexture(renderTarget);
-                }
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
                     Nri_DestroyAccelerationStructure(topLevelAS);
@@ -408,7 +480,7 @@ namespace RtTriangleNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -423,6 +495,7 @@ namespace RtTriangleNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         return new RtTriangle(sample).run(argc, argv);
     }
 }

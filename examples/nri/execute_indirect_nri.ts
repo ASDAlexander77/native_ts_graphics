@@ -137,8 +137,11 @@ namespace ExecuteIndirectNri {
         private commandBuffer: NriBufferHandle | null = null;
         private commandsView: NriDescriptorHandle | null = null;
         private culledCommands: CulledCommands[] = [];
+        // The swap chain's size (the window's when it was made), its textures' format and their views'.
         private width: int = 0;
         private height: int = 0;
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
+        private viewFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
 
@@ -196,21 +199,13 @@ namespace ExecuteIndirectNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through its UNORM views, as the sample's R8G8B8A8_UNORM back
             // buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -229,13 +224,10 @@ namespace ExecuteIndirectNri {
             }
 
             // The depth buffer: D32_FLOAT, as the sample's.
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            if (!depthTexture) {
+            if (!this.createDepth(device)) {
                 console.log("Cannot create the depth buffer");
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             // The layouts: the vertex shader's constants (t0); the culling's push constants (b0),
             // constants (t0), commands (t1) and outputs (u0, u1). All root descriptors.
@@ -492,8 +484,88 @@ namespace ExecuteIndirectNri {
             }
         }
 
+        // The swap chain at the window's size, its textures' views (their UNORM format, as the sample's back buffer) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = this.swapChainFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The D32 depth buffer at the swap chain's size; false on failure.
+        createDepth(device: NriDeviceHandle): boolean {
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!depthTexture) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroyDepth() {
+            const depthAttachment = this.depthAttachment;
+            if (depthAttachment) {
+                Nri_DestroyDescriptor(depthAttachment);
+            }
+            this.depthAttachment = null;
+            const depthTexture = this.depthTexture;
+            if (depthTexture) {
+                Nri_DestroyTexture(depthTexture);
+            }
+            this.depthTexture = null;
+        }
+
+        // The triangles' projection (in each one's constants, which update writes every frame) for the
+        // swap chain's aspect ratio, as LoadAssets computes it.
+        updateProjection() {
+            const aspectRatio = Math.fround(Math.fround(this.width) / Math.fround(this.height));
+            const projection = matrixTranspose(matrixPerspectiveFovLH(Math.fround(0.785398163), aspectRatio, 0.01, 20.0));
+            for (let n = 0; n < TRIANGLE_COUNT; n++) {
+                for (let i = 0; i < 16; i++) {
+                    this.constants[n * CONSTANT_FLOATS + 12 + i] = projection[i];
+                }
+            }
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain, the depth buffer and the projection made again at its size, once the
+        // GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroyDepth();
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createDepth(device);
+            this.updateProjection();
+        }
+
         // PopulateCommandLists
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             this.update();
 
@@ -569,11 +641,6 @@ namespace ExecuteIndirectNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 for (const culled of this.culledCommands) {
                     this.destroyDescriptor(culled.commandsStorage);
                     this.destroyDescriptor(culled.countStorage);
@@ -582,11 +649,7 @@ namespace ExecuteIndirectNri {
                 }
                 this.destroyDescriptor(this.constantsView);
                 this.destroyDescriptor(this.commandsView);
-                this.destroyDescriptor(this.depthAttachment);
-                const depthTexture = this.depthTexture;
-                if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
-                }
+                this.destroyDepth();
                 this.destroyBuffer(this.vertexBuffer);
                 this.destroyBuffer(this.triangleIndexBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -604,7 +667,7 @@ namespace ExecuteIndirectNri {
                     Nri_DestroyPipelineLayout(computeLayout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -630,7 +693,9 @@ namespace ExecuteIndirectNri {
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const executeIndirect = new ExecuteIndirect(Nri_CreateSample());
+        const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
+        const executeIndirect = new ExecuteIndirect(sample);
         return executeIndirect.run(argc, argv);
     }
 }

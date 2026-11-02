@@ -81,6 +81,9 @@ namespace ColorWriteEnableNri {
         private frameFence: NriFenceHandle;
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
+        // The swap chain textures' format and their views'.
+        private swapChainFormat: NriFormat = 0;
+        private swapChainViewFormat: NriFormat = 0;
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         private triangleLayout: NriPipelineLayoutHandle | null = null;
@@ -154,22 +157,13 @@ namespace ColorWriteEnableNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.swapChainViewFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -214,13 +208,9 @@ namespace ColorWriteEnableNri {
             }
 
             // The three attachments, the swap chain's size.
-            for (let i = 0; i < 3; i++) {
-                const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, viewFormat);
-                if (!texture) {
-                    console.log("Cannot create the attachments");
-                    return 0;
-                }
-                this.targets.push(new Target(texture, Nri_CreateColorAttachmentView(texture, viewFormat), Nri_CreateTextureView(texture, viewFormat)));
+            if (!this.createSizeTargets(device)) {
+                console.log("Cannot create the attachments");
+                return 0;
             }
             const descriptorPool = Nri_CreateDescriptorPool(device, 1, 0, 0, 3, 0, 0);
             this.descriptorPool = descriptorPool;
@@ -362,7 +352,83 @@ namespace ColorWriteEnableNri {
             Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+            this.swapChainFormat = format;
+            this.swapChainViewFormat = viewFormat;
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window-size targets: the three attachments (the swap chain's size and view format), and
+        // the composition set's slots pointing at them once it's there; false if one can't be created.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const viewFormat = this.swapChainViewFormat;
+            for (let i = 0; i < 3; i++) {
+                const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, viewFormat);
+                if (!texture) {
+                    return false;
+                }
+                this.targets.push(new Target(texture, Nri_CreateColorAttachmentView(texture, viewFormat), Nri_CreateTextureView(texture, viewFormat)));
+            }
+            const compositionSet = this.compositionSet;
+            if (compositionSet) {
+                for (let i = 0; i < 3; i++) {
+                    Nri_UpdateDescriptor(compositionSet, 0, i, this.targets[i].view);
+                }
+            }
+            return true;
+        }
+
+        destroySizeTargets() {
+            for (const target of this.targets) {
+                Nri_DestroyDescriptor(target.colorAttachment);
+                Nri_DestroyDescriptor(target.view);
+                Nri_DestroyTexture(target.texture);
+            }
+            this.targets = [];
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the window-size targets made again at its
+        // size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.destroySizeTargets();
+            this.createSizeTargets(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             if (this.imgui) {
                 this.buildUI();
@@ -446,20 +512,11 @@ namespace ColorWriteEnableNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                for (const target of this.targets) {
-                    Nri_DestroyDescriptor(target.colorAttachment);
-                    Nri_DestroyDescriptor(target.view);
-                    Nri_DestroyTexture(target.texture);
-                }
+                this.destroySizeTargets();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     Nri_DestroyBuffer(readbackBuffer);
@@ -471,7 +528,7 @@ namespace ColorWriteEnableNri {
                 this.destroyLayout(this.triangleLayout);
                 this.destroyLayout(this.compositionLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -492,6 +549,7 @@ namespace ColorWriteEnableNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const colorWriteEnable = new ColorWriteEnable(sample);
         // -nored, -nogreen, -noblue: the targets' initial write switches; -background <r> <g> <b>:
         // the initial background color; -noUI: no overlay.
