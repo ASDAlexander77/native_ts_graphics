@@ -57,6 +57,12 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # Its validation layer unwraps the HAS_BUFFER marker of a bottom level structure's creation desc as a
 # buffer (an access violation with -debug): patched to pass it through, for ray_tracing_extended_nri's
 # updatable BLAS.
+# It has no line width, line rasterization mode or stipple (RasterizationDesc's lineSmoothing only):
+# patched with RasterizationDesc fields for them (Vulkan: VkPipelineRasterizationLineStateCreateInfo and
+# lineWidth; D3D: rectangular lines as quadrilateral, smooth ones alpha antialiased, others aliased) and
+# DeviceDesc::other.lineRasterizationModes / lineWidthMax, for dynamic_line_rasterization_nri.
+# It doesn't enable VK_EXT_calibrated_timestamps: patched to, for calibrated_timestamps_nri (whose
+# vkGetCalibratedTimestampsEXT comes through NRI's Vulkan wrapper).
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -96,6 +102,12 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-validation-has-buffer.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-line-rasterization.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-calibrated-timestamps.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

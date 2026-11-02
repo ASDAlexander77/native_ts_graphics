@@ -104,6 +104,9 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | multithreading_nri | draw passes without a color attachment or clears, with a vertex buffer (`Nri_DrawPassSetVertexBuffer`, `Nri_DrawPassSetClearEnabled`) |
 | texture_compression_basisu_nri | Basis Universal's transcoder (core/basis_transcoder.cpp and its library) compiled into nri_interop, textures from CPU-side levels (`Nri_CreateTextureLevels`, `Nri_CreateTextureFromLevels`) |
 | texture_compression_comparison_nri | format support (`Nri_GetFormatSupport`) |
+| shader_debugprintf_nri | shader printf through the Vulkan validation layer, also without `-debug` (`Nri_UseShaderPrintf`, `Nri_UpdateShaderPrintfOutput`, `Nri_GetShaderPrintfLine`; NRI already asks the layer for printf) |
+| calibrated_timestamps_nri | calibrated timestamps (`Nri_CreateCalibratedTimestamps` and family: Vulkan's VK_EXT_calibrated_timestamps, which NRI is patched to enable; D3D12's GetClockCalibration), `Nri_GetTimestampPeriod` |
+| dynamic_line_rasterization_nri | line rasterization modes, width and stipple (`Nri_PipelineDescSetLineRasterization`, `Nri_GetLineRasterizationModes`, `Nri_GetMaxLineWidth`; NRI patched for them) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -129,7 +132,7 @@ dynamic_lod_nri, meshlet_cull_nri, simple_compute_nri, collision_nri, simple_bez
 terrain_tessellation_nri, dynamic_blending_nri and atom_orbitals_nri. Text overlays use ImGui's
 default font, as the UI isn't compared.
 
-Left out of tier 3 (multithreading and texture_compression_basisu ported in batch 10): dynamic_line_rasterization (NRI's rasterization desc has line smoothing only:
+Left out of tier 3 (multithreading and texture_compression_basisu ported in batch 10, dynamic_line_rasterization in batch 11): dynamic_line_rasterization (NRI's rasterization desc has line smoothing only:
 no line width, rasterization mode or stipple), texture_compression_basisu (the Basis Universal
 transcoder is C++ in Donut's interop) and multithreading (Donut's draw batches are recorded on C++
 threads; recorded serially, the port would lose its point).
@@ -163,7 +166,7 @@ render_octomap, texture_compression_comparison.
 Fifth batch: msaa_nri, async_compute_bloom_nri, render_octomap_nri,
 rasterization_order_attachment_access_nri and texture_mipmap_generation_nri. Left out:
 texture_compression_comparison (Donut's interop transcodes its KTX2 textures in C++) and
-calibrated_timestamps (NRI has no calibrated timestamps). That leaves tier 4's Donut-renderer
+calibrated_timestamps (NRI has no calibrated timestamps; ported in batch 11 with an NRI patch). That leaves tier 4's Donut-renderer
 examples (deferred_shading, threaded_rendering, environment_map, bindless_rendering).
 
 The Donut-renderer examples draw with Donut's own passes' shaders (shaders/framework, as Donut
@@ -370,6 +373,12 @@ texture_compression_comparison_nri. multithreading_nri (threaded and `-singleThr
 texture compression ports (every `-target`, `-image` and `-format`, outside Donut's UI window) match
 Donut pixel for pixel on D3D12 and Vulkan. variable_shading_nri (and `-raw`) equals a Donut run: Donut's
 own runs differ at up to about 12 pixels (its draws ordered by material pointers).
+
+Batch 11: shader_debugprintf_nri (Vulkan only, as the Donut example), calibrated_timestamps_nri and
+dynamic_line_rasterization_nri, with two NRI patches (patches/NRI-line-rasterization.patch,
+patches/NRI-calibrated-timestamps.patch). All three match Donut pixel for pixel outside its UI window on
+D3D12 and Vulkan (shader_debugprintf_nri with and without `-nosky`; dynamic_line_rasterization_nri in
+every `-mode`, with `-width` and `-nostipple`).
 
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut

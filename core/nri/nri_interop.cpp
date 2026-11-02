@@ -15,6 +15,8 @@
 // macro, which nri::Message::ERROR would be.
 #include <windows.h>
 #undef ERROR
+// ID3D12CommandQueue::GetClockCalibration (Nri_SampleCalibratedTimestamps on D3D12).
+#include <d3d12.h>
 #endif
 
 #include "NRIFramework.h"
@@ -147,6 +149,12 @@ namespace
         nri::FillMode fillMode = nri::FillMode::SOLID;
         bool conservativeRaster = false;
         float conservativeRasterExtraOverestimation = 0.0f;
+        // Nri_PipelineDescSetLineRasterization: how lines are drawn (NRI patched for it).
+        uint8_t lineRasterization = 0;
+        float lineWidth = 1.0f;
+        bool lineStipple = false;
+        uint32_t lineStippleFactor = 1;
+        uint16_t lineStipplePattern = 0xFFFF;
         bool frontCounterClockwise = false;
         // Patches' control points (Nri_PipelineDescSetPatchControlPoints), with NriTopology.PatchList.
         uint8_t tessControlPointNum = 0;
@@ -270,10 +278,50 @@ namespace
         return false;
     }
 
+    // Shader printf (Nri_UseShaderPrintf, Vulkan): the messenger the interop made on NRI's instance
+    // (a VkDebugUtilsMessengerEXT; 0 without printf), how to destroy it, the messages it received
+    // since Nri_UpdateShaderPrintfOutput last took them, and the ones that call took.
+    uint64_t g_PrintfMessenger = 0;
+    void* g_PrintfInstance = nullptr;
+    void* g_PrintfDestroyMessenger = nullptr; // PFN_vkDestroyDebugUtilsMessengerEXT
+    std::mutex g_PrintfMutex;
+    std::vector<std::string> g_PrintfReceived;
+    std::vector<std::string> g_PrintfLines;
+
+    // VkDebugUtilsMessengerCallbackDataEXT's first members (all this reads).
+    struct DebugUtilsMessengerCallbackData
+    {
+        int32_t sType;
+        const void* pNext;
+        uint32_t flags;
+        const char* pMessageIdName;
+        int32_t messageIdNumber;
+        const char* pMessage;
+    };
+
+    // The validation layer's messages from shaders' printf (the message ID names of its versions:
+    // VVL-DEBUG-PRINTF, older WARNING-DEBUG-PRINTF and UNASSIGNED-DEBUG-PRINTF), kept for
+    // Nri_UpdateShaderPrintfOutput, as Donut's ShaderPrintfCallback keeps them.
+    uint32_t ShaderPrintfCallback(uint32_t, uint32_t, const DebugUtilsMessengerCallbackData* data, void*)
+    {
+        const char* idName = data->pMessageIdName ? data->pMessageIdName : "";
+        if (strcmp(idName, "VVL-DEBUG-PRINTF") != 0 && strcmp(idName, "WARNING-DEBUG-PRINTF") != 0
+            && strcmp(idName, "UNASSIGNED-DEBUG-PRINTF") != 0)
+            return 0;
+        std::lock_guard<std::mutex> lock(g_PrintfMutex);
+        g_PrintfReceived.emplace_back(data->pMessage ? data->pMessage : "");
+        return 0;
+    }
+
     // NRI's messages (its validation layer's and the graphics API's) on the standard output, errors
     // with "ERROR" in them, as the tests look for.
     void NRI_CALL MessageCallback(nri::Message messageType, const char* file, uint32_t line, const char* message, void*)
     {
+        // Shader printf: the layer's informational messages (NRI's "[id] message" echo of them: one per
+        // printing draw, every frame) are the printf messenger's, not the console's.
+        if (g_PrintfMessenger && messageType == nri::Message::INFO && message && message[0] == '[')
+            return;
+
         const char* kind = messageType == nri::Message::ERROR ? "ERROR" : messageType == nri::Message::WARNING ? "WARNING" : "INFO";
         printf("NRI %s: %s (%s:%u)\n", kind, message, file, line);
         fflush(stdout);
@@ -717,6 +765,8 @@ public:
     std::vector<int> m_ExampleOptionValueNums;
     // Nri_UseImgui was called: the device is made for ImGui (see Nri_CreateDevice).
     bool m_UsesImgui = false;
+    // Nri_UseShaderPrintf was called: the Vulkan device gets the validation layer and its printf.
+    bool m_ShaderPrintf = false;
     // Nri_InitImgui's streamer, which uploads ImGui's geometry.
     nri::StreamerInterface m_StreamerInterface = {};
     nri::Streamer* m_Streamer = nullptr;
@@ -990,6 +1040,102 @@ extern "C"
 
     // --- The device -----------------------------------------------------------------------------
 
+    // Shader printf on the Vulkan device made for Nri_UseShaderPrintf: where the validation layer is
+    // installed, VK_EXT_debug_utils enabled and non-semantic shader instructions there (Vulkan 1.3's,
+    // VK_KHR_shader_non_semantic_info's before), a messenger for the layer's informational messages
+    // (g_PrintfMessenger), as Donut's CreateShaderPrintfMessenger. Nothing otherwise
+    // (Nri_HasShaderPrintf then says 0).
+    void CreateShaderPrintfMessenger(nri::Device* device)
+    {
+        nri::WrapperVKInterface wrapper = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            return;
+        typedef void* (*GetInstanceProcAddr)(void* instance, const char* name);
+        void* instance = (void*)wrapper.GetInstanceVK(*device);
+        auto getInstanceProcAddr = (GetInstanceProcAddr)wrapper.GetInstanceProcAddrVK(*device);
+        if (!getInstanceProcAddr)
+            return;
+
+        // The validation layer (NRI drops the layers it can't find): VkLayerProperties, 520 bytes,
+        // its name first.
+        struct LayerProperties
+        {
+            char layerName[256];
+            uint32_t specVersion;
+            uint32_t implementationVersion;
+            char description[256];
+        };
+        typedef int32_t (*EnumerateInstanceLayerProperties)(uint32_t* count, LayerProperties* properties);
+        auto enumerateLayers = (EnumerateInstanceLayerProperties)getInstanceProcAddr(nullptr, "vkEnumerateInstanceLayerProperties");
+        uint32_t layerNum = 0;
+        if (!enumerateLayers || enumerateLayers(&layerNum, nullptr) != 0)
+            return;
+        std::vector<LayerProperties> layers(layerNum);
+        if (layerNum == 0 || enumerateLayers(&layerNum, layers.data()) < 0)
+        {
+            printf("WARNING: Shader printf needs the Vulkan validation layer (VK_LAYER_KHRONOS_validation, in the Vulkan SDK)\n");
+            return;
+        }
+        bool validation = false;
+        for (uint32_t i = 0; i < layerNum; i++)
+            validation = validation || strcmp(layers[i].layerName, "VK_LAYER_KHRONOS_validation") == 0;
+        if (!validation)
+        {
+            printf("WARNING: Shader printf needs the Vulkan validation layer (VK_LAYER_KHRONOS_validation, in the Vulkan SDK)\n");
+            return;
+        }
+
+        // The non-semantic instructions printf compiles to: core since Vulkan 1.3
+        // (VkPhysicalDeviceProperties' apiVersion, its first member; the struct is 824 bytes).
+        struct PhysicalDeviceProperties
+        {
+            uint32_t apiVersion;
+            alignas(8) uint8_t rest[820];
+        };
+        typedef void (*GetPhysicalDeviceProperties)(void* physicalDevice, PhysicalDeviceProperties* properties);
+        auto getProperties = (GetPhysicalDeviceProperties)getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties");
+        if (!getProperties)
+            return;
+        PhysicalDeviceProperties properties = {};
+        getProperties((void*)wrapper.GetPhysicalDeviceVK(*device), &properties);
+        const uint32_t version13 = (1u << 22) | (3u << 12); // VK_API_VERSION_1_3
+        if (properties.apiVersion < version13)
+            return;
+
+        // VK_EXT_debug_utils (enabled by NRI when the instance has it).
+        struct DebugUtilsMessengerCreateInfo
+        {
+            int32_t sType;
+            const void* pNext;
+            uint32_t flags;
+            uint32_t messageSeverity;
+            uint32_t messageType;
+            void* pfnUserCallback;
+            void* pUserData;
+        };
+        typedef int32_t (*CreateDebugUtilsMessenger)(void* instance, const DebugUtilsMessengerCreateInfo* info, const void* allocator,
+            uint64_t* messenger);
+        auto createMessenger = (CreateDebugUtilsMessenger)getInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+        void* destroyMessenger = getInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+        if (!createMessenger || !destroyMessenger)
+            return;
+        // VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT; informational messages
+        // (VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) of the validation type
+        // (VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT), as Donut's messenger.
+        DebugUtilsMessengerCreateInfo info = { 1000128004, nullptr, 0, 0x10, 0x2, (void*)&ShaderPrintfCallback, nullptr };
+        uint64_t messenger = 0;
+        if (createMessenger(instance, &info, nullptr, &messenger) != 0 || !messenger)
+            return;
+        {
+            std::lock_guard<std::mutex> lock(g_PrintfMutex);
+            g_PrintfReceived.clear();
+            g_PrintfLines.clear();
+        }
+        g_PrintfInstance = instance;
+        g_PrintfDestroyMessenger = destroyMessenger;
+        g_PrintfMessenger = messenger;
+    }
+
     // The device of the adapter and with the validation the command line chose, null on failure.
     NRI_INTEROP_API nri::Device* Nri_CreateDevice(TsSample* sample, int graphicsAPI)
     {
@@ -1000,7 +1146,19 @@ extern "C"
 
         nri::DeviceCreationDesc desc = {};
         desc.graphicsAPI = (nri::GraphicsAPI)graphicsAPI;
-        desc.enableGraphicsAPIValidation = sample->DebugAPI();
+        // Shader printf (Nri_UseShaderPrintf) is the Vulkan validation layer's: on for it, with its
+        // printf setting (NRI's VkValidationFeaturesEXT asks for it too; the layer reads the
+        // environment when it loads, as Donut sets it for AppOption_ShaderPrintf).
+        const bool shaderPrintf = sample->m_ShaderPrintf && desc.graphicsAPI == nri::GraphicsAPI::VK;
+        if (shaderPrintf)
+        {
+#ifdef _WIN32
+            _putenv_s("VK_KHRONOS_VALIDATION_PRINTF_ENABLE", "1");
+#else
+            setenv("VK_KHRONOS_VALIDATION_PRINTF_ENABLE", "1", 1);
+#endif
+        }
+        desc.enableGraphicsAPIValidation = sample->DebugAPI() || shaderPrintf;
         desc.enableNRIValidation = sample->DebugNRI();
         // D3D11, for an example that draws ImGui (Nri_UseImgui): command buffers replayed on the
         // immediate context, not deferred contexts (NRIFramework's default with NVAPI): from a
@@ -1036,6 +1194,8 @@ extern "C"
             nri::nriGetInterface(*device, NRI_INTERFACE(nri::MeshShaderInterface), (nri::MeshShaderInterface*)&NRI);
         if (NRI.GetDeviceDesc(*device).features.rayTracing)
             nri::nriGetInterface(*device, NRI_INTERFACE(nri::RayTracingInterface), (nri::RayTracingInterface*)&NRI);
+        if (shaderPrintf)
+            CreateShaderPrintfMessenger(device);
         return device;
     }
 
@@ -1217,7 +1377,51 @@ extern "C"
 
     NRI_INTEROP_API void Nri_DestroyDevice(nri::Device* device)
     {
+        if (g_PrintfMessenger)
+        {
+            typedef void (*DestroyDebugUtilsMessenger)(void* instance, uint64_t messenger, const void* allocator);
+            ((DestroyDebugUtilsMessenger)g_PrintfDestroyMessenger)(g_PrintfInstance, g_PrintfMessenger, nullptr);
+            g_PrintfMessenger = 0;
+            g_PrintfInstance = nullptr;
+            g_PrintfDestroyMessenger = nullptr;
+        }
         nri::nriDestroyDevice(device);
+    }
+
+
+    // Shaders' printf (Vulkan: the validation layer's, as Donut's AppOption_ShaderPrintf): the
+    // example asks for it before Nri_RunSample, and its Vulkan device gets the layer with its printf
+    // setting (without -debug too) and a messenger for its messages (Nri_UpdateShaderPrintfOutput).
+    NRI_INTEROP_API void Nri_UseShaderPrintf(TsSample* sample)
+    {
+        sample->m_ShaderPrintf = true;
+    }
+
+    // 1 if shaders' printf output reaches Nri_UpdateShaderPrintfOutput: a Vulkan device made after
+    // Nri_UseShaderPrintf where the validation layer is installed, as Donut_HasShaderPrintf.
+    NRI_INTEROP_API int Nri_HasShaderPrintf()
+    {
+        return g_PrintfMessenger ? 1 : 0;
+    }
+
+    // Takes the messages of shaders' printf that the validation layer has delivered since the last
+    // call (it reads them back once the GPU has finished the commands that printed them), returning
+    // their count; Nri_GetShaderPrintfLine's lines until the next call.
+    NRI_INTEROP_API int Nri_UpdateShaderPrintfOutput()
+    {
+        std::lock_guard<std::mutex> lock(g_PrintfMutex);
+        g_PrintfLines.clear();
+        g_PrintfLines.swap(g_PrintfReceived);
+        return (int)g_PrintfLines.size();
+    }
+
+    // The index-th message Nri_UpdateShaderPrintfOutput took (the layer's text, the shader's formatted
+    // output at its end); valid until the next Nri_UpdateShaderPrintfOutput.
+    NRI_INTEROP_API const char* Nri_GetShaderPrintfLine(int index)
+    {
+        if (index < 0 || (size_t)index >= g_PrintfLines.size())
+            return "";
+        return g_PrintfLines[(size_t)index].c_str();
     }
 
     NRI_INTEROP_API void Nri_DeviceWaitIdle(nri::Device* device)
@@ -2142,6 +2346,167 @@ extern "C"
         if (frequency == 0 || endTicks < beginTicks)
             return 0.0;
         return double(endTicks - beginTicks) * 1000.0 / double(frequency);
+    }
+
+    // The nanoseconds of one tick of the device's timestamps (1e9 / NRI's timestamp frequency: Vulkan's
+    // timestampPeriod, D3D's queue timestamp frequency), as Donut_GetTimestampPeriod; 0 if unknown.
+    NRI_INTEROP_API double Nri_GetTimestampPeriod(nri::Device* device)
+    {
+        const uint64_t frequency = NRI.GetDeviceDesc(*device).other.timestampFrequencyHz;
+        return frequency != 0 ? 1e9 / double(frequency) : 0.0;
+    }
+
+    // Timestamps of several time domains (clocks) sampled together (Nri_CreateCalibratedTimestamps).
+    struct CalibratedTimestamps
+    {
+        nri::GraphicsAPI api = nri::GraphicsAPI::NONE;
+        nri::Queue* queue = nullptr;
+        // Vulkan: the device and vkGetCalibratedTimestampsEXT.
+        void* vkDevice = nullptr;
+        void* getCalibratedTimestamps = nullptr;
+        // VkTimeDomainEXT values, and the last sample's timestamp of each.
+        std::vector<int> domains;
+        std::vector<uint64_t> timestamps;
+        uint64_t maxDeviation = 0;
+    };
+
+    // Calibrated timestamps, as Donut_CreateCalibratedTimestamps: timestamps of several time domains
+    // sampled together, the device's (the GPU's timestamp counter) among them. Vulkan's
+    // VK_EXT_calibrated_timestamps (VkTimeDomainEXT values: 0 device, 1 CLOCK_MONOTONIC, 2
+    // CLOCK_MONOTONIC_RAW, 3 QueryPerformanceCounter; NRI patched to enable it); D3D12's command queue
+    // clock calibration (the device's and QueryPerformanceCounter's) of the queue. Null if the device
+    // can't (D3D11, or Vulkan without the extension). Destroyed with Nri_DestroyCalibratedTimestamps.
+    NRI_INTEROP_API CalibratedTimestamps* Nri_CreateCalibratedTimestamps(nri::Device* device, nri::Queue* queue)
+    {
+        CalibratedTimestamps* timestamps = new CalibratedTimestamps();
+        timestamps->api = NRI.GetDeviceDesc(*device).graphicsAPI;
+        timestamps->queue = queue;
+        if (timestamps->api == nri::GraphicsAPI::VK)
+        {
+            nri::WrapperVKInterface wrapper = {};
+            if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            {
+                delete timestamps;
+                return nullptr;
+            }
+            typedef void* (*GetInstanceProcAddr)(void* instance, const char* name);
+            typedef void* (*GetDeviceProcAddr)(void* device, const char* name);
+            typedef int32_t (*GetCalibrateableTimeDomains)(void* physicalDevice, uint32_t* count, int32_t* domains);
+            void* instance = (void*)wrapper.GetInstanceVK(*device);
+            auto getInstanceProcAddr = (GetInstanceProcAddr)wrapper.GetInstanceProcAddrVK(*device);
+            auto getDeviceProcAddr = (GetDeviceProcAddr)wrapper.GetDeviceProcAddrVK(*device);
+            timestamps->vkDevice = NRI.GetDeviceNativeObject(device);
+            // (Null unless NRI enabled the extension.)
+            timestamps->getCalibratedTimestamps = getDeviceProcAddr
+                ? getDeviceProcAddr(timestamps->vkDevice, "vkGetCalibratedTimestampsEXT") : nullptr;
+            auto getTimeDomains = getInstanceProcAddr
+                ? (GetCalibrateableTimeDomains)getInstanceProcAddr(instance, "vkGetPhysicalDeviceCalibrateableTimeDomainsEXT") : nullptr;
+            void* physicalDevice = (void*)wrapper.GetPhysicalDeviceVK(*device);
+            uint32_t count = 0;
+            std::vector<int32_t> domains;
+            if (timestamps->getCalibratedTimestamps && getTimeDomains && getTimeDomains(physicalDevice, &count, nullptr) == 0)
+            {
+                domains.resize(count);
+                if (getTimeDomains(physicalDevice, &count, domains.data()) != 0)
+                    count = 0;
+            }
+            // The domains a calibration can sample: the device's and the hosts' clocks.
+            for (uint32_t i = 0; i < count; i++)
+            {
+                if (domains[i] >= 0 && domains[i] <= 3)
+                    timestamps->domains.push_back(domains[i]);
+            }
+        }
+#if defined(_WIN32)
+        if (timestamps->api == nri::GraphicsAPI::D3D12)
+        {
+            timestamps->domains.push_back(0); // The device's.
+            timestamps->domains.push_back(3); // QueryPerformanceCounter.
+        }
+#endif
+        if (timestamps->domains.empty())
+        {
+            delete timestamps;
+            return nullptr;
+        }
+        timestamps->timestamps.resize(timestamps->domains.size());
+        return timestamps;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyCalibratedTimestamps(CalibratedTimestamps* calibratedTimestamps)
+    {
+        delete calibratedTimestamps;
+    }
+
+    // Its time domains: their number, and each one's VkTimeDomainEXT value (-1 out of range).
+    NRI_INTEROP_API int Nri_GetCalibratedTimeDomainCount(CalibratedTimestamps* calibratedTimestamps)
+    {
+        return (int)calibratedTimestamps->domains.size();
+    }
+
+    NRI_INTEROP_API int Nri_GetCalibratedTimeDomain(CalibratedTimestamps* calibratedTimestamps, int index)
+    {
+        if (index < 0 || (size_t)index >= calibratedTimestamps->domains.size())
+            return -1;
+        return calibratedTimestamps->domains[(size_t)index];
+    }
+
+    // Samples the timestamps of all its domains at once (vkGetCalibratedTimestampsEXT,
+    // ID3D12CommandQueue::GetClockCalibration). 0 on failure.
+    NRI_INTEROP_API int Nri_SampleCalibratedTimestamps(CalibratedTimestamps* calibratedTimestamps)
+    {
+        CalibratedTimestamps* t = calibratedTimestamps;
+        if (t->api == nri::GraphicsAPI::VK)
+        {
+            // VkCalibratedTimestampInfoEXT
+            struct CalibratedTimestampInfo
+            {
+                int32_t sType;
+                const void* pNext;
+                int32_t timeDomain;
+            };
+            typedef int32_t (*GetCalibratedTimestamps)(void* device, uint32_t count, const CalibratedTimestampInfo* infos,
+                uint64_t* timestamps, uint64_t* maxDeviation);
+            std::vector<CalibratedTimestampInfo> infos(t->domains.size());
+            for (size_t i = 0; i < infos.size(); i++)
+                infos[i] = { 1000184000, nullptr, t->domains[i] }; // VK_STRUCTURE_TYPE_CALIBRATED_TIMESTAMP_INFO_EXT
+            uint64_t maxDeviation = 0;
+            if (((GetCalibratedTimestamps)t->getCalibratedTimestamps)(t->vkDevice, (uint32_t)infos.size(), infos.data(),
+                t->timestamps.data(), &maxDeviation) != 0)
+                return 0;
+            t->maxDeviation = maxDeviation;
+            return 1;
+        }
+#if defined(_WIN32)
+        if (t->api == nri::GraphicsAPI::D3D12)
+        {
+            ID3D12CommandQueue* queue = (ID3D12CommandQueue*)NRI.GetQueueNativeObject(t->queue);
+            UINT64 gpuTimestamp = 0;
+            UINT64 cpuTimestamp = 0;
+            if (!queue || FAILED(queue->GetClockCalibration(&gpuTimestamp, &cpuTimestamp)))
+                return 0;
+            t->timestamps[0] = gpuTimestamp;
+            t->timestamps[1] = cpuTimestamp;
+            t->maxDeviation = 0;
+            return 1;
+        }
+#endif
+        return 0;
+    }
+
+    // The last sample's timestamp of domain index, in its domain's ticks (the device's: of
+    // Nri_GetTimestampPeriod nanoseconds); the sample's maximum deviation between the domains in
+    // nanoseconds (Vulkan's; 0 on D3D12, which reports none).
+    NRI_INTEROP_API double Nri_GetCalibratedTimestamp(CalibratedTimestamps* calibratedTimestamps, int index)
+    {
+        if (index < 0 || (size_t)index >= calibratedTimestamps->timestamps.size())
+            return 0.0;
+        return double(calibratedTimestamps->timestamps[(size_t)index]);
+    }
+
+    NRI_INTEROP_API double Nri_GetCalibratedTimestampsMaxDeviation(CalibratedTimestamps* calibratedTimestamps)
+    {
+        return double(calibratedTimestamps->maxDeviation);
     }
 
     NRI_INTEROP_API int Nri_ReadBufferRGBA8(nri::Buffer* buffer, int rowPitch, int width, int height, int format, int* dst, int pixelCount)
@@ -3174,6 +3539,36 @@ extern "C"
         desc->conservativeRasterExtraOverestimation = size;
     }
 
+    // How lines are drawn, as Donut_GraphicsPipelineSetLineRasterization: their rasterization mode (0
+    // default, 1 rectangular, 2 Bresenham, 3 smooth; Nri_GetLineRasterizationModes tells which the
+    // device has), width (up to Nri_GetMaxLineWidth) and stipple (stipple non-zero: each bit of the
+    // 16-bit pattern, from the lowest, a run of stippleFactor pixels drawn if set). D3D draws
+    // rectangular lines as quadrilateral lines, Bresenham ones aliased, smooth ones alpha antialiased;
+    // it has no width or stipple. NRI patched for it (patches/NRI-line-rasterization.patch).
+    NRI_INTEROP_API void Nri_PipelineDescSetLineRasterization(PipelineDesc* desc, int mode, float width, int stipple, int stippleFactor,
+        int stipplePattern)
+    {
+        desc->lineRasterization = (uint8_t)mode;
+        desc->lineWidth = width;
+        desc->lineStipple = stipple != 0;
+        desc->lineStippleFactor = (uint32_t)stippleFactor;
+        desc->lineStipplePattern = (uint16_t)stipplePattern;
+    }
+
+    // The line rasterization modes pipelines can have (bits: 1 rectangular, 2 Bresenham, 4 smooth; 8,
+    // 16, 32 the same stippled), as Donut_GetLineRasterizationModes: Vulkan's line rasterization
+    // features; D3D's three kinds of lines, unstippled.
+    NRI_INTEROP_API int Nri_GetLineRasterizationModes(nri::Device* device)
+    {
+        return (int)NRI.GetDeviceDesc(*device).other.lineRasterizationModes;
+    }
+
+    // The widest lines can be: Vulkan's lineWidthRange with the wideLines feature, else 1 (D3D).
+    NRI_INTEROP_API double Nri_GetMaxLineWidth(nri::Device* device)
+    {
+        return (double)NRI.GetDeviceDesc(*device).other.lineWidthMax;
+    }
+
     // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
     NRI_INTEROP_API void Nri_PipelineDescSetFrontCounterClockwise(PipelineDesc* desc, int counterClockwise)
     {
@@ -3261,6 +3656,11 @@ extern "C"
         pipelineDesc.rasterization.fillMode = desc->fillMode;
         pipelineDesc.rasterization.conservativeRaster = desc->conservativeRaster;
         pipelineDesc.rasterization.conservativeRasterExtraOverestimation = desc->conservativeRasterExtraOverestimation;
+        pipelineDesc.rasterization.lineRasterization = desc->lineRasterization;
+        pipelineDesc.rasterization.lineWidth = desc->lineWidth;
+        pipelineDesc.rasterization.lineStipple = desc->lineStipple;
+        pipelineDesc.rasterization.lineStippleFactor = desc->lineStippleFactor;
+        pipelineDesc.rasterization.lineStipplePattern = desc->lineStipplePattern;
         pipelineDesc.rasterization.frontCounterClockwise = desc->frontCounterClockwise;
         // NRI's depthClamp is D3D's DepthClipEnable on D3D11 and D3D12 but Vulkan's depthClampEnable
         // (the opposite: no clipping): set it for what the API takes it as.
