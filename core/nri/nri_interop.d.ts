@@ -123,6 +123,10 @@ enum NriFeature {
     Barycentrics = 7,
     // features.logicOp: Nri_PipelineDescSetLogicOp (D3D's OutputMergerLogicOp, Vulkan's logicOp)
     LogicOp = 8,
+    // features.rayTracing with tiers.rayTracing >= 2: inline ray tracing (RayQuery) in any shader, against
+    // a set's NriDescriptorType.AccelerationStructure range (D3D12's DXR 1.1, Vulkan's VK_KHR_ray_query),
+    // NVRHI's Feature::RayQuery
+    RayQuery = 10,
     // tiers.shadingRate >= 2: variable rate shading with shading rate attachments
     // (Nri_PipelineDescSetShadingRate, Nri_CmdSetShadingRate, Nri_CmdBeginRenderingWithShadingRate;
     // D3D12 tier 2, Vulkan's VK_KHR_fragment_shading_rate), NVRHI's Feature::VariableRateShading

@@ -2770,6 +2770,14 @@ if (TARGET mobile_nerf_media)
     add_dependencies(mobile_nerf_rayquery mobile_nerf_media)
 endif()
 
+# mobile_nerf_rayquery with NRI and NRIFramework instead of Donut: its shaders and mobile_nerf's NeRF
+# scenes.
+add_tslang_nri_example(mobile_nerf_rayquery_nri SHADERS mobile_nerf_rayquery_shaders core/mobile_nerf_common.ts core/matrix.ts)
+add_tslang_example_test(mobile_nerf_rayquery_nri)
+if (TARGET mobile_nerf_media AND TARGET mobile_nerf_rayquery_nri)
+    add_dependencies(mobile_nerf_rayquery_nri mobile_nerf_media)
+endif()
+
 # Port of Vulkan-Samples' ray_queries: Sponza rasterized, each pixel shaded by inline ray queries
 # from its pixel shader against a TLAS of the scene (ambient occlusion and a hard shadow from a
 # moving light). It reads ray_tracing_extended's copy of the scene. Ray queries need D3D12 or
@@ -2788,6 +2796,14 @@ if (TARGET ray_tracing_extended_media)
     add_dependencies(ray_queries ray_tracing_extended_media)
 endif()
 
+# ray_queries with NRI and NRIFramework instead of Donut: its shaders and ray_tracing_extended's copy
+# of Sponza.
+add_tslang_nri_example(ray_queries_nri SHADERS ray_queries_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(ray_queries_nri)
+if (TARGET ray_tracing_extended_media AND TARGET ray_queries_nri)
+    add_dependencies(ray_queries_nri ray_tracing_extended_media)
+endif()
+
 # Port of Vulkan-Samples' ray_tracing_reflection: two colored cubes over a slightly reflective floor
 # between two mirrors, ray traced with reflections (rays bounced up to 64 times) and shadow rays.
 # The scene is built in code. Ray tracing needs D3D12 or Vulkan, so no DXBC.
@@ -2801,6 +2817,10 @@ donut_compile_shaders(
 )
 add_tslang_example(ray_tracing_reflection core/vulkan_samples_camera.ts core/matrix.ts)
 add_tslang_example_test(ray_tracing_reflection)
+
+# ray_tracing_reflection with NRI and NRIFramework instead of Donut: the same shader library.
+add_tslang_nri_example(ray_tracing_reflection_nri SHADERS ray_tracing_reflection_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_example_test(ray_tracing_reflection_nri)
 
 # Port of Vulkan-Samples' timestamp_queries: its hdr sample (hdr's shaders and models) with the GPU
 # time of each pass measured by timer queries and shown in the UI.
@@ -4011,6 +4031,10 @@ donut_compile_shaders(
 )
 add_tslang_example(raytracing_simple_lighting core/directx_math.ts)
 add_tslang_example_test(raytracing_simple_lighting)
+
+# raytracing_simple_lighting with NRI and NRIFramework instead of Donut: the same shader library.
+add_tslang_nri_example(raytracing_simple_lighting_nri SHADERS raytracing_simple_lighting_shaders core/directx_math.ts)
+add_tslang_example_test(raytracing_simple_lighting_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingLibrarySubobjects: the Simple Lighting cube (lit
 # green), its ray tracing state object made of the DXIL library alone, whose HLSL defines the

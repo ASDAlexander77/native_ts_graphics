@@ -23,8 +23,12 @@
 // The matrices come in glm's layout (columns): read as row-major, they're for mul(vector, matrix).
 #pragma pack_matrix(row_major)
 
+#include <donut/shaders/binding_helpers.hlsli>
+
 RaytracingAccelerationStructure t_TopLevelAS : register(t0);
-RWTexture2D<float4> u_Image : register(u0);
+// Written as the back buffer's format (BGRA8 on Donut's Vulkan swap chain, RGBA8 on NRI's): no format
+// on Vulkan, rather than the Rgba32f float4 implies.
+VK_IMAGE_FORMAT_UNKNOWN RWTexture2D<float4> u_Image : register(u0);
 
 cbuffer CameraProperties : register(b0)
 {
