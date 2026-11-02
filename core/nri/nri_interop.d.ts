@@ -52,6 +52,12 @@
 @cpp declare class NriAccelerationStructureHandle { private readonly __nriAccelerationStructure: index; }
 // A ray tracing pipeline's shader binding table (Nri_CreateShaderTable).
 @cpp declare class NriShaderTableHandle { private readonly __nriShaderTable: index; }
+// What Nri_BuildBlasFromDesc builds a BLAS of (Nri_CreateBlasDesc).
+@cpp declare class NriBlasDescHandle { private readonly __nriBlasDesc: index; }
+// What Nri_CreateRayTracingPipelineFromDesc makes a pipeline of (Nri_CreateRayTracingPipelineDesc).
+@cpp declare class NriRayTracingPipelineDescHandle { private readonly __nriRayTracingPipelineDesc: index; }
+// A top level acceleration structure with its instance list, built in frames (Nri_CreateTopLevelAS).
+@cpp declare class NriTopLevelASHandle { private readonly __nriTopLevelAS: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -83,7 +89,9 @@ enum NriTextureState {
     // read by compute shaders only: what a compute queue can read (D3D12's NON_PIXEL_SHADER_RESOURCE)
     ComputeShaderResource = 12,
     // written by ray generation shaders (RWTexture2D in Nri_CmdDispatchRays)
-    RayTracingStorage = 13
+    RayTracingStorage = 13,
+    // copied into (Nri_CmdCopyTexture's destination)
+    CopyDestination = 14
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -304,7 +312,9 @@ enum NriStage {
     Compute = 1024,
     RayGen = 2048,
     Miss = 4096,
+    Intersection = 8192,
     ClosestHit = 16384,
+    AnyHit = 32768,
     // every ray tracing stage (ray generation, miss, intersection, hit and callable shaders)
     RayTracing = 129024
 }
@@ -1379,3 +1389,52 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdSetRayTracingDescriptorSet(commandBuffer: NriCommandBufferHandle, setIndex: int, descriptorSet: NriDescriptorSetHandle): void;
 // Launches width x height rays of the ray tracing pipeline set, with its shader table's shaders.
 @nodrops declare function Nri_CmdDispatchRays(commandBuffer: NriCommandBufferHandle, shaderTable: NriShaderTableHandle, width: int, height: int): void;
+// Bottom level acceleration structures of several geometries: Nri_BlasDescAddTriangles adds an opaque
+// triangle mesh (vertexNum float3 positions, indexNum 32-bit indices into them; copied) as the next
+// geometry; Nri_BuildBlasFromDesc builds the structure on the queue (which it waits for), null on
+// failure (Nri_BuildTriangleBLAS is it for one mesh).
+@nodrops declare function Nri_CreateBlasDesc(): NriBlasDescHandle;
+@nodrops declare function Nri_DestroyBlasDesc(desc: NriBlasDescHandle): void;
+@nodrops declare function Nri_BlasDescAddTriangles(desc: NriBlasDescHandle, vertices: Ref<f32>, vertexNum: int, indices: Ref<int>, indexNum: int): void;
+@nodrops declare function Nri_BuildBlasFromDesc(device: NriDeviceHandle, queue: NriQueueHandle, desc: NriBlasDescHandle,
+    flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
+// Ray tracing pipelines of named shaders and groups: Nri_RayTracingPipelineDescAddShader adds the
+// library's shader entry for the stage (an NriStage bit), returning its index (from 0);
+// Nri_RayTracingPipelineDescAddGroup adds a group of up to three shaders (their indices, -1 for none:
+// a ray generation or miss shader alone, or a hit group's closest hit, any hit and intersection
+// shaders), returning its index (from 0), which shader tables name it by.
+@nodrops declare function Nri_CreateRayTracingPipelineDesc(): NriRayTracingPipelineDescHandle;
+@nodrops declare function Nri_DestroyRayTracingPipelineDesc(desc: NriRayTracingPipelineDescHandle): void;
+@nodrops declare function Nri_RayTracingPipelineDescAddShader(desc: NriRayTracingPipelineDescHandle, stage: NriStage, entry: string): int;
+@nodrops declare function Nri_RayTracingPipelineDescAddGroup(desc: NriRayTracingPipelineDescHandle, first: int, second: int, third: int): int;
+// The pipeline of the desc's shaders from the library read from path (one blob). Rays carry
+// payloadSize bytes at most, hits attributeSize bytes; rays trace rays recursionMaxDepth deep at most
+// (1: the ray generation shader's alone). Null on failure.
+@nodrops declare function Nri_CreateRayTracingPipelineFromDesc(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, path: string,
+    desc: NriRayTracingPipelineDescHandle, payloadSize: int, attributeSize: int, recursionMaxDepth: int): NriPipelineHandle | null;
+// The shader table whose records are the pipeline's groups raygenGroup, missGroups (missNum ints: miss
+// shader index i is missGroups[i]) and hitGroups (hitGroupNum ints: hit group index i, an instance's
+// hit group offset plus the ray's contribution, is hitGroups[i]); null on failure.
+@nodrops declare function Nri_CreateShaderTableFromGroups(device: NriDeviceHandle, queue: NriQueueHandle, pipeline: NriPipelineHandle,
+    raygenGroup: int, missGroups: Ref<int>, missNum: int, hitGroups: Ref<int>, hitGroupNum: int): NriShaderTableHandle | null;
+// A top level acceleration structure of instanceMaxNum instances at most, with flags (AllowUpdate to
+// refit it), its instances written to one of bufferNum buffers a frame (the frames in flight); null on
+// failure. Its structure (for Nri_CreateAccelerationStructureDescriptor) is
+// Nri_GetTopLevelAccelerationStructure's.
+@nodrops declare function Nri_CreateTopLevelAS(device: NriDeviceHandle, instanceMaxNum: int, flags: NriAccelerationStructureFlags,
+    bufferNum: int): NriTopLevelASHandle | null;
+@nodrops declare function Nri_GetTopLevelAccelerationStructure(tlas: NriTopLevelASHandle): NriAccelerationStructureHandle;
+@nodrops declare function Nri_TopLevelASClearInstances(tlas: NriTopLevelASHandle): void;
+// An instance of blas: transform, a row-major 3x4 matrix (12 floats from Ref of an f32 array element);
+// instanceId (InstanceID() in shaders); mask (ANDed with the rays'); hitGroupOffset, its first hit group
+// in the shader table; flags (nri::TopLevelInstanceBits: 0, none). Ignored past instanceMaxNum.
+@nodrops declare function Nri_TopLevelASAddInstance(tlas: NriTopLevelASHandle, blas: NriAccelerationStructureHandle, transform: Ref<f32>,
+    instanceId: int, mask: int, hitGroupOffset: int, flags: int): void;
+// Records the build of the TLAS from its instances (written to instance buffer bufferIndex: the
+// frame's), or with update (1; AllowUpdate) its refit in place once it's built, between the barriers
+// after the rays that read it before and before the rays that read it next.
+@nodrops declare function Nri_CmdBuildTopLevelAS(commandBuffer: NriCommandBufferHandle, tlas: NriTopLevelASHandle, bufferIndex: int, update: int): void;
+@nodrops declare function Nri_DestroyTopLevelAS(tlas: NriTopLevelASHandle): void;
+// Copies the whole of src into dst (same size and format; src in NriTextureState.CopySource, dst in
+// CopyDestination).
+@nodrops declare function Nri_CmdCopyTexture(commandBuffer: NriCommandBufferHandle, dst: NriTextureHandle, src: NriTextureHandle): void;

@@ -3626,6 +3626,9 @@ donut_compile_shaders(
 )
 add_tslang_example(dxr_refit)
 add_tslang_example_test(dxr_refit)
+# dxr_refit with NRI and NRIFramework instead of Donut: dxr_refit's shader library.
+add_tslang_nri_example(dxr_refit_nri SHADERS dxr_refit_shaders)
+add_tslang_example_test(dxr_refit_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingProceduralGeometry: procedural geometry in AABBs
 # (analytic, volumetric metaballs, signed distance fields and a fractal) intersected by

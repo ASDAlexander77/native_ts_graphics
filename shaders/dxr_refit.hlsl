@@ -31,8 +31,12 @@
 // signature (D3D12 only); here one global constant buffer holds all three instances' colors,
 // picked by InstanceID() (the tutorial's instance IDs are 0, 1, 2), so it runs on Vulkan too.
 
+#include <donut/shaders/binding_helpers.hlsli>
+
 RaytracingAccelerationStructure gRtScene : register(t0);
-RWTexture2D<float4> gOutput : register(u0);
+// Written as the back buffer's format (BGRA8 on Donut's Vulkan swap chain, RGBA8 on NRI's): no format
+// on Vulkan, rather than the Rgba32f float4 implies.
+VK_IMAGE_FORMAT_UNKNOWN RWTexture2D<float4> gOutput : register(u0);
 
 // The tutorial's PerFrame { float3 A, B, C; } of each instance, in float4s (HLSL packs each float3
 // into its own 16 bytes).

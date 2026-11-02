@@ -215,6 +215,21 @@ CreateStateObject fails: `patches/NRI-d3d12-library-exports.patch` exports each 
 alone. rt_triangle.hlsl's output now says it's rgba8 on Vulkan (`VK_IMAGE_FORMAT`): float4 made it
 Rgba32f, which the validation layer flags against the RGBA8 view (it didn't for the Donut example).
 
+Second: dxr_refit_nri, on D3D12 and Vulkan, its frames the Donut example's pixel for pixel, refitting
+the TLAS or (-rebuild) building it anew every frame. The interop grows into the general forms the
+later ports need: `Nri_CreateBlasDesc` / `Nri_BlasDescAddTriangles` / `Nri_BuildBlasFromDesc` (a BLAS
+of several geometries; `Nri_BuildTriangleBLAS` is it for one); `Nri_CreateRayTracingPipelineDesc`
+with shaders and groups added by index (`Nri_CreateRayTracingPipelineFromDesc`, with the recursion
+depth); `Nri_CreateShaderTableFromGroups`, whose records name groups (several miss shaders, hit
+entries per instance and ray type); and `Nri_CreateTopLevelAS`, Donut's TLAS with its instance list
+(transforms, instance IDs, masks, hit group offsets), written to an instance buffer per frame in
+flight and built, or refitted in place, in the frame's command buffer by `Nri_CmdBuildTopLevelAS`
+between acceleration structure barriers (none before the first build: D3D12 keeps the buffer in its
+acceleration structure state). The rays write the back buffer's own (UNORM) format, copied into it
+(`Nri_CmdCopyTexture`, `NriTextureState.CopyDestination`) as the tutorial's CopyResource.
+dxr_refit.hlsl's output has no format on Vulkan (`VK_IMAGE_FORMAT_UNKNOWN`): Donut's Vulkan swap
+chain is BGRA8, NRI's RGBA8.
+
 ## Notes
 
 - D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is

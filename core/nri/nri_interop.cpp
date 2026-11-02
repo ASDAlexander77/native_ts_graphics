@@ -77,7 +77,7 @@ namespace
     // with it; Nri_CreateDepthTexture's to each texture.
     std::unordered_map<nri::Buffer*, std::vector<nri::Memory*>> g_BufferMemory;
     std::unordered_map<nri::Texture*, std::vector<nri::Memory*>> g_TextureMemory;
-    // Nri_BuildTriangleBLAS's and Nri_BuildSingleInstanceTLAS's acceleration structures' memory.
+    // The acceleration structures' memory (CreateAccelerationStructure's), freed with them.
     std::unordered_map<nri::AccelerationStructure*, nri::Memory*> g_AccelerationStructureMemory;
 
     // The values of nri_interop.d.ts' enums (NriFormat, NriCompareOp, NriTopology, ...).
@@ -339,6 +339,8 @@ namespace
         case 13:
             // written by ray generation shaders (RWTexture2D in Nri_CmdDispatchRays)
             return { nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::RAYGEN_SHADER };
+        case 14:
+            return { nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -4866,48 +4868,91 @@ extern "C"
         return buffer;
     }
 
-    // The bottom level acceleration structure of an opaque triangle mesh: vertexNum float3
-    // positions from vertices, indexNum 32-bit indices from indices, with flags
+    // What Nri_BuildBlasFromDesc builds a bottom level acceleration structure of: opaque triangle
+    // meshes, a geometry each (Nri_BlasDescAddTriangles), in the order they were added.
+    struct BlasDesc
+    {
+        struct Triangles
+        {
+            std::vector<float> vertices;
+            std::vector<uint32_t> indices;
+        };
+        std::vector<Triangles> geometries;
+    };
+
+    NRI_INTEROP_API BlasDesc* Nri_CreateBlasDesc()
+    {
+        return new BlasDesc();
+    }
+
+    NRI_INTEROP_API void Nri_DestroyBlasDesc(BlasDesc* desc)
+    {
+        delete desc;
+    }
+
+    // A geometry of vertexNum float3 positions from vertices and indexNum 32-bit indices (into them)
+    // from indices, copied.
+    NRI_INTEROP_API void Nri_BlasDescAddTriangles(BlasDesc* desc, const float* vertices, int vertexNum, const uint32_t* indices, int indexNum)
+    {
+        BlasDesc::Triangles triangles;
+        triangles.vertices.assign(vertices, vertices + (size_t)vertexNum * 3);
+        triangles.indices.assign(indices, indices + (size_t)indexNum);
+        desc->geometries.push_back(std::move(triangles));
+    }
+
+    // The bottom level acceleration structure of the desc's geometries, with flags
     // (NriAccelerationStructureFlags). Built on the queue (which this waits for), as Donut's
     // examples build theirs before the first frame; null on failure. Destroyed with
     // Nri_DestroyAccelerationStructure.
-    NRI_INTEROP_API nri::AccelerationStructure* Nri_BuildTriangleBLAS(nri::Device* device, nri::Queue* queue, const float* vertices,
-        int vertexNum, const uint32_t* indices, int indexNum, int flags)
+    NRI_INTEROP_API nri::AccelerationStructure* Nri_BuildBlasFromDesc(nri::Device* device, nri::Queue* queue, BlasDesc* blasDesc, int flags)
     {
-        // The positions, then the indices, in one buffer the build reads.
-        const uint64_t vertexBytes = (uint64_t)vertexNum * 3 * sizeof(float);
-        const uint64_t indexBytes = (uint64_t)indexNum * sizeof(uint32_t);
-        std::vector<uint8_t> data((size_t)(vertexBytes + indexBytes));
-        memcpy(data.data(), vertices, (size_t)vertexBytes);
-        memcpy(data.data() + vertexBytes, indices, (size_t)indexBytes);
+        // Each geometry's positions, then its indices, in one buffer the build reads.
+        std::vector<uint8_t> data;
+        std::vector<uint64_t> vertexOffsets, indexOffsets;
+        for (const BlasDesc::Triangles& triangles : blasDesc->geometries)
+        {
+            const uint8_t* vertices = (const uint8_t*)triangles.vertices.data();
+            const uint8_t* indices = (const uint8_t*)triangles.indices.data();
+            vertexOffsets.push_back(data.size());
+            data.insert(data.end(), vertices, vertices + triangles.vertices.size() * sizeof(float));
+            indexOffsets.push_back(data.size());
+            data.insert(data.end(), indices, indices + triangles.indices.size() * sizeof(uint32_t));
+        }
+        if (data.empty())
+            return nullptr;
         nri::Buffer* input = CreateHostBufferWithData(device, data.data(), data.size(), nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
         if (!input)
             return nullptr;
 
-        nri::BottomLevelGeometryDesc geometry = {};
-        geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
-        geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
-        geometry.triangles.vertexBuffer = input;
-        geometry.triangles.vertexNum = (uint32_t)vertexNum;
-        geometry.triangles.vertexStride = 3 * sizeof(float);
-        geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
-        geometry.triangles.indexBuffer = input;
-        geometry.triangles.indexOffset = vertexBytes;
-        geometry.triangles.indexNum = (uint32_t)indexNum;
-        geometry.triangles.indexType = nri::IndexType::UINT32;
+        std::vector<nri::BottomLevelGeometryDesc> geometries(blasDesc->geometries.size());
+        for (size_t i = 0; i < geometries.size(); i++)
+        {
+            nri::BottomLevelGeometryDesc& geometry = geometries[i];
+            geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+            geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
+            geometry.triangles.vertexBuffer = input;
+            geometry.triangles.vertexOffset = vertexOffsets[i];
+            geometry.triangles.vertexNum = (uint32_t)(blasDesc->geometries[i].vertices.size() / 3);
+            geometry.triangles.vertexStride = 3 * sizeof(float);
+            geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
+            geometry.triangles.indexBuffer = input;
+            geometry.triangles.indexOffset = indexOffsets[i];
+            geometry.triangles.indexNum = (uint32_t)blasDesc->geometries[i].indices.size();
+            geometry.triangles.indexType = nri::IndexType::UINT32;
+        }
 
         nri::AccelerationStructureDesc desc = {};
         desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
         desc.flags = (nri::AccelerationStructureBits)flags;
-        desc.geometryOrInstanceNum = 1;
-        desc.geometries = &geometry;
+        desc.geometryOrInstanceNum = (uint32_t)geometries.size();
+        desc.geometries = geometries.data();
         nri::AccelerationStructure* blas = CreateAccelerationStructure(device, desc);
         nri::Buffer* scratch = blas ? CreateScratchBuffer(device, NRI.GetAccelerationStructureBuildScratchBufferSize(*blas)) : nullptr;
         bool built = scratch && SubmitAndWait(queue, [&](nri::CommandBuffer& commandBuffer) {
             nri::BuildBottomLevelAccelerationStructureDesc build = {};
             build.dst = blas;
-            build.geometries = &geometry;
-            build.geometryNum = 1;
+            build.geometries = geometries.data();
+            build.geometryNum = (uint32_t)geometries.size();
             build.scratchBuffer = scratch;
             NRI.CmdBuildBottomLevelAccelerationStructures(commandBuffer, &build, 1);
         });
@@ -4920,6 +4965,15 @@ extern "C"
             return nullptr;
         }
         return blas;
+    }
+
+    // Nri_BuildBlasFromDesc of one geometry (Nri_BlasDescAddTriangles').
+    NRI_INTEROP_API nri::AccelerationStructure* Nri_BuildTriangleBLAS(nri::Device* device, nri::Queue* queue, const float* vertices,
+        int vertexNum, const uint32_t* indices, int indexNum, int flags)
+    {
+        BlasDesc desc;
+        Nri_BlasDescAddTriangles(&desc, vertices, vertexNum, indices, indexNum);
+        return Nri_BuildBlasFromDesc(device, queue, &desc, flags);
     }
 
     // The top level acceleration structure of one instance of blas, as Donut's examples make it
@@ -5007,6 +5061,78 @@ extern "C"
         return descriptorPool;
     }
 
+    // What Nri_CreateRayTracingPipelineFromDesc makes a ray tracing pipeline of: the library's shaders
+    // (Nri_RayTracingPipelineDescAddShader) and the shader groups (Nri_RayTracingPipelineDescAddGroup).
+    struct RayTracingPipelineDesc
+    {
+        struct Shader
+        {
+            nri::StageBits stage;
+            std::string entry;
+        };
+        std::vector<Shader> shaders;
+        std::vector<nri::ShaderGroupDesc> groups;
+    };
+
+    NRI_INTEROP_API RayTracingPipelineDesc* Nri_CreateRayTracingPipelineDesc()
+    {
+        return new RayTracingPipelineDesc();
+    }
+
+    NRI_INTEROP_API void Nri_DestroyRayTracingPipelineDesc(RayTracingPipelineDesc* desc)
+    {
+        delete desc;
+    }
+
+    // The library's shader entry for the stage (an NriStage bit: RayGen, Miss, ClosestHit, ...); its
+    // index (from 0) among the desc's shaders.
+    NRI_INTEROP_API int Nri_RayTracingPipelineDescAddShader(RayTracingPipelineDesc* desc, int stage, const char* entry)
+    {
+        desc->shaders.push_back({ (nri::StageBits)stage, entry });
+        return (int)desc->shaders.size() - 1;
+    }
+
+    // A shader group of up to three shaders (their indices; -1: none): a ray generation or miss
+    // shader alone, or a hit group's closest hit, any hit and intersection shaders. Its index (from 0),
+    // the one shader tables name it by.
+    NRI_INTEROP_API int Nri_RayTracingPipelineDescAddGroup(RayTracingPipelineDesc* desc, int first, int second, int third)
+    {
+        // NRI's shader indices count from 1 (0: none).
+        desc->groups.push_back({ { (uint32_t)(first + 1), (uint32_t)(second + 1), (uint32_t)(third + 1) } });
+        return (int)desc->groups.size() - 1;
+    }
+
+    // A ray tracing pipeline of the desc's shaders, from the DXIL / SPIR-V library read from path (one
+    // blob: a .cfg's "-T lib" line). Rays carry payloadSize bytes at most, hits attributeSize bytes;
+    // rays trace rays recursionMaxDepth deep at most (1: the ray generation shader's alone). Null on
+    // failure.
+    NRI_INTEROP_API nri::Pipeline* Nri_CreateRayTracingPipelineFromDesc(nri::Device* device, nri::PipelineLayout* pipelineLayout,
+        const char* path, RayTracingPipelineDesc* pipelineDesc, int payloadSize, int attributeSize, int recursionMaxDepth)
+    {
+        std::vector<uint8_t> library;
+        if (!ReadShader(LibraryDirectory() + path, library))
+            return nullptr;
+        std::vector<nri::ShaderDesc> shaders;
+        for (const RayTracingPipelineDesc::Shader& shader : pipelineDesc->shaders)
+            shaders.push_back({ shader.stage, library.data(), library.size(), shader.entry.c_str() });
+        nri::ShaderLibraryDesc shaderLibrary = {};
+        shaderLibrary.shaders = shaders.data();
+        shaderLibrary.shaderNum = (uint32_t)shaders.size();
+
+        nri::RayTracingPipelineDesc desc = {};
+        desc.pipelineLayout = pipelineLayout;
+        desc.shaderLibrary = &shaderLibrary;
+        desc.shaderGroups = pipelineDesc->groups.data();
+        desc.shaderGroupNum = (uint32_t)pipelineDesc->groups.size();
+        desc.recursionMaxDepth = (uint32_t)recursionMaxDepth;
+        desc.rayPayloadMaxSize = (uint32_t)payloadSize;
+        desc.rayHitAttributeMaxSize = (uint32_t)attributeSize;
+        nri::Pipeline* pipeline = nullptr;
+        if (NRI.CreateRayTracingPipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
+            return nullptr;
+        return pipeline;
+    }
+
     // A ray tracing pipeline of the DXIL / SPIR-V library read from path (one blob: a .cfg's
     // "-T lib" line), whose shader groups are 0, the ray generation shader raygen; 1, the miss
     // shader miss; 2, the hit group of the closest hit shader closestHit. Rays carry payloadSize
@@ -5014,32 +5140,12 @@ extern "C"
     NRI_INTEROP_API nri::Pipeline* Nri_CreateRayTracingPipeline(nri::Device* device, nri::PipelineLayout* pipelineLayout,
         const char* path, const char* raygen, const char* miss, const char* closestHit, int payloadSize, int attributeSize)
     {
-        std::vector<uint8_t> library;
-        if (!ReadShader(LibraryDirectory() + path, library))
-            return nullptr;
-        nri::ShaderDesc shaders[] = {
-            { nri::StageBits::RAYGEN_SHADER, library.data(), library.size(), raygen },
-            { nri::StageBits::MISS_SHADER, library.data(), library.size(), miss },
-            { nri::StageBits::CLOSEST_HIT_SHADER, library.data(), library.size(), closestHit },
-        };
-        nri::ShaderLibraryDesc shaderLibrary = {};
-        shaderLibrary.shaders = shaders;
-        shaderLibrary.shaderNum = helper::GetCountOf(shaders);
-        // Shader indices count from 1.
-        const nri::ShaderGroupDesc shaderGroups[] = { { 1 }, { 2 }, { 3 } };
-
-        nri::RayTracingPipelineDesc desc = {};
-        desc.pipelineLayout = pipelineLayout;
-        desc.shaderLibrary = &shaderLibrary;
-        desc.shaderGroups = shaderGroups;
-        desc.shaderGroupNum = helper::GetCountOf(shaderGroups);
-        desc.recursionMaxDepth = 1;
-        desc.rayPayloadMaxSize = (uint32_t)payloadSize;
-        desc.rayHitAttributeMaxSize = (uint32_t)attributeSize;
-        nri::Pipeline* pipeline = nullptr;
-        if (NRI.CreateRayTracingPipeline(*device, desc, pipeline) != nri::Result::SUCCESS)
-            return nullptr;
-        return pipeline;
+        RayTracingPipelineDesc desc;
+        Nri_RayTracingPipelineDescAddGroup(&desc, Nri_RayTracingPipelineDescAddShader(&desc, (int)nri::StageBits::RAYGEN_SHADER, raygen), -1, -1);
+        Nri_RayTracingPipelineDescAddGroup(&desc, Nri_RayTracingPipelineDescAddShader(&desc, (int)nri::StageBits::MISS_SHADER, miss), -1, -1);
+        Nri_RayTracingPipelineDescAddGroup(&desc, Nri_RayTracingPipelineDescAddShader(&desc, (int)nri::StageBits::CLOSEST_HIT_SHADER, closestHit),
+            -1, -1);
+        return Nri_CreateRayTracingPipelineFromDesc(device, pipelineLayout, path, &desc, payloadSize, attributeSize, 1);
     }
 
     // A ray tracing pipeline's shader binding table: the ray generation shader's record, then the
@@ -5056,11 +5162,12 @@ extern "C"
 
     NRI_INTEROP_API void Nri_DestroyShaderTable(ShaderTable* shaderTable);
 
-    // The shader table of a ray tracing pipeline whose groups are the ray generation shader, missNum
-    // miss shaders, then hitGroupNum hit groups (Nri_CreateRayTracingPipeline's: 1 and 1), in device
-    // memory, uploaded on the queue (which this waits for); null on failure.
-    NRI_INTEROP_API ShaderTable* Nri_CreateShaderTable(nri::Device* device, nri::Queue* queue, nri::Pipeline* pipeline, int missNum,
-        int hitGroupNum)
+    // The shader table of a ray tracing pipeline whose records are its shader groups raygenGroup,
+    // missGroups (missNum of them: miss shader index i is missGroups[i]) and hitGroups (hitGroupNum:
+    // hit group index i, the instance's offset plus the ray's, is hitGroups[i]), in device memory,
+    // uploaded on the queue (which this waits for); null on failure.
+    NRI_INTEROP_API ShaderTable* Nri_CreateShaderTableFromGroups(nri::Device* device, nri::Queue* queue, nri::Pipeline* pipeline,
+        int raygenGroup, const int* missGroups, int missNum, const int* hitGroups, int hitGroupNum)
     {
         const nri::DeviceDesc& deviceDesc = NRI.GetDeviceDesc(*device);
         const uint64_t identifierSize = deviceDesc.shaderStage.rayTracing.shaderGroupIdentifierSize;
@@ -5076,10 +5183,14 @@ extern "C"
         const uint64_t size = align(shaderTable->hitGroupOffset + identifierSize * (uint64_t)hitGroupNum);
 
         std::vector<uint8_t> data((size_t)size, 0);
-        bool written = NRI.WriteShaderGroupIdentifiers(*pipeline, 0, 1, data.data()) == nri::Result::SUCCESS
-            && NRI.WriteShaderGroupIdentifiers(*pipeline, 1, (uint32_t)missNum, data.data() + shaderTable->missOffset) == nri::Result::SUCCESS
-            && NRI.WriteShaderGroupIdentifiers(*pipeline, 1 + (uint32_t)missNum, (uint32_t)hitGroupNum, data.data() + shaderTable->hitGroupOffset)
-                   == nri::Result::SUCCESS;
+        auto write = [&](int group, uint64_t offset) {
+            return NRI.WriteShaderGroupIdentifiers(*pipeline, (uint32_t)group, 1, data.data() + offset) == nri::Result::SUCCESS;
+        };
+        bool written = write(raygenGroup, 0);
+        for (int i = 0; i < missNum && written; i++)
+            written = write(missGroups[i], shaderTable->missOffset + identifierSize * (uint64_t)i);
+        for (int i = 0; i < hitGroupNum && written; i++)
+            written = write(hitGroups[i], shaderTable->hitGroupOffset + identifierSize * (uint64_t)i);
 
         nri::BufferDesc bufferDesc = {};
         bufferDesc.size = size;
@@ -5110,6 +5221,20 @@ extern "C"
             return nullptr;
         }
         return shaderTable;
+    }
+
+    // The shader table of a ray tracing pipeline whose groups are the ray generation shader, missNum
+    // miss shaders, then hitGroupNum hit groups (Nri_CreateRayTracingPipeline's: 1 and 1), in that
+    // order; null on failure.
+    NRI_INTEROP_API ShaderTable* Nri_CreateShaderTable(nri::Device* device, nri::Queue* queue, nri::Pipeline* pipeline, int missNum,
+        int hitGroupNum)
+    {
+        std::vector<int> missGroups, hitGroups;
+        for (int i = 0; i < missNum; i++)
+            missGroups.push_back(1 + i);
+        for (int i = 0; i < hitGroupNum; i++)
+            hitGroups.push_back(1 + missNum + i);
+        return Nri_CreateShaderTableFromGroups(device, queue, pipeline, 0, missGroups.data(), missNum, hitGroups.data(), hitGroupNum);
     }
 
     NRI_INTEROP_API void Nri_DestroyShaderTable(ShaderTable* shaderTable)
@@ -5144,5 +5269,158 @@ extern "C"
         desc.y = (uint32_t)height;
         desc.z = 1;
         NRI.CmdDispatchRays(*commandBuffer, desc);
+    }
+
+    // A top level acceleration structure built (or refitted) in the frame's command buffer from the
+    // instances added since the last Nri_TopLevelASClearInstances: Donut's TLAS with its instance
+    // list (app.createTopLevelASWithFlags, frame.buildTopLevelAS / updateTopLevelAS).
+    struct TopLevelAS
+    {
+        nri::AccelerationStructure* accelerationStructure = nullptr;
+        nri::AccelerationStructureBits flags = nri::AccelerationStructureBits::NONE;
+        uint32_t instanceMaxNum = 0;
+        std::vector<nri::TopLevelInstance> instances;
+        // The instances the GPU reads, one buffer per frame in flight.
+        std::vector<nri::Buffer*> instanceBuffers;
+        // For builds and updates alike.
+        nri::Buffer* scratch = nullptr;
+        // Built at least once (in recording order): it can be updated, and is read before it's rebuilt.
+        bool built = false;
+    };
+
+    NRI_INTEROP_API void Nri_DestroyTopLevelAS(TopLevelAS* tlas);
+
+    // A top level acceleration structure of instanceMaxNum instances at most, with flags
+    // (NriAccelerationStructureFlags; AllowUpdate to refit it), its instances written to one of
+    // bufferNum buffers a frame (the frames in flight); null on failure.
+    NRI_INTEROP_API TopLevelAS* Nri_CreateTopLevelAS(nri::Device* device, int instanceMaxNum, int flags, int bufferNum)
+    {
+        auto* tlas = new TopLevelAS();
+        tlas->flags = (nri::AccelerationStructureBits)flags;
+        tlas->instanceMaxNum = (uint32_t)instanceMaxNum;
+
+        nri::AccelerationStructureDesc desc = {};
+        desc.type = nri::AccelerationStructureType::TOP_LEVEL;
+        desc.flags = tlas->flags;
+        desc.geometryOrInstanceNum = tlas->instanceMaxNum;
+        tlas->accelerationStructure = CreateAccelerationStructure(device, desc);
+        if (!tlas->accelerationStructure)
+        {
+            delete tlas;
+            return nullptr;
+        }
+        uint64_t scratchSize = NRI.GetAccelerationStructureBuildScratchBufferSize(*tlas->accelerationStructure);
+        if (tlas->flags & nri::AccelerationStructureBits::ALLOW_UPDATE)
+            scratchSize = std::max(scratchSize, NRI.GetAccelerationStructureUpdateScratchBufferSize(*tlas->accelerationStructure));
+        tlas->scratch = CreateScratchBuffer(device, scratchSize);
+        std::vector<nri::TopLevelInstance> instances(tlas->instanceMaxNum);
+        for (int i = 0; i < bufferNum; i++)
+        {
+            nri::Buffer* buffer = CreateHostBufferWithData(device, instances.data(), instances.size() * sizeof(nri::TopLevelInstance),
+                nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT);
+            if (!buffer)
+                break;
+            tlas->instanceBuffers.push_back(buffer);
+        }
+        if (!tlas->scratch || tlas->instanceBuffers.size() != (size_t)bufferNum)
+        {
+            Nri_DestroyTopLevelAS(tlas);
+            return nullptr;
+        }
+        return tlas;
+    }
+
+    // The acceleration structure (for Nri_CreateAccelerationStructureDescriptor).
+    NRI_INTEROP_API nri::AccelerationStructure* Nri_GetTopLevelAccelerationStructure(TopLevelAS* tlas)
+    {
+        return tlas->accelerationStructure;
+    }
+
+    NRI_INTEROP_API void Nri_TopLevelASClearInstances(TopLevelAS* tlas)
+    {
+        tlas->instances.clear();
+    }
+
+    // An instance of blas: transform, a row-major 3x4 matrix (12 floats); instanceId (InstanceID() in
+    // shaders); mask (ANDed with the rays' masks); hitGroupOffset, its first hit group in the shader
+    // table; flags (nri::TopLevelInstanceBits). Ignored past instanceMaxNum.
+    NRI_INTEROP_API void Nri_TopLevelASAddInstance(TopLevelAS* tlas, nri::AccelerationStructure* blas, const float* transform, int instanceId,
+        int mask, int hitGroupOffset, int flags)
+    {
+        if (tlas->instances.size() >= tlas->instanceMaxNum)
+            return;
+        nri::TopLevelInstance instance = {};
+        memcpy(instance.transform, transform, sizeof(instance.transform));
+        instance.instanceId = (uint32_t)instanceId;
+        instance.mask = (uint32_t)mask;
+        instance.shaderBindingTableLocalOffset = (uint32_t)hitGroupOffset;
+        instance.flags = (nri::TopLevelInstanceBits)flags;
+        instance.accelerationStructureHandle = NRI.GetAccelerationStructureHandle(*blas);
+        tlas->instances.push_back(instance);
+    }
+
+    // Records the build of the TLAS from its instances (written to instance buffer bufferIndex: the
+    // frame's), or with update (and AllowUpdate) its refit in place once it's built, between barriers:
+    // after the rays that read it before, and before the rays that read it next.
+    NRI_INTEROP_API void Nri_CmdBuildTopLevelAS(nri::CommandBuffer* commandBuffer, TopLevelAS* tlas, int bufferIndex, int update)
+    {
+        nri::Buffer* instanceBuffer = tlas->instanceBuffers[(size_t)bufferIndex % tlas->instanceBuffers.size()];
+        const uint64_t instanceBytes = tlas->instances.size() * sizeof(nri::TopLevelInstance);
+        if (instanceBytes)
+        {
+            void* mapped = NRI.MapBuffer(*instanceBuffer, 0, instanceBytes);
+            if (!mapped)
+                return;
+            memcpy(mapped, tlas->instances.data(), (size_t)instanceBytes);
+            NRI.UnmapBuffer(*instanceBuffer);
+        }
+
+        // The structure's buffer stays an acceleration structure (D3D12 doesn't move it out of that
+        // state): the barriers order its accesses, the first build's needs none.
+        nri::BufferBarrierDesc barriers[2] = {};
+        barriers[0].buffer = NRI.GetAccelerationStructureBuffer(*tlas->accelerationStructure);
+        barriers[0].before = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::RAY_TRACING_SHADERS };
+        barriers[0].after = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
+        barriers[1].buffer = tlas->scratch;
+        barriers[1].before = { nri::AccessBits::SCRATCH_BUFFER, nri::StageBits::ACCELERATION_STRUCTURE };
+        barriers[1].after = { nri::AccessBits::SCRATCH_BUFFER, nri::StageBits::ACCELERATION_STRUCTURE };
+        nri::BarrierDesc barrierDesc = {};
+        barrierDesc.buffers = barriers;
+        barrierDesc.bufferNum = 2;
+        if (tlas->built)
+            NRI.CmdBarrier(*commandBuffer, barrierDesc);
+
+        const bool refit = update && tlas->built && (tlas->flags & nri::AccelerationStructureBits::ALLOW_UPDATE);
+        nri::BuildTopLevelAccelerationStructureDesc build = {};
+        build.dst = tlas->accelerationStructure;
+        build.src = refit ? tlas->accelerationStructure : nullptr;
+        build.instanceNum = (uint32_t)tlas->instances.size();
+        build.instanceBuffer = instanceBuffer;
+        build.scratchBuffer = tlas->scratch;
+        NRI.CmdBuildTopLevelAccelerationStructures(*commandBuffer, &build, 1);
+        tlas->built = true;
+
+        barriers[0].before = barriers[0].after;
+        barriers[0].after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::RAY_TRACING_SHADERS };
+        barrierDesc.bufferNum = 1;
+        NRI.CmdBarrier(*commandBuffer, barrierDesc);
+    }
+
+    NRI_INTEROP_API void Nri_DestroyTopLevelAS(TopLevelAS* tlas)
+    {
+        for (nri::Buffer* buffer : tlas->instanceBuffers)
+            Nri_DestroyBuffer(buffer);
+        if (tlas->scratch)
+            Nri_DestroyBuffer(tlas->scratch);
+        if (tlas->accelerationStructure)
+            Nri_DestroyAccelerationStructure(tlas->accelerationStructure);
+        delete tlas;
+    }
+
+    // Copies the whole of src into dst (same size and format; src in NriTextureState.CopySource, dst
+    // in CopyDestination).
+    NRI_INTEROP_API void Nri_CmdCopyTexture(nri::CommandBuffer* commandBuffer, nri::Texture* dst, nri::Texture* src)
+    {
+        NRI.CmdCopyTexture(*commandBuffer, *dst, nullptr, *src, nullptr);
     }
 }
