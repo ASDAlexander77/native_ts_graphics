@@ -277,25 +277,16 @@ namespace PowderSandboxNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
             if (this.test && this.scene == 0) {
                 this.scene = 1;
             }
-            this.layout();
 
-            // Swap chain: rendered through UNORM views (the display writes its colors as they are).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.viewFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.viewFormat;
+            this.fitGrid();
+            this.layout();
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -424,15 +415,59 @@ namespace PowderSandboxNri {
             return 1;
         }
 
-        // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
-        // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); the
-        // grid's size from the shape of the window above it (DEFAULT_GRID_HEIGHT cells along its
-        // shorter side), and where the grid's drawn.
-        layout() {
-            this.tileHeight = Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
-            this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
-            this.toolbarHeight = this.tileHeight;
-            const playHeight = this.height - this.toolbarHeight;
+        // The swap chain at the window's size, rendered through UNORM views (the display writes its
+        // colors as they are), its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = format;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once
+        // the GPU is done with the old one, and the toolbar and the grid's view fitted to it. The grid
+        // keeps its cells (and what's in them), so a window of another shape shows it with margins.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.layout();
+            this.scrollToolbar(this.toolbarScroll);
+        }
+
+        // The toolbar's height: a share of the window's shorter side, 56 .. 160 pixels.
+        toolbarTileHeight(): number {
+            return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
+        }
+
+        // The grid's size from the shape of the window above the toolbar (DEFAULT_GRID_HEIGHT cells
+        // along its shorter side), once: resizing the window later keeps the grid.
+        fitGrid() {
+            const playHeight = this.height - this.toolbarTileHeight();
             let gridW: int = DEFAULT_GRID_HEIGHT;
             let gridH: int = DEFAULT_GRID_HEIGHT;
             if (this.width >= playHeight) {
@@ -443,10 +478,20 @@ namespace PowderSandboxNri {
             this.gridW = Math.min(Math.max(gridW, 16), 1024);
             this.gridH = Math.min(Math.max(gridH, 16), 1024);
             this.stride = (this.gridW + 1) * (this.gridH + 1);
+            console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
+        }
+
+        // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
+        // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); and
+        // where the grid's drawn: as large as fits above it, centered.
+        layout() {
+            this.tileHeight = this.toolbarTileHeight();
+            this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
+            this.toolbarHeight = this.tileHeight;
+            const playHeight = this.height - this.toolbarHeight;
             this.cellPixels = Math.min(this.width / this.gridW, playHeight / this.gridH);
             this.viewX = (this.width - this.gridW * this.cellPixels) * 0.5;
             this.viewY = (playHeight - this.gridH * this.cellPixels) * 0.5;
-            console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
         }
 
         // Waits for the frame that last used this frame's command allocator.
@@ -771,6 +816,7 @@ namespace PowderSandboxNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             this.frameIndex = frameIndex;
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
             const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 1.0 / 30.0);
@@ -961,11 +1007,7 @@ namespace PowderSandboxNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     Nri_DestroyBuffer(queuedFrame.probeReadback);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
+                this.destroySwapChain();
                 for (const view of this.storageViews) {
                     Nri_DestroyDescriptor(view);
                 }
@@ -1000,7 +1042,6 @@ namespace PowderSandboxNri {
                     Nri_DestroyPipelineLayout(drawLayout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1009,6 +1050,7 @@ namespace PowderSandboxNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const sandbox = new PowderSandbox(sample);
         Nri_AddExampleOption(sample, "-utube");
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
