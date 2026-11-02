@@ -518,6 +518,11 @@ type NriFrameCallback = (frameIndex: int) => void;
 declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<string>, title: string, testFrames: int): int;
 // The window's size (1280 x 720 unless this is called, before Nri_RunSample).
 @nodrops declare function Nri_SetWindowSize(sample: NriSampleHandle, width: int, height: int): void;
+// The window can be resized (before Nri_RunSample; not under -test): Nri_GetOutputWidth/Height follow it
+// from frame to frame (no frames while it's minimized), and the example recreates its swap chain
+// (Nri_DeviceWaitIdle, Nri_DestroySwapChain, Nri_CreateSwapChain) and its targets of that size when the
+// size it made them at differs.
+@nodrops declare function Nri_UseResizableWindow(sample: NriSampleHandle): void;
 // An option of the example's (a flag it reads with Nri_GetArg), which Nri_RunSample leaves out of
 // NRIFramework's command line (which would reject it); before Nri_RunSample.
 @nodrops declare function Nri_AddExampleOption(sample: NriSampleHandle, option: string): void;
@@ -527,6 +532,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetArg(argc: int, argv: Ref<string>, index: int): string;
 // -test was given: Nri_RunSample rendered the test's frames.
 @nodrops declare function Nri_IsTest(sample: NriSampleHandle): int;
+// The output's size: the window's (its framebuffer's this frame, with Nri_UseResizableWindow).
 @nodrops declare function Nri_GetOutputWidth(sample: NriSampleHandle): int;
 @nodrops declare function Nri_GetOutputHeight(sample: NriSampleHandle): int;
 // 1 if the key was pressed since the last call (for this key), else 0.

@@ -384,6 +384,24 @@ conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
 example does.
 
+## Resizable windows
+
+NRI examples open at 1280 x 720 (Donut's size, so frames compare pixel for pixel; `-w`/`-h` choose
+another) and NRIFramework makes the window fixed. An example opts into resizing with
+`Nri_UseResizableWindow(sample)` before `Nri_RunSample`: the interop makes the window resizable (not
+under `-test`, whose frames stay at the size asked for) and, before each frame, sets the output size
+(`Nri_GetOutputWidth/Height`, ImGui's display size) to the window's framebuffer; while the window has
+no area (minimized) it waits for it to have one again, so the frame still runs and the example's frame
+fence keeps counting. The example compares that size with the one its swap chain was made at, and when
+they differ waits for the device (`Nri_DeviceWaitIdle`), destroys and recreates its swap chain (views,
+semaphores) and every window-size resource (targets, their views, the descriptor slots pointing at
+them), resetting the tracked states of the new textures; viewports, projections and dispatch sizes
+read the stored size every frame.
+
+Converted so far (each resize-tested on D3D12 and Vulkan, D3D11 where it runs: several sizes,
+minimize/restore and maximize under `-debug`): basic_triangle_nri, deferred_shading_nri,
+rt_shadows_nri. The other ports keep fixed windows until converted.
+
 ## Notes
 
 - D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is
