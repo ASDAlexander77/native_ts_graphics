@@ -68,8 +68,12 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # another heap: patched to give back only allocated handles, for resizing fragment_shading_rate_dynamic_nri.
 # NRIFramework's debug allocator (Debug builds' host memory, the Vulkan driver's too) reallocates with
 # realloc, which keeps the bytes at the old block's alignment offset while the returned pointer takes
-# the new block's, which differ when the alignment is above malloc's: the data comes back shifted.
-# Patched to allocate, copy and free.
+# the new block's, which differ when the alignment is above malloc's: the data comes back shifted. And
+# NVIDIA's Vulkan driver frees, with a ray tracing pipeline's callbacks, a block it didn't allocate
+# through them (raytracing_ao_nri after a few resizes), whose "header" the allocator read: it aborted.
+# Patched to allocate, copy and free, and to keep the blocks it handed out, ignoring others.
+# Its window is always shown: patched with SampleBase::m_HiddenWindow, which -test sets (headless runs).
+# The patch step resets both checkouts first, so the patches always apply to clean files.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -78,6 +82,10 @@ FetchContent_Declare(nriframework
     GIT_TAG 80fd6380500b9228c615fb71e5cd62d3c05df03b
     GIT_SUBMODULES_RECURSE ON
     PATCH_COMMAND
+        "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/reset_checkout.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI -P "${CMAKE_CURRENT_SOURCE_DIR}/reset_checkout.cmake"
+    COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-android-surface.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
@@ -123,7 +131,10 @@ FetchContent_Declare(nriframework
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
-        "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-debug-allocator-realloc.patch"
+        "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-debug-allocator.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-hidden-window.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake")
 
 # NRI's memory allocators, at the commits NRI v176 names but cloned whole: NRI clones them shallow,

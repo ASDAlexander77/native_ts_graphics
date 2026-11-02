@@ -1,16 +1,38 @@
 diff --git a/Source/DebugAllocator.cpp b/Source/DebugAllocator.cpp
-index b59e2fc..65c3a5a 100644
+index b59e2fc..81b8528 100644
 --- a/Source/DebugAllocator.cpp
 +++ b/Source/DebugAllocator.cpp
-@@ -3,6 +3,7 @@
+@@ -3,12 +3,21 @@
  #endif
  
  #include <atomic>
 +#include <cstring>
++#include <mutex>
++#include <unordered_set>
  
  #include "NRIFramework.h"
  
-@@ -57,41 +58,38 @@ static void* DebugAlignedMalloc(void* userArg, size_t size, size_t alignment) {
+ struct DebugAllocator {
+     std::atomic_uint64_t allocationNum = 0;
+     std::atomic_size_t allocatedSize = 0;
++
++    // The blocks handed out: NVIDIA's Vulkan driver frees, with a ray tracing pipeline's callbacks,
++    // memory it didn't allocate through them, whose "header" isn't one.
++    std::mutex lock;
++    std::unordered_set<void*> blocks;
++    bool unknownFreeReported = false;
+ };
+ 
+ struct DebugAllocatorHeader {
+@@ -53,54 +62,67 @@ static void* DebugAlignedMalloc(void* userArg, size_t size, size_t alignment) {
+ 
+     allocator->allocatedSize.fetch_add(allocationSize, std::memory_order_relaxed);
+     allocator->allocationNum.fetch_add(1, std::memory_order_relaxed);
++    {
++        std::lock_guard<std::mutex> lock(allocator->lock);
++        allocator->blocks.insert(alignedMemory);
++    }
+ 
      return alignedMemory;
  }
  
@@ -50,11 +72,11 @@ index b59e2fc..65c3a5a 100644
          return nullptr;
  
 -    uint8_t* alignedMemory = helper::Align(newMemory, alignment) + alignedHeaderSize;
--
--    allocator->allocatedSize.fetch_add(allocationSize - prevHeader.size, std::memory_order_relaxed);
 +    memcpy(newMemory, memory, prevSize < size ? prevSize : size);
 +    DebugAlignedFree(userArg, memory);
  
+-    allocator->allocatedSize.fetch_add(allocationSize - prevHeader.size, std::memory_order_relaxed);
+-
 -    DebugAllocatorHeader* newHeader = GetAllocationHeader(alignedMemory);
 -    *newHeader = {};
 -    newHeader->size = allocationSize;
@@ -66,3 +88,26 @@ index b59e2fc..65c3a5a 100644
  }
  
  static void DebugAlignedFree(void* userArg, void* memory) {
+     if (memory == nullptr)
+         return;
+ 
+-    const DebugAllocatorHeader* header = GetAllocationHeader(memory);
+-
+     DebugAllocator* allocator = (DebugAllocator*)userArg;
++    {
++        std::lock_guard<std::mutex> lock(allocator->lock);
++        if (allocator->blocks.erase(memory) == 0) {
++            if (!allocator->unknownFreeReported) {
++                allocator->unknownFreeReported = true;
++#if _WIN32
++                OutputDebugStringA("DebugAlignedFree(): ignoring a block it didn't allocate (a driver's own).\n");
++#endif
++            }
++            return;
++        }
++    }
++
++    const DebugAllocatorHeader* header = GetAllocationHeader(memory);
+     const size_t allocatedSize = allocator->allocatedSize.fetch_sub(header->size, std::memory_order_relaxed);
+     const size_t allocationNum = allocator->allocationNum.fetch_sub(1, std::memory_order_relaxed);
+ 

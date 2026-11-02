@@ -806,6 +806,7 @@ public:
     }
 
     void SetResizable(bool resizable) { m_Resizable = resizable; }
+    void SetHiddenWindow(bool hidden) { m_HiddenWindow = hidden; }
     bool Resizable() const { return m_Resizable; }
 
     nri::AllocationCallbacks& AllocationCallbacks() { return m_AllocationCallbacks; }
@@ -935,9 +936,13 @@ extern "C"
 
         // NRIFramework prints the command line's errors and usage with printf: flushed here, as this
         // library's output isn't flushed with the executable's.
-        // -test renders at the size it asked for.
+        // -test renders at the size it asked for, headless as Donut's: into the swap chain of a window
+        // that's never shown.
         if (sample->m_Test)
+        {
             sample->SetResizable(false);
+            sample->SetHiddenWindow(true);
+        }
         bool created = sample->Create((int32_t)pointers.size(), pointers.data(), title);
         fflush(stdout);
         if (!created)

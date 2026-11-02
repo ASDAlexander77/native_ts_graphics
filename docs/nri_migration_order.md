@@ -420,16 +420,20 @@ async_compute_bloom, atom_orbitals, bokeh, calibrated_timestamps, collision,
 compute_nbody_collisions, dynamic_multisample_rasterization, environment_map,
 gravity_light_bending, hdr, meshlet_cull, mouse_cursor, msaa, multi_draw_indirect,
 procedural_geometry, ray_tracing_extended, render_octomap, rt_bindless, rt_particles,
-rt_reflections, simple_hdr, simple_pbr, timestamp_queries, variable_shading (all `_nri`).
+raytracing_ao, rt_reflections, simple_hdr, simple_pbr, timestamp_queries, variable_shading (all
+`_nri`): every port.
 
-Still fixed: raytracing_ao_nri. Converted, it resized correctly on D3D12 and Vulkan, but on Vulkan,
-after frames at about 900 x 500 and then a resize to 1600 x 900, NRIFramework's debug allocator
-(Debug builds) found a corrupted header freeing a pipeline's driver memory at exit. Neither the
-validation layers nor D3D12 report anything; the corruption follows its frame resources being
-rebuilt at the new size and drawn (not the swap chain, not ImGui), and wasn't found.
+NVIDIA's Vulkan driver, after raytracing_ao_nri's ray tracing pipeline has traced at a few output
+sizes, frees with the pipeline's allocation callbacks a block it didn't allocate through them.
+NRIFramework's debug allocator (Debug builds) read its "header" and aborted at exit (behind the CRT's
+message box, so it looked like a hang): `patches/NRIFramework-debug-allocator.patch` keeps the blocks it
+handed out and ignores others (saying so once in the debugger's output).
 
 ## Notes
 
+- `-test` runs are headless, as Donut's: NRIFramework always makes a window (the swap chain needs
+  one), and under `-test` it's never shown (`patches/NRIFramework-hidden-window.patch`); rendering and
+  the readback don't need it on screen.
 - D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is
   the write bit alone, and textures are moved to their layout once at creation instead of from
   Undefined each frame.
