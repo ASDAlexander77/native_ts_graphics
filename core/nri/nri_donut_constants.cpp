@@ -24,6 +24,7 @@ using namespace donut::math;
 // (tonemapping_cb.h has depth_cb.h's include guard.)
 #undef DEPTH_CB_H
 #include <donut/shaders/tonemapping_cb.h>
+#include <donut/shaders/taa_cb.h>
 
 #ifdef _WIN32
 #define NRI_INTEROP_API __declspec(dllexport)
@@ -191,6 +192,7 @@ extern "C"
         case 6: return int(sizeof(DepthPassConstants));
         case 7: return int(sizeof(SkyConstants));
         case 8: return int(sizeof(ToneMappingConstants));
+        case 9: return int(sizeof(TemporalAntiAliasingConstants));
         default: return 0;
         }
     }
@@ -460,6 +462,68 @@ extern "C"
             constants.colorLUTTextureSize = float2(0.f);
             constants.colorLUTTextureSizeInv = float2(0.f);
         }
+        memcpy(dst, &constants, sizeof(constants));
+    }
+
+    // The TemporalAntiAliasingConstants TemporalAntiAliasingPass::RenderMotionVectors writes for a
+    // planar view and the previous frame's (Nri_FillDonutPlanarViewConstants' matrices each; viewports
+    // of width x height pixels from 0), no pre-view translation difference, the pass's stencil mask:
+    // the reprojection from the view's clip space to the previous view's, without pixel offsets.
+    NRI_INTEROP_API void Nri_FillDonutTaaMotionVectorConstants(const float* viewMatrix, const float* projMatrix, const float* prevViewMatrix,
+        const float* prevProjMatrix, int width, int height, int stencilMask, void* dst)
+    {
+        float4x4 viewHomogeneous;
+        memcpy(&viewHomogeneous, viewMatrix, sizeof(viewHomogeneous));
+        const affine3 view = homogeneousToAffine(viewHomogeneous);
+        float4x4 proj;
+        memcpy(&proj, projMatrix, sizeof(proj));
+        float4x4 prevViewHomogeneous;
+        memcpy(&prevViewHomogeneous, prevViewMatrix, sizeof(prevViewHomogeneous));
+        const affine3 prevView = homogeneousToAffine(prevViewHomogeneous);
+        float4x4 prevProj;
+        memcpy(&prevProj, prevProjMatrix, sizeof(prevProj));
+
+        TemporalAntiAliasingConstants constants = {};
+        const float3 preViewTranslationDifference = float3(0.f);
+        const affine3 viewReprojection = inverse(view) * translation(-preViewTranslationDifference) * prevView;
+        constants.reprojectionMatrix = inverse(proj) * affineToHomogeneous(viewReprojection) * prevProj;
+        // nvrhi::Viewport(width, height): from 0.
+        constants.inputViewOrigin = float2(0.f, 0.f);
+        constants.inputViewSize = float2(float(width), float(height));
+        constants.stencilMask = uint(stencilMask);
+        memcpy(dst, &constants, sizeof(constants));
+    }
+
+    // The TemporalAntiAliasingConstants TemporalAntiAliasingPass::TemporalResolve writes with the
+    // default TemporalAntiAliasingParameters for a planar view of width x height pixels (input and
+    // output, from 0) without a pixel offset, into a resolved color texture of that size, without a
+    // history clamp relax texture; newFrameWeight 1 when the feedback isn't valid (feedbackIsValid 0:
+    // the first frame).
+    NRI_INTEROP_API void Nri_FillDonutTaaResolveConstants(int width, int height, int feedbackIsValid, void* dst)
+    {
+        // TemporalAntiAliasingParameters' defaults.
+        const float newFrameWeight = 0.1f;
+        const float clampingFactor = 1.0f;
+        const float maxRadiance = 10000.f;
+        const bool enableHistoryClamping = true;
+        const bool useHistoryClampRelax = false;
+        const bool hasHistoryClampRelaxTexture = false;
+
+        const float2 resolvedColorSize = float2(float(width), float(height));
+        TemporalAntiAliasingConstants constants = {};
+        constants.inputViewOrigin = float2(0.f, 0.f);
+        constants.inputViewSize = float2(float(width), float(height));
+        constants.outputViewOrigin = float2(0.f, 0.f);
+        constants.outputViewSize = float2(float(width), float(height));
+        constants.inputPixelOffset = float2(0.f, 0.f);
+        constants.outputTextureSizeInv = 1.0f / resolvedColorSize;
+        constants.inputOverOutputViewSize = constants.inputViewSize / constants.outputViewSize;
+        constants.outputOverInputViewSize = constants.outputViewSize / constants.inputViewSize;
+        constants.clampingFactor = enableHistoryClamping ? clampingFactor : -1.f;
+        constants.newFrameWeight = feedbackIsValid != 0 ? newFrameWeight : 1.f;
+        constants.pqC = clamp(maxRadiance, 1e-4f, 1e8f);
+        constants.invPqC = 1.f / constants.pqC;
+        constants.useHistoryClampRelax = (useHistoryClampRelax && hasHistoryClampRelaxTexture) ? 1 : 0;
         memcpy(dst, &constants, sizeof(constants));
     }
 }

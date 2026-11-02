@@ -136,6 +136,36 @@ add_library(nri_interop SHARED nri_interop.cpp nri_donut_constants.cpp nri_donut
 # The SDKMESH reader (core/sdk_mesh.ts's Donut_*SdkMesh* functions), exported as donut_interop_shared
 # exports it, for the ports of the Xbox ATG examples.
 set_source_files_properties(../sdkmesh.cpp PROPERTIES COMPILE_DEFINITIONS DONUT_INTEROP_SHARED)
+# Basis Universal's KTX 2 transcoder (core/transcoded_texture.ts's Donut_*Transcode* functions,
+# core/basis_transcoder.cpp), exported as donut_interop_shared exports it, for the ports of the
+# Vulkan-Samples texture compression examples: the main project's checkout (BASIS_UNIVERSAL_SOURCE_DIR),
+# else fetched here, the main project's tag; its transcoder and Zstandard decoder only.
+if (BASIS_UNIVERSAL_SOURCE_DIR AND EXISTS "${BASIS_UNIVERSAL_SOURCE_DIR}/transcoder/basisu_transcoder.cpp")
+    set(NRI_BASIS_UNIVERSAL_DIR "${BASIS_UNIVERSAL_SOURCE_DIR}")
+else()
+    FetchContent_Declare(basis_universal
+        GIT_REPOSITORY https://github.com/BinomialLLC/basis_universal.git
+        GIT_TAG v1_60
+        GIT_SHALLOW TRUE
+        SOURCE_SUBDIR transcoder-only)
+    FetchContent_MakeAvailable(basis_universal)
+    set(NRI_BASIS_UNIVERSAL_DIR "${basis_universal_SOURCE_DIR}")
+endif()
+target_sources(nri_interop PRIVATE ../basis_transcoder.cpp "${NRI_BASIS_UNIVERSAL_DIR}/transcoder/basisu_transcoder.cpp"
+    "${NRI_BASIS_UNIVERSAL_DIR}/zstd/zstddeclib.c")
+set_source_files_properties(../basis_transcoder.cpp PROPERTIES COMPILE_DEFINITIONS DONUT_INTEROP_SHARED)
+target_include_directories(nri_interop PRIVATE "${NRI_BASIS_UNIVERSAL_DIR}/transcoder")
+# KTX 2 files, with Zstandard supercompression (its own decoder), as the main project builds it.
+target_compile_definitions(nri_interop PRIVATE BASISD_SUPPORT_KTX2=1 BASISD_SUPPORT_KTX2_ZSTD=1)
+if (MSVC)
+    set_source_files_properties("${NRI_BASIS_UNIVERSAL_DIR}/transcoder/basisu_transcoder.cpp"
+        "${NRI_BASIS_UNIVERSAL_DIR}/zstd/zstddeclib.c" PROPERTIES COMPILE_OPTIONS /W0)
+else()
+    set_source_files_properties("${NRI_BASIS_UNIVERSAL_DIR}/transcoder/basisu_transcoder.cpp"
+        "${NRI_BASIS_UNIVERSAL_DIR}/zstd/zstddeclib.c" PROPERTIES COMPILE_OPTIONS -w)
+    # Its hash_map asserts (see the main project's basisu_transcoder): GCC 14+ rejects them.
+    target_compile_options(nri_interop PRIVATE $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU>>:-Wno-template-body>)
+endif()
 target_link_libraries(nri_interop PRIVATE NRIFramework)
 # Donut's header-only math and its shaders' constant structs (nri_donut_constants.cpp,
 # nri_donut_scene.cpp), for the ports of the Donut examples that draw with Donut's passes or scenes.

@@ -100,6 +100,10 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | ray_tracing_position_fetch_nri | `NriFeature.RayTracingPositionFetch`, `NriAccelerationStructureFlags.AllowDataAccess`, per-geometry BLAS transforms (`Nri_BlasDescSetTransform`) |
 | rt_particles_nri | a dynamic mesh in a Donut scene (`Nri_AddDonutSceneDynamicMesh`), BLASes rebuilt every frame from host buffers (`Nri_CreateDynamicTriangleBlas`), a scene's per-instance BLASes and transforms for the example's own TLAS, TLAS barriers for ray queries in compute and pixel shaders, more ImGui widgets |
 | rt_bindless_nri | animated Donut scenes (`Nri_LoadDonutAnimatedScene`: scene files, glTF skins and animations sampled as Donut's engine does, Donut's skinning shader, a BLAS per skinned instance rebuilt as it moves: `Nri_CreateBufferBlas`), non-opaque BLAS geometries, ray tracing pipelines from permutation blobs |
+| variable_shading_nri | Donut's temporal anti-aliasing constants (`Nri_FillDonutTaaMotionVectorConstants`, `Nri_FillDonutTaaResolveConstants`), depth and stencil clears, the stencil view format (`NriFormat.X24_G8_UINT`) |
+| multithreading_nri | draw passes without a color attachment or clears, with a vertex buffer (`Nri_DrawPassSetVertexBuffer`, `Nri_DrawPassSetClearEnabled`) |
+| texture_compression_basisu_nri | Basis Universal's transcoder (core/basis_transcoder.cpp and its library) compiled into nri_interop, textures from CPU-side levels (`Nri_CreateTextureLevels`, `Nri_CreateTextureFromLevels`) |
+| texture_compression_comparison_nri | format support (`Nri_GetFormatSupport`) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -125,7 +129,7 @@ dynamic_lod_nri, meshlet_cull_nri, simple_compute_nri, collision_nri, simple_bez
 terrain_tessellation_nri, dynamic_blending_nri and atom_orbitals_nri. Text overlays use ImGui's
 default font, as the UI isn't compared.
 
-Left out of tier 3: dynamic_line_rasterization (NRI's rasterization desc has line smoothing only:
+Left out of tier 3 (multithreading and texture_compression_basisu ported in batch 10): dynamic_line_rasterization (NRI's rasterization desc has line smoothing only:
 no line width, rasterization mode or stipple), texture_compression_basisu (the Basis Universal
 transcoder is C++ in Donut's interop) and multithreading (Donut's draw batches are recorded on C++
 threads; recorded serially, the port would lose its point).
@@ -360,6 +364,12 @@ examples repeat their frames). rt_particles_nri matches on D3D12 and Vulkan outs
 window, which Donut draws under `-noUI` too, but for 7 scattered pixels. Donut's rt_particles test
 counts the window's colored widgets among the particles: the port passes it with its window drawn
 (as CTest runs it), not under `-noUI`.
+
+Batch 10: variable_shading_nri, multithreading_nri, texture_compression_basisu_nri and
+texture_compression_comparison_nri. multithreading_nri (threaded and `-singleThreaded`) and both
+texture compression ports (every `-target`, `-image` and `-format`, outside Donut's UI window) match
+Donut pixel for pixel on D3D12 and Vulkan. variable_shading_nri (and `-raw`) equals a Donut run: Donut's
+own runs differ at up to about 12 pixels (its draws ordered by material pointers).
 
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut

@@ -39,6 +39,8 @@
 @cpp declare class NriGltfMeshHandle { private readonly __nriGltfMesh: index; }
 // Every primitive of a glTF file with its materials and nodes, on the CPU (Nri_LoadGltfModel).
 @cpp declare class NriGltfModelHandle { private readonly __nriGltfModel: index; }
+// A texture's levels gathered on the CPU (Nri_CreateTextureLevels), for Nri_CreateTextureFromLevels.
+@cpp declare class NriTextureLevelsHandle { private readonly __nriTextureLevels: index; }
 // A glTF scene as Donut's engine loads it, on the CPU (Nri_LoadDonutScene).
 @cpp declare class NriDonutSceneHandle { private readonly __nriDonutScene: index; }
 // A pass's draws (Nri_CreateDrawList), and a pass recording them (Nri_CreateDrawPass).
@@ -203,10 +205,15 @@ enum NriFormat {
     // a 16-bit depth buffer (async_compute_bloom_nri's shadow map)
     D16_UNORM = 64,
     BC1_RGBA_UNORM = 50,
+    // the Basis Universal transcoder's targets (texture_compression_basisu_nri, ..._comparison_nri)
+    BC3_RGBA_SRGB = 55,
+    BC7_RGBA_SRGB = 63,
     D32_SFLOAT = 66,
     // deferred_shading_nri's G-buffer depth (Donut's), and the view shaders read it through
     D24_UNORM_S8_UINT = 65,
-    R24_UNORM_X8 = 68
+    R24_UNORM_X8 = 68,
+    // the stencil plane of D24_UNORM_S8_UINT for shaders to read (Texture2D<uint2>: .y on D3D)
+    X24_G8_UINT = 69
 }
 
 // nri::CompareOp: a depth test's (None: off).
@@ -605,6 +612,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     format: NriFormat, sampleNum: int): NriTextureHandle | null;
 // The sample counts both formats can be rendered with, as bits (1 | 2 | 4 | 8).
 @nodrops declare function Nri_GetSupportedSampleCounts(device: NriDeviceHandle, colorFormat: NriFormat, depthFormat: NriFormat): int;
+// What the device can do with format: nri::FormatSupportBits (1: sampled texture, 2: storage texture,
+// 8: color attachment, ...).
+@nodrops declare function Nri_GetFormatSupport(device: NriDeviceHandle, format: NriFormat): int;
 // The depth resolve modes of Vulkan's render passes, as bits 1 << mode (mode as Donut's ResolveMode:
 // SampleZero 1, Average 2, Min 3, Max 4), as Donut_GetDepthResolveModes gives them; 0 on D3D.
 @nodrops declare function Nri_GetDepthResolveModes(device: NriDeviceHandle): int;
@@ -777,6 +787,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
     a: float): void;
 // Clears the whole depth attachment (after Nri_CmdBeginRenderingWithDepth).
 @nodrops declare function Nri_CmdClearDepth(commandBuffer: NriCommandBufferHandle, depth: float): void;
+// Clears the depth attachment's depth and stencil (a format with a stencil plane).
+@nodrops declare function Nri_CmdClearDepthStencil(commandBuffer: NriCommandBufferHandle, depth: float, stencil: int): void;
 // Binds a vertex buffer from offset bytes in, its vertices stride bytes apart, to stream slot.
 @nodrops declare function Nri_CmdSetVertexBuffer(commandBuffer: NriCommandBufferHandle, slot: int, buffer: NriBufferHandle, offset: int, stride: int): void;
 // The descriptor pool the command buffer's descriptor sets come from (before Nri_CmdSetDescriptorSet).
@@ -844,9 +856,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_DrawListSetRootConstants(list: NriDrawListHandle, rootConstantIndex: int, data: Ref<f32>, size: int): void;
 @nodrops declare function Nri_DrawListDrawIndexed(list: NriDrawListHandle, indexNum: int, instanceNum: int, baseIndex: int,
     baseVertex: int, baseInstance: int): void;
-// A pass recording the list (which must outlive it) into width x height color and depth attachments,
-// with the layout (graphics) and the pool's sets. Destroying it waits for its worker.
-@nodrops declare function Nri_CreateDrawPass(list: NriDrawListHandle, colorAttachment: NriDescriptorHandle,
+// A pass recording the list (which must outlive it) into width x height color (null: none, a depth-only
+// pass) and depth attachments, with the layout (graphics) and the pool's sets. Destroying it waits for
+// its worker.
+@nodrops declare function Nri_CreateDrawPass(list: NriDrawListHandle, colorAttachment: NriDescriptorHandle | null,
     depthAttachment: NriDescriptorHandle, width: int, height: int, layout: NriPipelineLayoutHandle,
     descriptorPool: NriDescriptorPoolHandle): NriDrawPassHandle;
 @nodrops declare function Nri_DestroyDrawPass(pass: NriDrawPassHandle): void;
@@ -858,6 +871,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_DrawPassSetRootDescriptor(pass: NriDrawPassHandle, rootDescriptorIndex: int, descriptor: NriDescriptorHandle): void;
 // The 32-bit index buffer the indexed draws read.
 @nodrops declare function Nri_DrawPassSetIndexBuffer(pass: NriDrawPassHandle, buffer: NriBufferHandle): void;
+// The vertex buffer the draws read (stream 0), its vertices stride bytes apart.
+@nodrops declare function Nri_DrawPassSetVertexBuffer(pass: NriDrawPassHandle, buffer: NriBufferHandle, stride: int): void;
+// Whether the attachments are cleared when the pass begins (1, the default) or kept (0).
+@nodrops declare function Nri_DrawPassSetClearEnabled(pass: NriDrawPassHandle, enabled: int): void;
 // The pipeline the list's slot means (changeable between recordings).
 @nodrops declare function Nri_DrawPassSetPipeline(pass: NriDrawPassHandle, slot: int, pipeline: NriPipelineHandle): void;
 // Records the pass into the command buffer (beginning and ending it), on this thread.
@@ -1096,6 +1113,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // block-compressed format) rowPitch bytes apart, on the queue (which this waits for); leaves it in
 // NriTextureState.ShaderResource. 0 on failure.
 @nodrops declare function Nri_UploadTexture(queue: NriQueueHandle, texture: NriTextureHandle, data: Ref<int>, rowPitch: int): int;
+// A texture's levels gathered on the CPU: width x height, levelNum levels of format (set each with
+// Nri_SetTextureLevel), for Nri_CreateTextureFromLevels. Freed with Nri_DestroyTextureLevels.
+@nodrops declare function Nri_CreateTextureLevels(width: int, height: int, levelNum: int, format: NriFormat): NriTextureLevelsHandle;
+// A level's data (copied; data some other library holds, e.g. TranscodedTexture.getLevelData's): its rows
+// (of blocks, for a block-compressed format) rowPitch bytes apart.
+@nodrops declare function Nri_SetTextureLevel(levels: NriTextureLevelsHandle, level: int, data: Opaque, rowPitch: int): void;
+// A texture of the levels (all set), uploaded on the queue (which this waits for) and left in
+// NriTextureState.ShaderResource, as Donut's createTextureWithLevels and writeTextureLevel make it; null on
+// failure.
+@nodrops declare function Nri_CreateTextureFromLevels(device: NriDeviceHandle, queue: NriQueueHandle, levels: NriTextureLevelsHandle): NriTextureHandle | null;
+@nodrops declare function Nri_DestroyTextureLevels(levels: NriTextureLevelsHandle): void;
 // A width x height texture (one mip) of format filled with data (rows rowPitch bytes apart), read by
 // compute shaders on either queue (shared by the queues, left as a compute shader resource: D3D12's
 // NON_PIXEL_SHADER_RESOURCE, which the compute queue can use); null on failure. Destroyed with
@@ -1227,7 +1255,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // engine fills them. Matrices: 16 floats, row-major, row-vector convention (donut::math's).
 // The size in bytes of 0 PlanarViewConstants, 1 MaterialConstants, 2 LightConstants,
 // 3 DeferredLightingConstants, 4 ForwardShadingLightConstants, 5 ShadowConstants, 6 DepthPassConstants,
-// 7 SkyConstants, 8 ToneMappingConstants (multiples of 16); 0 for others.
+// 7 SkyConstants, 8 ToneMappingConstants, 9 TemporalAntiAliasingConstants (multiples of 16); 0 for others.
 @nodrops declare function Nri_GetDonutConstantsSize(which: int): int;
 // A planar view's PlanarViewConstants into dst, as Donut's PlanarView fills them for a viewport of
 // width x height pixels.
@@ -1338,6 +1366,15 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // a stage: 0 the histogram of a width x height view, 1 the exposure (adapting over frameTime seconds:
 // 0 keeps it), 2 the tone mapping; into dst.
 @nodrops declare function Nri_FillDonutToneMappingConstants(stage: int, width: int, height: int, frameTime: number, dst: Ref<f32>): void;
+// The TemporalAntiAliasingConstants TemporalAntiAliasingPass::RenderMotionVectors writes for a planar
+// view and the previous frame's (Nri_FillDonutPlanarViewConstants' matrices each, width x height
+// viewports) and a stencil mask: the reprojection into the previous view.
+@nodrops declare function Nri_FillDonutTaaMotionVectorConstants(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, prevViewMatrix: Ref<f32>,
+    prevProjMatrix: Ref<f32>, width: int, height: int, stencilMask: int, dst: Ref<f32>): void;
+// The TemporalAntiAliasingConstants TemporalAntiAliasingPass::TemporalResolve writes with the default
+// parameters for a width x height view and resolved color, no pixel offset; feedbackIsValid 0 on the
+// first frame (the new frame's weight 1).
+@nodrops declare function Nri_FillDonutTaaResolveConstants(width: int, height: int, feedbackIsValid: int, dst: Ref<f32>): void;
 
 // ImGui (NRIFramework's, drawn by NRI's Imgui extension). A frame: Nri_ImguiNewFrame, the widgets,
 // Nri_ImguiRender (before recording); Nri_CmdCopyImguiData outside a render pass, Nri_CmdDrawImgui
