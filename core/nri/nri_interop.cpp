@@ -83,6 +83,7 @@ namespace
     // The values of nri_interop.d.ts' enums (NriFormat, NriCompareOp, NriTopology, ...).
     static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
     static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
+    static_assert((int)nri::Format::RGBA8_SNORM == 13);
     static_assert((int)nri::Format::R32_UINT == 31);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
@@ -139,6 +140,8 @@ namespace
         nri::Format depthFormat = nri::Format::UNKNOWN;
         nri::CullMode cullMode = nri::CullMode::NONE;
         nri::FillMode fillMode = nri::FillMode::SOLID;
+        bool conservativeRaster = false;
+        float conservativeRasterExtraOverestimation = 0.0f;
         bool frontCounterClockwise = false;
         // Patches' control points (Nri_PipelineDescSetPatchControlPoints), with NriTopology.PatchList.
         uint8_t tessControlPointNum = 0;
@@ -1076,6 +1079,10 @@ extern "C"
             // Rasterizer ordered views in pixel shaders (D3D's ROVsSupported, Vulkan's fragment shader
             // pixel and sample interlock, which NRI enables where the device has them)
             return desc.shaderFeatures.rasterizedOrderedView ? 1 : 0;
+        case 25:
+            // Conservative rasterization (D3D12's tiers, Vulkan's VK_EXT_conservative_rasterization):
+            // NVRHI's Feature::ConservativeRasterization
+            return desc.tiers.conservativeRaster != 0 ? 1 : 0;
         case 24:
             // Ray tracing pipelines and acceleration structures (D3D12's DXR tier 1.0, Vulkan's
             // VK_KHR_ray_tracing_pipeline): NVRHI's Feature::RayTracingPipeline
@@ -1083,6 +1090,71 @@ extern "C"
         default:
             return 0;
         }
+    }
+
+    // The device's conservative rasterization tier (D3D12's D3D12_CONSERVATIVE_RASTERIZATION_TIER; on Vulkan
+    // NRI's estimate from the extension's properties), 0 for none.
+    NRI_INTEROP_API int Nri_GetConservativeRasterTier(nri::Device* device)
+    {
+        return NRI.GetDeviceDesc(*device).tiers.conservativeRaster;
+    }
+
+    // The fewest and most lanes of the device's waves (WaveGetLaneCount()).
+    NRI_INTEROP_API int Nri_GetWaveLaneCountMin(nri::Device* device)
+    {
+        return (int)NRI.GetDeviceDesc(*device).wave.laneMinNum;
+    }
+
+    NRI_INTEROP_API int Nri_GetWaveLaneCountMax(nri::Device* device)
+    {
+        return (int)NRI.GetDeviceDesc(*device).wave.laneMaxNum;
+    }
+
+    // VkPhysicalDeviceConservativeRasterizationPropertiesEXT, as vkGetPhysicalDeviceProperties2 fills it
+    // through NRI's Vulkan wrapper, into dst (9 floats: primitiveOverestimationSize,
+    // maxExtraPrimitiveOverestimationSize, extraPrimitiveOverestimationSizeGranularity, then 1 or 0 for its
+    // six VkBool32s), as Donut_GetVulkanConservativeRasterizationProperties; 0 (dst untouched) on other
+    // graphics APIs or without conservative rasterization.
+    NRI_INTEROP_API int Nri_GetVulkanConservativeRasterizationProperties(nri::Device* device, float* dst)
+    {
+        if (NRI.GetDeviceDesc(*device).graphicsAPI != nri::GraphicsAPI::VK || !Nri_IsFeatureSupported(device, 25))
+            return 0;
+        nri::WrapperVKInterface wrapper = {};
+        if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), &wrapper) != nri::Result::SUCCESS)
+            return 0;
+        struct ConservativeRasterizationProperties
+        {
+            int32_t sType;
+            void* pNext;
+            float sizes[3];
+            uint32_t bools[6];
+        };
+        // VkPhysicalDeviceProperties2: sType, pNext, then VkPhysicalDeviceProperties (824 bytes), whose
+        // contents aren't needed.
+        struct Properties2
+        {
+            int32_t sType;
+            void* pNext;
+            alignas(8) uint8_t properties[824];
+        };
+        typedef void* (*GetInstanceProcAddr)(void* instance, const char* name);
+        typedef void (*GetPhysicalDeviceProperties2)(void* physicalDevice, Properties2* properties);
+        void* instance = (void*)wrapper.GetInstanceVK(*device);
+        auto getInstanceProcAddr = (GetInstanceProcAddr)wrapper.GetInstanceProcAddrVK(*device);
+        auto getProperties2 = getInstanceProcAddr
+            ? (GetPhysicalDeviceProperties2)getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2") : nullptr;
+        if (!getProperties2)
+            return 0;
+        // VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONSERVATIVE_RASTERIZATION_PROPERTIES_EXT,
+        // VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
+        ConservativeRasterizationProperties properties = { 1000101000, nullptr, {}, {} };
+        Properties2 properties2 = { 1000059001, &properties, {} };
+        getProperties2((void*)wrapper.GetPhysicalDeviceVK(*device), &properties2);
+        for (int i = 0; i < 3; i++)
+            dst[i] = properties.sizes[i];
+        for (int i = 0; i < 6; i++)
+            dst[3 + i] = properties.bools[i] ? 1.0f : 0.0f;
+        return 1;
     }
 
     NRI_INTEROP_API void Nri_DestroyDevice(nri::Device* device)
@@ -2811,6 +2883,21 @@ extern "C"
         desc->fillMode = wireframe ? nri::FillMode::WIREFRAME : nri::FillMode::SOLID;
     }
 
+    // Conservative rasterization (1: every pixel a triangle touches; NriFeature.ConservativeRasterization)
+    // or not (0, the default).
+    NRI_INTEROP_API void Nri_PipelineDescSetConservativeRaster(PipelineDesc* desc, int conservative)
+    {
+        desc->conservativeRaster = conservative != 0;
+    }
+
+    // Vulkan's extra overestimation of conservative rasterization, in pixels (0 by default, at most
+    // maxExtraPrimitiveOverestimationSize: Nri_GetVulkanConservativeRasterizationProperties' second value; NRI
+    // patched for it); D3D has none (ignored).
+    NRI_INTEROP_API void Nri_PipelineDescSetConservativeRasterExtraOverestimation(PipelineDesc* desc, float size)
+    {
+        desc->conservativeRasterExtraOverestimation = size;
+    }
+
     // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
     NRI_INTEROP_API void Nri_PipelineDescSetFrontCounterClockwise(PipelineDesc* desc, int counterClockwise)
     {
@@ -2896,6 +2983,8 @@ extern "C"
         pipelineDesc.inputAssembly.topology = desc->topology;
         pipelineDesc.inputAssembly.primitiveRestart = desc->primitiveRestart;
         pipelineDesc.rasterization.fillMode = desc->fillMode;
+        pipelineDesc.rasterization.conservativeRaster = desc->conservativeRaster;
+        pipelineDesc.rasterization.conservativeRasterExtraOverestimation = desc->conservativeRasterExtraOverestimation;
         pipelineDesc.rasterization.frontCounterClockwise = desc->frontCounterClockwise;
         // NRI's depthClamp is D3D's DepthClipEnable on D3D11 and D3D12 but Vulkan's depthClampEnable
         // (the opposite: no clipping): set it for what the API takes it as.
@@ -4879,10 +4968,13 @@ extern "C"
     // meshes, a geometry each (Nri_BlasDescAddTriangles), in the order they were added.
     struct BlasDesc
     {
+        // A triangle geometry, or (aabbs not empty) one of axis-aligned boxes (6 floats each: min x, y,
+        // z, max x, y, z).
         struct Triangles
         {
             std::vector<float> vertices;
             std::vector<uint32_t> indices;
+            std::vector<float> aabbs;
         };
         std::vector<Triangles> geometries;
     };
@@ -4907,17 +4999,36 @@ extern "C"
         desc->geometries.push_back(std::move(triangles));
     }
 
+    // A geometry of aabbNum axis-aligned boxes (opaque; for intersection shaders) from aabbs: 6 floats each,
+    // min x, y, z, max x, y, z (D3D12_RAYTRACING_AABB, VkAabbPositionsKHR), copied.
+    NRI_INTEROP_API void Nri_BlasDescAddAabbs(BlasDesc* desc, const float* aabbs, int aabbNum)
+    {
+        BlasDesc::Triangles geometry;
+        geometry.aabbs.assign(aabbs, aabbs + (size_t)aabbNum * 6);
+        desc->geometries.push_back(std::move(geometry));
+    }
+
     // The bottom level acceleration structure of the desc's geometries, with flags
     // (NriAccelerationStructureFlags). Built on the queue (which this waits for), as Donut's
     // examples build theirs before the first frame; null on failure. Destroyed with
     // Nri_DestroyAccelerationStructure.
     NRI_INTEROP_API nri::AccelerationStructure* Nri_BuildBlasFromDesc(nri::Device* device, nri::Queue* queue, BlasDesc* blasDesc, int flags)
     {
-        // Each geometry's positions, then its indices, in one buffer the build reads.
+        // Each geometry's positions, then its indices (or its boxes, 8-byte aligned as D3D12 wants them),
+        // in one buffer the build reads.
         std::vector<uint8_t> data;
         std::vector<uint64_t> vertexOffsets, indexOffsets;
         for (const BlasDesc::Triangles& triangles : blasDesc->geometries)
         {
+            if (!triangles.aabbs.empty())
+            {
+                data.resize((data.size() + 7) & ~size_t(7));
+                const uint8_t* aabbs = (const uint8_t*)triangles.aabbs.data();
+                vertexOffsets.push_back(data.size());
+                indexOffsets.push_back(0);
+                data.insert(data.end(), aabbs, aabbs + triangles.aabbs.size() * sizeof(float));
+                continue;
+            }
             const uint8_t* vertices = (const uint8_t*)triangles.vertices.data();
             const uint8_t* indices = (const uint8_t*)triangles.indices.data();
             vertexOffsets.push_back(data.size());
@@ -4935,8 +5046,17 @@ extern "C"
         for (size_t i = 0; i < geometries.size(); i++)
         {
             nri::BottomLevelGeometryDesc& geometry = geometries[i];
-            geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
             geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
+            if (!blasDesc->geometries[i].aabbs.empty())
+            {
+                geometry.type = nri::BottomLevelGeometryType::AABBS;
+                geometry.aabbs.buffer = input;
+                geometry.aabbs.offset = vertexOffsets[i];
+                geometry.aabbs.num = (uint32_t)(blasDesc->geometries[i].aabbs.size() / 6);
+                geometry.aabbs.stride = 6 * sizeof(float);
+                continue;
+            }
+            geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
             geometry.triangles.vertexBuffer = input;
             geometry.triangles.vertexOffset = vertexOffsets[i];
             geometry.triangles.vertexNum = (uint32_t)(blasDesc->geometries[i].vertices.size() / 3);
@@ -5061,6 +5181,26 @@ extern "C"
         desc.textureMaxNum = (uint32_t)textureMaxNum;
         desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
         desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.accelerationStructureMaxNum = (uint32_t)accelerationStructureMaxNum;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorPool;
+    }
+
+    // As Nri_CreateDescriptorPoolWithAccelerationStructures, with room for bufferMaxNum typed buffers.
+    NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPoolWithAccelerationStructuresAndTypedBuffers(nri::Device* device,
+        int setMaxNum, int samplerMaxNum, int constantBufferMaxNum, int textureMaxNum, int storageTextureMaxNum, int structuredBufferMaxNum,
+        int bufferMaxNum, int accelerationStructureMaxNum)
+    {
+        nri::DescriptorPoolDesc desc = {};
+        desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
+        desc.samplerMaxNum = (uint32_t)samplerMaxNum;
+        desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
+        desc.textureMaxNum = (uint32_t)textureMaxNum;
+        desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
+        desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.bufferMaxNum = (uint32_t)bufferMaxNum;
         desc.accelerationStructureMaxNum = (uint32_t)accelerationStructureMaxNum;
         nri::DescriptorPool* descriptorPool = nullptr;
         if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)

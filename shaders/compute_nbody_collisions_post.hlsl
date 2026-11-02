@@ -35,7 +35,8 @@ DECLARE_PUSH_CONSTANTS(BlurConstants, g_Blur, 0, 0);
 
 Texture2D t_Input : register(t0);
 SamplerState s_Input : register(s0);
-RWTexture2D<float4> u_Output : register(u0);
+// RGBA16F on Vulkan too (float4 alone would make it Rgba32f, which validation flags against the views).
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> u_Output : register(u0);
 
 float2 getUV(float2 uv, float x, float y, float scale)
 {

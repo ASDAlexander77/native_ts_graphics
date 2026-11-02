@@ -1397,6 +1397,19 @@ add_tslang_example_test(compute_nbody_collisions SUFFIX energy ARGS -fullgravity
 # give, so the runs differ, and now and then one drifts past the limit.)
 add_tslang_example_test(compute_nbody_collisions SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
 
+# compute_nbody_collisions with NRI and NRIFramework instead of Donut: compute_nbody_collisions' shaders,
+# Donut's ThirdPersonCamera (core/donut_third_person_camera.ts). D3D11 skipped (the free slots'
+# RWStructuredBuffer<uint>: NRI's D3D11 makes stride-4 buffers raw). The Donut example's variants.
+add_tslang_nri_example(compute_nbody_collisions_nri SHADERS compute_nbody_collisions_shaders core/matrix.ts
+    core/donut_third_person_camera.ts)
+add_tslang_example_test(compute_nbody_collisions_nri)
+add_tslang_example_test(compute_nbody_collisions_nri SUFFIX head_on ARGS -attractors 2 -particles 1)
+add_tslang_example_test(compute_nbody_collisions_nri SUFFIX merge ARGS -merge 2)
+add_tslang_example_test(compute_nbody_collisions_nri SUFFIX merge_heavy ARGS -fullgravity -attractors 6 -particles 1 -merge 20)
+add_tslang_example_test(compute_nbody_collisions_nri SUFFIX fragment ARGS -fullgravity -fragment 10 -room 50)
+add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy ARGS -fullgravity -nocool -fragment 10 -room 50)
+add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
+
 # Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
 # through their field every frame; the same tracing from the camera lenses the sky behind them.
 donut_compile_shaders_all_platforms(
@@ -1420,6 +1433,18 @@ add_tslang_example_test(gravity_light_bending SUFFIX schwarzschild ARGS -scene s
 # The mass a black hole (c = 5: r_s = 1.6, over its radius): the rays aimed within 3 sqrt(3) / 2 r_s
 # of it fall in, the others escape.
 add_tslang_example_test(gravity_light_bending SUFFIX capture ARGS -scene single -c 5 -bending 2)
+
+# gravity_light_bending with NRI and NRIFramework instead of Donut: gravity_light_bending's shaders,
+# Donut's ThirdPersonCamera (core/donut_third_person_camera.ts). The Donut example's variants.
+add_tslang_nri_example(gravity_light_bending_nri SHADERS gravity_light_bending_shaders core/matrix.ts
+    core/donut_third_person_camera.ts)
+add_tslang_example_test(gravity_light_bending_nri)
+add_tslang_example_test(gravity_light_bending_nri SUFFIX straight ARGS -gravity 0)
+add_tslang_example_test(gravity_light_bending_nri SUFFIX nosky ARGS -scene blackhole -nosky)
+add_tslang_example_test(gravity_light_bending_nri SUFFIX deflection ARGS -scene single -c 50 -bending 1)
+add_tslang_example_test(gravity_light_bending_nri SUFFIX newtonian ARGS -scene single -c 50 -bending 0)
+add_tslang_example_test(gravity_light_bending_nri SUFFIX schwarzschild ARGS -scene single -c 50 -bending 2)
+add_tslang_example_test(gravity_light_bending_nri SUFFIX capture ARGS -scene single -c 5 -bending 2)
 
 # Hydrogen orbitals as a Bohmian flow: particles sampled from |psi|^2 move with the wave function's
 # guidance velocity, one compute pass a frame, and stay distributed as |psi(t)|^2.
@@ -1928,6 +1953,10 @@ donut_compile_shaders_all_platforms(
 )
 add_tslang_example(conservative_rasterization core/matrix.ts)
 add_tslang_example_test(conservative_rasterization)
+
+# conservative_rasterization with NRI and NRIFramework instead of Donut: the same shaders.
+add_tslang_nri_example(conservative_rasterization_nri SHADERS conservative_rasterization_shaders core/matrix.ts)
+add_tslang_example_test(conservative_rasterization_nri)
 
 # Port of Vulkan-Samples' conditional_rendering: each node of a glTF model drawn or skipped by a
 # value in a buffer the GPU reads as it executes the draws (D3D12 predication, Vulkan
@@ -3681,6 +3710,10 @@ donut_compile_shaders(
 add_tslang_example(procedural_geometry core/directx_math.ts)
 add_tslang_example_test(procedural_geometry)
 
+# procedural_geometry with NRI and NRIFramework instead of Donut: the same shader library.
+add_tslang_nri_example(procedural_geometry_nri SHADERS procedural_geometry_shaders core/directx_math.ts)
+add_tslang_example_test(procedural_geometry_nri)
+
 # Copies files of a DirectX-Graphics-Samples checkout (DIRECTX_GRAPHICS_SAMPLES_DIR; paths relative
 # to it) into media/<dir> for an example, if the checkout is set.
 set(DIRECTX_GRAPHICS_SAMPLES_DIR "" CACHE PATH "DirectX-Graphics-Samples checkout (github.com/microsoft/DirectX-Graphics-Samples)")
@@ -4142,6 +4175,10 @@ donut_compile_shaders(
 add_tslang_example(wave_intrinsics MEDIA fonts)
 add_tslang_example_test(wave_intrinsics)
 
+# wave_intrinsics with NRI and NRIFramework instead of Donut: the same shaders.
+add_tslang_nri_example(wave_intrinsics_nri SHADERS wave_intrinsics_shaders)
+add_tslang_example_test(wave_intrinsics_nri)
+
 # Port of DirectX-Graphics-Samples' D3D12DepthBoundsTest: a triangle at depths 0.1 to 0.9 drawn into
 # the depth buffer, then again with depth testing off and the depth bounds test on (an NVRHI patch
 # adds it, see DONUT_NVRHI_PATCHES above), animated bounds keeping only part of it. D3D12 and Vulkan
@@ -4285,6 +4322,26 @@ donut_compile_shaders(
 )
 add_tslang_example(rt_reflections core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(rt_reflections)
+
+# rt_reflections with NRI and NRIFramework instead of Donut. NRI's shader tables hold shader identifiers
+# alone (no local root signatures), so its shader library is its own: shaders/rt_reflections_nri.hlsl, whose
+# reflection closest-hit shader finds the hit geometry's resources in the scene's buffers and texture array;
+# D3D12 or Vulkan. Donut's G-buffer fill and blit shaders (shaders/framework), the scene loaded as Donut
+# loads it (core/nri/nri_donut_scene.cpp).
+donut_compile_shaders(
+    TARGET rt_reflections_nri_shaders
+    PROJECT_NAME "Ray Traced Reflections (NRI)"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections_nri.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections_nri.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections_nri/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections_nri/spirv
+)
+add_tslang_nri_example(rt_reflections_nri SHADERS rt_reflections_nri_shaders core/matrix.ts core/donut_first_person_camera.ts
+    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+add_tslang_example_test(rt_reflections_nri)
+if (TARGET donut_shaders AND TARGET rt_reflections_nri)
+    add_dependencies(rt_reflections_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' rt_particles: ray query rendering of billboard and intersection
 # particles with multi-layer alpha blending (see DONUT_SAMPLES_MEDIA_DIR above), with an ImGui

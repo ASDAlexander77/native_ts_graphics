@@ -137,7 +137,10 @@ enum NriFeature {
     // features.rayTracing: ray tracing pipelines and acceleration structures (Nri_CreateRayTracingPipeline,
     // Nri_BuildTriangleBLAS, ...; D3D12's DXR, Vulkan's VK_KHR_ray_tracing_pipeline), NVRHI's
     // Feature::RayTracingPipeline
-    RayTracing = 24
+    RayTracing = 24,
+    // tiers.conservativeRaster != 0: Nri_PipelineDescSetConservativeRaster (D3D12's conservative rasterization
+    // tiers, Vulkan's VK_EXT_conservative_rasterization), NVRHI's Feature::ConservativeRasterization
+    ConservativeRasterization = 25
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -152,6 +155,8 @@ enum NriFormat {
     BGRA8_SRGB = 10,
     RGBA8_UNORM = 11,
     RGBA8_SRGB = 12,
+    // rt_reflections_nri's scene normals (snorm8, read as Buffer<float4>)
+    RGBA8_SNORM = 13,
     // logic_op_dynamic_state_nri's color attachment on D3D (logic operations on UINT targets)
     RGBA8_UINT = 14,
     R32_UINT = 31,
@@ -868,6 +873,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineDescSetPatchControlPoints(desc: NriPipelineDescHandle, controlPointNum: int): void;
 // Triangles drawn as their edges (1) or filled (0, the default).
 @nodrops declare function Nri_PipelineDescSetWireframe(desc: NriPipelineDescHandle, wireframe: int): void;
+// Conservative rasterization (1: every pixel a triangle touches at all; NriFeature.ConservativeRasterization)
+// or not (0, the default).
+@nodrops declare function Nri_PipelineDescSetConservativeRaster(desc: NriPipelineDescHandle, conservative: int): void;
+// Vulkan's extra overestimation of conservative rasterization, in pixels (0 by default; at most
+// Nri_GetVulkanConservativeRasterizationProperties' maxExtraPrimitiveOverestimationSize); ignored on D3D.
+@nodrops declare function Nri_PipelineDescSetConservativeRasterExtraOverestimation(desc: NriPipelineDescHandle, size: float): void;
 // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
 @nodrops declare function Nri_PipelineDescSetFrontCounterClockwise(desc: NriPipelineDescHandle, counterClockwise: int): void;
 // Whether primitives are clipped at the near and far planes (1) or not (0: depth clamped, Donut's
@@ -966,6 +977,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetDrawIndirectMaxNum(device: NriDeviceHandle): int;
 // Pixels per shading rate attachment texel in each dimension; 0 without shading rate attachments.
 @nodrops declare function Nri_GetShadingRateTileSize(device: NriDeviceHandle): int;
+// The device's conservative rasterization tier (D3D12's; on Vulkan NRI's estimate), 0 for none.
+@nodrops declare function Nri_GetConservativeRasterTier(device: NriDeviceHandle): int;
+// Vulkan's VkPhysicalDeviceConservativeRasterizationPropertiesEXT into dst (9 floats, as
+// Donut_GetVulkanConservativeRasterizationProperties: the three sizes, then 1 or 0 for primitiveUnderestimation,
+// conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
+// fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage); 0 (dst untouched) on
+// other graphics APIs or without conservative rasterization.
+@nodrops declare function Nri_GetVulkanConservativeRasterizationProperties(device: NriDeviceHandle, dst: Ref<f32>): int;
+// The fewest and most lanes in the device's waves (WaveGetLaneCount()).
+@nodrops declare function Nri_GetWaveLaneCountMin(device: NriDeviceHandle): int;
+@nodrops declare function Nri_GetWaveLaneCountMax(device: NriDeviceHandle): int;
 // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of an int
 // array of 32), largest first, as Donut's getFragmentShadingRates gives them; their count, 0 without
 // shading rate attachments.
@@ -1165,7 +1187,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // ByteAddressBuffer: 4-byte structures; bindless buffers 0 and 1), 2 the InstanceData, 3 the
 // GeometryData, 4 the MaterialConstants (StructuredBuffer), uploaded on the queue; 5 the indices as an
 // index buffer (32-bit); 6 the InstanceData as a ByteAddressBuffer (D3D11's shaders read them so);
-// null on failure.
+// 7 the vertices and 8 the indices without a structure stride, for typed views (Nri_CreateTypedBufferView:
+// Vulkan's texel buffers); null on failure.
 @nodrops declare function Nri_CreateDonutSceneBuffer(device: NriDeviceHandle, queue: NriQueueHandle, scene: NriDonutSceneHandle,
     which: int): NriBufferHandle | null;
 // The materials' MaterialConstants in a host constant buffer, material m's at m * 256 (a constant
@@ -1191,6 +1214,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetDonutSceneStreamOffset(scene: NriDonutSceneHandle, stream: int): int;
 // The mesh instances (each's InstanceData index its number), their geometries, each geometry's
 // index count: a draw each.
+// The meshes' geometries (the GeometryData buffer's entries), in global geometry order.
+@nodrops declare function Nri_GetDonutSceneGeometryCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneInstanceCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneInstanceGeometryCount(scene: NriDonutSceneHandle, instance: int): int;
 @nodrops declare function Nri_GetDonutSceneGeometryIndexCount(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
@@ -1379,6 +1404,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructures(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
     constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
     accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
+// As Nri_CreateDescriptorPoolWithAccelerationStructures, with room for bufferMaxNum typed buffers (Buffer<T>)
+// too.
+@nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructuresAndTypedBuffers(device: NriDeviceHandle, setMaxNum: int,
+    samplerMaxNum: int, constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
+    bufferMaxNum: int, accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
 // A ray tracing pipeline of the library read from path (a .cfg's "-T lib" line, one blob), whose
 // shader groups are the ray generation shader raygen, the miss shader miss and the hit group of the
 // closest hit shader closestHit. Rays carry payloadSize bytes, hits attributeSize bytes; no recursion.
@@ -1404,6 +1434,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateBlasDesc(): NriBlasDescHandle;
 @nodrops declare function Nri_DestroyBlasDesc(desc: NriBlasDescHandle): void;
 @nodrops declare function Nri_BlasDescAddTriangles(desc: NriBlasDescHandle, vertices: Ref<f32>, vertexNum: int, indices: Ref<int>, indexNum: int): void;
+// A geometry of aabbNum axis-aligned boxes (opaque; intersection shaders decide the hits) from aabbs (Ref
+// of an f32 array element): 6 floats each, min x, y, z, max x, y, z; copied.
+@nodrops declare function Nri_BlasDescAddAabbs(desc: NriBlasDescHandle, aabbs: Ref<f32>, aabbNum: int): void;
 @nodrops declare function Nri_BuildBlasFromDesc(device: NriDeviceHandle, queue: NriQueueHandle, desc: NriBlasDescHandle,
     flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
 // Ray tracing pipelines of named shaders and groups: Nri_RayTracingPipelineDescAddShader adds the
@@ -1454,5 +1487,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // ID and hit group offset 0, no flags), built on the queue (which this waits for); null on failure.
 @nodrops declare function Nri_BuildDonutSceneAccelStructs(device: NriDeviceHandle, queue: NriQueueHandle,
     scene: NriDonutSceneHandle): NriDonutSceneAccelStructsHandle | null;
+// As Nri_BuildDonutSceneAccelStructs, for shader tables with hitGroupStride entries per geometry (in
+// global geometry order, as Donut_BuildSceneAccelStructsWithHitGroupStride): an instance's hit group
+// offset and instance ID are its mesh's first geometry index, the offset times hitGroupStride; in
+// shaders InstanceID() + GeometryIndex() is the hit geometry's (its GeometryData's index).
+@nodrops declare function Nri_BuildDonutSceneAccelStructsWithHitGroupStride(device: NriDeviceHandle, queue: NriQueueHandle,
+    scene: NriDonutSceneHandle, hitGroupStride: int): NriDonutSceneAccelStructsHandle | null;
 @nodrops declare function Nri_GetDonutSceneTopLevelAS(accelStructs: NriDonutSceneAccelStructsHandle): NriTopLevelASHandle;
 @nodrops declare function Nri_DestroyDonutSceneAccelStructs(accelStructs: NriDonutSceneAccelStructsHandle): void;

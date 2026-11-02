@@ -52,6 +52,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # Its D3D12 ray tracing pipelines make a DXIL library of each shader exporting all the library's
 # entry points, so shaders sharing one library (a .cfg's "-T lib" blob) export them repeatedly, which
 # CreateStateObject rejects: patched to export each shader's entry point alone, for rt_triangle_nri.
+# Its Vulkan conservative rasterization has no extra overestimation (0 always): patched with a
+# RasterizationDesc field for it, as Donut's NVRHI patch gives conservative_rasterization's Vulkan pipeline.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -85,6 +87,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-library-exports.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-conservative-extra-overestimation.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

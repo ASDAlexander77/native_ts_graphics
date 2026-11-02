@@ -583,7 +583,9 @@ extern "C"
     // ByteAddressBuffer: structures of 4 bytes), 2 the InstanceData, 3 the GeometryData, 4 the
     // MaterialConstants (StructuredBuffer), in device memory, uploaded on the queue
     // (Nri_CreateUploadedStructuredBuffer's); 5 the indices as an index buffer (32-bit); 6 the
-    // InstanceData as a ByteAddressBuffer (D3D11's shaders read them so); null on failure.
+    // InstanceData as a ByteAddressBuffer (D3D11's shaders read them so); 7 the vertices and 8 the
+    // indices without a structure stride, for typed views (Nri_CreateTypedBufferView: Vulkan's texel
+    // buffers); null on failure.
     NRI_INTEROP_API void* Nri_CreateDonutSceneBuffer(void* device, void* queue, DonutScene* scene, int which)
     {
         switch (which)
@@ -599,6 +601,8 @@ extern "C"
         case 5: return Nri_CreateUploadedBufferFromInts(device, queue, scene->indices.data(), int(scene->indices.size() * 4), 1);
         case 6: return Nri_CreateUploadedStructuredBuffer(device, queue, scene->instances.data(),
             int(scene->instances.size() * sizeof(InstanceData)), 4);
+        case 7: return Nri_CreateUploadedStructuredBuffer(device, queue, scene->vertices.data(), int(scene->vertices.size() * 4), 0);
+        case 8: return Nri_CreateUploadedStructuredBuffer(device, queue, scene->indices.data(), int(scene->indices.size() * 4), 0);
         default: return nullptr;
         }
     }
@@ -673,6 +677,12 @@ extern "C"
 
     // The mesh instances (in the order Donut's scene graph numbers them, each's index its number),
     // their geometries and each geometry's index count: one draw each.
+    // The meshes' geometries (the GeometryData), in global geometry order.
+    NRI_INTEROP_API int Nri_GetDonutSceneGeometryCount(DonutScene* scene)
+    {
+        return int(scene->geometries.size());
+    }
+
     NRI_INTEROP_API int Nri_GetDonutSceneInstanceCount(DonutScene* scene)
     {
         return int(scene->instances.size());
@@ -718,7 +728,20 @@ extern "C"
     // As Donut_BuildSceneAccelStructs: a BLAS per mesh (each geometry's opaque triangles, its
     // positions and indices), a TLAS of the mesh instances (their transforms, mask 1, instance ID and
     // hit group offset 0, no flags), built on the queue (which this waits for); null on failure.
+    NRI_INTEROP_API DonutSceneAccelStructs* Nri_BuildDonutSceneAccelStructsWithHitGroupStride(void* device, void* queue, DonutScene* scene,
+        int hitGroupStride);
+
     NRI_INTEROP_API DonutSceneAccelStructs* Nri_BuildDonutSceneAccelStructs(void* device, void* queue, DonutScene* scene)
+    {
+        return Nri_BuildDonutSceneAccelStructsWithHitGroupStride(device, queue, scene, 0);
+    }
+
+    // As Nri_BuildDonutSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
+    // global geometry order, as Donut_BuildSceneAccelStructsWithHitGroupStride: an instance's hit groups
+    // start at its mesh's first geometry index times hitGroupStride. With a stride, the instance IDs are
+    // that first geometry index (InstanceID() + GeometryIndex(): the hit geometry's GeometryData).
+    NRI_INTEROP_API DonutSceneAccelStructs* Nri_BuildDonutSceneAccelStructsWithHitGroupStride(void* device, void* queue, DonutScene* scene,
+        int hitGroupStride)
     {
         auto* accelStructs = new DonutSceneAccelStructs();
         // A mesh's BLAS, by its first geometry (the instances of a mesh share it).
@@ -759,7 +782,9 @@ extern "C"
             // affineToColumnMajor's float3x4, as NVRHI's AffineTransform takes it.
             float transform[12];
             memcpy(transform, &instance.transform, sizeof(transform));
-            Nri_TopLevelASAddInstance(accelStructs->tlas, meshBlases[instance.firstGeometryIndex], transform, 0, 1, 0, 0);
+            const int firstGeometry = hitGroupStride ? int(instance.firstGeometryIndex) : 0;
+            Nri_TopLevelASAddInstance(accelStructs->tlas, meshBlases[instance.firstGeometryIndex], transform, firstGeometry, 1,
+                firstGeometry * hitGroupStride, 0);
         }
         if (!Nri_BuildTopLevelASOnQueue(queue, accelStructs->tlas))
         {

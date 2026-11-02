@@ -84,6 +84,12 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | ray_tracing_reflection_nri | nothing new: instances without face culling (`TopLevelInstanceBits::TRIANGLE_CULL_DISABLE`) |
 | ray_queries_nri | inline ray tracing (`NriFeature.RayQuery`): a TLAS in a pixel shader's descriptor set |
 | mobile_nerf_rayquery_nri | nothing new beyond `NriFeature.RayQuery` |
+| rt_reflections_nri | its own shader (shaders/rt_reflections_nri.hlsl) in place of local root signatures; scene acceleration structures with a hit group stride (`Nri_BuildDonutSceneAccelStructsWithHitGroupStride`), `Nri_GetDonutSceneGeometryCount`, the scene's buffers for typed views, RGBA8_SNORM typed views, pools with acceleration structures and typed buffers |
+| procedural_geometry_nri | AABB geometries (`Nri_BlasDescAddAabbs`) and intersection shaders in hit groups |
+| wave_intrinsics_nri | the device's wave lane counts (`Nri_GetWaveLaneCountMin`, `Nri_GetWaveLaneCountMax`) |
+| conservative_rasterization_nri | conservative rasterization (`NriFeature.ConservativeRasterization`, `Nri_PipelineDescSetConservativeRaster`, `Nri_GetConservativeRasterTier`, `Nri_GetVulkanConservativeRasterizationProperties`) with Vulkan's extra overestimation (`Nri_PipelineDescSetConservativeRasterExtraOverestimation`; NRI patched for it) |
+| gravity_light_bending_nri | Donut's ThirdPersonCamera as a shared module (core/donut_third_person_camera.ts) |
+| compute_nbody_collisions_nri | nothing new (the ThirdPersonCamera module) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -207,8 +213,8 @@ completes tier 4; tier 5 (ray tracing) is next.
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order was rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
-ray_queries; all but rt_reflections (see below) are done, with ray_tracing_reflection and
-mobile_nerf_rayquery. After that come the scene-heavy ray-traced examples.
+ray_queries; all are done (rt_reflections with its own shader, see below), with
+ray_tracing_reflection and mobile_nerf_rayquery. After that come the scene-heavy ray-traced examples.
 
 First: rt_triangle_nri, on D3D12 and Vulkan (D3D11 has no ray tracing: skipped), its frames the Donut
 example's pixel for pixel. The interop gets NRI's ray tracing interface (`NriFeature.RayTracing`):
@@ -257,10 +263,24 @@ which D3D12 and Vulkan both run no shader for. The G-buffer goes to the rays as
 rt_shadows.hlsl's output says it's rgba16f on Vulkan, as the G-buffer targets' shaded color is in
 both examples.
 
-rt_reflections comes later, if at all: its reflection hit group reads each geometry's buffers and
-textures through a local binding set (a D3D12 local root signature, which is why the Donut example
-is D3D12 only), and NRI's shader tables hold shader identifiers alone. A port would need its own
-shader, finding the geometry's resources in bindless arrays by its instance and geometry index.
+rt_reflections_nri has a shader of its own. The Donut example's reflection hit group reads each
+geometry's buffers and textures through a local binding set (a D3D12 local root signature, which is
+why the Donut example is D3D12 only), and NRI's shader tables hold shader identifiers alone.
+shaders/rt_reflections_nri.hlsl is rt_reflections.hlsl with the closest-hit shader finding those
+resources itself: the TLAS's instance IDs are their meshes' first global geometry index
+(`Nri_BuildDonutSceneAccelStructsWithHitGroupStride`, which also sets Donut's hit group offsets), so
+InstanceID() + GeometryIndex() picks the geometry's GeometryData, whose offsets index typed views of
+the whole index and vertex buffers (the formats of the Donut example's per-geometry views; the
+texture coordinates as pairs of R32 floats, since their stream follows the positions and isn't always
+8-byte aligned) and whose material's MaterialConstants give its textures' numbers in the scene's
+texture array (space 1). Its D3D12 frame equals a Donut run's: Donut's runs differ from each other at
+one or two pixels (its draw order follows the materials' addresses). It also runs on Vulkan, where
+there's no Donut frame to compare with: it differs from the D3D12 frame along texture detail by about
+as much as Donut's rt_shadows differs between the two APIs, scaled by this example's brighter
+ambient. The Donut example's forward pass of the transparent meshes is left out: Sponza has none.
+Typed views need buffers without a structure stride: NRI's Vulkan buffers with one get no texel
+buffer usage (`Nri_CreateDonutSceneBuffer` 7 and 8), which only Vulkan's validation (`-debug`, as
+CTest runs) reports, while the views read wrong values.
 
 Fourth batch, four examples, each pixel for pixel the Donut example's on D3D12 and Vulkan:
 raytracing_simple_lighting_nri and ray_tracing_reflection_nri (ray tracing pipelines whose closest
@@ -273,6 +293,32 @@ translation added, as NRI's BLAS geometry has no transform. raytracing_simple_li
 ray_tracing_reflection.hlsl's outputs have no format on Vulkan now (`VK_IMAGE_FORMAT_UNKNOWN`), as
 dxr_refit.hlsl's. Creating a D3D12 constant buffer view whose size isn't a multiple of 256 bytes
 removes the device (no debug layer message says why): the MLPs' view is rounded up.
+
+## Examples the roadmap didn't list
+
+Examples added to the repository after this roadmap was written, ported as they fit the tiers:
+procedural_geometry_nri (tier 5: an AABB BLAS of ten boxes, an intersection shader per primitive type
+in hit groups with the AABB closest-hit shader), wave_intrinsics_nri, conservative_rasterization_nri,
+gravity_light_bending_nri and compute_nbody_collisions_nri. Each matches its Donut example outside
+Donut's UI on D3D12 and Vulkan, with these exceptions:
+
+- procedural_geometry_nri's D3D12 frame differs from Donut's at about 10k pixels on the signed
+  distance primitives (the pyramid, the torus rings): D3D12's codegen for their 512-step sphere
+  tracing changes with the state object, and which grazing hits flip with it; both are deterministic,
+  and its Vulkan frame is Donut's pixel for pixel.
+- gravity_light_bending_nri's D3D11 frame differs at 151 scattered pixels by 1 (D3D12 and Vulkan
+  match exactly).
+- compute_nbody_collisions_nri matches with merging and fragmenting off. With them on (-merge,
+  -fragment) the frames depend on the GPU's scheduling: absorb_cs reads its neighbors' particles
+  and contacts (u_Particles[k], u_Contacts[k]) while those that are survivors themselves write theirs
+  in the same dispatch. The Donut example's runs happen to repeat; the port's, with two frames in
+  flight, vary on D3D12 (with one frame in flight they equal Donut's). The fix is the shader's (the
+  merge's results written apart and applied in a pass after it), which changes the Donut example's
+  frames as well.
+
+conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
+skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
+example does.
 
 ## Notes
 
@@ -375,6 +421,12 @@ removes the device (no debug layer message says why): the MLPs' view is rounded 
   compute shader writing nothing (its parameters were written before the shading rate image's size
   was known), and logic_op_dynamic_state_nri with D3D12 ignoring the logic operation. Compare every
   option against Donut.
+- A float parameter of an interop function is declared `float` in nri_interop.d.ts: declared
+  `number`, tslang passes a double, whose low 32 bits the C function reads as its float (0.75 arrives
+  as 0).
+- NRIFramework's ImGui draw (`Nri_CmdDrawImgui`) binds its own descriptor pool: a pass after it
+  binds the example's pool again before its sets, or D3D12 rejects the descriptor tables ("different
+  from currently set descriptor heap"). Likewise for a set from a pool of its own.
 
 ## Excluded
 
