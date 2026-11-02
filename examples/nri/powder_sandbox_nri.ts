@@ -93,7 +93,15 @@ namespace PowderSandboxNri {
     const ACTION_PAUSE = 102;
     const ACTION_VIEW = 103;
     const ACTION_CLEAR = 104;
+    const ACTION_SHAPE = 105;
     const VIEW_NAMES = ["Materials", "Pressure", "Temperature"];
+    // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
+    // release, the line (brush-wide) or the rectangle from where the press began.
+    const SHAPE_CIRCLE = 0;
+    const SHAPE_SQUARE = 1;
+    const SHAPE_LINE = 2;
+    const SHAPE_BOX = 3;
+    const SHAPE_NAMES = ["Circle", "Square", "Line", "Box"];
 
     function materialName(material: int): string {
         if (material == 1) { return "water"; }
@@ -181,6 +189,7 @@ namespace PowderSandboxNri {
         private tool: int = WATER;
         private emitType: int = WATER;
         private brushRadius: number = 3.0;
+        private brushShape: int = SHAPE_CIRCLE;
         private paused: boolean = false;
         // -view N: 0 materials, 1 pressure, 2 temperature.
         overlay: int = 0;
@@ -201,6 +210,9 @@ namespace PowderSandboxNri {
         private lastGridY: number = 0.0;
         private mouseGridX: number = 0.0;
         private mouseGridY: number = 0.0;
+        // Where a press on the grid began (in cells): a line's or a box's first corner.
+        private anchorX: number = 0.0;
+        private anchorY: number = 0.0;
 
         private constants: f32[] = [];
         private probe: int[] = [];
@@ -237,6 +249,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
             this.tiles.push(new Tile("Cool", COOL, 0.3, 0.6, 1.0));
             this.tiles.push(new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
+            this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
@@ -524,6 +537,8 @@ namespace PowderSandboxNri {
                 this.overlay = (this.overlay + 1) % 3;
             } else if (action == ACTION_CLEAR) {
                 this.needsInit = true;
+            } else if (action == ACTION_SHAPE) {
+                this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
@@ -566,6 +581,8 @@ namespace PowderSandboxNri {
                 this.dragging = false;
                 this.lastGridX = gx;
                 this.lastGridY = gy;
+                this.anchorX = gx;
+                this.anchorY = gy;
             }
             // On the toolbar: a drag scrolls the row, a release that didn't drag taps the tile there.
             if (this.pressOnToolbar) {
@@ -583,7 +600,10 @@ namespace PowderSandboxNri {
                     }
                 }
             }
-            if (down && !this.pressOnToolbar) {
+            // On the grid: circles and squares paint along the path; lines and boxes when released.
+            const stretches = this.brushShape == SHAPE_LINE || this.brushShape == SHAPE_BOX;
+            const pressOnGrid = this.wasDown && !this.pressOnToolbar;
+            if (down && !this.pressOnToolbar && !stretches) {
                 brushMode = 1;
                 this.setFloat(10, this.lastGridX);
                 this.setFloat(11, this.lastGridY);
@@ -591,7 +611,33 @@ namespace PowderSandboxNri {
                 this.setFloat(13, gy);
                 this.lastGridX = gx;
                 this.lastGridY = gy;
+            } else if (!down && pressOnGrid && stretches) {
+                brushMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                this.setFloat(10, this.anchorX);
+                this.setFloat(11, this.anchorY);
+                this.setFloat(12, gx);
+                this.setFloat(13, gy);
             }
+
+            // The cursor: the brush at the pointer, or the line or box being stretched; none over
+            // the toolbar or while dragging it.
+            let cursorMode = 1;
+            let cursorX = gx;
+            let cursorY = gy;
+            if (down && !this.pressOnToolbar && stretches) {
+                cursorMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                cursorX = this.anchorX;
+                cursorY = this.anchorY;
+            } else if (this.brushShape == SHAPE_BOX) {
+                cursorMode = 2;
+            }
+            if (overToolbar || (down && this.pressOnToolbar)) {
+                cursorMode = 0;
+            }
+            const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
+            this.setInt(27, shape | (cursorMode << 4));
+            this.setFloat(28, cursorX);
+            this.setFloat(29, cursorY);
             this.wasDown = down;
             return brushMode;
         }
@@ -755,6 +801,8 @@ namespace PowderSandboxNri {
                 let label = tile.label;
                 if (tile.tool == ACTION_PAUSE && this.paused) {
                     label = "Play";
+                } else if (tile.tool == ACTION_SHAPE) {
+                    label = SHAPE_NAMES[this.brushShape];
                 } else if (tile.tool == EMITTER) {
                     // What it emits, in the middle of its swatch.
                     const emitted = this.tiles[this.emitType == FIRE ? 3 : this.emitType - 1];
@@ -777,7 +825,7 @@ namespace PowderSandboxNri {
 
             // Particles in use, the brush, the view; the cell under the pointer.
             const used = CAPACITY - this.probe[0];
-            Nri_ImguiDrawText(8.0, 6.0, `${formatFixed(this.frameRate, 0)} fps   particles ${used} / ${CAPACITY}   brush ${formatFixed(this.brushRadius, 0)}   view: ${VIEW_NAMES[this.overlay]}${this.paused ? "   PAUSED" : ""}`,
+            Nri_ImguiDrawText(8.0, 6.0, `${formatFixed(this.frameRate, 0)} fps   particles ${used} / ${CAPACITY}   brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}   view: ${VIEW_NAMES[this.overlay]}${this.paused ? "   PAUSED" : ""}`,
                 1.0, 1.0, 1.0, 1.0, 0);
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);

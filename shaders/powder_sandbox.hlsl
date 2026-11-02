@@ -23,8 +23,8 @@ struct SandboxConstants
     uint frame;
     uint substep;
 
-    // The brush: tool, mode (0 none, 1 a capsule of brushRadius from (x0, y0) to (x1, y1), 2 the
-    // rectangle between them), in cells.
+    // The brush: tool, mode (0 none, 1 brushRadius around the segment from (x0, y0) to (x1, y1), round
+    // or square (brushShape), 2 the rectangle between them), in cells.
     uint tool;
     uint brushMode;
     float brushX0;
@@ -51,13 +51,16 @@ struct SandboxConstants
     uint scene;
 
     float omega;
-    // probe_cs: the cell read back for the HUD.
+    // probe_cs: the cell read back for the HUD; display_ps: the pointer, where the cursor ends.
     float probeX;
     float probeY;
-    uint pad0;
+    // Bits 0..3: the brush's shape in mode 1 (0 round, 1 square). Bits 4..7: display_ps's cursor, the
+    // outline of the area a brush in that mode (0 none) would paint from (cursorX0, cursorY0) to the
+    // pointer.
+    uint brushShape;
 
-    float pad1;
-    float pad2;
+    float cursorX0;
+    float cursorY0;
     float pad3;
     float pad4;
 };
@@ -191,18 +194,50 @@ bool inGrid(int x, int y)
     return x >= 0 && y >= 0 && x < int(g_C.gridW) && y < int(g_C.gridH);
 }
 
-// The distance from p to the brush (0 inside the rectangle in mode 2), in cells.
-bool insideBrush(float2 p)
+// The largest of p's distances along x and y to the segment a..b at its nearest point: the minimum
+// of a convex piecewise linear function of t, so at one of its corners (or an end).
+float chebyshevToSegment(float2 p, float2 a, float2 b)
 {
-    const float2 a = float2(g_C.brushX0, g_C.brushY0);
-    const float2 b = float2(g_C.brushX1, g_C.brushY1);
-    if (g_C.brushMode == 2)
+    const float2 d = p - a;
+    const float2 u = b - a;
+    const float candidates[5] = {
+        1.0,
+        abs(u.x) > 1e-6 ? d.x / u.x : 0.0,
+        abs(u.y) > 1e-6 ? d.y / u.y : 0.0,
+        abs(u.x - u.y) > 1e-6 ? (d.x - d.y) / (u.x - u.y) : 0.0,
+        abs(u.x + u.y) > 1e-6 ? (d.x + d.y) / (u.x + u.y) : 0.0,
+    };
+    float best = max(abs(d.x), abs(d.y));
+    for (uint i = 0; i < 5; i++)
     {
-        return all(p >= min(a, b)) && all(p <= max(a, b));
+        const float2 q = abs(d - saturate(candidates[i]) * u);
+        best = min(best, max(q.x, q.y));
+    }
+    return best;
+}
+
+// How far p is outside a brush (mode 1: radius around the segment a..b, round or square; mode 2:
+// the rectangle between a and b), in cells: <= 0 inside.
+float brushDistance(float2 p, uint mode, uint shape, float2 a, float2 b, float radius)
+{
+    if (mode == 2)
+    {
+        const float2 q = abs(p - (a + b) * 0.5) - abs(b - a) * 0.5;
+        return max(q.x, q.y);
+    }
+    if (shape == 1)
+    {
+        return chebyshevToSegment(p, a, b) - radius;
     }
     const float2 ab = b - a;
     const float t = saturate(dot(p - a, ab) / max(dot(ab, ab), 1e-6));
-    return length(p - (a + t * ab)) <= g_C.brushRadius;
+    return length(p - (a + t * ab)) - radius;
+}
+
+bool insideBrush(float2 p)
+{
+    return brushDistance(p, g_C.brushMode, g_C.brushShape & 0xF, float2(g_C.brushX0, g_C.brushY0),
+        float2(g_C.brushX1, g_C.brushY1), g_C.brushRadius) <= 0.0;
 }
 
 float3 heatColor(float t)
@@ -1352,6 +1387,22 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     else if (g_C.overlay == 2)
     {
         color = lerp(color * 0.3, temperatureRamp(sampleFloat(g, F_TCELL)), 0.8);
+    }
+
+    // The cursor: the edge of the area the brush paints, a white line with a dark rim either side.
+    const uint cursorMode = (g_C.brushShape >> 4) & 0xF;
+    if (cursorMode != 0)
+    {
+        const float edge = abs(brushDistance(g, cursorMode, g_C.brushShape & 0xF, float2(g_C.cursorX0, g_C.cursorY0),
+            float2(g_C.probeX, g_C.probeY), g_C.brushRadius)) * g_C.cellPixels;
+        if (edge < 0.75)
+        {
+            color = lerp(color, float3(1.0, 1.0, 1.0), 0.9);
+        }
+        else if (edge < 2.0)
+        {
+            color *= 0.25;
+        }
     }
     return float4(color, 1.0);
 }
