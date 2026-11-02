@@ -1750,6 +1750,18 @@ if (TARGET ray_tracing_extended_media AND TARGET ray_tracing_extended_nri)
     add_dependencies(ray_tracing_extended_nri ray_tracing_extended_media)
 endif()
 
+# ray_tracing_invocation_reorder with NRI and NRIFramework instead of Donut: its shaders (the library
+# with hit objects where the device has them: Vulkan's VK_NV_ray_tracing_invocation_reorder, which NRI
+# is patched to enable; not D3D12, whose shader model 6.9 needs the Agility SDK NRI is built
+# without), ray_tracing_extended's scene and textures. The second test traces without reordering.
+add_tslang_nri_example(ray_tracing_invocation_reorder_nri SHADERS ray_tracing_invocation_reorder_shaders core/matrix.ts
+    core/random.ts core/donut_first_person_camera.ts)
+add_tslang_example_test(ray_tracing_invocation_reorder_nri)
+add_tslang_example_test(ray_tracing_invocation_reorder_nri SUFFIX noser ARGS -noser)
+if (TARGET ray_tracing_extended_media AND TARGET ray_tracing_invocation_reorder_nri)
+    add_dependencies(ray_tracing_invocation_reorder_nri ray_tracing_extended_media)
+endif()
+
 # Port of Vulkan-Samples' multi_draw_indirect: 225 meshes drawn by one indirect draw call, culled on
 # the CPU or by a compute shader that writes the draws' instance counts. Its scene is Vulkan-Samples'
 # assets too (see VULKAN_SAMPLES_ASSETS_DIR above): the glTF scene is copied and the meshes' KTX

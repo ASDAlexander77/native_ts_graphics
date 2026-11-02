@@ -380,6 +380,17 @@ patches/NRI-calibrated-timestamps.patch). All three match Donut pixel for pixel 
 D3D12 and Vulkan (shader_debugprintf_nri with and without `-nosky`; dynamic_line_rasterization_nri in
 every `-mode`, with `-width` and `-nostipple`).
 
+ray_tracing_invocation_reorder_nri: ray_tracing_extended_nri's scene with a hit group per material
+(the instances' hit group offsets) and Shader Execution Reordering of the primary rays, from the
+library with hit objects where the device has them (`NriFeature.ShaderExecutionReordering`). That is
+Vulkan's VK_NV_ray_tracing_invocation_reorder, which NRI doesn't enable on its own
+(`patches/NRI-vk-ray-tracing-invocation-reorder.patch`). D3D12's hit objects are shader model 6.9,
+which needs the Agility SDK runtime: without it (nri_interop has none) the runtime reports 6.8, so on
+D3D12 the port traces with the library without them, and its overlay says SER isn't supported, as the
+Donut example's does on such a device. Outside the overlay (NRIFramework's default font is larger) its
+Vulkan frame is Donut's pixel for pixel, with SER and with `-noser`; its D3D12 frame differs from
+Donut's (which has hit objects) at one pixel by 1.
+
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
 example does.
@@ -421,7 +432,8 @@ compute_nbody_collisions, dynamic_multisample_rasterization, environment_map,
 gravity_light_bending, hdr, meshlet_cull, mouse_cursor, msaa, multi_draw_indirect,
 procedural_geometry, ray_tracing_extended, render_octomap, rt_bindless, rt_particles,
 raytracing_ao, rt_reflections, simple_hdr, simple_pbr, timestamp_queries, variable_shading (all
-`_nri`): every port.
+`_nri`): every port. ray_tracing_invocation_reorder_nri, ported later, resizes as ray_tracing_extended_nri
+does (it isn't resize-tested yet: that needs visible windows).
 
 NVIDIA's Vulkan driver, after raytracing_ao_nri's ray tracing pipeline has traced at a few output
 sizes, frees with the pipeline's allocation callbacks a block it didn't allocate through them.
@@ -555,6 +567,18 @@ These need something NRI does not provide:
 - **work_graphs**, **host_image_copy**, **shader_object**, **graphics_pipeline_library**,
   **descriptor_buffer_basic**, **memory_budget**: NRI does not expose these API features.
 - **nvrhi_direct**, **headless**: these examples are about NVRHI itself.
+- **memory_management**: reserved textures whose mip levels are backed by heaps of their own,
+  made resident and evicted by priority under the DXGI budget (D3D12's MakeResident / Evict, through
+  `core/paged_images.cpp`): NRI has neither sparse resources (as for **reserved_resources**) nor
+  residency control.
+- **raytracing_library_subobjects**: it's about the state object's subobjects (root signatures, their
+  associations, hit groups, shader and pipeline configs) defined in the DXIL library itself, and its
+  local root signature; NRI builds the state object from its own description and has no local root
+  arguments (its shader table records are identifiers alone, as on Vulkan).
+- **sakura_forest_ser**: D3D12 only, its one library shader model 6.9 hit objects (no variant
+  without them), which need the Agility SDK runtime nri_interop doesn't have; and like
+  raytracing_library_subobjects, its state object comes from the library's subobjects with a local
+  root signature and a hit record per instance.
 - **rtxcr_***, **rtxpt**, **feature_demo**, **opacity_micromaps**, **fast_block_compress**,
   **video_texture**, **denoised_rtao**: they are built on C++ SDK integrations through
   Donut/NVRHI.
