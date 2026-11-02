@@ -60,6 +60,8 @@
 @cpp declare class NriTopLevelASHandle { private readonly __nriTopLevelAS: index; }
 // A Donut scene's BLASes and TLAS (Nri_BuildDonutSceneAccelStructs).
 @cpp declare class NriDonutSceneAccelStructsHandle { private readonly __nriDonutSceneAccelStructs: index; }
+// An ImGui font (Nri_ImguiCreateFont), the atlas's: valid as long as ImGui.
+@cpp declare class NriImguiFontHandle { private readonly __nriImguiFont: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -95,7 +97,10 @@ enum NriTextureState {
     // copied into (Nri_CmdCopyTexture's destination)
     CopyDestination = 14,
     // read by ray tracing shaders (a G-buffer the ray generation shader decodes)
-    RayTracingShaderResource = 15
+    RayTracingShaderResource = 15,
+    // read by geometry and pixel shaders (a texture a geometry shader reads); D3D12 takes it as it
+    // takes ShaderResource, so never barrier between the two
+    GeometryShaderResource = 16
 }
 
 // The device features Nri_IsFeatureSupported queries (of nri::DeviceDesc).
@@ -145,8 +150,23 @@ enum NriFeature {
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
 // examples name (nri_interop.cpp asserts them), any other passing through as well.
+// nri::SwapChainFormat: BT.709 primaries with linear 16-bit float, sRGB 8-bit or 10-bit; BT.2020 with
+// the ST.2084 (PQ) curve, 10-bit.
+enum NriSwapChainFormat {
+    BT709_G10_16BIT = 0,
+    BT709_G22_8BIT = 1,
+    BT709_G22_10BIT = 2,
+    BT2020_G2084_10BIT = 3
+}
+
 enum NriFormat {
     Unknown = 0,
+    R8_UNORM = 1,
+    R16_UNORM = 16,
+    R16_SFLOAT = 20,
+    RG16_SFLOAT = 25,
+    R10_G10_B10_A2_UNORM = 46,
+    R11_G11_B10_UFLOAT = 48,
     // shading rate attachments (Nri_CreateShadingRateTexture's)
     R8_UINT = 3,
     // fragment_shading_rate_dynamic_nri's frequency content
@@ -467,6 +487,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetMouseY(sample: NriSampleHandle): number;
 // 1: the cursor is hidden and captured (relative mouse movement); 0: normal.
 @nodrops declare function Nri_SetCursorDisabled(sample: NriSampleHandle, disabled: int): void;
+// Moves the cursor to (x, y), in pixels from the window's top left corner.
+@nodrops declare function Nri_SetCursorPosition(sample: NriSampleHandle, x: int, y: int): void;
+// 1 if the window has the input focus, else 0.
+@nodrops declare function Nri_IsWindowFocused(sample: NriSampleHandle): int;
 // The mouse wheel's turn this frame.
 @nodrops declare function Nri_GetMouseWheel(sample: NriSampleHandle): number;
 // The last frame's duration, in seconds.
@@ -501,6 +525,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 
 // The swap chain: over the sample's window, its size, v-sync as the command line chose.
 @nodrops declare function Nri_CreateSwapChain(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, textureNum: int): NriSwapChainHandle;
+// As Nri_CreateSwapChain, with textures of format (NriSwapChainFormat).
+@nodrops declare function Nri_CreateSwapChainWithFormat(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, textureNum: int, format: int): NriSwapChainHandle;
+// The format (NriFormat) NRI gave the swap chain's textures.
+@nodrops declare function Nri_GetSwapChainTextureFormat(swapChain: NriSwapChainHandle): int;
+// 1 if the display the swap chain's window is on is in HDR mode, else 0.
+@nodrops declare function Nri_IsDisplayHdr(swapChain: NriSwapChainHandle): int;
 @nodrops declare function Nri_DestroySwapChain(swapChain: NriSwapChainHandle): void;
 @nodrops declare function Nri_GetSwapChainTextureNum(swapChain: NriSwapChainHandle): int;
 @nodrops declare function Nri_GetSwapChainTexture(swapChain: NriSwapChainHandle, index: int): NriTextureHandle;
@@ -605,6 +635,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Nri_CreateUploadedStructuredBuffer from data some other library holds (MeshletModel.getData's, ...).
 @nodrops declare function Nri_CreateUploadedStructuredBufferFromPointer(device: NriDeviceHandle, queue: NriQueueHandle, data: Opaque,
     byteSize: int, stride: int): NriBufferHandle | null;
+// Nri_CreateUploadedBuffer from data some other library holds (SdkMesh.getVertexBufferData's, ...).
+@nodrops declare function Nri_CreateUploadedBufferFromPointer(device: NriDeviceHandle, queue: NriQueueHandle, data: Opaque, byteSize: int,
+    usage: NriBufferUsage): NriBufferHandle | null;
 // Nri_CreateHostBuffer's buffer, for usage StructuredBuffer too: structures stride bytes each.
 @nodrops declare function Nri_CreateHostBufferWithStride(device: NriDeviceHandle, byteSize: int, usage: NriBufferUsage,
     stride: int): NriBufferHandle | null;
@@ -633,10 +666,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateConstantBufferView(buffer: NriBufferHandle, offset: int, byteSize: int): NriDescriptorHandle | null;
 // Nri_CreateUploadedBuffer from an int array (index data).
 @nodrops declare function Nri_CreateUploadedBufferFromInts(device: NriDeviceHandle, queue: NriQueueHandle, data: Ref<int>, byteSize: int, usage: NriBufferUsage): NriBufferHandle | null;
-// The pixels of an 8-bit RGBA or BGRA texture read back into the buffer (rowPitch bytes a row),
-// one int each with red in the low byte (0xAABBGGRR; BGRA swapped), row by row into dst
-// (pixelCount ints; Ref of an int array element). 0 if the buffer can't be mapped or the format
-// isn't one of those.
+// The pixels of an 8-bit RGBA or BGRA texture, or an R10G10B10A2 one (each channel's top 8 bits, as
+// Donut reads its HDR back buffers), read back into the buffer (rowPitch bytes a row), one int each
+// with red in the low byte (0xAABBGGRR; BGRA swapped), row by row into dst (pixelCount ints; Ref of an
+// int array element). 0 if the buffer can't be mapped or the format isn't one of those.
 @nodrops declare function Nri_ReadBufferRGBA8(buffer: NriBufferHandle, rowPitch: int, width: int, height: int, format: NriFormat, dst: Ref<int>, pixelCount: int): int;
 
 // Commands
@@ -725,6 +758,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // Clears the whole color attachment (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
 @nodrops declare function Nri_CmdClearColor(commandBuffer: NriCommandBufferHandle, r: float, g: float, b: float, a: float): void;
 @nodrops declare function Nri_CmdSetViewport(commandBuffer: NriCommandBufferHandle, x: float, y: float, width: float, height: float): void;
+// num viewports (x, y, width, height each: Ref of an f32 array element) and a scissor rect per
+// viewport (its rect rounded outwards), for geometry shaders picking one (SV_ViewportArrayIndex).
+@nodrops declare function Nri_CmdSetViewportsAndScissors(commandBuffer: NriCommandBufferHandle, viewports: Ref<f32>, num: int): void;
 @nodrops declare function Nri_CmdSetScissor(commandBuffer: NriCommandBufferHandle, x: int, y: int, width: int, height: int): void;
 @nodrops declare function Nri_CmdSetPipelineLayout(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle): void;
 @nodrops declare function Nri_CmdSetPipeline(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle): void;
@@ -970,6 +1006,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A sampler (filter for minification, magnification and mips) returning the border color, white (1)
 // or transparent black (0), outside [0, 1]: Donut's shadow samplers. Null on failure.
 @nodrops declare function Nri_CreateBorderSampler(device: NriDeviceHandle, filter: NriFilter, white: int): NriDescriptorHandle | null;
+// As Nri_CreateBorderSampler, mipFilter between mips (filter for minification and magnification).
+@nodrops declare function Nri_CreateBorderSamplerWithMipFilter(device: NriDeviceHandle, filter: NriFilter, mipFilter: NriFilter,
+    white: int): NriDescriptorHandle | null;
 // The device's widest anisotropic filtering (16 on most).
 @nodrops declare function Nri_GetMaxSamplerAnisotropy(device: NriDeviceHandle): int;
 // The most draws one indirect draw call takes: above 1, multi-draw indirect (D3D12 always; Vulkan's
@@ -1075,8 +1114,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // queue and left in NriTextureState.ShaderResource; null if it can't be read.
 @nodrops declare function Nri_LoadTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
 @nodrops declare function Nri_LoadImageTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
-// A DDS file as tools/ktx_to_dds.py writes them (DX10 header; 2D textures, texture arrays, cubemaps) with
-// all its layers and mips (sRGB: 1, RGBA8 as sRGB, as Donut's sRGB loads), R16_UNORM and RGBA16F too,
+// A DDS file as tools/ktx_to_dds.py writes them (DX10 header; 2D textures, texture arrays, cubemaps), or a
+// FourCC DXT1 / BC5U / R16F one, with all its layers and mips (sRGB: 1, RGBA8 and BC1/BC7 as sRGB, as Donut's sRGB
+// loads), R16_UNORM, R16F, RGBA16F, BC1, BC5 and BC7 too,
 // left in NriTextureState.ShaderResource; null if it can't be read. (Nri_LoadTexture reads one layer.)
 @nodrops declare function Nri_LoadDdsTexture(device: NriDeviceHandle, queue: NriQueueHandle, path: string, sRGB: int): NriTextureHandle | null;
 // The first level of an RGBA8 2D DDS file in a texture with the whole mip chain below it (1 +
@@ -1270,9 +1310,18 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CmdCopyImguiData(sample: NriSampleHandle, commandBuffer: NriCommandBufferHandle): void;
 // Draws the UI into the render pass's color attachment, of attachmentFormat (sRGB or not).
 @nodrops declare function Nri_CmdDrawImgui(sample: NriSampleHandle, commandBuffer: NriCommandBufferHandle, attachmentFormat: NriFormat): void;
+// Nri_CmdDrawImgui with the UI's colors as they are, not made linear for an attachment that isn't sRGB
+// (as Donut's ImGui renderer draws: into an HDR scene, for one).
+@nodrops declare function Nri_CmdDrawImguiUnconverted(sample: NriSampleHandle, commandBuffer: NriCommandBufferHandle, attachmentFormat: NriFormat): void;
 @nodrops declare function Nri_ImguiEndFrame(sample: NriSampleHandle): void;
 // 1 if ImGui uses the mouse (it's over a window, or dragging a widget): the example shouldn't.
 @nodrops declare function Nri_ImguiWantsMouse(): int;
+// A TrueType font (path relative to the executable's folder) at size pixels, as Donut's
+// ImGuiPass.createFont loads it (after Nri_InitImgui); null if it can't be read.
+@nodrops declare function Nri_ImguiCreateFont(path: string, size: number): NriImguiFontHandle | null;
+// Draws with the font until Nri_ImguiPopFont.
+@nodrops declare function Nri_ImguiPushFont(font: NriImguiFontHandle): void;
+@nodrops declare function Nri_ImguiPopFont(): void;
 // The widgets, as Donut's ImGui wrappers.
 @nodrops declare function Nri_ImguiSetNextWindowPos(x: number, y: number): void;
 // autoResize != 0: the window fits its contents. Always pair with Nri_ImguiEnd.
@@ -1307,7 +1356,7 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A color edit of the 4 floats at values (RGBA), width wide; 1 when changed.
 @nodrops declare function Nri_ImguiColorEdit4(label: string, values: Ref<f32>, width: number): int;
 // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in the
-// default font and color (r, g, b, a), behind the windows (between Nri_ImguiNewFrame and
+// current font (Nri_ImguiPushFont's, or the default) and color (r, g, b, a), behind the windows (between Nri_ImguiNewFrame and
 // Nri_ImguiRender).
 @nodrops declare function Nri_ImguiDrawText(x: number, y: number, text: string, r: number, g: number, b: number, a: number,
     alignRight: int): void;

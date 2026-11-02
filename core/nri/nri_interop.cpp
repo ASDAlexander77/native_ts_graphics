@@ -84,6 +84,9 @@ namespace
     static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
     static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
     static_assert((int)nri::Format::RGBA8_SNORM == 13);
+    static_assert((int)nri::Format::R8_UNORM == 1 && (int)nri::Format::R16_UNORM == 16 && (int)nri::Format::R16_SFLOAT == 20);
+    static_assert((int)nri::Format::RG16_SFLOAT == 25 && (int)nri::Format::R10_G10_B10_A2_UNORM == 46);
+    static_assert((int)nri::Format::R11_G11_B10_UFLOAT == 48);
     static_assert((int)nri::Format::R32_UINT == 31);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
@@ -347,6 +350,12 @@ namespace
         case 15:
             // read by ray tracing shaders (a G-buffer the ray generation shader decodes)
             return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::RAY_TRACING_SHADERS };
+        case 16:
+            // read by geometry and pixel shaders (bokeh's quad point passes read in the geometry
+            // shader): D3D12's legacy barriers take it as SHADER_RESOURCE (PIXEL | NON_PIXEL), as
+            // ShaderResource, so a texture goes between this and other states, never ShaderResource
+            return { nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE,
+                nri::StageBits::GEOMETRY_SHADER | nri::StageBits::FRAGMENT_SHADER };
         default:
             return { nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE };
         }
@@ -914,6 +923,19 @@ extern "C"
             glfwSetInputMode(sample->Window(), GLFW_CURSOR, disabled ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
     }
 
+    // Moves the cursor to (x, y), in pixels from the window's top left corner.
+    NRI_INTEROP_API void Nri_SetCursorPosition(TsSample* sample, int x, int y)
+    {
+        if (sample->Window())
+            glfwSetCursorPos(sample->Window(), (double)x, (double)y);
+    }
+
+    // 1 if the window has the input focus, else 0.
+    NRI_INTEROP_API int Nri_IsWindowFocused(TsSample* sample)
+    {
+        return sample->Window() && glfwGetWindowAttrib(sample->Window(), GLFW_FOCUSED) ? 1 : 0;
+    }
+
     // The mouse wheel's turn this frame.
     NRI_INTEROP_API double Nri_GetMouseWheel(TsSample* sample)
     {
@@ -1230,13 +1252,15 @@ extern "C"
 
     // --- The swap chain -------------------------------------------------------------------------
 
-    // Over the sample's window, its size, v-sync as the command line chose; textureNum textures.
-    NRI_INTEROP_API nri::SwapChain* Nri_CreateSwapChain(TsSample* sample, nri::Device* device, nri::Queue* queue, int textureNum)
+    // Over the sample's window, its size, v-sync as the command line chose; textureNum textures of
+    // format (NriSwapChainFormat: 8-bit sRGB for Nri_CreateSwapChain).
+    NRI_INTEROP_API nri::SwapChain* Nri_CreateSwapChainWithFormat(TsSample* sample, nri::Device* device, nri::Queue* queue, int textureNum,
+        int format)
     {
         nri::SwapChainDesc desc = {};
         desc.window = sample->GetWindow();
         desc.queue = queue;
-        desc.format = nri::SwapChainFormat::BT709_G22_8BIT;
+        desc.format = (nri::SwapChainFormat)format;
         desc.flags = (sample->Vsync() ? nri::SwapChainBits::VSYNC : nri::SwapChainBits::NONE) | nri::SwapChainBits::ALLOW_TEARING;
         desc.width = (nri::Dim_t)sample->GetOutputResolution().x;
         desc.height = (nri::Dim_t)sample->GetOutputResolution().y;
@@ -1246,6 +1270,26 @@ extern "C"
         nri::SwapChain* swapChain = nullptr;
         NRI.CreateSwapChain(*device, desc, swapChain);
         return swapChain;
+    }
+
+    NRI_INTEROP_API nri::SwapChain* Nri_CreateSwapChain(TsSample* sample, nri::Device* device, nri::Queue* queue, int textureNum)
+    {
+        return Nri_CreateSwapChainWithFormat(sample, device, queue, textureNum, (int)nri::SwapChainFormat::BT709_G22_8BIT);
+    }
+
+    // The format (NriFormat) NRI gave the swap chain's textures.
+    NRI_INTEROP_API int Nri_GetSwapChainTextureFormat(nri::SwapChain* swapChain)
+    {
+        uint32_t textureNum = 0;
+        nri::Texture* const* textures = NRI.GetSwapChainTextures(*swapChain, textureNum);
+        return (int)NRI.GetTextureDesc(*textures[0]).format;
+    }
+
+    // 1 if the display the swap chain's window is on is in HDR mode, else 0 (Donut_IsDisplayHdr).
+    NRI_INTEROP_API int Nri_IsDisplayHdr(nri::SwapChain* swapChain)
+    {
+        nri::DisplayDesc displayDesc = {};
+        return NRI.GetDisplayDesc(*swapChain, displayDesc) == nri::Result::SUCCESS && displayDesc.isHDR ? 1 : 0;
     }
 
     NRI_INTEROP_API void Nri_DestroySwapChain(nri::SwapChain* swapChain)
@@ -1721,6 +1765,14 @@ extern "C"
         return Nri_CreateUploadedBuffer(device, queue, data, byteSize, usage);
     }
 
+    // Nri_CreateUploadedBuffer from data some other library holds (an Opaque pointer: e.g.
+    // SdkMesh.getVertexBufferData's).
+    NRI_INTEROP_API nri::Buffer* Nri_CreateUploadedBufferFromPointer(nri::Device* device, nri::Queue* queue, const void* data, int byteSize,
+        int usage)
+    {
+        return Nri_CreateUploadedBuffer(device, queue, data, byteSize, usage);
+    }
+
     // A buffer of byteSize bytes in memory the CPU writes (Nri_WriteBuffer) and the GPU reads, for
     // usage (an NriBufferUsage: 0, vertex buffers; 2, constant buffers; 3, structures stride bytes each, read by
     // shaders: StructuredBuffer); null on failure.
@@ -1993,18 +2045,39 @@ extern "C"
     NRI_INTEROP_API int Nri_ReadBufferRGBA8(nri::Buffer* buffer, int rowPitch, int width, int height, int format, int* dst, int pixelCount)
     {
         const nri::FormatProps* props = nri::nriGetFormatProps((nri::Format)format);
-        if (props->stride != 4 || props->redBits != 8 || props->blueBits != 8 || pixelCount < width * height)
+        const bool rgb10 = (nri::Format)format == nri::Format::R10_G10_B10_A2_UNORM;
+        if ((!rgb10 && (props->stride != 4 || props->redBits != 8 || props->blueBits != 8)) || pixelCount < width * height)
             return 0;
         const uint8_t* data = (const uint8_t*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
         if (!data)
             return 0;
+        // The PNG's pixels, for -testOutput: dst's, or (10-bit) the values sRGB-encoded.
+        std::vector<uint32_t> png;
+        uint8_t srgb[1024] = {};
+        if (rgb10 && !g_TestOutput.empty())
+        {
+            png.resize((size_t)width * height);
+            for (int v = 0; v < 1024; v++)
+            {
+                const float c = float(v) / 1023.0f;
+                const float s = c <= 0.0031308f ? c * 12.92f : 1.055f * powf(c, 1.0f / 2.4f) - 0.055f;
+                srgb[v] = (uint8_t)std::min(255.0f, std::max(0.0f, s * 255.0f + 0.5f));
+            }
+        }
         for (int y = 0; y < height; y++)
         {
             const uint32_t* row = (const uint32_t*)(data + (size_t)y * rowPitch);
             for (int x = 0; x < width; x++)
             {
                 uint32_t p = row[x];
-                if (props->isBgr)
+                if (rgb10)
+                {
+                    if (!png.empty())
+                        png[(size_t)y * width + x] = srgb[p & 0x3FF] | ((uint32_t)srgb[(p >> 10) & 0x3FF] << 8)
+                            | ((uint32_t)srgb[(p >> 20) & 0x3FF] << 16) | 0xFF000000u;
+                    p = ((p >> 2) & 0xFFu) | (((p >> 12) & 0xFFu) << 8) | (((p >> 22) & 0xFFu) << 16) | ((p >> 30) * 85u << 24);
+                }
+                else if (props->isBgr)
                     p = (p & 0xFF00FF00) | ((p & 0xFF) << 16) | ((p >> 16) & 0xFF);
                 dst[y * width + x] = (int)p;
             }
@@ -2013,10 +2086,13 @@ extern "C"
         if (!g_TestOutput.empty())
         {
             // RGBA bytes, opaque, as Donut's -testOutput saves the back buffer.
-            std::vector<uint32_t> opaque(dst, dst + (size_t)width * height);
-            for (uint32_t& p : opaque)
-                p |= 0xFF000000;
-            if (stbi_write_png(g_TestOutput.c_str(), width, height, 4, opaque.data(), width * 4) == 0)
+            if (png.empty())
+            {
+                png.assign(dst, dst + (size_t)width * height);
+                for (uint32_t& p : png)
+                    p |= 0xFF000000;
+            }
+            if (stbi_write_png(g_TestOutput.c_str(), width, height, 4, png.data(), width * 4) == 0)
                 printf("ERROR: cannot write %s\n", g_TestOutput.c_str());
         }
         return 1;
@@ -2356,6 +2432,25 @@ extern "C"
     {
         nri::Rect rect = { (int16_t)x, (int16_t)y, (nri::Dim_t)width, (nri::Dim_t)height };
         NRI.CmdSetScissors(*commandBuffer, &rect, 1);
+    }
+
+    // num viewports (x, y, width, height each, floats at viewports; depth 0 to 1) and a scissor rect
+    // per viewport, its rect rounded outwards (NVRHI's default scissors): for geometry shaders that
+    // pick one (SV_ViewportArrayIndex). Vulkan's dynamic counts must match, D3D12 clips to them.
+    NRI_INTEROP_API void Nri_CmdSetViewportsAndScissors(nri::CommandBuffer* commandBuffer, const float* viewports, int num)
+    {
+        std::vector<nri::Viewport> v((size_t)num);
+        std::vector<nri::Rect> r((size_t)num);
+        for (int i = 0; i < num; i++)
+        {
+            const float* in = viewports + 4 * i;
+            v[i] = { in[0], in[1], in[2], in[3], 0.0f, 1.0f };
+            const float x0 = std::floor(in[0]);
+            const float y0 = std::floor(in[1]);
+            r[i] = { (int16_t)x0, (int16_t)y0, (nri::Dim_t)(std::ceil(in[0] + in[2]) - x0), (nri::Dim_t)(std::ceil(in[1] + in[3]) - y0) };
+        }
+        NRI.CmdSetViewports(*commandBuffer, v.data(), (uint32_t)num);
+        NRI.CmdSetScissors(*commandBuffer, r.data(), (uint32_t)num);
     }
 
     NRI_INTEROP_API void Nri_CmdSetPipelineLayout(nri::CommandBuffer* commandBuffer, nri::PipelineLayout* pipelineLayout)
@@ -3333,6 +3428,23 @@ extern "C"
         return sampler;
     }
 
+    // As Nri_CreateBorderSampler, mipFilter between mips (Donut's createBorderSampler's minFilter,
+    // magFilter: filter).
+    NRI_INTEROP_API nri::Descriptor* Nri_CreateBorderSamplerWithMipFilter(nri::Device* device, int filter, int mipFilter, int white)
+    {
+        nri::SamplerDesc desc = {};
+        desc.filters = { (nri::Filter)filter, (nri::Filter)filter, (nri::Filter)mipFilter };
+        desc.anisotropy = 1;
+        desc.mipMax = 1000.0f;
+        desc.addressModes = { nri::AddressMode::CLAMP_TO_BORDER, nri::AddressMode::CLAMP_TO_BORDER, nri::AddressMode::CLAMP_TO_BORDER };
+        const float border = white ? 1.0f : 0.0f;
+        desc.borderColor.f = { border, border, border, border };
+        nri::Descriptor* sampler = nullptr;
+        if (NRI.CreateSampler(*device, desc, sampler) != nri::Result::SUCCESS)
+            return nullptr;
+        return sampler;
+    }
+
     // The device's widest anisotropic filtering (16 on most).
     NRI_INTEROP_API int Nri_GetMaxSamplerAnisotropy(nri::Device* device)
     {
@@ -3788,8 +3900,8 @@ extern "C"
         return texture;
     }
 
-    // A DDS file with a DX10 header (as tools/ktx_to_dds.py writes them), read whole: its header's
-    // and DX10 header's fields, the texels after them.
+    // A DDS file with a DX10 header (as tools/ktx_to_dds.py writes them), or a FourCC one (DXT1,
+    // BC5U, R16F), read whole: its header's and DX10 header's fields, the texels after them.
     struct DdsFile
     {
         // "DDS ", the 124-byte header, the 20-byte DX10 header.
@@ -3797,19 +3909,49 @@ extern "C"
         std::vector<uint8_t> data;
         uint32_t header[31] = {};
         uint32_t dx10[5] = {};
+        // Where the texels start: after the DX10 header, or after the header alone (FourCC files).
+        size_t dataOffset = headerSize;
 
         // path relative to this library's folder; false (after printing why) on failure.
         bool Read(const char* path)
         {
             if (!ReadFile(LibraryDirectory() + path, data))
                 return false;
-            if (data.size() < headerSize || memcmp(data.data(), "DDS ", 4) != 0 || memcmp(data.data() + 84, "DX10", 4) != 0)
+            if (data.size() < 128 || memcmp(data.data(), "DDS ", 4) != 0)
             {
-                printf("ERROR: %s isn't a DDS file with a DX10 header\n", path);
+                printf("ERROR: %s isn't a DDS file\n", path);
                 return false;
             }
             memcpy(header, data.data() + 4, sizeof(header));
-            memcpy(dx10, data.data() + 128, sizeof(dx10));
+            if (memcmp(data.data() + 84, "DX10", 4) == 0)
+            {
+                if (data.size() < headerSize)
+                {
+                    printf("ERROR: %s is shorter than its header says\n", path);
+                    return false;
+                }
+                memcpy(dx10, data.data() + 128, sizeof(dx10));
+                return true;
+            }
+            // A FourCC (legacy header) file, as its DX10 header would say: a 2D texture (a cubemap
+            // with DDSCAPS2_CUBEMAP), one layer.
+            uint32_t dxgiFormat = 0;
+            if (memcmp(data.data() + 84, "DXT1", 4) == 0)
+                dxgiFormat = 71; // DXGI_FORMAT_BC1_UNORM
+            else if (memcmp(data.data() + 84, "BC5U", 4) == 0 || memcmp(data.data() + 84, "ATI2", 4) == 0)
+                dxgiFormat = 83; // DXGI_FORMAT_BC5_UNORM
+            else if (memcmp(data.data() + 84, "o\0\0\0", 4) == 0)
+                dxgiFormat = 54; // D3DFMT_R16F (FourCC 111): DXGI_FORMAT_R16_FLOAT
+            else
+            {
+                printf("ERROR: %s has an unsupported FourCC\n", path);
+                return false;
+            }
+            dx10[0] = dxgiFormat;
+            dx10[1] = 3;
+            dx10[2] = (header[27] & 0x200) != 0 ? 0x4 : 0;
+            dx10[3] = 1;
+            dataOffset = 128;
             return true;
         }
     };
@@ -3827,7 +3969,7 @@ extern "C"
         const std::vector<uint8_t>& data = file.data;
         const uint32_t* header = file.header;
         const uint32_t* dx10 = file.dx10;
-        const size_t headerSize = DdsFile::headerSize;
+        const size_t headerSize = file.dataOffset;
         const uint32_t height = header[2];
         const uint32_t width = header[3];
         const uint32_t mipNum = std::max(header[6], 1u);
@@ -3838,6 +3980,21 @@ extern "C"
         uint32_t blockSize = 1;
         switch (dx10[0])
         {
+        case 71: // DXGI_FORMAT_BC1_UNORM
+            format = sRGB ? nri::Format::BC1_RGBA_SRGB : nri::Format::BC1_RGBA_UNORM;
+            texelSize = 8;
+            blockSize = 4;
+            break;
+        case 72: // DXGI_FORMAT_BC1_UNORM_SRGB
+            format = nri::Format::BC1_RGBA_SRGB;
+            texelSize = 8;
+            blockSize = 4;
+            break;
+        case 83: // DXGI_FORMAT_BC5_UNORM
+            format = nri::Format::BC5_RG_UNORM;
+            texelSize = 16;
+            blockSize = 4;
+            break;
         case 98: // DXGI_FORMAT_BC7_UNORM
             format = sRGB ? nri::Format::BC7_RGBA_SRGB : nri::Format::BC7_RGBA_UNORM;
             texelSize = 16;
@@ -3858,6 +4015,10 @@ extern "C"
             break;
         case 56: // DXGI_FORMAT_R16_UNORM
             format = nri::Format::R16_UNORM;
+            texelSize = 2;
+            break;
+        case 54: // DXGI_FORMAT_R16_FLOAT
+            format = nri::Format::R16_SFLOAT;
             texelSize = 2;
             break;
         case 10: // DXGI_FORMAT_R16G16B16A16_FLOAT
@@ -3933,7 +4094,7 @@ extern "C"
         const std::vector<uint8_t>& data = file.data;
         const uint32_t* header = file.header;
         const uint32_t* dx10 = file.dx10;
-        const size_t headerSize = DdsFile::headerSize;
+        const size_t headerSize = file.dataOffset;
         const uint32_t height = header[2];
         const uint32_t width = header[3];
         // DXGI_FORMAT_R8G8B8A8_UNORM (28) or _SRGB (29), a 2D texture.
@@ -4320,6 +4481,14 @@ extern "C"
         sample->CmdDrawImgui(*commandBuffer, (nri::Format)attachmentFormat, 1.0f, props->isSrgb);
     }
 
+    // Nri_CmdDrawImgui without NRI's conversion of the vertex colors to linear (pow 2.2, for an
+    // attachment that isn't sRGB): the colors as they are, as Donut's ImGui renderer draws them into
+    // any target, e.g. the HDR scene simple_hdr's and simple_pbr's text goes into.
+    NRI_INTEROP_API void Nri_CmdDrawImguiUnconverted(TsSample* sample, nri::CommandBuffer* commandBuffer, int attachmentFormat)
+    {
+        sample->CmdDrawImgui(*commandBuffer, (nri::Format)attachmentFormat, 1.0f, true);
+    }
+
     NRI_INTEROP_API void Nri_ImguiEndFrame(TsSample* sample)
     {
         if (sample->m_Streamer)
@@ -4330,6 +4499,32 @@ extern "C"
     NRI_INTEROP_API int Nri_ImguiWantsMouse()
     {
         return ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse ? 1 : 0;
+    }
+
+    // A TrueType font (path relative to this library's folder) at size pixels (ImGui's: ascent +
+    // descent), as Donut_ImGuiCreateFont loads it (after Nri_InitImgui); null if the file can't be read.
+    NRI_INTEROP_API ImFont* Nri_ImguiCreateFont(const char* path, double size)
+    {
+        std::vector<uint8_t> data;
+        if (!ImGui::GetCurrentContext() || !ReadFile(LibraryDirectory() + path, data) || data.empty())
+            return nullptr;
+        // The atlas owns (and frees) its copy.
+        void* copy = IM_ALLOC(data.size());
+        memcpy(copy, data.data(), data.size());
+        ImFontConfig fontConfig;
+        fontConfig.SizePixels = float(size);
+        return ImGui::GetIO().Fonts->AddFontFromMemoryTTF(copy, (int)data.size(), 0.0f, &fontConfig);
+    }
+
+    // Draws with a font from Nri_ImguiCreateFont, at its size, until Nri_ImguiPopFont.
+    NRI_INTEROP_API void Nri_ImguiPushFont(ImFont* font)
+    {
+        ImGui::PushFont(font, font->LegacySize);
+    }
+
+    NRI_INTEROP_API void Nri_ImguiPopFont()
+    {
+        ImGui::PopFont();
     }
 
     // The widgets, as Donut's (donut_interop's Donut_ImGui*).
@@ -4468,7 +4663,7 @@ extern "C"
     }
 
     // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in
-    // the default font and color (r, g, b, a), on the background draw list: behind the windows, no
+    // the current font (Nri_ImguiPushFont's, or the default) and color (r, g, b, a), on the background draw list: behind the windows, no
     // window needed (between Nri_ImguiNewFrame and Nri_ImguiRender).
     NRI_INTEROP_API void Nri_ImguiDrawText(double x, double y, const char* text, double r, double g, double b, double a, int alignRight)
     {

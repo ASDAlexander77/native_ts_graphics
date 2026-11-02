@@ -90,6 +90,10 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | conservative_rasterization_nri | conservative rasterization (`NriFeature.ConservativeRasterization`, `Nri_PipelineDescSetConservativeRaster`, `Nri_GetConservativeRasterTier`, `Nri_GetVulkanConservativeRasterizationProperties`) with Vulkan's extra overestimation (`Nri_PipelineDescSetConservativeRasterExtraOverestimation`; NRI patched for it) |
 | gravity_light_bending_nri | Donut's ThirdPersonCamera as a shared module (core/donut_third_person_camera.ts) |
 | compute_nbody_collisions_nri | nothing new (the ThirdPersonCamera module) |
+| simple_hdr_nri | 10-bit and HDR10 swap chains (`Nri_CreateSwapChainWithFormat`, `Nri_IsDisplayHdr`), 10-bit back buffers read back (`Nri_ReadBufferRGBA8`), ImGui fonts (`Nri_ImguiCreateFont`, `Nri_ImguiPushFont`) and text drawn without NRI's linear conversion (`Nri_CmdDrawImguiUnconverted`) |
+| simple_pbr_nri | the SDKMESH reader (core/sdkmesh.cpp) compiled into nri_interop, legacy FourCC DDS files (DXT1, BC5U) with BC1 and BC5 |
+| bokeh_nri | several viewports with scissors (`Nri_CmdSetViewportsAndScissors`), a border sampler with a mip filter, `NriTextureState.GeometryShaderResource`, R16F DDS files |
+| mouse_cursor_nri | the cursor's position and the window's focus (`Nri_SetCursorPosition`, `Nri_IsWindowFocused`) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -322,6 +326,16 @@ Donut's UI on D3D12 and Vulkan, with these exceptions:
   each frame, volatile descriptor data, the driver recompiling shaders after a delay, the step on the
   CPU, and integrate_cs's exp.
 
+Batch 7 (the Xbox ATG ports): simple_hdr_nri, simple_pbr_nri, bokeh_nri and mouse_cursor_nri.
+mouse_cursor_nri and bokeh_nri match Donut's frames pixel for pixel on D3D12 and Vulkan (bokeh_nri
+outside its HUD, whose GPU timings differ; all of `-slow` and `-preset` too). simple_hdr_nri's and
+simple_pbr_nri's back buffers are 10-bit: their test pixels (each channel's top 8 bits, read the same
+way on both sides) hash equal to Donut's on D3D12 and Vulkan; their `-testOutput` PNGs differ by 1
+at some values, as the port encodes the 10-bit values to sRGB on the CPU and Donut with a GPU blit.
+Donut's `-test` runs without a window, so it never sees an HDR display: the ports stay SDR under
+`-test` (NRIFramework always opens a window, on what may be an HDR display). bokeh_nri skips D3D11
+(NRI's D3D11 backend turns 4-byte structured buffers raw, as for oit_linked_lists_nri).
+
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
 example does.
@@ -427,6 +441,8 @@ example does.
   compute shader writing nothing (its parameters were written before the shading rate image's size
   was known), and logic_op_dynamic_state_nri with D3D12 ignoring the logic operation. Compare every
   option against Donut.
+- NRIFramework's ImGui pipeline has no depth attachment: draw the UI in a pass of its own, not in one
+  with depth (Vulkan validation: "pDepthAttachment ... must match ... VK_FORMAT_UNDEFINED").
 - A float parameter of an interop function is declared `float` in nri_interop.d.ts: declared
   `number`, tslang passes a double, whose low 32 bits the C function reads as its float (0.75 arrives
   as 0).

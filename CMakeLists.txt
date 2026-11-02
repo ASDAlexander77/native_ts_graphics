@@ -3421,6 +3421,11 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(simple_hdr core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_hdr)
 
+# simple_hdr with NRI and NRIFramework instead of Donut: simple_hdr's shaders; its text drawn by
+# NRIFramework's ImGui (DONUT_SAMPLES_MEDIA_DIR's DroidSans Mono, as the Donut example's).
+add_tslang_nri_example(simple_hdr_nri SHADERS simple_hdr_shaders core/text_format.ts)
+add_tslang_example_test(simple_hdr_nri)
+
 # Port of the Xbox ATG VideoTexturePC12 sample (PCSamples/Graphics/VideoTexturePC12): a video played
 # by Media Foundation's Media Engine (core/video_player.cpp) into a texture shared with the app's
 # device (D3D12, D3D11; through memory on Vulkan), on a spinning lit cube or as a sprite. Windows
@@ -3507,6 +3512,17 @@ add_atg_media(bokeh bokeh
     Media/Meshes/MicroscopeCity/column.dds
     XDKSamples/Graphics/Bokeh12/Assets/irishexa32.dds)
 
+# bokeh with NRI and NRIFramework instead of Donut: its shaders (the geometry shader's two
+# permutations), the sample's SDKMESH models (the reader is in nri_interop) and iris texture, the
+# font. No D3D11: NRI's D3D11 backend has no structured buffers of 4-byte structures (the energy
+# shader's scratch memory), so the tests are D3D12's and Vulkan's.
+add_tslang_nri_example(bokeh_nri SHADERS bokeh_shaders core/matrix.ts core/text_format.ts core/sdk_mesh.ts)
+add_tslang_example_test(bokeh_nri)
+add_tslang_example_test(bokeh_nri SUFFIX slow ARGS -slow)
+if (TARGET bokeh_media AND TARGET bokeh_nri)
+    add_dependencies(bokeh_nri bokeh_media)
+endif()
+
 # Port of the Xbox ATG RaytracingAO_PC12 sample (PCSamples/Raytracing/RaytracingAO_PC12): ambient
 # occlusion by ray tracing (DXR: primary rays, then a hemisphere of AO rays at each hit) beside
 # MiniEngine's screen-space AO (a G-buffer, depth and normals downsampled and deinterleaved,
@@ -3569,6 +3585,15 @@ add_atg_media(simple_pbr simple_pbr
     "Media/PBR/ToyRobot/WoodBlocks/WoodBlocks_RMA.DDS|WoodBlocks_RMA.dds"
     Media/HDR/Stonewall_Ref_radiance.dds
     Media/HDR/Stonewall_Ref_irradiance.dds)
+
+# simple_pbr with NRI and NRIFramework instead of Donut: simple_pbr's shaders, its SDKMESH reader
+# (core/sdkmesh.cpp, compiled into nri_interop) and XBOX_ATG_SAMPLES_DIR's models and textures
+# (simple_pbr_media).
+add_tslang_nri_example(simple_pbr_nri SHADERS simple_pbr_shaders core/matrix.ts core/sdk_mesh.ts)
+add_tslang_example_test(simple_pbr_nri)
+if (TARGET simple_pbr_media AND TARGET simple_pbr_nri)
+    add_dependencies(simple_pbr_nri simple_pbr_media)
+endif()
 
 # Port of the Xbox ATG SimpleComputePC12 sample (PCSamples/IntroGraphics/SimpleComputePC12): a
 # Mandelbrot fractal drawn by a compute shader, synchronously in the frame's command list or
@@ -3639,6 +3664,14 @@ add_atg_media(mouse_cursor mouse_cursor
     UWPSamples/System/MouseCursor/Assets/background_flat.png
     UWPSamples/System/MouseCursor/Assets/green_tile.png
     UWPSamples/System/MouseCursor/Assets/green_tile_border.png)
+
+# mouse_cursor with NRI and NRIFramework instead of Donut: its shaders, the sample's SDKMESH models
+# (the reader is in nri_interop) and menu images, the font; the mouse and keys polled each frame.
+add_tslang_nri_example(mouse_cursor_nri SHADERS mouse_cursor_shaders core/matrix.ts core/sdk_mesh.ts)
+add_tslang_example_test(mouse_cursor_nri)
+if (TARGET mouse_cursor_media AND TARGET mouse_cursor_nri)
+    add_dependencies(mouse_cursor_nri mouse_cursor_media)
+endif()
 
 # Port of the Xbox ATG Collision UWP sample (UWPSamples/System/CollisionUWP): DirectXMath's collision
 # types (core/directx_collision.cpp: frustum, boxes, oriented boxes, spheres, triangles, rays) tested
