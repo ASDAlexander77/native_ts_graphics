@@ -768,21 +768,11 @@ namespace RaytracingAoNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.frameWidth = Nri_GetOutputWidth(this.sample);
-            this.frameHeight = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // The sample's back buffers (UNORM: its outputs blitted as they are).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            const swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            this.swapChain = swapChain;
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(swapChain, 0));
-            const textureNum = Nri_GetSwapChainTextureNum(swapChain);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
             for (let i = 0; i < queuedFrameNum; i++) {
                 const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator)));
@@ -1367,6 +1357,51 @@ namespace RaytracingAoNri {
             return target;
         }
 
+        // The back buffers at the window's size (frameWidth x frameHeight), their views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.frameWidth = Nri_GetOutputWidth(this.sample);
+            this.frameHeight = Nri_GetOutputHeight(this.sample);
+            const swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            this.swapChain = swapChain;
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(swapChain, 0));
+            const textureNum = Nri_GetSwapChainTextureNum(swapChain);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            const swapChain = this.swapChain;
+            if (swapChain) {
+                Nri_DestroySwapChain(swapChain);
+            }
+            this.swapChain = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the back
+        // buffers made again at its size. The frame resources follow in renderFrame, which remakes
+        // them when the output size (from frameWidth x frameHeight) changes.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.frameWidth && Nri_GetOutputHeight(this.sample) == this.frameHeight) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+        }
+
         releaseFrameResources() {
             const descriptorPool = this.descriptorPool;
             if (descriptorPool) {
@@ -1928,6 +1963,7 @@ namespace RaytracingAoNri {
 
         // Sample::Render (the HUD is ImGui's, over the blitted outputs).
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const device = this.device;
@@ -2081,15 +2117,7 @@ namespace RaytracingAoNri {
                         Nri_DestroyDescriptor(view);
                     }
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
-                const swapChain = this.swapChain;
-                if (swapChain) {
-                    Nri_DestroySwapChain(swapChain);
-                }
+                this.destroySwapChain();
                 for (const mesh of this.meshes) {
                     mesh.destroy();
                 }
@@ -2152,6 +2180,7 @@ namespace RaytracingAoNri {
         Nri_AddExampleOption(sample, "-help");
         Nri_AddExampleOption(sample, "-noUI");
         Nri_UseImgui(sample);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-maze") {

@@ -1,0 +1,26 @@
+diff --git a/Include/NRIFramework.h b/Include/NRIFramework.h
+index c580e5b..9e3cd59 100644
+--- a/Include/NRIFramework.h
++++ b/Include/NRIFramework.h
+@@ -230,6 +230,7 @@ protected:
+     bool m_DebugNRI = false;
+     bool m_AlwaysActive = false;
+     bool m_Resizable = false;
++    bool m_HiddenWindow = false; // never shown (rendering into its swap chain still works)
+ 
+     // Private
+ private:
+diff --git a/Source/SampleBase.cpp b/Source/SampleBase.cpp
+index cc2da41..6c0c5d0 100644
+--- a/Source/SampleBase.cpp
++++ b/Source/SampleBase.cpp
+@@ -593,7 +593,8 @@ bool SampleBase::Create(int32_t argc, char** argv, const char* windowTitle) {
+     glfwSetMouseButtonCallback(m_Window, GLFW_ButtonCallback);
+     glfwSetCursorPosCallback(m_Window, GLFW_CursorPosCallback);
+     glfwSetScrollCallback(m_Window, GLFW_ScrollCallback);
+-    glfwShowWindow(m_Window);
++    if (!m_HiddenWindow)
++        glfwShowWindow(m_Window);
+ 
+     return result;
+ }
