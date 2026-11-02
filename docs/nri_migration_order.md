@@ -94,6 +94,10 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | simple_pbr_nri | the SDKMESH reader (core/sdkmesh.cpp) compiled into nri_interop, legacy FourCC DDS files (DXT1, BC5U) with BC1 and BC5 |
 | bokeh_nri | several viewports with scissors (`Nri_CmdSetViewportsAndScissors`), a border sampler with a mip filter, `NriTextureState.GeometryShaderResource`, R16F DDS files |
 | mouse_cursor_nri | the cursor's position and the window's focus (`Nri_SetCursorPosition`, `Nri_IsWindowFocused`) |
+| hdr_display_nri | 16-bit float (scRGB) swap chains, their `-testOutput` (`Nri_WriteTestOutputRGBA16F`) |
+| raytracing_ao_nri | BLAS triangles from interleaved vertices (`Nri_BlasDescAddTrianglesFromPointer`), storage texture arrays; its shaders' storage textures get Vulkan formats (`VK_IMAGE_FORMAT`) |
+| ray_tracing_extended_nri | updatable BLASes over the example's buffers (`Nri_CreateUpdatableTriangleBlas`, `Nri_CmdUpdateUpdatableBlas`; NRI's validation layer patched to pass `HAS_BUFFER` through), host buffers that builds read (`NriBufferUsage.AccelerationStructureInput`) |
+| ray_tracing_position_fetch_nri | `NriFeature.RayTracingPositionFetch`, `NriAccelerationStructureFlags.AllowDataAccess`, per-geometry BLAS transforms (`Nri_BlasDescSetTransform`) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -336,6 +340,17 @@ Donut's `-test` runs without a window, so it never sees an HDR display: the port
 `-test` (NRIFramework always opens a window, on what may be an HDR display). bokeh_nri skips D3D11
 (NRI's D3D11 backend turns 4-byte structured buffers raw, as for oit_linked_lists_nri).
 
+Batch 8: hdr_display_nri, raytracing_ao_nri, ray_tracing_extended_nri (all of `-mode 0` to `6`) and
+ray_tracing_position_fetch_nri (Vulkan only, as the Donut example; both modes).
+ray_tracing_extended_nri matches Donut pixel for pixel on D3D12 and Vulkan, and
+ray_tracing_position_fetch_nri outside the ImGui window (NRIFramework's default font is larger).
+raytracing_ao_nri matches on D3D12 in every variant (`-full`, `-ssao`, `-maze`); on Vulkan two pixels
+of the scene differ by 1 (deterministic). hdr_display_nri's gradients and gamut triangles hash equal
+to Donut's raw back buffer texels in 8, 10 and 16 bits on both APIs (the PNGs of 10-bit and 16-bit
+back buffers differ by the CPU against GPU sRGB encoding, as for simple_hdr_nri); its UI text
+differs at about 120 pixels by at most 3 (NRIFramework's ImGui against Donut's). Donut's hdr_display
+draws its UI layer under `-noUI` too, so compare it with `--ui-less`.
+
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
 example does.
@@ -443,6 +458,8 @@ example does.
   option against Donut.
 - NRIFramework's ImGui pipeline has no depth attachment: draw the UI in a pass of its own, not in one
   with depth (Vulkan validation: "pDepthAttachment ... must match ... VK_FORMAT_UNDEFINED").
+- D3D12 checks every texture of a descriptor set when it's bound: don't bind a set holding the
+  texture the pass renders into, even if the pass's shaders don't sample it.
 - A float parameter of an interop function is declared `float` in nri_interop.d.ts: declared
   `number`, tslang passes a double, whose low 32 bits the C function reads as its float (0.75 arrives
   as 0).

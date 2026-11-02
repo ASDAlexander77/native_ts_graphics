@@ -16,7 +16,7 @@ Texture2D<float> SsaoBuffer : register(t0);
 Texture2D<float4> GBufferDiffuse : register(t1);
 Texture2D<float> Depth : register(t2);
 
-RWTexture2D<float4> OutColor : register(u0);
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> OutColor : register(u0);
 
 [numthreads(8, 8, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)

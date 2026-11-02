@@ -62,6 +62,8 @@
 @cpp declare class NriDonutSceneAccelStructsHandle { private readonly __nriDonutSceneAccelStructs: index; }
 // An ImGui font (Nri_ImguiCreateFont), the atlas's: valid as long as ImGui.
 @cpp declare class NriImguiFontHandle { private readonly __nriImguiFont: index; }
+// An updatable bottom level acceleration structure (Nri_CreateUpdatableTriangleBlas).
+@cpp declare class NriUpdatableBlasHandle { private readonly __nriUpdatableBlas: index; }
 
 // nri::GraphicsAPI
 enum NriGraphicsAPI {
@@ -145,7 +147,11 @@ enum NriFeature {
     RayTracing = 24,
     // tiers.conservativeRaster != 0: Nri_PipelineDescSetConservativeRaster (D3D12's conservative rasterization
     // tiers, Vulkan's VK_EXT_conservative_rasterization), NVRHI's Feature::ConservativeRasterization
-    ConservativeRasterization = 25
+    ConservativeRasterization = 25,
+    // shaderFeatures.rayTracingPositionFetch on Vulkan: hit shaders reading their triangle's vertex
+    // positions from the acceleration structure (VK_KHR_ray_tracing_position_fetch; BLASes built with
+    // NriAccelerationStructureFlags.AllowDataAccess), NVRHI's Feature::RayTracingPositionFetch
+    RayTracingPositionFetch = 26
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -356,6 +362,8 @@ enum NriStage {
 enum NriAccelerationStructureFlags {
     None = 0,
     AllowUpdate = 1,
+    // hit shaders may read the structure's vertex positions (NriFeature.RayTracingPositionFetch)
+    AllowDataAccess = 4,
     PreferFastTrace = 32,
     PreferFastBuild = 64
 }
@@ -390,7 +398,10 @@ enum NriBufferUsage {
     // Nri_CreateHostBuffer's
     ConstantBuffer = 2,
     // Nri_CreateHostBufferWithStride's: structures read by shaders (StructuredBuffer)
-    StructuredBuffer = 3
+    StructuredBuffer = 3,
+    // Nri_CreateHostBufferWithStride's: structures read by shaders that acceleration structure builds
+    // read too (Nri_CmdUpdateUpdatableBlas' vertices and indices)
+    AccelerationStructureInput = 4
 }
 
 // The states Nri_CmdBufferBarrier moves a storage buffer between (nri::AccessStage).
@@ -671,6 +682,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // with red in the low byte (0xAABBGGRR; BGRA swapped), row by row into dst (pixelCount ints; Ref of an
 // int array element). 0 if the buffer can't be mapped or the format isn't one of those.
 @nodrops declare function Nri_ReadBufferRGBA8(buffer: NriBufferHandle, rowPitch: int, width: int, height: int, format: NriFormat, dst: Ref<int>, pixelCount: int): int;
+// -testOutput (if given) for an RGBA16_SFLOAT texture read back into the buffer (rowPitch bytes a row),
+// as Donut saves a float back buffer: clamped to [0, 1], sRGB-encoded. 1, or 0 on failure.
+@nodrops declare function Nri_WriteTestOutputRGBA16F(buffer: NriBufferHandle, rowPitch: int, width: int, height: int): int;
 
 // Commands
 @nodrops declare function Nri_CreateCommandAllocator(queue: NriQueueHandle): NriCommandAllocatorHandle;
@@ -1384,12 +1398,18 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // failure. Destroyed with Nri_DestroyTexture.
 @nodrops declare function Nri_CreateStorageTexture(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat): NriTextureHandle | null;
+// As Nri_CreateStorageTexture, an array of layerNum layers (views: Nri_CreateStorageTextureArrayView,
+// Nri_CreateTextureArrayView), left in NriTextureState.Storage.
+@nodrops declare function Nri_CreateStorageTextureArray(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
+    layerNum: int, format: NriFormat): NriTextureHandle | null;
 // As Nri_CreateStorageTexture, filled with data (Ref of an int array element; rows rowPitch bytes
 // apart), left in state (NriTextureState.Storage, or PixelStorage); null on failure.
 @nodrops declare function Nri_CreateStorageTextureWithData(device: NriDeviceHandle, queue: NriQueueHandle, width: int, height: int,
     format: NriFormat, data: Ref<int>, rowPitch: int, state: NriTextureState): NriTextureHandle | null;
 // A view of a 2D texture's mip 0 for compute shaders to write.
 @nodrops declare function Nri_CreateStorageTextureView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
+// A view of all the layers of a 2D texture array's mip 0 for compute shaders to write (RWTexture2DArray).
+@nodrops declare function Nri_CreateStorageTextureArrayView(texture: NriTextureHandle, format: NriFormat): NriDescriptorHandle;
 // A width x height R8_UINT shading rate attachment (a texel per Nri_GetShadingRateTileSize square of
 // pixels: log2(width) << 2 | log2(height)), filled with data (Ref of an int array element: 4 texels
 // an int; rows rowPitch bytes apart), written by compute shaders too if storage is 1 (a view:
@@ -1439,6 +1459,23 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // queue (which this waits for); null on failure. Destroyed with Nri_DestroyAccelerationStructure.
 @nodrops declare function Nri_BuildTriangleBLAS(device: NriDeviceHandle, queue: NriQueueHandle, vertices: Ref<f32>, vertexNum: int,
     indices: Ref<int>, indexNum: int, flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
+// A bottom level acceleration structure of one opaque triangle geometry (vertexNum float3 positions
+// vertexStride bytes apart, indexNum 32-bit indices) read from buffers the example owns
+// (NriBufferUsage.AccelerationStructureInput), with flags (AllowUpdate | PreferFastBuild, as Donut's
+// updatable ones); not built yet. Null on failure.
+@nodrops declare function Nri_CreateUpdatableTriangleBlas(device: NriDeviceHandle, vertexNum: int, vertexStride: int, indexNum: int,
+    flags: NriAccelerationStructureFlags): NriUpdatableBlasHandle | null;
+// Records its build, or once built its update in place, from the vertices at vertexOffset in
+// vertexBuffer and the indices at indexOffset in indexBuffer, between barriers (after the rays and top
+// level builds that read it before, before those that read it next).
+@nodrops declare function Nri_CmdUpdateUpdatableBlas(commandBuffer: NriCommandBufferHandle, blas: NriUpdatableBlasHandle,
+    vertexBuffer: NriBufferHandle, vertexOffset: int, indexBuffer: NriBufferHandle, indexOffset: int): void;
+// Its first build, on the queue (which this waits for); 0 on failure.
+@nodrops declare function Nri_BuildUpdatableBlasOnQueue(queue: NriQueueHandle, blas: NriUpdatableBlasHandle, vertexBuffer: NriBufferHandle,
+    vertexOffset: int, indexBuffer: NriBufferHandle, indexOffset: int): int;
+// The structure (for Nri_TopLevelASAddInstance).
+@nodrops declare function Nri_GetUpdatableBlasAccelerationStructure(blas: NriUpdatableBlasHandle): NriAccelerationStructureHandle;
+@nodrops declare function Nri_DestroyUpdatableBlas(blas: NriUpdatableBlasHandle): void;
 // The top level acceleration structure of one instance of blas, as Donut's examples make it (identity
 // transform, instance ID 0, mask 1, counter-clockwise front faces), built on the queue (which this
 // waits for); null on failure.
@@ -1483,9 +1520,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateBlasDesc(): NriBlasDescHandle;
 @nodrops declare function Nri_DestroyBlasDesc(desc: NriBlasDescHandle): void;
 @nodrops declare function Nri_BlasDescAddTriangles(desc: NriBlasDescHandle, vertices: Ref<f32>, vertexNum: int, indices: Ref<int>, indexNum: int): void;
+// As Nri_BlasDescAddTriangles, from data some other library holds (SdkMesh.getVertexBufferData's,
+// getIndexBufferData's): vertexNum vertices vertexStride bytes apart, each starting with its float3
+// position, and indexNum 32-bit indices; copied.
+@nodrops declare function Nri_BlasDescAddTrianglesFromPointer(desc: NriBlasDescHandle, vertices: Opaque, vertexNum: int, vertexStride: int,
+    indices: Opaque, indexNum: int): void;
 // A geometry of aabbNum axis-aligned boxes (opaque; intersection shaders decide the hits) from aabbs (Ref
 // of an f32 array element): 6 floats each, min x, y, z, max x, y, z; copied.
 @nodrops declare function Nri_BlasDescAddAabbs(desc: NriBlasDescHandle, aabbs: Ref<f32>, aabbNum: int): void;
+// The last geometry added (a triangle one)'s transform: a row-major 3 x 4 matrix (12 floats from Ref of
+// an f32 array element; copied), applied to its positions as the structure is built.
+@nodrops declare function Nri_BlasDescSetTransform(desc: NriBlasDescHandle, transform: Ref<f32>): void;
 @nodrops declare function Nri_BuildBlasFromDesc(device: NriDeviceHandle, queue: NriQueueHandle, desc: NriBlasDescHandle,
     flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
 // Ray tracing pipelines of named shaders and groups: Nri_RayTracingPipelineDescAddShader adds the

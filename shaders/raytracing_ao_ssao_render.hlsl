@@ -23,7 +23,7 @@ Texture2D<float> DepthTex : register(t0);
 Texture2D<float3> NormalTex : register(t1);
 #endif
 
-RWTexture2D<float> Occlusion : register(u0);
+VK_IMAGE_FORMAT("r8") RWTexture2D<float> Occlusion : register(u0);
 SamplerState PointSamplerClamp : register(s3);
 
 ConstantBuffer<SceneConstantBuffer> SceneCB : register(b0);
