@@ -73,6 +73,10 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | render_octomap_nri | nothing new; the octomap reader shared with the Donut example (core/octomap_common.ts) |
 | rasterization_order_attachment_access_nri | `NriFeature.RasterizerOrderedViews` (D3D's ROVs, Vulkan's fragment shader interlock) |
 | texture_mipmap_generation_nri | mip chains drawn level by level (`Nri_LoadDdsTextureWithMipChain`, `Nri_CreateColorAttachmentMipView`, `Nri_CreateTextureMipView`, `Nri_CmdTextureMipBarrier`), samplers with an LOD range |
+| deferred_shading_nri (#200) | Donut's framework shaders with constants filled by Donut's math (core/nri/nri_donut_constants.cpp; see tier 4) |
+| bindless_rendering_nri (#201) | Donut scenes (core/nri/nri_donut_scene.cpp), mip chains blitted as Donut's TextureCache makes them |
+| threaded_rendering_nri (#202) | full Donut materials, draw passes replayed on C++ worker threads |
+| environment_map_nri (#203) | planar shadow maps, sun and sky constants, tone mapping, BC7 DDS, typed buffer views |
 | rt_triangle_nri (#204) | ray tracing (see tier 5) |
 | dxr_refit_nri (#205) | general BLAS, ray tracing pipeline, shader table and TLAS interop (see tier 5) |
 | rt_shadows_nri (#206) | a Donut scene's acceleration structures (`Nri_BuildDonutSceneAccelStructs`), null hit records |
@@ -202,8 +206,9 @@ completes tier 4; tier 5 (ray tracing) is next.
 
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
-The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
-ray_queries. After that come the scene-heavy ray-traced examples.
+The order was rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
+ray_queries; all but rt_reflections (see below) are done, with ray_tracing_reflection and
+mobile_nerf_rayquery. After that come the scene-heavy ray-traced examples.
 
 First: rt_triangle_nri, on D3D12 and Vulkan (D3D11 has no ray tracing: skipped), its frames the Donut
 example's pixel for pixel. The interop gets NRI's ray tracing interface (`NriFeature.RayTracing`):
