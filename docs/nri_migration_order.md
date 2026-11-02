@@ -85,6 +85,11 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | ray_queries_nri | inline ray tracing (`NriFeature.RayQuery`): a TLAS in a pixel shader's descriptor set |
 | mobile_nerf_rayquery_nri | nothing new beyond `NriFeature.RayQuery` |
 | rt_reflections_nri | its own shader (shaders/rt_reflections_nri.hlsl) in place of local root signatures; scene acceleration structures with a hit group stride (`Nri_BuildDonutSceneAccelStructsWithHitGroupStride`), `Nri_GetDonutSceneGeometryCount`, the scene's buffers for typed views, RGBA8_SNORM typed views, pools with acceleration structures and typed buffers |
+| procedural_geometry_nri | AABB geometries (`Nri_BlasDescAddAabbs`) and intersection shaders in hit groups |
+| wave_intrinsics_nri | the device's wave lane counts (`Nri_GetWaveLaneCountMin`, `Nri_GetWaveLaneCountMax`) |
+| conservative_rasterization_nri | conservative rasterization (`NriFeature.ConservativeRasterization`, `Nri_PipelineDescSetConservativeRaster`, `Nri_GetConservativeRasterTier`, `Nri_GetVulkanConservativeRasterizationProperties`) with Vulkan's extra overestimation (`Nri_PipelineDescSetConservativeRasterExtraOverestimation`; NRI patched for it) |
+| gravity_light_bending_nri | Donut's ThirdPersonCamera as a shared module (core/donut_third_person_camera.ts) |
+| compute_nbody_collisions_nri | nothing new (the ThirdPersonCamera module) |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -289,6 +294,32 @@ ray_tracing_reflection.hlsl's outputs have no format on Vulkan now (`VK_IMAGE_FO
 dxr_refit.hlsl's. Creating a D3D12 constant buffer view whose size isn't a multiple of 256 bytes
 removes the device (no debug layer message says why): the MLPs' view is rounded up.
 
+## Examples the roadmap didn't list
+
+Examples added to the repository after this roadmap was written, ported as they fit the tiers:
+procedural_geometry_nri (tier 5: an AABB BLAS of ten boxes, an intersection shader per primitive type
+in hit groups with the AABB closest-hit shader), wave_intrinsics_nri, conservative_rasterization_nri,
+gravity_light_bending_nri and compute_nbody_collisions_nri. Each matches its Donut example outside
+Donut's UI on D3D12 and Vulkan, with these exceptions:
+
+- procedural_geometry_nri's D3D12 frame differs from Donut's at about 10k pixels on the signed
+  distance primitives (the pyramid, the torus rings): D3D12's codegen for their 512-step sphere
+  tracing changes with the state object, and which grazing hits flip with it; both are deterministic,
+  and its Vulkan frame is Donut's pixel for pixel.
+- gravity_light_bending_nri's D3D11 frame differs at 151 scattered pixels by 1 (D3D12 and Vulkan
+  match exactly).
+- compute_nbody_collisions_nri matches with merging and fragmenting off. With them on (-merge,
+  -fragment) the frames depend on the GPU's scheduling: absorb_cs reads its neighbors' particles
+  and contacts (u_Particles[k], u_Contacts[k]) while those that are survivors themselves write theirs
+  in the same dispatch. The Donut example's runs happen to repeat; the port's, with two frames in
+  flight, vary on D3D12 (with one frame in flight they equal Donut's). The fix is the shader's (the
+  merge's results written apart and applied in a pass after it), which changes the Donut example's
+  frames as well.
+
+conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
+skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
+example does.
+
 ## Notes
 
 - D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is
@@ -390,6 +421,12 @@ removes the device (no debug layer message says why): the MLPs' view is rounded 
   compute shader writing nothing (its parameters were written before the shading rate image's size
   was known), and logic_op_dynamic_state_nri with D3D12 ignoring the logic operation. Compare every
   option against Donut.
+- A float parameter of an interop function is declared `float` in nri_interop.d.ts: declared
+  `number`, tslang passes a double, whose low 32 bits the C function reads as its float (0.75 arrives
+  as 0).
+- NRIFramework's ImGui draw (`Nri_CmdDrawImgui`) binds its own descriptor pool: a pass after it
+  binds the example's pool again before its sets, or D3D12 rejects the descriptor tables ("different
+  from currently set descriptor heap"). Likewise for a set from a pool of its own.
 
 ## Excluded
 

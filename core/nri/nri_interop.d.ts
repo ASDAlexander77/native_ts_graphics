@@ -137,7 +137,10 @@ enum NriFeature {
     // features.rayTracing: ray tracing pipelines and acceleration structures (Nri_CreateRayTracingPipeline,
     // Nri_BuildTriangleBLAS, ...; D3D12's DXR, Vulkan's VK_KHR_ray_tracing_pipeline), NVRHI's
     // Feature::RayTracingPipeline
-    RayTracing = 24
+    RayTracing = 24,
+    // tiers.conservativeRaster != 0: Nri_PipelineDescSetConservativeRaster (D3D12's conservative rasterization
+    // tiers, Vulkan's VK_EXT_conservative_rasterization), NVRHI's Feature::ConservativeRasterization
+    ConservativeRasterization = 25
 }
 
 // nri::Format, which the functions taking or returning a format pass through: the values the
@@ -870,6 +873,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_PipelineDescSetPatchControlPoints(desc: NriPipelineDescHandle, controlPointNum: int): void;
 // Triangles drawn as their edges (1) or filled (0, the default).
 @nodrops declare function Nri_PipelineDescSetWireframe(desc: NriPipelineDescHandle, wireframe: int): void;
+// Conservative rasterization (1: every pixel a triangle touches at all; NriFeature.ConservativeRasterization)
+// or not (0, the default).
+@nodrops declare function Nri_PipelineDescSetConservativeRaster(desc: NriPipelineDescHandle, conservative: int): void;
+// Vulkan's extra overestimation of conservative rasterization, in pixels (0 by default; at most
+// Nri_GetVulkanConservativeRasterizationProperties' maxExtraPrimitiveOverestimationSize); ignored on D3D.
+@nodrops declare function Nri_PipelineDescSetConservativeRasterExtraOverestimation(desc: NriPipelineDescHandle, size: float): void;
 // Counter-clockwise triangles are the front faces (1), or clockwise ones (0, the default).
 @nodrops declare function Nri_PipelineDescSetFrontCounterClockwise(desc: NriPipelineDescHandle, counterClockwise: int): void;
 // Whether primitives are clipped at the near and far planes (1) or not (0: depth clamped, Donut's
@@ -968,6 +977,17 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetDrawIndirectMaxNum(device: NriDeviceHandle): int;
 // Pixels per shading rate attachment texel in each dimension; 0 without shading rate attachments.
 @nodrops declare function Nri_GetShadingRateTileSize(device: NriDeviceHandle): int;
+// The device's conservative rasterization tier (D3D12's; on Vulkan NRI's estimate), 0 for none.
+@nodrops declare function Nri_GetConservativeRasterTier(device: NriDeviceHandle): int;
+// Vulkan's VkPhysicalDeviceConservativeRasterizationPropertiesEXT into dst (9 floats, as
+// Donut_GetVulkanConservativeRasterizationProperties: the three sizes, then 1 or 0 for primitiveUnderestimation,
+// conservativePointAndLineRasterization, degenerateTrianglesRasterized, degenerateLinesRasterized,
+// fullyCoveredFragmentShaderInputVariable, conservativeRasterizationPostDepthCoverage); 0 (dst untouched) on
+// other graphics APIs or without conservative rasterization.
+@nodrops declare function Nri_GetVulkanConservativeRasterizationProperties(device: NriDeviceHandle, dst: Ref<f32>): int;
+// The fewest and most lanes in the device's waves (WaveGetLaneCount()).
+@nodrops declare function Nri_GetWaveLaneCountMin(device: NriDeviceHandle): int;
+@nodrops declare function Nri_GetWaveLaneCountMax(device: NriDeviceHandle): int;
 // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of an int
 // array of 32), largest first, as Donut's getFragmentShadingRates gives them; their count, 0 without
 // shading rate attachments.
@@ -1414,6 +1434,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateBlasDesc(): NriBlasDescHandle;
 @nodrops declare function Nri_DestroyBlasDesc(desc: NriBlasDescHandle): void;
 @nodrops declare function Nri_BlasDescAddTriangles(desc: NriBlasDescHandle, vertices: Ref<f32>, vertexNum: int, indices: Ref<int>, indexNum: int): void;
+// A geometry of aabbNum axis-aligned boxes (opaque; intersection shaders decide the hits) from aabbs (Ref
+// of an f32 array element): 6 floats each, min x, y, z, max x, y, z; copied.
+@nodrops declare function Nri_BlasDescAddAabbs(desc: NriBlasDescHandle, aabbs: Ref<f32>, aabbNum: int): void;
 @nodrops declare function Nri_BuildBlasFromDesc(device: NriDeviceHandle, queue: NriQueueHandle, desc: NriBlasDescHandle,
     flags: NriAccelerationStructureFlags): NriAccelerationStructureHandle | null;
 // Ray tracing pipelines of named shaders and groups: Nri_RayTracingPipelineDescAddShader adds the

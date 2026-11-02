@@ -23,6 +23,7 @@
 #include "procedural_geometry_compat.h"
 #include "procedural_geometry_primitives.hlsli"
 #include "procedural_geometry_helper.hlsli"
+#include <donut/shaders/binding_helpers.hlsli>
 
 //***************************************************************************
 //*****------ Shader resources bound via root signatures -------*************
@@ -31,7 +32,9 @@
 // Scene wide resources.
 //  g_* - bound via a global root signature.
 RaytracingAccelerationStructure g_scene : register(t0, space0);
-RWTexture2D<float4> g_renderTarget : register(u0);
+// Written as the back buffer's format (BGRA8 on Donut's Vulkan swap chain, RGBA8 on NRI's): no format
+// on Vulkan, rather than the Rgba32f float4 implies.
+VK_IMAGE_FORMAT_UNKNOWN RWTexture2D<float4> g_renderTarget : register(u0);
 ConstantBuffer<SceneConstantBuffer> g_sceneCB : register(b0);
 
 // Triangle resources

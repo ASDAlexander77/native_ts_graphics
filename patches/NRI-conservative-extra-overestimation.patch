@@ -1,0 +1,25 @@
+diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
+index 6b798953..016de6ff 100644
+--- a/Include/NRIDescs.h
++++ b/Include/NRIDescs.h
+@@ -1200,6 +1200,7 @@ NriStruct(RasterizationDesc) {
+     bool lineSmoothing;         // requires "features.lineSmoothing"
+     bool conservativeRaster;    // requires "tiers.conservativeRaster != 0"
+     bool shadingRate;           // requires "tiers.shadingRate != 0", expects "CmdSetShadingRate" and optionally "AttachmentsDesc::shadingRate"
++    float conservativeRasterExtraOverestimation; // VK: "extraPrimitiveOverestimationSize" in pixels (D3D has none)
+ };
+ 
+ NriStruct(MultisampleDesc) {
+diff --git a/Source/VK/PipelineVK.hpp b/Source/VK/PipelineVK.hpp
+index a65a68b2..8d98fca1 100644
+--- a/Source/VK/PipelineVK.hpp
++++ b/Source/VK/PipelineVK.hpp
+@@ -146,7 +146,7 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+     VkPipelineRasterizationConservativeStateCreateInfoEXT consetvativeRasterizationState = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT};
+     if (r.conservativeRaster) {
+         consetvativeRasterizationState.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+-        consetvativeRasterizationState.extraPrimitiveOverestimationSize = 0.0f;
++        consetvativeRasterizationState.extraPrimitiveOverestimationSize = r.conservativeRasterExtraOverestimation;
+ 
+         APPEND_STRUCT(consetvativeRasterizationState);
+     }
