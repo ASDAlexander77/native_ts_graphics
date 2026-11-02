@@ -1411,6 +1411,23 @@ add_tslang_example_test(compute_nbody_collisions_nri SUFFIX fragment ARGS -fullg
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy ARGS -fullgravity -nocool -fragment 10 -room 50)
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
 
+# A falling-sand sandbox (an original example, NRI only): FLIP liquids and sand with an
+# incompressible pressure solve, rising gases, uranium's neutrons, temperature everywhere, painted
+# with the mouse or a finger. Its test pours water into one side of a U-tube and checks both sides
+# level out. D3D12 and Vulkan only (root descriptors and atomics on structured buffers): no DXBC.
+donut_compile_shaders(
+    TARGET powder_sandbox_shaders
+    PROJECT_NAME "Powder Sandbox"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/powder_sandbox.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/powder_sandbox.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/spirv
+)
+add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/text_format.ts)
+add_tslang_example_test(powder_sandbox_nri)
+# The materials' showcase: oil on water, a sand pile, burning wood, uranium in a pool, an emitter.
+add_tslang_example_test(powder_sandbox_nri SUFFIX showcase ARGS -scene 2 -testFrames 600)
+
 # Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
 # through their field every frame; the same tracing from the camera lenses the sky behind them.
 donut_compile_shaders_all_platforms(
