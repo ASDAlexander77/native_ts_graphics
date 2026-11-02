@@ -21,9 +21,11 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   condensing, oil igniting, wood burning, uranium heating up.
 - **Painting:** a toolbar of materials and tools (Heat, Cool, Erase); circle, square, line and box
   brushes with an outline cursor; mouse or touch.
-- **Window:** resizable; the grid keeps its cells and is fitted to the window.
-- **Tests:** `-test` (U-tube levels) and `-scene 2 -test` (showcase), on D3D12 and Vulkan, and on
-  the Android emulator.
+- **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
+  the window turns (a phone turned), keeping what it holds.
+- **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-roundTrip` (undo,
+  save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
+  emulator and on a phone.
 
 ## Roadmap
 
@@ -68,7 +70,8 @@ What players build is worth keeping, and on a phone a mistaken stroke is easy.
 - **Save/load**: one slot, `powder_sandbox.save` beside the executable (the app's data directory
   on Android): a header (magic, version, grid width and height, particle slots), then the state.
   The file is written to a temporary first, so a failed save keeps the old one. A save from a grid
-  of another size is refused with a message (loading it centered is left for later).
+  of another size loads at its size (with margins), or is remade to the window's if it's the other
+  way around (see Rotation below).
 - Interop: `Nri_CmdCopyBufferRegion`, `Nri_SaveBufferToFile`, `Nri_CreateStorageBufferFromFile`.
 - **Test**: `-utube -roundTrip` clears the U-tube halfway (without repainting) and undoes it, then
   saves, clears and loads; if either restore failed the U-tube would end empty.
@@ -92,9 +95,26 @@ Run so far on two phones:
   phone destroys the window, and the tests then fail with no particles. A Family Link supervised
   phone suspends a newly installed APK.
 
+- **Rotation**: the window gets the new size (the manifest's `configChanges`), and when it turns
+  from wider than tall to taller than wide (or back) the grid is remade in its shape: 144 cells
+  along the shorter side, as at startup. What it held keeps its place on the floor, centered across;
+  what falls outside the new walls is lost (turning back doesn't bring it back). Undo goes back to
+  before the turn (shown with margins, not remade again). Within one orientation a resize keeps the
+  grid and shows margins, so dragging a desktop window's edge doesn't crop it again and again.
+  - The grid's buffers are sized for the longest grid (432 cells, a window about 3 to 1), whichever
+    way it's turned, so a regrid needs no new buffers and the snapshots and saves stay one size
+    (saves are version 2). A wider window shows margins.
+  - `regrid_grid_cs` and `regrid_particles_cs` move the cells, their temperatures and the particles
+    (from a copy in the int sections, which every step remakes); the old grid's walls aren't carried
+    over, and particles that end in a wall are freed.
+  - Tests: `-utube -regrid 1` remakes the grid 20 cells taller and back (every particle kept),
+    `-utube -regrid 2` turns it (cropped, the U-tube still levels out); both check the wall around
+    the grid and that no particle is in a solid cell.
+  - Not yet tried by turning a phone (none was connected).
+
 Still to do:
 
-- Rotation: the window is resizable, but the layout hasn't been tried turning a phone.
+- Rotation on a phone.
 - Frame rate on a slower phone, and an automatic substep reduction if it can't keep up (a 30 fps
   phone runs 6 steps a frame).
 - Tap-and-hold to read a cell (touch has no hover); pinch to zoom and two-finger pan.
