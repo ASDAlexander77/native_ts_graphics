@@ -83,6 +83,7 @@ namespace
     // The values of nri_interop.d.ts' enums (NriFormat, NriCompareOp, NriTopology, ...).
     static_assert((int)nri::Format::BGRA8_UNORM == 9 && (int)nri::Format::BGRA8_SRGB == 10);
     static_assert((int)nri::Format::RGBA8_UNORM == 11 && (int)nri::Format::RGBA8_SRGB == 12);
+    static_assert((int)nri::Format::RGBA8_SNORM == 13);
     static_assert((int)nri::Format::R32_UINT == 31);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
@@ -5061,6 +5062,26 @@ extern "C"
         desc.textureMaxNum = (uint32_t)textureMaxNum;
         desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
         desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.accelerationStructureMaxNum = (uint32_t)accelerationStructureMaxNum;
+        nri::DescriptorPool* descriptorPool = nullptr;
+        if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
+            return nullptr;
+        return descriptorPool;
+    }
+
+    // As Nri_CreateDescriptorPoolWithAccelerationStructures, with room for bufferMaxNum typed buffers.
+    NRI_INTEROP_API nri::DescriptorPool* Nri_CreateDescriptorPoolWithAccelerationStructuresAndTypedBuffers(nri::Device* device,
+        int setMaxNum, int samplerMaxNum, int constantBufferMaxNum, int textureMaxNum, int storageTextureMaxNum, int structuredBufferMaxNum,
+        int bufferMaxNum, int accelerationStructureMaxNum)
+    {
+        nri::DescriptorPoolDesc desc = {};
+        desc.descriptorSetMaxNum = (uint32_t)setMaxNum;
+        desc.samplerMaxNum = (uint32_t)samplerMaxNum;
+        desc.constantBufferMaxNum = (uint32_t)constantBufferMaxNum;
+        desc.textureMaxNum = (uint32_t)textureMaxNum;
+        desc.storageTextureMaxNum = (uint32_t)storageTextureMaxNum;
+        desc.structuredBufferMaxNum = (uint32_t)structuredBufferMaxNum;
+        desc.bufferMaxNum = (uint32_t)bufferMaxNum;
         desc.accelerationStructureMaxNum = (uint32_t)accelerationStructureMaxNum;
         nri::DescriptorPool* descriptorPool = nullptr;
         if (NRI.CreateDescriptorPool(*device, desc, descriptorPool) != nri::Result::SUCCESS)
