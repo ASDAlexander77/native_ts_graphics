@@ -20,6 +20,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cstdlib>
 
 #include "cgltf.h"
 
@@ -50,6 +52,16 @@ extern "C" NRI_INTEROP_API void Nri_TopLevelASAddInstance(void* tlas, void* blas
     int hitGroupOffset, int flags);
 extern "C" NRI_INTEROP_API int Nri_BuildTopLevelASOnQueue(void* queue, void* tlas);
 extern "C" NRI_INTEROP_API void Nri_DestroyTopLevelAS(void* tlas);
+extern "C" NRI_INTEROP_API void Nri_BlasDescSetOpaque(void* desc, int opaque);
+extern "C" NRI_INTEROP_API void Nri_TopLevelASClearInstances(void* tlas);
+extern "C" NRI_INTEROP_API void Nri_CmdBuildTopLevelAS(void* commandBuffer, void* tlas, int bufferIndex, int update);
+extern "C" NRI_INTEROP_API void* Nri_CreateBufferBlas(int flags);
+extern "C" NRI_INTEROP_API void Nri_BufferBlasAddTriangles(void* blas, int vertexOffset, int vertexNum, const uint32_t* indices, int indexNum,
+    int opaque);
+extern "C" NRI_INTEROP_API int Nri_BufferBlasCreate(void* device, void* blas);
+extern "C" NRI_INTEROP_API void Nri_CmdBuildBufferBlas(void* commandBuffer, void* blas, void* vertexBuffer);
+extern "C" NRI_INTEROP_API void* Nri_GetBufferBlasAccelerationStructure(void* blas);
+extern "C" NRI_INTEROP_API void Nri_DestroyBufferBlas(void* blas);
 
 namespace
 {
@@ -562,6 +574,964 @@ namespace
     }
 }
 
+namespace
+{
+    // nri::AccelerationStructureBits: Donut's static BLASes are PreferFastTrace | AllowCompaction, its
+    // skinned ones PreferFastTrace.
+    const int BLAS_ALLOW_COMPACTION = 2;
+    const int BLAS_PREFER_FAST_TRACE = 32;
+
+    uint32_t AlignTo16(uint32_t size)
+    {
+        return (size + 15u) & ~15u;
+    }
+
+    // A JSON value, as much of JSON as scene files use (jsoncpp's, in Donut).
+    struct JsonValue
+    {
+        enum Type { Null, Bool, Number, String, Array, Object };
+        Type type = Null;
+        bool boolean = false;
+        double number = 0.0;
+        std::string string;
+        std::vector<JsonValue> items;
+        std::vector<std::pair<std::string, JsonValue>> members;
+
+        const JsonValue* Find(const char* key) const
+        {
+            for (const auto& member : members)
+                if (member.first == key)
+                    return &member.second;
+            return nullptr;
+        }
+    };
+
+    struct JsonParser
+    {
+        const char* p = nullptr;
+        const char* end = nullptr;
+
+        void Skip()
+        {
+            while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
+                p++;
+        }
+
+        bool ParseString(std::string& s)
+        {
+            if (p >= end || *p != '"')
+                return false;
+            p++;
+            while (p < end && *p != '"')
+            {
+                if (*p == '\\' && p + 1 < end)
+                {
+                    p++;
+                    const char e = *p++;
+                    s += e == 'n' ? '\n' : e == 't' ? '\t' : e == 'r' ? '\r' : e;
+                }
+                else
+                    s += *p++;
+            }
+            if (p >= end)
+                return false;
+            p++;
+            return true;
+        }
+
+        bool Parse(JsonValue& v)
+        {
+            Skip();
+            if (p >= end)
+                return false;
+            if (*p == '{')
+            {
+                p++;
+                v.type = JsonValue::Object;
+                Skip();
+                if (p < end && *p == '}')
+                {
+                    p++;
+                    return true;
+                }
+                for (;;)
+                {
+                    Skip();
+                    std::string key;
+                    if (!ParseString(key))
+                        return false;
+                    Skip();
+                    if (p >= end || *p != ':')
+                        return false;
+                    p++;
+                    JsonValue value;
+                    if (!Parse(value))
+                        return false;
+                    v.members.emplace_back(key, std::move(value));
+                    Skip();
+                    if (p < end && *p == ',')
+                    {
+                        p++;
+                        continue;
+                    }
+                    if (p < end && *p == '}')
+                    {
+                        p++;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+            if (*p == '[')
+            {
+                p++;
+                v.type = JsonValue::Array;
+                Skip();
+                if (p < end && *p == ']')
+                {
+                    p++;
+                    return true;
+                }
+                for (;;)
+                {
+                    JsonValue item;
+                    if (!Parse(item))
+                        return false;
+                    v.items.push_back(std::move(item));
+                    Skip();
+                    if (p < end && *p == ',')
+                    {
+                        p++;
+                        continue;
+                    }
+                    if (p < end && *p == ']')
+                    {
+                        p++;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+            if (*p == '"')
+            {
+                v.type = JsonValue::String;
+                return ParseString(v.string);
+            }
+            if (end - p >= 4 && strncmp(p, "true", 4) == 0)
+            {
+                v.type = JsonValue::Bool;
+                v.boolean = true;
+                p += 4;
+                return true;
+            }
+            if (end - p >= 5 && strncmp(p, "false", 5) == 0)
+            {
+                v.type = JsonValue::Bool;
+                p += 5;
+                return true;
+            }
+            if (end - p >= 4 && strncmp(p, "null", 4) == 0)
+            {
+                p += 4;
+                return true;
+            }
+            char* numberEnd = nullptr;
+            v.number = strtod(p, &numberEnd);
+            if (numberEnd == p)
+                return false;
+            v.type = JsonValue::Number;
+            p = numberEnd;
+            return true;
+        }
+    };
+
+    // donut::json::Read<double3> and <double4>: an array of 3 (4), or a number for all the components.
+    double3 ReadDouble3(const JsonValue& v, const double3& defaultValue)
+    {
+        if (v.type == JsonValue::Array && v.items.size() == 3)
+            return double3(v.items[0].number, v.items[1].number, v.items[2].number);
+        if (v.type == JsonValue::Number)
+            return double3(v.number);
+        return defaultValue;
+    }
+
+    double4 ReadDouble4(const JsonValue& v, const double4& defaultValue)
+    {
+        if (v.type == JsonValue::Array && v.items.size() == 4)
+            return double4(v.items[0].number, v.items[1].number, v.items[2].number, v.items[3].number);
+        if (v.type == JsonValue::Number)
+            return double4(v.number);
+        return defaultValue;
+    }
+
+    // animation::Keyframe, animation::Sampler (KeyframeAnimation.cpp): keyframes sorted by time,
+    // evaluated with the last values extrapolated.
+    enum class Interpolation { Step, Linear, Slerp, HermiteSpline };
+
+    struct Keyframe
+    {
+        float time = 0.f;
+        float4 value = 0.f;
+        float4 inTangent = 0.f;
+        float4 outTangent = 0.f;
+    };
+
+    struct AnimationSampler
+    {
+        Interpolation mode = Interpolation::Step;
+        std::vector<Keyframe> keyframes;
+
+        float EndTime() const
+        {
+            return keyframes.empty() ? 0.f : keyframes.back().time;
+        }
+
+        static float4 Interpolate(Interpolation mode, const Keyframe& b, const Keyframe& c, float t, float dt)
+        {
+            switch (mode)
+            {
+            case Interpolation::Linear:
+                return lerp(b.value, c.value, t);
+            case Interpolation::Slerp: {
+                quat qb = quat::fromXYZW(b.value);
+                quat qc = quat::fromXYZW(c.value);
+                quat qr = slerp(qb, qc, t);
+                return float4(qr.x, qr.y, qr.z, qr.w);
+            }
+            case Interpolation::HermiteSpline: {
+                const float t2 = t * t;
+                const float t3 = t2 * t;
+                return (2.f * t3 - 3.f * t2 + 1.f) * b.value
+                     + (t3 - 2.f * t2 + t) * b.outTangent * dt
+                     + (-2.f * t3 + 3.f * t2) * c.value
+                     + (t3 - t2) * c.inTangent * dt;
+            }
+            case Interpolation::Step:
+            default:
+                return b.value;
+            }
+        }
+
+        bool Evaluate(float time, float4& result) const
+        {
+            const size_t count = keyframes.size();
+            if (count == 0)
+                return false;
+            if (time <= keyframes[0].time)
+            {
+                result = keyframes[0].value;
+                return true;
+            }
+            if (count == 1 || time >= keyframes[count - 1].time)
+            {
+                result = keyframes[count - 1].value;
+                return true;
+            }
+            size_t left = 0;
+            size_t right = count - 2;
+            while (left <= right)
+            {
+                const size_t middle = (left + right) / 2;
+                const float tb = keyframes[middle].time;
+                const float tc = keyframes[middle + 1].time;
+                if (time < tb)
+                    right = middle - 1;
+                else if (time >= tc)
+                    left = middle + 1;
+                else
+                {
+                    left = right = middle;
+                    break;
+                }
+            }
+            const Keyframe& b = keyframes[left];
+            const Keyframe& c = keyframes[left + 1];
+            if (time < b.time || time >= c.time)
+                return false;
+            const float dt = c.time - b.time;
+            const float u = (time - b.time) / dt;
+            result = Interpolate(mode, b, c, u, dt);
+            return true;
+        }
+    };
+
+    enum AnimationAttribute { Attribute_Translation, Attribute_Rotation, Attribute_Scaling };
+
+    // A model (a glTF file): its meshes, buffers and materials as LoadScene imports them, its skinned
+    // vertices' joint indices and weights (GltfImporter's jointData, weightData), its skins and
+    // animations; the cgltf data kept for its node tree.
+    struct ModelMesh
+    {
+        // Model-local: the first geometry, the first vertex (MeshInfo::vertexOffset).
+        uint32_t firstGeometry = 0;
+        uint32_t geometryCount = 0;
+        uint32_t vertexOffset = 0;
+        uint32_t totalVertices = 0;
+    };
+
+    struct ModelAnimation
+    {
+        struct Channel
+        {
+            int sampler = 0;
+            size_t gltfNode = 0;
+            AnimationAttribute attribute = Attribute_Translation;
+        };
+        std::vector<Channel> channels;
+        float duration = 0.f;
+    };
+
+    struct Model
+    {
+        DonutScene scene;
+        std::unique_ptr<cgltf_data, void (*)(cgltf_data*)> data{ nullptr, cgltf_free };
+        std::vector<ModelMesh> meshes;
+        bool hasJoints = false;
+        // Per vertex: the 4 joint indices as 16 bits each (2 words), the 4 weights.
+        std::vector<uint32_t> jointWords;
+        std::vector<float> weights;
+        std::vector<AnimationSampler> samplers;
+        std::vector<ModelAnimation> animations;
+        // Where it went in the merged scene: its vertex streams (bytes), its joint indices and weights
+        // (bytes), its first index, material, texture and geometry.
+        uint32_t streamBytes[VertexStream_Count] = {};
+        uint32_t jointBytes = 0;
+        uint32_t weightBytes = 0;
+        uint32_t firstIndex = 0;
+        uint32_t firstMaterial = 0;
+        uint32_t firstTexture = 0;
+        uint32_t firstGeometry = 0;
+        // Its first instance's root node (-1: not instanced yet).
+        int firstRoot = -1;
+    };
+
+    // A scene graph node (SceneGraphNode): its TRS, whether it has one (m_HasLocalTransform), its
+    // global transform (double, and in floats).
+    struct GraphNode
+    {
+        int parent = -1;
+        bool hasLocalTransform = false;
+        double3 translation = 0.0;
+        dquat rotation = dquat::identity();
+        double3 scaling = 1.0;
+        daffine3 global = daffine3::identity();
+        affine3 globalFloat = affine3::identity();
+    };
+
+    struct MeshInstanceInfo
+    {
+        int node = 0;
+        int model = 0;
+        int mesh = 0;
+        uint32_t firstGeometry = 0;
+        uint32_t geometryCount = 0;
+        // Its SkinnedMeshInstance (-1: a MeshInstance).
+        int skinned = -1;
+    };
+
+    struct SkinnedInstanceInfo
+    {
+        int instance = 0;
+        // The joints' nodes and inverse bind matrices.
+        std::vector<int> jointNodes;
+        std::vector<float4x4> inverseBindMatrices;
+        std::vector<float4x4> jointMatrices;
+        // Its vertices in the skinned vertex buffer (Donut's SkinnedVertexBuffer ranges, 16-byte aligned).
+        uint32_t positionBytes = 0;
+        uint32_t prevPositionBytes = 0;
+        uint32_t normalBytes = 0;
+        uint32_t tangentBytes = 0;
+        uint32_t texCoordBytes = 0;
+        bool initialized = false;
+    };
+
+    struct AnimationInstance
+    {
+        struct Channel
+        {
+            const AnimationSampler* sampler = nullptr;
+            int node = 0;
+            AnimationAttribute attribute = Attribute_Translation;
+        };
+        std::vector<Channel> channels;
+        float duration = 0.f;
+    };
+
+    struct DonutAnimatedScene
+    {
+        DonutScene merged;
+        std::vector<std::unique_ptr<Model>> models;
+        std::vector<GraphNode> nodes;
+        std::vector<MeshInstanceInfo> instances;
+        std::vector<SkinnedInstanceInfo> skinned;
+        std::vector<AnimationInstance> animations;
+        // Each global geometry's first position (in merged.vertices' words; static geometries).
+        std::vector<uint32_t> positionWords;
+        uint32_t skinnedVertexBytes = 0;
+        bool refreshed = false;
+    };
+
+    std::unique_ptr<Model> LoadModel(const std::string& path)
+    {
+        auto model = std::make_unique<Model>();
+        if (!LoadScene(path.c_str(), model->scene))
+            return nullptr;
+        const std::string fileName = NriLibraryPath(path.c_str());
+        cgltf_options options{};
+        cgltf_data* data = nullptr;
+        cgltf_result result = cgltf_parse_file(&options, fileName.c_str(), &data);
+        if (result == cgltf_result_success)
+            result = cgltf_load_buffers(&options, data, fileName.c_str());
+        if (result != cgltf_result_success)
+        {
+            printf("ERROR: cannot parse %s\n", fileName.c_str());
+            if (data)
+                cgltf_free(data);
+            return nullptr;
+        }
+        model->data.reset(data);
+
+        // The meshes (LoadScene's geometries, mesh after mesh), and the joint indices and weights of
+        // their vertices (zero for vertices without), as GltfImporter reads them.
+        uint32_t geometry = 0;
+        for (size_t m = 0; m < data->meshes_count; m++)
+        {
+            ModelMesh mesh;
+            mesh.firstGeometry = geometry;
+            mesh.geometryCount = uint32_t(data->meshes[m].primitives_count);
+            mesh.vertexOffset = mesh.geometryCount > 0 ? model->scene.firstVertices[geometry] : 0;
+            for (size_t p = 0; p < data->meshes[m].primitives_count; p++)
+            {
+                const cgltf_primitive& primitive = data->meshes[m].primitives[p];
+                const cgltf_accessor* joints = nullptr;
+                const cgltf_accessor* weights = nullptr;
+                for (size_t a = 0; a < primitive.attributes_count; a++)
+                {
+                    if (primitive.attributes[a].type == cgltf_attribute_type_joints)
+                        joints = primitive.attributes[a].data;
+                    else if (primitive.attributes[a].type == cgltf_attribute_type_weights)
+                        weights = primitive.attributes[a].data;
+                }
+                const uint32_t count = model->scene.geometries[geometry].numVertices;
+                const size_t first = model->jointWords.size() / 2;
+                model->jointWords.resize((first + count) * 2, 0);
+                model->weights.resize((first + count) * 4, 0.f);
+                if (joints || weights)
+                    model->hasJoints = true;
+                if (joints)
+                    for (uint32_t v = 0; v < count && v < joints->count; v++)
+                    {
+                        cgltf_uint j[4] = {};
+                        cgltf_accessor_read_uint(joints, v, j, 4);
+                        model->jointWords[(first + v) * 2] = (j[0] & 0xFFFF) | ((j[1] & 0xFFFF) << 16);
+                        model->jointWords[(first + v) * 2 + 1] = (j[2] & 0xFFFF) | ((j[3] & 0xFFFF) << 16);
+                    }
+                if (weights && joints)
+                    for (uint32_t v = 0; v < count && v < joints->count; v++)
+                    {
+                        float* w = &model->weights[(first + v) * 4];
+                        if (weights->component_type == cgltf_component_type_r_8u || weights->component_type == cgltf_component_type_r_16u)
+                        {
+                            cgltf_uint raw[4] = {};
+                            cgltf_accessor_read_uint(weights, v, raw, 4);
+                            const float scale = weights->component_type == cgltf_component_type_r_8u ? 255.f : 65535.f;
+                            for (int k = 0; k < 4; k++)
+                                w[k] = float(raw[k]) / scale;
+                        }
+                        else
+                            cgltf_accessor_read_float(weights, v, w, 4);
+                    }
+                mesh.totalVertices += count;
+                geometry++;
+            }
+            model->meshes.push_back(mesh);
+        }
+
+        // The animations (GltfImporter: a sampler's interpolation from the channel of its index, as
+        // GltfImporter reads it; channels of translations, rotations and scales).
+        for (size_t a = 0; a < data->animations_count; a++)
+        {
+            const cgltf_animation& srcAnim = data->animations[a];
+            std::map<const cgltf_animation_sampler*, int> samplers;
+            for (size_t s = 0; s < srcAnim.samplers_count; s++)
+            {
+                const cgltf_animation_sampler& srcSampler = srcAnim.samplers[s];
+                AnimationSampler sampler;
+                switch (srcSampler.interpolation)
+                {
+                case cgltf_interpolation_type_linear:
+                    sampler.mode = s < srcAnim.channels_count && srcAnim.channels[s].target_path == cgltf_animation_path_type_rotation
+                        ? Interpolation::Slerp : Interpolation::Linear;
+                    break;
+                case cgltf_interpolation_type_step:
+                    sampler.mode = Interpolation::Step;
+                    break;
+                case cgltf_interpolation_type_cubic_spline:
+                    sampler.mode = Interpolation::HermiteSpline;
+                    break;
+                default:
+                    break;
+                }
+                const cgltf_accessor* times = srcSampler.input;
+                const cgltf_accessor* values = srcSampler.output;
+                for (size_t k = 0; k < times->count; k++)
+                {
+                    Keyframe keyframe;
+                    const bool timeRead = cgltf_accessor_read_float(times, k, &keyframe.time, 1);
+                    bool valueRead;
+                    if (srcSampler.interpolation == cgltf_interpolation_type_cubic_spline)
+                    {
+                        valueRead = cgltf_accessor_read_float(values, k * 3 + 0, &keyframe.inTangent.x, 4);
+                        valueRead = cgltf_accessor_read_float(values, k * 3 + 1, &keyframe.value.x, 4);
+                        valueRead = cgltf_accessor_read_float(values, k * 3 + 2, &keyframe.outTangent.x, 4);
+                    }
+                    else
+                        valueRead = cgltf_accessor_read_float(values, k, &keyframe.value.x, 4);
+                    if (timeRead && valueRead)
+                        sampler.keyframes.push_back(keyframe);
+                }
+                if (!sampler.keyframes.empty())
+                {
+                    samplers[&srcSampler] = int(model->samplers.size());
+                    model->samplers.push_back(std::move(sampler));
+                }
+            }
+            ModelAnimation animation;
+            for (size_t c = 0; c < srcAnim.channels_count; c++)
+            {
+                const cgltf_animation_channel& srcChannel = srcAnim.channels[c];
+                if (!srcChannel.target_node)
+                    continue;
+                ModelAnimation::Channel channel;
+                switch (srcChannel.target_path)
+                {
+                case cgltf_animation_path_type_translation: channel.attribute = Attribute_Translation; break;
+                case cgltf_animation_path_type_rotation: channel.attribute = Attribute_Rotation; break;
+                case cgltf_animation_path_type_scale: channel.attribute = Attribute_Scaling; break;
+                default: continue;
+                }
+                auto found = samplers.find(srcChannel.sampler);
+                if (found == samplers.end())
+                    continue;
+                channel.sampler = found->second;
+                channel.gltfNode = size_t(srcChannel.target_node - data->nodes);
+                animation.channels.push_back(channel);
+                animation.duration = std::max(animation.duration, model->samplers[size_t(found->second)].EndTime());
+            }
+            model->animations.push_back(std::move(animation));
+        }
+        return model;
+    }
+
+    // Merges a model's static data into the scene's DonutScene (LoadScene's offsets moved past the
+    // models before it).
+    void MergeModel(DonutAnimatedScene& scene, Model& model)
+    {
+        DonutScene& merged = scene.merged;
+        const DonutScene& source = model.scene;
+        const uint32_t baseBytes = uint32_t(merged.vertices.size() * 4);
+        merged.vertices.insert(merged.vertices.end(), source.vertices.begin(), source.vertices.end());
+        for (int s = 0; s < VertexStream_Count; s++)
+            model.streamBytes[s] = baseBytes + source.streamOffsets[s];
+        if (model.hasJoints)
+        {
+            model.jointBytes = uint32_t(merged.vertices.size() * 4);
+            merged.vertices.insert(merged.vertices.end(), model.jointWords.begin(), model.jointWords.end());
+            model.weightBytes = uint32_t(merged.vertices.size() * 4);
+            const size_t start = merged.vertices.size();
+            merged.vertices.resize(start + model.weights.size());
+            if (!model.weights.empty())
+                memcpy(&merged.vertices[start], model.weights.data(), model.weights.size() * sizeof(float));
+        }
+
+        model.firstIndex = uint32_t(merged.indices.size());
+        merged.indices.insert(merged.indices.end(), source.indices.begin(), source.indices.end());
+
+        model.firstTexture = uint32_t(merged.textures.size());
+        merged.textures.insert(merged.textures.end(), source.textures.begin(), source.textures.end());
+        merged.textureSrgb.insert(merged.textureSrgb.end(), source.textureSrgb.begin(), source.textureSrgb.end());
+
+        model.firstMaterial = uint32_t(merged.materials.size());
+        auto moved = [&model](int texture) { return texture >= 0 ? texture + int(model.firstTexture) : texture; };
+        for (size_t m = 0; m < source.materials.size(); m++)
+        {
+            MaterialConstants constants = source.materials[m];
+            constants.baseOrDiffuseTextureIndex = moved(constants.baseOrDiffuseTextureIndex);
+            constants.metalRoughOrSpecularTextureIndex = moved(constants.metalRoughOrSpecularTextureIndex);
+            constants.normalTextureIndex = moved(constants.normalTextureIndex);
+            constants.emissiveTextureIndex = moved(constants.emissiveTextureIndex);
+            constants.occlusionTextureIndex = moved(constants.occlusionTextureIndex);
+            constants.transmissionTextureIndex = moved(constants.transmissionTextureIndex);
+            constants.opacityTextureIndex = moved(constants.opacityTextureIndex);
+            merged.materials.push_back(constants);
+            std::array<int, MaterialTexture_Count> textures = source.materialTextures[m];
+            for (int& texture : textures)
+                texture = moved(texture);
+            merged.materialTextures.push_back(textures);
+            merged.materialDoubleSided.push_back(source.materialDoubleSided[m]);
+        }
+
+        model.firstGeometry = uint32_t(merged.geometries.size());
+        for (size_t g = 0; g < source.geometries.size(); g++)
+        {
+            GeometryData geometry = source.geometries[g];
+            geometry.indexOffset += model.firstIndex * 4;
+            geometry.positionOffset += baseBytes;
+            geometry.texCoord1Offset += baseBytes;
+            geometry.normalOffset += baseBytes;
+            geometry.tangentOffset += baseBytes;
+            geometry.materialIndex += model.firstMaterial;
+            merged.geometries.push_back(geometry);
+            merged.firstVertices.push_back(source.firstVertices[g]);
+            scene.positionWords.push_back(model.streamBytes[VertexStream_Position] / 4 + source.firstVertices[g] * 3);
+        }
+    }
+
+    int AddNode(DonutAnimatedScene& scene, int parent)
+    {
+        GraphNode node;
+        node.parent = parent;
+        scene.nodes.push_back(node);
+        return int(scene.nodes.size()) - 1;
+    }
+
+    // A skinned instance of the model's mesh: Donut's SkinnedMeshInstance, its vertices in the skinned
+    // vertex buffer (Scene::CreateMeshBuffers' ranges: positions, previous positions, normals, tangents,
+    // texture coordinates), its geometries copied (Scene::UpdateGeometry: their vertices in buffer 2).
+    void AddSkinnedInstance(DonutAnimatedScene& scene, Model& model, int modelIndex, int meshIndex, int node)
+    {
+        const ModelMesh& mesh = model.meshes[size_t(meshIndex)];
+        SkinnedInstanceInfo skinned;
+        skinned.instance = int(scene.instances.size());
+        const uint32_t vertices = mesh.totalVertices;
+        uint32_t offset = scene.skinnedVertexBytes;
+        skinned.positionBytes = offset;
+        offset += AlignTo16(vertices * 12);
+        skinned.prevPositionBytes = offset;
+        offset += AlignTo16(vertices * 12);
+        skinned.normalBytes = offset;
+        offset += AlignTo16(vertices * 4);
+        skinned.tangentBytes = offset;
+        offset += AlignTo16(vertices * 4);
+        skinned.texCoordBytes = offset;
+        offset += AlignTo16(vertices * 8);
+        scene.skinnedVertexBytes = offset;
+
+        MeshInstanceInfo instance;
+        instance.node = node;
+        instance.model = modelIndex;
+        instance.mesh = meshIndex;
+        instance.firstGeometry = uint32_t(scene.merged.geometries.size());
+        instance.geometryCount = mesh.geometryCount;
+        instance.skinned = int(scene.skinned.size());
+        for (uint32_t g = 0; g < mesh.geometryCount; g++)
+        {
+            const uint32_t prototype = model.firstGeometry + mesh.firstGeometry + g;
+            GeometryData geometry = scene.merged.geometries[prototype];
+            const uint32_t vertex = scene.merged.firstVertices[prototype] - mesh.vertexOffset;
+            geometry.vertexBufferIndex = 2;
+            geometry.positionOffset = skinned.positionBytes + vertex * 12;
+            geometry.prevPositionOffset = skinned.prevPositionBytes + vertex * 12;
+            geometry.normalOffset = skinned.normalBytes + vertex * 4;
+            geometry.tangentOffset = skinned.tangentBytes + vertex * 4;
+            geometry.texCoord1Offset = skinned.texCoordBytes + vertex * 8;
+            geometry.texCoord2Offset = ~0u;
+            geometry.curveRadiusOffset = ~0u;
+            scene.merged.geometries.push_back(geometry);
+            scene.merged.firstVertices.push_back(vertex);
+            scene.positionWords.push_back(0);
+        }
+        scene.instances.push_back(instance);
+        scene.skinned.push_back(std::move(skinned));
+    }
+
+    // The node tree of a model under parent, as GltfImporter builds it and SceneGraph::Attach copies
+    // it: the model's root (no transform), the glTF scene's nodes depth first; mesh instances numbered
+    // as the scene graph registers them (depth first), then the model's animations. Its root node.
+    int AddModel(DonutAnimatedScene& scene, int modelIndex, int parent)
+    {
+        Model& model = *scene.models[size_t(modelIndex)];
+        const cgltf_data* data = model.data.get();
+        const int root = AddNode(scene, parent);
+        std::vector<int> nodeMap(data->nodes_count, -1);
+        // The skinned instances and their glTF nodes (joints resolved once the tree is built).
+        std::vector<std::pair<int, const cgltf_node*>> skinnedNodes;
+
+        struct Item
+        {
+            const cgltf_node* node;
+            int parent;
+        };
+        std::vector<Item> stack;
+        const cgltf_scene* gltfScene = data->scene ? data->scene : data->scenes_count > 0 ? &data->scenes[0] : nullptr;
+        if (gltfScene)
+            for (size_t i = gltfScene->nodes_count; i-- > 0;)
+                stack.push_back({ gltfScene->nodes[i], root });
+        while (!stack.empty())
+        {
+            const Item item = stack.back();
+            stack.pop_back();
+            const cgltf_node& src = *item.node;
+            const int index = AddNode(scene, item.parent);
+            nodeMap[size_t(item.node - data->nodes)] = index;
+            GraphNode& node = scene.nodes[size_t(index)];
+            if (src.has_matrix)
+            {
+                const affine3 matrix = affine3(&src.matrix[0], &src.matrix[4], &src.matrix[8], &src.matrix[12]);
+                decomposeAffine(daffine3(matrix), &node.translation, &node.rotation, &node.scaling);
+                node.hasLocalTransform = true;
+            }
+            else
+            {
+                if (src.has_scale)
+                    node.scaling = double3(float3(src.scale));
+                if (src.has_rotation)
+                    node.rotation = dquat(quat::fromXYZW(src.rotation));
+                if (src.has_translation)
+                    node.translation = double3(float3(src.translation));
+                node.hasLocalTransform = src.has_scale || src.has_rotation || src.has_translation;
+            }
+            if (src.mesh)
+            {
+                const int mesh = int(src.mesh - data->meshes);
+                if (src.skin)
+                {
+                    skinnedNodes.push_back({ int(scene.skinned.size()), &src });
+                    AddSkinnedInstance(scene, model, modelIndex, mesh, index);
+                }
+                else
+                {
+                    MeshInstanceInfo instance;
+                    instance.node = index;
+                    instance.model = modelIndex;
+                    instance.mesh = mesh;
+                    instance.firstGeometry = model.firstGeometry + model.meshes[size_t(mesh)].firstGeometry;
+                    instance.geometryCount = model.meshes[size_t(mesh)].geometryCount;
+                    scene.instances.push_back(instance);
+                }
+            }
+            for (size_t i = src.children_count; i-- > 0;)
+                stack.push_back({ src.children[i], index });
+        }
+
+        for (const auto& [skinnedIndex, src] : skinnedNodes)
+        {
+            SkinnedInstanceInfo& skinned = scene.skinned[size_t(skinnedIndex)];
+            const cgltf_skin& skin = *src->skin;
+            for (size_t j = 0; j < skin.joints_count; j++)
+            {
+                float4x4 inverseBind = float4x4::identity();
+                if (skin.inverse_bind_matrices)
+                    cgltf_accessor_read_float(skin.inverse_bind_matrices, j, inverseBind.m_data, 16);
+                skinned.inverseBindMatrices.push_back(inverseBind);
+                skinned.jointNodes.push_back(nodeMap[size_t(skin.joints[j] - data->nodes)]);
+            }
+            skinned.jointMatrices.resize(skin.joints_count, float4x4::identity());
+        }
+
+        for (const ModelAnimation& source : model.animations)
+        {
+            AnimationInstance animation;
+            animation.duration = source.duration;
+            for (const ModelAnimation::Channel& channel : source.channels)
+                animation.channels.push_back({ &model.samplers[size_t(channel.sampler)], nodeMap[channel.gltfNode], channel.attribute });
+            scene.animations.push_back(std::move(animation));
+        }
+        return root;
+    }
+
+    // Scene::LoadSceneGraph: the file's nodes (a model instanced, or a node of its own) under parent,
+    // their names ignored, their translations, rotations (or Euler angles) and scalings set.
+    void AddGraphNodes(DonutAnimatedScene& scene, const JsonValue& nodeList, int parent)
+    {
+        for (const JsonValue& src : nodeList.items)
+        {
+            if (src.type != JsonValue::Object)
+                continue;
+            if (src.Find("parent"))
+                printf("WARNING: scene nodes' custom parents aren't supported, ignored\n");
+            int dst = -1;
+            const JsonValue* model = src.Find("model");
+            if (model && model->type == JsonValue::Number)
+            {
+                const int modelIndex = int(model->number);
+                if (modelIndex < 0 || modelIndex >= int(scene.models.size()) || !scene.models[size_t(modelIndex)])
+                    continue;
+                dst = AddModel(scene, modelIndex, parent);
+                // A model instanced again is SceneGraph::Attach's copy of the first instance, its
+                // root's transform included (the file's then set over it).
+                int& firstRoot = scene.models[size_t(modelIndex)]->firstRoot;
+                if (firstRoot >= 0)
+                {
+                    const GraphNode source = scene.nodes[size_t(firstRoot)];
+                    GraphNode& copy = scene.nodes[size_t(dst)];
+                    copy.hasLocalTransform = source.hasLocalTransform;
+                    copy.translation = source.translation;
+                    copy.rotation = source.rotation;
+                    copy.scaling = source.scaling;
+                }
+                else
+                    firstRoot = dst;
+            }
+            else
+                dst = AddNode(scene, parent);
+
+            GraphNode& node = scene.nodes[size_t(dst)];
+            if (const JsonValue* translation = src.Find("translation"))
+            {
+                node.translation = ReadDouble3(*translation, double3::zero());
+                node.hasLocalTransform = true;
+            }
+            if (const JsonValue* rotation = src.Find("rotation"))
+            {
+                node.rotation = dquat::fromXYZW(ReadDouble4(*rotation, double4(0.0, 0.0, 0.0, 1.0)));
+                node.hasLocalTransform = true;
+            }
+            else if (const JsonValue* euler = src.Find("euler"))
+            {
+                node.rotation = rotationQuat(ReadDouble3(*euler, double3::zero()));
+                node.hasLocalTransform = true;
+            }
+            if (const JsonValue* scaling = src.Find("scaling"))
+            {
+                node.scaling = ReadDouble3(*scaling, double3(1.0));
+                node.hasLocalTransform = true;
+            }
+            if (const JsonValue* children = src.Find("children"))
+                AddGraphNodes(scene, *children, dst);
+            if (src.Find("type"))
+                printf("WARNING: scene node leaves (lights, cameras...) aren't supported, ignored\n");
+        }
+    }
+
+    // A scene file (or a glTF file: one model), path relative to the library's folder; false (after
+    // printing why) on failure.
+    bool LoadAnimatedScene(const char* path, DonutAnimatedScene& scene)
+    {
+        const std::string relative = path;
+        const size_t dot = relative.find_last_of('.');
+        const std::string extension = dot == std::string::npos ? std::string() : relative.substr(dot);
+        if (extension == ".gltf" || extension == ".glb")
+        {
+            auto model = LoadModel(relative);
+            if (!model)
+                return false;
+            scene.models.push_back(std::move(model));
+            MergeModel(scene, *scene.models[0]);
+            AddModel(scene, 0, -1);
+            return true;
+        }
+
+        const std::string fileName = NriLibraryPath(path);
+        FILE* file = fopen(fileName.c_str(), "rb");
+        if (!file)
+        {
+            printf("ERROR: cannot open %s\n", fileName.c_str());
+            return false;
+        }
+        std::string text;
+        char buffer[4096];
+        size_t read;
+        while ((read = fread(buffer, 1, sizeof(buffer), file)) > 0)
+            text.append(buffer, read);
+        fclose(file);
+        JsonParser parser;
+        parser.p = text.c_str();
+        parser.end = parser.p + text.size();
+        JsonValue document;
+        if (!parser.Parse(document) || document.type != JsonValue::Object)
+        {
+            printf("ERROR: %s isn't a scene file\n", fileName.c_str());
+            return false;
+        }
+
+        // The models, relative to the scene file's folder; a model that can't be loaded isn't
+        // instanced (as Donut skips it).
+        const size_t slash = relative.find_last_of("/\\");
+        const std::string folder = slash == std::string::npos ? std::string() : relative.substr(0, slash + 1);
+        if (const JsonValue* models = document.Find("models"))
+            for (const JsonValue& model : models->items)
+            {
+                scene.models.push_back(model.type == JsonValue::String ? LoadModel(folder + model.string) : nullptr);
+                if (scene.models.back())
+                    MergeModel(scene, *scene.models.back());
+            }
+
+        const int root = AddNode(scene, -1);
+        if (const JsonValue* graph = document.Find("graph"))
+            AddGraphNodes(scene, *graph, root);
+        if (document.Find("animations"))
+            printf("WARNING: scene files' own animations aren't supported, ignored\n");
+        return true;
+    }
+
+    // SceneGraph::Refresh's transforms (nodes come after their parents), Scene::UpdateInstance's
+    // InstanceData, Scene::UpdateSkinnedMeshes' joint matrices.
+    void RefreshAnimatedScene(DonutAnimatedScene& scene)
+    {
+        for (GraphNode& node : scene.nodes)
+        {
+            daffine3 local = daffine3::identity();
+            if (node.hasLocalTransform)
+            {
+                local = scaling(node.scaling);
+                local *= node.rotation.toAffine();
+                local *= translation(node.translation);
+            }
+            if (node.parent >= 0)
+                node.global = node.hasLocalTransform ? local * scene.nodes[size_t(node.parent)].global : scene.nodes[size_t(node.parent)].global;
+            else
+                node.global = local;
+            node.globalFloat = affine3(node.global);
+        }
+
+        std::vector<InstanceData>& instances = scene.merged.instances;
+        const bool first = instances.size() != scene.instances.size();
+        instances.resize(scene.instances.size());
+        uint32_t firstGeometryInstance = 0;
+        for (size_t i = 0; i < scene.instances.size(); i++)
+        {
+            const MeshInstanceInfo& info = scene.instances[i];
+            InstanceData& instance = instances[i];
+            const float3x4 previous = instance.transform;
+            affineToColumnMajor(scene.nodes[size_t(info.node)].globalFloat, instance.transform);
+            instance.prevTransform = first ? instance.transform : previous;
+            instance.flags = 0;
+            instance.firstGeometryInstanceIndex = firstGeometryInstance;
+            instance.numGeometries = info.geometryCount;
+            instance.firstGeometryIndex = info.geometryCount > 0 ? info.firstGeometry : ~0u;
+            firstGeometryInstance += info.geometryCount;
+        }
+
+        for (SkinnedInstanceInfo& skinned : scene.skinned)
+        {
+            const daffine3 worldToRoot = inverse(scene.nodes[size_t(scene.instances[size_t(skinned.instance)].node)].global);
+            for (size_t j = 0; j < skinned.jointNodes.size(); j++)
+            {
+                float4x4 jointMatrix = affineToHomogeneous(affine3(scene.nodes[size_t(skinned.jointNodes[j])].global * worldToRoot));
+                jointMatrix = skinned.inverseBindMatrices[j] * jointMatrix;
+                skinned.jointMatrices[j] = jointMatrix;
+            }
+        }
+        scene.refreshed = true;
+    }
+
+    // The acceleration structures of an animated scene (Donut_CreateAnimatedSceneAccelStructs'): a
+    // static mesh's BLAS (shared by its instances), a skinned instance's, each instance's, the TLAS.
+    struct DonutAnimatedSceneAccelStructs
+    {
+        std::vector<void*> staticBlases;
+        std::vector<void*> skinnedBlases;
+        std::vector<void*> instanceBlases;
+        void* tlas = nullptr;
+    };
+
+    bool IsOpaque(const DonutScene& merged, const GeometryData& geometry)
+    {
+        return merged.materials[geometry.materialIndex].domain != MaterialDomain_AlphaTested;
+    }
+}
+
 extern "C"
 {
     // A glTF scene (path relative to the library's folder) as Donut's engine loads it; null (after
@@ -805,6 +1775,432 @@ extern "C"
         if (accelStructs->tlas)
             Nri_DestroyTopLevelAS(accelStructs->tlas);
         for (void* blas : accelStructs->blases)
+            Nri_DestroyAccelerationStructure(blas);
+        delete accelStructs;
+    }
+}
+
+namespace
+{
+    // The first node named name (depth first from the node), its global translation as Donut's
+    // SceneGraphNode::GetLocalToWorldTransformFloat has it; false if there's none.
+    bool FindNodeTranslation(const cgltf_node& node, const daffine3& parentToWorld, const char* name, float* dst)
+    {
+        const daffine3 localToWorld = LocalTransform(node) * parentToWorld;
+        if (node.name && strcmp(node.name, name) == 0)
+        {
+            const float3 translationValue = affine3(localToWorld).m_translation;
+            memcpy(dst, &translationValue, sizeof(translationValue));
+            return true;
+        }
+        for (size_t i = 0; i < node.children_count; i++)
+            if (FindNodeTranslation(*node.children[i], localToWorld, name, dst))
+                return true;
+        return false;
+    }
+}
+
+extern "C"
+{
+    // A dynamic mesh (Donut_CreateDynamicMesh, then Donut_AttachDynamicMesh) added to the scene: one
+    // geometry of maxVertices float3 positions followed by maxVertices float2 texture coordinates in
+    // bindless buffer vertexBufferIndex and maxIndices 32-bit indices in bindless buffer
+    // indexBufferIndex, its material Donut's default Material in MaterialDomain::AlphaBlended, as an
+    // instance under the scene's root (identity transform), after the scene's instances, geometries and
+    // materials (as Donut's Scene::Refresh numbers them once it's attached). Create the scene's buffers
+    // 2 to 4 after this. Returns the instance's index.
+    NRI_INTEROP_API int Nri_AddDonutSceneDynamicMesh(DonutScene* scene, int maxVertices, int maxIndices, int vertexBufferIndex,
+        int indexBufferIndex)
+    {
+        std::array<int, MaterialTexture_Count> none;
+        none.fill(-1);
+        const uint32_t materialIndex = uint32_t(scene->materials.size());
+        MaterialConstants material = ImportMaterial(nullptr, none);
+        // Material::FillConstantBuffer for AlphaBlended: the opacity as it is (1), the alpha cutoff -1
+        // (its switch falls through from the 0 it sets to -1), and the material's ID.
+        material.domain = MaterialDomain_AlphaBlended;
+        material.alphaCutoff = -1.f;
+        material.materialID = int(materialIndex);
+        scene->materials.push_back(material);
+        scene->materialTextures.push_back(none);
+        scene->materialDoubleSided.push_back(false);
+
+        // Scene::UpdateGeometry: the attributes the buffer group has (positions, texture coordinates),
+        // ~0 for the others; numIndices and numVertices as the mesh is created (full size).
+        GeometryData geometry = {};
+        geometry.numIndices = uint32_t(maxIndices);
+        geometry.numVertices = uint32_t(maxVertices);
+        geometry.indexBufferIndex = indexBufferIndex;
+        geometry.indexOffset = 0;
+        geometry.vertexBufferIndex = vertexBufferIndex;
+        geometry.positionOffset = 0;
+        geometry.prevPositionOffset = ~0u;
+        geometry.texCoord1Offset = uint32_t(size_t(maxVertices) * sizeof(float3));
+        geometry.texCoord2Offset = ~0u;
+        geometry.normalOffset = ~0u;
+        geometry.tangentOffset = ~0u;
+        geometry.curveRadiusOffset = ~0u;
+        geometry.materialIndex = materialIndex;
+        const uint32_t geometryIndex = uint32_t(scene->geometries.size());
+        scene->geometries.push_back(geometry);
+        scene->firstVertices.push_back(0);
+        scene->meshBounds.push_back(box3::empty());
+
+        InstanceData instance = {};
+        affineToColumnMajor(affine3::identity(), instance.transform);
+        affineToColumnMajor(affine3::identity(), instance.prevTransform);
+        instance.numGeometries = 1;
+        instance.firstGeometryIndex = geometryIndex;
+        uint32_t firstGeometryInstance = 0;
+        for (const InstanceData& other : scene->instances)
+            firstGeometryInstance += other.numGeometries;
+        instance.firstGeometryInstanceIndex = firstGeometryInstance;
+        scene->instances.push_back(instance);
+        return int(scene->instances.size() - 1);
+    }
+
+    // A material's base or diffuse texture (Donut_SetDynamicMeshTexture's): its bindless texture index
+    // (-1: none), the flag MaterialConstants have for it. Create the scene's buffer 4 after this.
+    NRI_INTEROP_API void Nri_SetDonutSceneMaterialBaseTexture(DonutScene* scene, int material, int textureIndex)
+    {
+        MaterialConstants& constants = scene->materials[size_t(material)];
+        constants.baseOrDiffuseTextureIndex = textureIndex;
+        if (textureIndex >= 0)
+            constants.flags |= MaterialFlags_UseBaseOrDiffuseTexture;
+        else
+            constants.flags &= ~MaterialFlags_UseBaseOrDiffuseTexture;
+        scene->materialTextures[size_t(material)][MaterialTexture_BaseOrDiffuse] = textureIndex;
+    }
+
+    // The BLAS Nri_BuildDonutSceneAccelStructs built for an instance's mesh (the instances of a mesh
+    // share it), for TLASes the example builds itself; null for an instance it didn't build one for
+    // (no geometries, or added after the structures were built).
+    NRI_INTEROP_API void* Nri_GetDonutSceneInstanceBlas(DonutScene* scene, DonutSceneAccelStructs* accelStructs, int instance)
+    {
+        // The BLASes in the order Nri_BuildDonutSceneAccelStructsWithHitGroupStride made them: a mesh's
+        // at its first instance.
+        std::map<uint32_t, size_t> meshBlases;
+        for (size_t i = 0; i < scene->instances.size(); i++)
+        {
+            const InstanceData& data = scene->instances[i];
+            if (data.numGeometries == 0)
+                continue;
+            if (!meshBlases.count(data.firstGeometryIndex))
+            {
+                const size_t next = meshBlases.size();
+                meshBlases[data.firstGeometryIndex] = next;
+            }
+            if (int(i) == instance)
+            {
+                const size_t blas = meshBlases[data.firstGeometryIndex];
+                return blas < accelStructs->blases.size() ? accelStructs->blases[blas] : nullptr;
+            }
+        }
+        return nullptr;
+    }
+
+    // An instance's transform (its InstanceData's: affineToColumnMajor's float3x4, 12 floats into dst),
+    // as Donut_AddSceneTopLevelASInstances gives the TLAS.
+    NRI_INTEROP_API void Nri_GetDonutSceneInstanceTransform(DonutScene* scene, int instance, float* dst)
+    {
+        memcpy(dst, &scene->instances[size_t(instance)].transform, sizeof(float) * 12);
+    }
+
+    // The world-space position of a glTF file's node (path relative to the library's folder; nodePath
+    // like "/Emitter": its last name), as Donut_GetSceneNodePosition gives it: 3 floats into dst. 0 if
+    // the file can't be read or has no such node.
+    NRI_INTEROP_API int Nri_GetDonutSceneNodePosition(const char* path, const char* nodePath, float* dst)
+    {
+        const std::string fileName = NriLibraryPath(path);
+        cgltf_options options{};
+        cgltf_data* data = nullptr;
+        if (cgltf_parse_file(&options, fileName.c_str(), &data) != cgltf_result_success)
+        {
+            if (data)
+                cgltf_free(data);
+            return 0;
+        }
+        std::unique_ptr<cgltf_data, void (*)(cgltf_data*)> owner(data, cgltf_free);
+        const char* slash = strrchr(nodePath, '/');
+        const char* name = slash ? slash + 1 : nodePath;
+        const cgltf_scene* root = data->scene ? data->scene : data->scenes_count > 0 ? &data->scenes[0] : nullptr;
+        if (root)
+            for (size_t i = 0; i < root->nodes_count; i++)
+                if (FindNodeTranslation(*root->nodes[i], daffine3::identity(), name, dst))
+                    return 1;
+        return 0;
+    }
+}
+
+extern "C"
+{
+    NRI_INTEROP_API void Nri_DestroyDonutAnimatedSceneAccelStructs(DonutAnimatedSceneAccelStructs* accelStructs);
+
+    // A scene file (Donut's .scene.json: models instanced by a node graph, as Scene::Load loads it) or
+    // a glTF file, path relative to the library's folder, with its skins and animations; null (after
+    // printing why) on failure. Destroyed with Nri_DestroyDonutAnimatedScene. Its transforms are the
+    // file's until Nri_RefreshDonutAnimatedScene.
+    NRI_INTEROP_API DonutAnimatedScene* Nri_LoadDonutAnimatedScene(const char* path)
+    {
+        auto scene = std::make_unique<DonutAnimatedScene>();
+        if (!LoadAnimatedScene(path, *scene))
+            return nullptr;
+        RefreshAnimatedScene(*scene);
+        return scene.release();
+    }
+
+    NRI_INTEROP_API void Nri_DestroyDonutAnimatedScene(DonutAnimatedScene* scene)
+    {
+        delete scene;
+    }
+
+    // Its static data as a Donut scene (an NriDonutSceneHandle, valid as long as the animated scene):
+    // for Nri_CreateDonutSceneBuffer (0 the vertices and the joint indices and weights, 1 the indices,
+    // 3 the GeometryData, skinned copies included, 4 the MaterialConstants) and its textures; its
+    // InstanceData change with the animations (Nri_WriteDonutAnimatedSceneInstances).
+    NRI_INTEROP_API DonutScene* Nri_GetDonutAnimatedSceneScene(DonutAnimatedScene* scene)
+    {
+        return &scene->merged;
+    }
+
+    // The animations (SceneGraph::GetAnimations' order: the scene graph's), each's duration in seconds.
+    NRI_INTEROP_API int Nri_GetDonutAnimationCount(DonutAnimatedScene* scene)
+    {
+        return int(scene->animations.size());
+    }
+
+    NRI_INTEROP_API double Nri_GetDonutAnimationDuration(DonutAnimatedScene* scene, int index)
+    {
+        return double(scene->animations[size_t(index)].duration);
+    }
+
+    // Poses the animation's nodes at time seconds into it (SceneGraphAnimation::Apply(float(time))).
+    NRI_INTEROP_API void Nri_ApplyDonutAnimation(DonutAnimatedScene* scene, int index, double time)
+    {
+        for (const AnimationInstance::Channel& channel : scene->animations[size_t(index)].channels)
+        {
+            float4 value;
+            if (channel.node < 0 || !channel.sampler->Evaluate(float(time), value))
+                continue;
+            GraphNode& node = scene->nodes[size_t(channel.node)];
+            switch (channel.attribute)
+            {
+            case Attribute_Scaling:
+                node.scaling = double3(value.xyz());
+                break;
+            case Attribute_Rotation: {
+                dquat rotation = dquat::fromXYZW(double4(value));
+                const double len = length(rotation);
+                if (len == 0.0)
+                    continue;
+                rotation /= len;
+                node.rotation = rotation;
+                break;
+            }
+            case Attribute_Translation:
+                node.translation = double3(value.xyz());
+                break;
+            }
+            node.hasLocalTransform = true;
+        }
+    }
+
+    // After animations: the nodes' transforms, the instances' InstanceData, the skinned instances'
+    // joint matrices (Scene::Refresh's).
+    NRI_INTEROP_API void Nri_RefreshDonutAnimatedScene(DonutAnimatedScene* scene)
+    {
+        RefreshAnimatedScene(*scene);
+    }
+
+    // The InstanceData (bindless.h's) of the instances, in instance order: their size in bytes, and
+    // written into buffer (a host buffer) at offset.
+    NRI_INTEROP_API int Nri_GetDonutAnimatedSceneInstanceDataSize(DonutAnimatedScene* scene)
+    {
+        return int(scene->merged.instances.size() * sizeof(InstanceData));
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutAnimatedSceneInstanceDataStride(DonutAnimatedScene*)
+    {
+        return int(sizeof(InstanceData));
+    }
+
+    NRI_INTEROP_API void Nri_WriteDonutAnimatedSceneInstances(DonutAnimatedScene* scene, void* buffer, int offset)
+    {
+        Nri_WriteBuffer(buffer, offset, scene->merged.instances.data(), int(scene->merged.instances.size() * sizeof(InstanceData)));
+    }
+
+    // The skinned instances (SceneGraph::GetSkinnedMeshInstances' order), each's joint count, its joint
+    // matrices (float4x4 each, the skinning shader's t1) written into buffer (a host buffer) at offset.
+    NRI_INTEROP_API int Nri_GetDonutSkinnedInstanceCount(DonutAnimatedScene* scene)
+    {
+        return int(scene->skinned.size());
+    }
+
+    NRI_INTEROP_API int Nri_GetDonutSkinnedJointCount(DonutAnimatedScene* scene, int skinned)
+    {
+        return int(scene->skinned[size_t(skinned)].jointMatrices.size());
+    }
+
+    // The skinned instance's vertex count (its prototype mesh's: SkinningConstants::numVertices).
+    NRI_INTEROP_API int Nri_GetDonutSkinnedVertexCount(DonutAnimatedScene* scene, int skinned)
+    {
+        const MeshInstanceInfo& instance = scene->instances[size_t(scene->skinned[size_t(skinned)].instance)];
+        return int(scene->models[size_t(instance.model)]->meshes[size_t(instance.mesh)].totalVertices);
+    }
+
+    NRI_INTEROP_API void Nri_WriteDonutSkinnedJoints(DonutAnimatedScene* scene, int skinned, void* buffer, int offset)
+    {
+        const std::vector<float4x4>& joints = scene->skinned[size_t(skinned)].jointMatrices;
+        Nri_WriteBuffer(buffer, offset, joints.data(), int(joints.size() * sizeof(float4x4)));
+    }
+
+    // The skinned instance's SkinningConstants (skinning_cb.h: 15 uints) into dst, as
+    // Scene::UpdateSkinnedMeshes sets them: its prototype mesh's vertices in bindless buffer 0 (normals,
+    // tangents and first texture coordinates: GltfImporter's buffers always have them), its own in the
+    // skinned vertex buffer; SkinningFlag_FirstFrame the first time only. Dispatch numVertices / 256
+    // groups (rounded up).
+    NRI_INTEROP_API void Nri_GetDonutSkinningConstants(DonutAnimatedScene* scene, int skinnedIndex, uint32_t* dst)
+    {
+        SkinnedInstanceInfo& skinned = scene->skinned[size_t(skinnedIndex)];
+        const MeshInstanceInfo& instance = scene->instances[size_t(skinned.instance)];
+        const Model& model = *scene->models[size_t(instance.model)];
+        const ModelMesh& mesh = model.meshes[size_t(instance.mesh)];
+        const uint32_t vertexOffset = mesh.vertexOffset;
+        // SkinningFlag_Normals | _Tangents | _TexCoord1, and _FirstFrame.
+        uint32_t flags = 0x02 | 0x04 | 0x08;
+        if (!skinned.initialized)
+            flags |= 0x01;
+        skinned.initialized = true;
+        const uint32_t constants[15] = {
+            mesh.totalVertices,
+            flags,
+            model.streamBytes[VertexStream_Position] + vertexOffset * 12,
+            model.streamBytes[VertexStream_Normal] + vertexOffset * 4,
+            model.streamBytes[VertexStream_Tangent] + vertexOffset * 4,
+            model.streamBytes[VertexStream_TexCoord] + vertexOffset * 8,
+            vertexOffset * 8,
+            model.jointBytes + vertexOffset * 8,
+            model.weightBytes + vertexOffset * 16,
+            skinned.positionBytes,
+            skinned.prevPositionBytes,
+            skinned.normalBytes,
+            skinned.tangentBytes,
+            skinned.texCoordBytes,
+            0,
+        };
+        memcpy(dst, constants, sizeof(constants));
+    }
+
+    // The skinned vertex buffer's size in bytes (all the skinned instances' vertices, bindless buffer
+    // 2: Nri_CreateAccelerationStructureInputStorageBuffer, stride 4); 0 without skinned instances.
+    NRI_INTEROP_API int Nri_GetDonutSkinnedVertexBufferSize(DonutAnimatedScene* scene)
+    {
+        return int(scene->skinnedVertexBytes);
+    }
+
+    // As Donut_CreateAnimatedSceneAccelStructs: a BLAS per static mesh (built on the queue, which this
+    // waits for: PreferFastTrace | AllowCompaction, alpha-tested geometries non-opaque), one per skinned
+    // instance (built by Nri_CmdBuildDonutAnimatedSceneAccelStructs), a TLAS of the instances whose
+    // instances go to one of bufferNum buffers a frame (the frames in flight); null on failure.
+    NRI_INTEROP_API DonutAnimatedSceneAccelStructs* Nri_CreateDonutAnimatedSceneAccelStructs(void* device, void* queue,
+        DonutAnimatedScene* scene, int bufferNum)
+    {
+        auto* accelStructs = new DonutAnimatedSceneAccelStructs();
+        const DonutScene& merged = scene->merged;
+        std::map<std::pair<int, int>, void*> meshBlases;
+        for (const MeshInstanceInfo& instance : scene->instances)
+        {
+            void* accelerationStructure = nullptr;
+            if (instance.skinned >= 0)
+            {
+                const SkinnedInstanceInfo& skinned = scene->skinned[size_t(instance.skinned)];
+                void* blas = Nri_CreateBufferBlas(BLAS_PREFER_FAST_TRACE);
+                for (uint32_t g = instance.firstGeometry; g < instance.firstGeometry + instance.geometryCount; g++)
+                {
+                    const GeometryData& geometry = merged.geometries[g];
+                    Nri_BufferBlasAddTriangles(blas, int(skinned.positionBytes + merged.firstVertices[g] * 12), int(geometry.numVertices),
+                        merged.indices.data() + geometry.indexOffset / 4, int(geometry.numIndices), IsOpaque(merged, geometry) ? 1 : 0);
+                }
+                accelStructs->skinnedBlases.push_back(blas);
+                if (!Nri_BufferBlasCreate(device, blas))
+                {
+                    Nri_DestroyDonutAnimatedSceneAccelStructs(accelStructs);
+                    return nullptr;
+                }
+                accelerationStructure = Nri_GetBufferBlasAccelerationStructure(blas);
+            }
+            else
+            {
+                const std::pair<int, int> key(instance.model, instance.mesh);
+                auto found = meshBlases.find(key);
+                if (found == meshBlases.end())
+                {
+                    void* desc = Nri_CreateBlasDesc();
+                    const float* vertices = (const float*)merged.vertices.data();
+                    for (uint32_t g = instance.firstGeometry; g < instance.firstGeometry + instance.geometryCount; g++)
+                    {
+                        const GeometryData& geometry = merged.geometries[g];
+                        Nri_BlasDescAddTriangles(desc, vertices + scene->positionWords[g], int(geometry.numVertices),
+                            merged.indices.data() + geometry.indexOffset / 4, int(geometry.numIndices));
+                        Nri_BlasDescSetOpaque(desc, IsOpaque(merged, geometry) ? 1 : 0);
+                    }
+                    void* blas = Nri_BuildBlasFromDesc(device, queue, desc, BLAS_PREFER_FAST_TRACE | BLAS_ALLOW_COMPACTION);
+                    Nri_DestroyBlasDesc(desc);
+                    if (!blas)
+                    {
+                        Nri_DestroyDonutAnimatedSceneAccelStructs(accelStructs);
+                        return nullptr;
+                    }
+                    accelStructs->staticBlases.push_back(blas);
+                    found = meshBlases.emplace(key, blas).first;
+                }
+                accelerationStructure = found->second;
+            }
+            accelStructs->instanceBlases.push_back(accelerationStructure);
+        }
+        accelStructs->tlas = Nri_CreateTopLevelAS(device, int(scene->instances.size()), 0, bufferNum);
+        if (!accelStructs->tlas)
+        {
+            Nri_DestroyDonutAnimatedSceneAccelStructs(accelStructs);
+            return nullptr;
+        }
+        return accelStructs;
+    }
+
+    // The TLAS (an NriTopLevelASHandle), valid as long as the structures.
+    NRI_INTEROP_API void* Nri_GetDonutAnimatedSceneTopLevelAS(DonutAnimatedSceneAccelStructs* accelStructs)
+    {
+        return accelStructs->tlas;
+    }
+
+    // As Donut_UpdateSceneAccelStructs, into the command buffer: with rebuildSkinned, the skinned
+    // instances' BLASes built from skinnedVertexBuffer (skinned this frame, in NriBufferState
+    // AccelerationStructureInput); the TLAS built from the instances' current transforms (instance IDs
+    // the instance indices, mask 1, hit group offset 0), its instances in buffer bufferIndex.
+    NRI_INTEROP_API void Nri_CmdBuildDonutAnimatedSceneAccelStructs(void* commandBuffer, DonutAnimatedSceneAccelStructs* accelStructs,
+        DonutAnimatedScene* scene, void* skinnedVertexBuffer, int bufferIndex, int rebuildSkinned)
+    {
+        if (rebuildSkinned && skinnedVertexBuffer)
+            for (void* blas : accelStructs->skinnedBlases)
+                Nri_CmdBuildBufferBlas(commandBuffer, blas, skinnedVertexBuffer);
+        Nri_TopLevelASClearInstances(accelStructs->tlas);
+        for (size_t i = 0; i < scene->merged.instances.size(); i++)
+        {
+            // affineToColumnMajor's float3x4, as NVRHI's AffineTransform takes it.
+            float transform[12];
+            memcpy(transform, &scene->merged.instances[i].transform, sizeof(transform));
+            Nri_TopLevelASAddInstance(accelStructs->tlas, accelStructs->instanceBlases[i], transform, int(i), 1, 0, 0);
+        }
+        Nri_CmdBuildTopLevelAS(commandBuffer, accelStructs->tlas, bufferIndex, 0);
+    }
+
+    NRI_INTEROP_API void Nri_DestroyDonutAnimatedSceneAccelStructs(DonutAnimatedSceneAccelStructs* accelStructs)
+    {
+        if (accelStructs->tlas)
+            Nri_DestroyTopLevelAS(accelStructs->tlas);
+        for (void* blas : accelStructs->skinnedBlases)
+            Nri_DestroyBufferBlas(blas);
+        for (void* blas : accelStructs->staticBlases)
             Nri_DestroyAccelerationStructure(blas);
         delete accelStructs;
     }

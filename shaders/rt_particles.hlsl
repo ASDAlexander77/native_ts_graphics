@@ -40,7 +40,7 @@ VK_BINDING(1, 1) Texture2D t_BindlessTextures[] : register(t0, space2);
 
 ConstantBuffer<GlobalConstants> g_Const : register(b0);
 
-RWTexture2D<float4> u_Output : register(u0);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> u_Output : register(u0);
 
 RaytracingAccelerationStructure SceneBVH : register(t0);
 StructuredBuffer<InstanceData> t_InstanceData : register(t1);
