@@ -84,6 +84,7 @@ NRI's headers. Examples using something NRI lacks are excluded.
 | ray_tracing_reflection_nri | nothing new: instances without face culling (`TopLevelInstanceBits::TRIANGLE_CULL_DISABLE`) |
 | ray_queries_nri | inline ray tracing (`NriFeature.RayQuery`): a TLAS in a pixel shader's descriptor set |
 | mobile_nerf_rayquery_nri | nothing new beyond `NriFeature.RayQuery` |
+| rt_reflections_nri | its own shader (shaders/rt_reflections_nri.hlsl) in place of local root signatures; scene acceleration structures with a hit group stride (`Nri_BuildDonutSceneAccelStructsWithHitGroupStride`), `Nri_GetDonutSceneGeometryCount`, the scene's buffers for typed views, RGBA8_SNORM typed views, pools with acceleration structures and typed buffers |
 
 ## Tier 1: constant buffers and more descriptor types
 
@@ -207,8 +208,8 @@ completes tier 4; tier 5 (ray tracing) is next.
 ## Tier 5: ray tracing (NRIRayTracing.h)
 
 The order was rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
-ray_queries; all but rt_reflections (see below) are done, with ray_tracing_reflection and
-mobile_nerf_rayquery. After that come the scene-heavy ray-traced examples.
+ray_queries; all are done (rt_reflections with its own shader, see below), with
+ray_tracing_reflection and mobile_nerf_rayquery. After that come the scene-heavy ray-traced examples.
 
 First: rt_triangle_nri, on D3D12 and Vulkan (D3D11 has no ray tracing: skipped), its frames the Donut
 example's pixel for pixel. The interop gets NRI's ray tracing interface (`NriFeature.RayTracing`):
@@ -257,10 +258,24 @@ which D3D12 and Vulkan both run no shader for. The G-buffer goes to the rays as
 rt_shadows.hlsl's output says it's rgba16f on Vulkan, as the G-buffer targets' shaded color is in
 both examples.
 
-rt_reflections comes later, if at all: its reflection hit group reads each geometry's buffers and
-textures through a local binding set (a D3D12 local root signature, which is why the Donut example
-is D3D12 only), and NRI's shader tables hold shader identifiers alone. A port would need its own
-shader, finding the geometry's resources in bindless arrays by its instance and geometry index.
+rt_reflections_nri has a shader of its own. The Donut example's reflection hit group reads each
+geometry's buffers and textures through a local binding set (a D3D12 local root signature, which is
+why the Donut example is D3D12 only), and NRI's shader tables hold shader identifiers alone.
+shaders/rt_reflections_nri.hlsl is rt_reflections.hlsl with the closest-hit shader finding those
+resources itself: the TLAS's instance IDs are their meshes' first global geometry index
+(`Nri_BuildDonutSceneAccelStructsWithHitGroupStride`, which also sets Donut's hit group offsets), so
+InstanceID() + GeometryIndex() picks the geometry's GeometryData, whose offsets index typed views of
+the whole index and vertex buffers (the formats of the Donut example's per-geometry views; the
+texture coordinates as pairs of R32 floats, since their stream follows the positions and isn't always
+8-byte aligned) and whose material's MaterialConstants give its textures' numbers in the scene's
+texture array (space 1). Its D3D12 frame equals a Donut run's: Donut's runs differ from each other at
+one or two pixels (its draw order follows the materials' addresses). It also runs on Vulkan, where
+there's no Donut frame to compare with: it differs from the D3D12 frame along texture detail by about
+as much as Donut's rt_shadows differs between the two APIs, scaled by this example's brighter
+ambient. The Donut example's forward pass of the transparent meshes is left out: Sponza has none.
+Typed views need buffers without a structure stride: NRI's Vulkan buffers with one get no texel
+buffer usage (`Nri_CreateDonutSceneBuffer` 7 and 8), which only Vulkan's validation (`-debug`, as
+CTest runs) reports, while the views read wrong values.
 
 Fourth batch, four examples, each pixel for pixel the Donut example's on D3D12 and Vulkan:
 raytracing_simple_lighting_nri and ray_tracing_reflection_nri (ray tracing pipelines whose closest

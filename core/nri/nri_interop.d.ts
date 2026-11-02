@@ -152,6 +152,8 @@ enum NriFormat {
     BGRA8_SRGB = 10,
     RGBA8_UNORM = 11,
     RGBA8_SRGB = 12,
+    // rt_reflections_nri's scene normals (snorm8, read as Buffer<float4>)
+    RGBA8_SNORM = 13,
     // logic_op_dynamic_state_nri's color attachment on D3D (logic operations on UINT targets)
     RGBA8_UINT = 14,
     R32_UINT = 31,
@@ -1165,7 +1167,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // ByteAddressBuffer: 4-byte structures; bindless buffers 0 and 1), 2 the InstanceData, 3 the
 // GeometryData, 4 the MaterialConstants (StructuredBuffer), uploaded on the queue; 5 the indices as an
 // index buffer (32-bit); 6 the InstanceData as a ByteAddressBuffer (D3D11's shaders read them so);
-// null on failure.
+// 7 the vertices and 8 the indices without a structure stride, for typed views (Nri_CreateTypedBufferView:
+// Vulkan's texel buffers); null on failure.
 @nodrops declare function Nri_CreateDonutSceneBuffer(device: NriDeviceHandle, queue: NriQueueHandle, scene: NriDonutSceneHandle,
     which: int): NriBufferHandle | null;
 // The materials' MaterialConstants in a host constant buffer, material m's at m * 256 (a constant
@@ -1191,6 +1194,8 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_GetDonutSceneStreamOffset(scene: NriDonutSceneHandle, stream: int): int;
 // The mesh instances (each's InstanceData index its number), their geometries, each geometry's
 // index count: a draw each.
+// The meshes' geometries (the GeometryData buffer's entries), in global geometry order.
+@nodrops declare function Nri_GetDonutSceneGeometryCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneInstanceCount(scene: NriDonutSceneHandle): int;
 @nodrops declare function Nri_GetDonutSceneInstanceGeometryCount(scene: NriDonutSceneHandle, instance: int): int;
 @nodrops declare function Nri_GetDonutSceneGeometryIndexCount(scene: NriDonutSceneHandle, instance: int, geometry: int): int;
@@ -1379,6 +1384,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructures(device: NriDeviceHandle, setMaxNum: int, samplerMaxNum: int,
     constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
     accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
+// As Nri_CreateDescriptorPoolWithAccelerationStructures, with room for bufferMaxNum typed buffers (Buffer<T>)
+// too.
+@nodrops declare function Nri_CreateDescriptorPoolWithAccelerationStructuresAndTypedBuffers(device: NriDeviceHandle, setMaxNum: int,
+    samplerMaxNum: int, constantBufferMaxNum: int, textureMaxNum: int, storageTextureMaxNum: int, structuredBufferMaxNum: int,
+    bufferMaxNum: int, accelerationStructureMaxNum: int): NriDescriptorPoolHandle | null;
 // A ray tracing pipeline of the library read from path (a .cfg's "-T lib" line, one blob), whose
 // shader groups are the ray generation shader raygen, the miss shader miss and the hit group of the
 // closest hit shader closestHit. Rays carry payloadSize bytes, hits attributeSize bytes; no recursion.
@@ -1454,5 +1464,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // ID and hit group offset 0, no flags), built on the queue (which this waits for); null on failure.
 @nodrops declare function Nri_BuildDonutSceneAccelStructs(device: NriDeviceHandle, queue: NriQueueHandle,
     scene: NriDonutSceneHandle): NriDonutSceneAccelStructsHandle | null;
+// As Nri_BuildDonutSceneAccelStructs, for shader tables with hitGroupStride entries per geometry (in
+// global geometry order, as Donut_BuildSceneAccelStructsWithHitGroupStride): an instance's hit group
+// offset and instance ID are its mesh's first geometry index, the offset times hitGroupStride; in
+// shaders InstanceID() + GeometryIndex() is the hit geometry's (its GeometryData's index).
+@nodrops declare function Nri_BuildDonutSceneAccelStructsWithHitGroupStride(device: NriDeviceHandle, queue: NriQueueHandle,
+    scene: NriDonutSceneHandle, hitGroupStride: int): NriDonutSceneAccelStructsHandle | null;
 @nodrops declare function Nri_GetDonutSceneTopLevelAS(accelStructs: NriDonutSceneAccelStructsHandle): NriTopLevelASHandle;
 @nodrops declare function Nri_DestroyDonutSceneAccelStructs(accelStructs: NriDonutSceneAccelStructsHandle): void;

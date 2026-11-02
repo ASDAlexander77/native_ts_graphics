@@ -4286,6 +4286,26 @@ donut_compile_shaders(
 add_tslang_example(rt_reflections core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(rt_reflections)
 
+# rt_reflections with NRI and NRIFramework instead of Donut. NRI's shader tables hold shader identifiers
+# alone (no local root signatures), so its shader library is its own: shaders/rt_reflections_nri.hlsl, whose
+# reflection closest-hit shader finds the hit geometry's resources in the scene's buffers and texture array;
+# D3D12 or Vulkan. Donut's G-buffer fill and blit shaders (shaders/framework), the scene loaded as Donut
+# loads it (core/nri/nri_donut_scene.cpp).
+donut_compile_shaders(
+    TARGET rt_reflections_nri_shaders
+    PROJECT_NAME "Ray Traced Reflections (NRI)"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections_nri.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rt_reflections_nri.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections_nri/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections_nri/spirv
+)
+add_tslang_nri_example(rt_reflections_nri SHADERS rt_reflections_nri_shaders core/matrix.ts core/donut_first_person_camera.ts
+    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+add_tslang_example_test(rt_reflections_nri)
+if (TARGET donut_shaders AND TARGET rt_reflections_nri)
+    add_dependencies(rt_reflections_nri donut_shaders)
+endif()
+
 # Port of Donut-Samples' rt_particles: ray query rendering of billboard and intersection
 # particles with multi-layer alpha blending (see DONUT_SAMPLES_MEDIA_DIR above), with an ImGui
 # settings window. D3D12 or Vulkan.
