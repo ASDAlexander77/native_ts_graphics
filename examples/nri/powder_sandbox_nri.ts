@@ -223,6 +223,11 @@ namespace PowderSandboxNri {
         scene: int = 0;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
+        // Time the simulation hasn't stepped through yet (under a step). It steps in fixed steps of
+        // 1 / (60 substeps) s, whatever the frame rate: the pressure each step starts from is the
+        // last step's (in units of dt), so a dt that changes from frame to frame (frame times can
+        // alternate 0.5 / 13 ms) kicks the water apart.
+        private pendingTime: number = 0.0;
         iterations: int = DEFAULT_ITERATIONS;
         // -testFrames N: the test's length instead of TEST_FRAMES.
         testFrames: int = TEST_FRAMES;
@@ -691,7 +696,8 @@ namespace PowderSandboxNri {
             this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
         }
 
-        recordSimulation(commandBuffer: NriCommandBufferHandle, brushMode: int) {
+        // steps: the simulation's fixed steps this frame (0 when the frame took less than one).
+        recordSimulation(commandBuffer: NriCommandBufferHandle, brushMode: int, steps: int) {
             const computeLayout = this.computeLayout;
             if (!computeLayout) {
                 return;
@@ -718,8 +724,8 @@ namespace PowderSandboxNri {
                 this.setInt(15, stroke.emit);
             }
 
-            if (this.paused) {
-                // Painting still works: the counts, then the brush.
+            if (this.paused || (steps == 0 && brushMode != 0)) {
+                // Painting still works (paused, or between steps): the counts, then the brush.
                 this.setInt(7, 0);
                 this.setInt(9, brushMode);
                 this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
@@ -727,7 +733,7 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
                 return;
             }
-            for (let s = 0; s < this.substeps; s++) {
+            for (let s = 0; s < steps; s++) {
                 this.setInt(7, s);
                 this.setInt(9, s == 0 ? brushMode : 0);
                 this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
@@ -867,7 +873,7 @@ namespace PowderSandboxNri {
             this.resizeIfNeeded();
             this.frameIndex = frameIndex;
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
-            const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 1.0 / 30.0);
+            const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 0.25);
             this.time += frameTime;
             this.fpsFrames++;
             this.fpsTime += Nri_GetFrameTime(this.sample);
@@ -885,8 +891,23 @@ namespace PowderSandboxNri {
                 this.probe[0] = CAPACITY;
             }
 
+            // The steps this frame's time covers; after a long frame (over two frames at 60 Hz) the
+            // simulation falls behind rather than taking ever more steps.
+            const step = 1.0 / (60.0 * this.substeps);
+            let steps = this.substeps;
+            if (!this.test) {
+                this.pendingTime += frameTime;
+                steps = Math.floor(this.pendingTime / step);
+                if (steps > 2 * this.substeps) {
+                    steps = 2 * this.substeps;
+                    this.pendingTime = 0.0;
+                } else {
+                    this.pendingTime -= steps * step;
+                }
+            }
+
             const brushMode = this.test ? 0 : this.handleInput();
-            this.fillConstants(frameTime / this.substeps);
+            this.fillConstants(step);
             if (this.imgui) {
                 this.buildUI();
             }
@@ -901,7 +922,7 @@ namespace PowderSandboxNri {
                 // Record: the simulation's steps, the readout, then the grid drawn and the toolbar
                 // over it.
                 Nri_BeginCommandBuffer(commandBuffer);
-                this.recordSimulation(commandBuffer, brushMode);
+                this.recordSimulation(commandBuffer, brushMode, steps);
                 this.dispatch(commandBuffer, PROBE, 1, 0);
                 const alloc = this.buffers[4];
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
