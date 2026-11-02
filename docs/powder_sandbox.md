@@ -73,13 +73,30 @@ What players build is worth keeping, and on a phone a mistaken stroke is easy.
 - **Test**: `-utube -roundTrip` clears the U-tube halfway (without repainting) and undoes it, then
   saves, clears and loads; if either restore failed the U-tube would end empty.
 
-### 3. Real-phone pass
+### 3. Real-phone pass (in progress)
 
-So far only the emulator and the desktop have run it.
+Run so far on two phones:
 
-- Run the arm64 APK on a phone; check frame rate with the fixed step (a 30 fps phone now runs 6
-  steps a frame) and add an automatic substep reduction if it can't keep up.
-- DPI-scaled font and tiles; re-fit the layout on rotation.
+- **Galaxy S23 Ultra** (Adreno 740, Vulkan 1.3, Android 16): all four tests pass (U-tube, showcase,
+  lava, round trip); interactive at 120 fps (its display's rate) with the showcase's ~35,000
+  particles; touch picks tiles and paints. Two fixes came out of it:
+  - Adreno's compiler fails on `OpCopyLogical`, which DXC emits for a whole-struct load or store
+    of a structured buffer (`u_Particles[i] = p`); particles are now read and written member by
+    member (`loadParticle`, `storeParticle`). The SPIR-V was valid (spirv-val, Vulkan 1.3).
+  - The HUD wraps onto more lines where the window is narrow (it was cut off in portrait).
+- **Galaxy S21 Ultra** (Exynos 2100, Mali-G78): its driver is Vulkan 1.1 with no dynamic
+  rendering, synchronization2 or extended dynamic state, all of which NRI requires: NRI can't
+  create a device. Phones like it are out of reach unless NRI's Vulkan backend gets fallbacks for
+  those (render passes, the older barriers, static pipeline state).
+- Testing on a phone needs its screen on and unlocked (Developer options > Stay awake): a dozing
+  phone destroys the window, and the tests then fail with no particles. A Family Link supervised
+  phone suspends a newly installed APK.
+
+Still to do:
+
+- Rotation: the window is resizable, but the layout hasn't been tried turning a phone.
+- Frame rate on a slower phone, and an automatic substep reduction if it can't keep up (a 30 fps
+  phone runs 6 steps a frame).
 - Tap-and-hold to read a cell (touch has no hover); pinch to zoom and two-finger pan.
 
 ### 4. More materials

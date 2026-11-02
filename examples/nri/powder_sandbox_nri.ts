@@ -1117,8 +1117,9 @@ namespace PowderSandboxNri {
 
             // Particles in use, the brush, the view; the cell under the pointer.
             const used = CAPACITY - this.probe[0];
-            Nri_ImguiDrawText(8.0, 6.0, `${formatFixed(this.frameRate, 0)} fps   particles ${used} / ${CAPACITY}   brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}   view: ${VIEW_NAMES[this.overlay]}${this.paused ? "   PAUSED" : ""}`,
-                1.0, 1.0, 1.0, 1.0, 0);
+            let y = this.drawWrapped([`${formatFixed(this.frameRate, 0)} fps`, `particles ${used} / ${CAPACITY}`,
+                `brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}`, `view: ${VIEW_NAMES[this.overlay]}`,
+                this.paused ? "PAUSED" : ""], 6.0, labelHeight, 1.0);
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
             if (cell < WALL) {
@@ -1134,12 +1135,32 @@ namespace PowderSandboxNri {
                     contents = "air";
                 }
             }
-            Nri_ImguiDrawText(8.0, 6.0 + labelHeight, `${formatFixed(this.probeFloats[1], 1)} C   pressure ${formatFixed(this.probeFloats[2], 2)}   ${contents}`,
-                0.85, 0.85, 0.85, 1.0, 0);
+            y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents],
+                y, labelHeight, 0.85);
             if (this.messageTime > 0.0) {
-                Nri_ImguiDrawText(8.0, 6.0 + 2.0 * labelHeight, this.message, 1.0, 0.9, 0.4, 1.0, 0);
+                Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
             }
             Nri_ImguiRender(this.sample);
+        }
+
+        // The HUD's parts (empty ones left out) on a line from y, three spaces apart, wrapped onto
+        // more lines where the window is too narrow (a phone held upright); the y under them.
+        drawWrapped(parts: string[], y: number, lineHeight: number, gray: number): number {
+            const gap = Nri_ImguiCalcTextWidth("   ");
+            let x = 8.0;
+            for (const part of parts) {
+                if (part == "") {
+                    continue;
+                }
+                const width = Nri_ImguiCalcTextWidth(part);
+                if (x > 8.0 && x + width > this.width - 8.0) {
+                    x = 8.0;
+                    y += lineHeight;
+                }
+                Nri_ImguiDrawText(x, y, part, gray, gray, gray, 1.0, 0);
+                x += width + gap;
+            }
+            return y + lineHeight;
         }
 
         recordDraw(commandBuffer: NriCommandBufferHandle) {

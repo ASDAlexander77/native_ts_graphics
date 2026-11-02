@@ -269,6 +269,30 @@ float3 heatColor(float t)
 #ifdef SIMULATION
 
 RWStructuredBuffer<Particle> u_Particles : register(u0);
+
+// Whole particles read and written member by member: DXC makes `u_Particles[i] = p` (and the read)
+// an OpCopyLogical, which Adreno's compiler (Adreno 740, Android 16) fails to compile.
+Particle loadParticle(uint index)
+{
+    Particle p;
+    p.pos = u_Particles[index].pos;
+    p.vel = u_Particles[index].vel;
+    p.temp = u_Particles[index].temp;
+    p.type = u_Particles[index].type;
+    p.life = u_Particles[index].life;
+    p.origin = u_Particles[index].origin;
+    return p;
+}
+
+void storeParticle(uint index, Particle p)
+{
+    u_Particles[index].pos = p.pos;
+    u_Particles[index].vel = p.vel;
+    u_Particles[index].temp = p.temp;
+    u_Particles[index].type = p.type;
+    u_Particles[index].life = p.life;
+    u_Particles[index].origin = p.origin;
+}
 RWStructuredBuffer<int> u_GridInt : register(u1);
 RWStructuredBuffer<float> u_GridFloat : register(u2);
 RWStructuredBuffer<uint> u_Cells : register(u3);
@@ -357,7 +381,7 @@ void spawn(uint type, float2 pos, float2 vel, float temp, float life, uint origi
     p.type = type;
     p.life = life;
     p.origin = origin;
-    u_Particles[index] = p;
+    storeParticle(index, p);
 }
 
 uint seedOf(uint index, uint salt)
@@ -414,7 +438,7 @@ void init_particles_cs(uint3 id : SV_DispatchThreadID)
         return;
     }
     Particle p = (Particle)0;
-    u_Particles[t] = p;
+    storeParticle(t, p);
     u_Alloc[A_LIST + t] = int(g_C.capacity - 1 - t);
     if (t == 0)
     {
@@ -449,7 +473,7 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     {
         return;
     }
-    const Particle p = u_Particles[id.x];
+    const Particle p = loadParticle(id.x);
     if (p.type == EMPTY)
     {
         return;
@@ -943,7 +967,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         return;
     }
-    Particle p = u_Particles[index];
+    Particle p = loadParticle(index);
     if (p.type == EMPTY)
     {
         return;
@@ -1122,12 +1146,12 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     if (kill)
     {
         p.type = EMPTY;
-        u_Particles[index] = p;
+        storeParticle(index, p);
         freeParticle(index);
         return;
     }
     p.pos = clamp(p.pos, float2(0.001, 0.001), float2(w - 0.001, h - 0.001));
-    u_Particles[index] = p;
+    storeParticle(index, p);
 }
 
 float2 randomInCell(int x, int y, uint seed)
