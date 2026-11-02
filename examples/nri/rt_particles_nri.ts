@@ -422,8 +422,12 @@ namespace RtParticlesNri {
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
+        // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
+        // The swap chain textures' format and their views'.
+        private swapChainFormat: NriFormat = 0;
+        private swapChainViewFormat: NriFormat = 0;
         private test: boolean = false;
         private imgui: boolean = false;
         private folder: string = "dxil";
@@ -562,21 +566,13 @@ namespace RtParticlesNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.viewFormat = Nri_GetSrgbFormat(format);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            this.viewFormat = this.swapChainViewFormat;
 
             // Ray queries: D3D12 or Vulkan (the Donut example's shaders have no DXBC).
             if (graphicsAPI == NriGraphicsAPI.D3D11) {
@@ -757,6 +753,35 @@ namespace RtParticlesNri {
             this.colorStorage = Nri_CreateStorageTextureView(colorBuffer, NriFormat.RGBA16_SFLOAT);
             this.colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA16_SFLOAT);
             return true;
+        }
+
+        destroyTargets() {
+            this.destroyDescriptor(this.colorStorage);
+            this.destroyDescriptor(this.colorView);
+            this.colorStorage = null;
+            this.colorView = null;
+            const colorBuffer = this.colorBuffer;
+            if (colorBuffer) {
+                Nri_DestroyTexture(colorBuffer);
+            }
+            this.colorBuffer = null;
+        }
+
+        // The sets reading or writing the color buffer: each queued frame's (its storage, 4/0) and the
+        // blit's (its source, 0/0).
+        updateTargetDescriptors() {
+            const colorStorage = this.colorStorage;
+            const colorView = this.colorView;
+            if (!colorStorage || !colorView) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                Nri_UpdateDescriptor(queuedFrame.set, 4, 0, colorStorage);
+            }
+            const blitSet = this.blitSet;
+            if (blitSet) {
+                Nri_UpdateDescriptor(blitSet, 0, 0, colorView);
+            }
         }
 
         // The compute shader's bindings: set 0 the constants (b0), the TLAS (t0), the InstanceData,
@@ -1272,7 +1297,53 @@ namespace RtParticlesNri {
             this.colorState = NriTextureState.ShaderResource;
         }
 
+        // The swap chain at the window's size, its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainViewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainViewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the color buffer made again
+        // at its size, once the GPU is done with the old ones, and the sets pointed at the new buffer (made
+        // in the Storage state, as at first).
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.destroyTargets();
+            this.createTargets(device);
+            this.colorState = NriTextureState.Storage;
+            this.updateTargetDescriptors();
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const device = this.device;
             if (!device) {
                 return;
@@ -1403,11 +1474,6 @@ namespace RtParticlesNri {
                     Nri_DestroyBuffer(queuedFrame.indexBuffer);
                     Nri_DestroyBuffer(queuedFrame.particleInfoBuffer);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -1427,12 +1493,7 @@ namespace RtParticlesNri {
                 }
                 this.blit.destroy();
                 this.destroyDescriptor(this.anisotropicWrap);
-                this.destroyDescriptor(this.colorStorage);
-                this.destroyDescriptor(this.colorView);
-                const colorBuffer = this.colorBuffer;
-                if (colorBuffer) {
-                    Nri_DestroyTexture(colorBuffer);
-                }
+                this.destroyTargets();
                 this.destroyDescriptor(this.topLevelASView);
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
@@ -1467,7 +1528,7 @@ namespace RtParticlesNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             const scene = this.scene;
@@ -1486,6 +1547,7 @@ namespace RtParticlesNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const example = new RtParticles(sample);
         // -noUI: no settings window (as the Donut example).
         Nri_AddExampleOption(sample, "-noUI");

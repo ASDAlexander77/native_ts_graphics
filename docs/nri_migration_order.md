@@ -415,8 +415,18 @@ meshlet_instancing, mobile_nerf_rayquery, multithreading, oit_depth_peeling, oit
 rasterization_order_attachment_access, ray_queries, ray_tracing_position_fetch,
 ray_tracing_reflection, raytracing_simple_lighting, shader_debugprintf, simple_bezier,
 simple_compute, terrain_tessellation, texture_compression_basisu, texture_compression_comparison,
-texture_mipmap_generation, threaded_rendering
-(all `_nri`). The other ports keep fixed windows until converted.
+texture_mipmap_generation, threaded_rendering;
+async_compute_bloom, atom_orbitals, bokeh, calibrated_timestamps, collision,
+compute_nbody_collisions, dynamic_multisample_rasterization, environment_map,
+gravity_light_bending, hdr, meshlet_cull, mouse_cursor, msaa, multi_draw_indirect,
+procedural_geometry, ray_tracing_extended, render_octomap, rt_bindless, rt_particles,
+rt_reflections, simple_hdr, simple_pbr, timestamp_queries, variable_shading (all `_nri`).
+
+Still fixed: raytracing_ao_nri. Converted, it resized correctly on D3D12 and Vulkan, but on Vulkan,
+after frames at about 900 x 500 and then a resize to 1600 x 900, NRIFramework's debug allocator
+(Debug builds) found a corrupted header freeing a pipeline's driver memory at exit. Neither the
+validation layers nor D3D12 report anything; the corruption follows its frame resources being
+rebuilt at the new size and drawn (not the swap chain, not ImGui), and wasn't found.
 
 ## Notes
 

@@ -308,6 +308,8 @@ namespace ComputeNBodyCollisionsNri {
         private queue: NriQueueHandle;
         private frameFence: NriFenceHandle;
         private swapChain: NriSwapChainHandle;
+        // The swap chain textures' format.
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
@@ -537,23 +539,12 @@ namespace ComputeNBodyCollisionsNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
             this.autoRotate = !this.test;
 
-            // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -760,8 +751,87 @@ namespace ComputeNBodyCollisionsNri {
             return pipeline;
         }
 
-        // The HDR target, the blur chain, their views and the sets over them, for the frame's size
-        // (NRIFramework's window keeps it). False (after printing why) on failure.
+        // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers; at the window's
+        // size (the stored width and height).
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            const swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            this.swapChain = swapChain;
+            const textureNum = Nri_GetSwapChainTextureNum(swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(swapChain, 0));
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainFormat = format;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the bloom targets (with
+        // their pool and sets) again at its size, once the GPU is done with the old ones. The gizmo,
+        // the projection and the settings window follow the stored size each frame.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.destroyBloomTargets();
+            this.createBloomTargets(device);
+        }
+
+        // Destroys the HDR target, the blur chain, their views and the pool and sets over them.
+        destroyBloomTargets() {
+            const descriptorPool = this.descriptorPool;
+            if (descriptorPool) {
+                Nri_DestroyDescriptorPool(descriptorPool);
+            }
+            this.descriptorPool = null;
+            this.thresholdSet = null;
+            this.blurDownSets = [];
+            this.blurUpSets = [];
+            this.compositeSet = null;
+            this.destroyDescriptor(this.hdrAttachment);
+            this.destroyDescriptor(this.hdrView);
+            const hdrTarget = this.hdrTarget;
+            if (hdrTarget) {
+                Nri_DestroyTexture(hdrTarget);
+            }
+            this.hdrAttachment = null;
+            this.hdrView = null;
+            this.hdrTarget = null;
+            this.hdrState = NriTextureState.ShaderResource;
+            for (let i = 0; i < this.blurChain.length; i++) {
+                Nri_DestroyDescriptor(this.blurViews[i]);
+                Nri_DestroyDescriptor(this.blurStorages[i]);
+                Nri_DestroyTexture(this.blurChain[i]);
+            }
+            this.blurChain = [];
+            this.blurViews = [];
+            this.blurStorages = [];
+            this.blurStates = [];
+        }
+
+        // The HDR target, the blur chain, their views and the sets over them, for the stored (window's)
+        // size. False (after printing why) on failure.
         createBloomTargets(device: NriDeviceHandle): boolean {
             const compositeLayout = this.compositeLayout;
             const blurLayout = this.blurLayout;
@@ -1181,6 +1251,7 @@ namespace ComputeNBodyCollisionsNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.update();
@@ -2267,31 +2338,12 @@ namespace ComputeNBodyCollisionsNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
-                const descriptorPool = this.descriptorPool;
-                if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
-                }
+                this.destroyBloomTargets();
                 this.destroyParticles();
                 this.destroyDescriptor(this.viewConstantsView);
                 this.destroyDescriptor(this.trailView);
                 this.destroyDescriptor(this.gizmoView);
                 this.destroyDescriptor(this.linearClamp);
-                this.destroyDescriptor(this.hdrAttachment);
-                this.destroyDescriptor(this.hdrView);
-                const hdrTarget = this.hdrTarget;
-                if (hdrTarget) {
-                    Nri_DestroyTexture(hdrTarget);
-                }
-                for (let i = 0; i < this.blurChain.length; i++) {
-                    Nri_DestroyDescriptor(this.blurViews[i]);
-                    Nri_DestroyDescriptor(this.blurStorages[i]);
-                    Nri_DestroyTexture(this.blurChain[i]);
-                }
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
                 this.destroyPipeline(this.calculatePipeline);
@@ -2317,7 +2369,7 @@ namespace ComputeNBodyCollisionsNri {
                 this.destroyLayout(this.compositeLayout);
                 this.destroyLayout(this.blurLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -2367,6 +2419,7 @@ namespace ComputeNBodyCollisionsNri {
         Nri_AddExampleOption(sample, "-fullgravity");
         Nri_AddExampleOption(sample, "-noUI");
         Nri_UseImgui(sample);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-attractors" && i + 1 < argc) {

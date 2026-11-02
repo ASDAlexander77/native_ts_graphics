@@ -310,6 +310,7 @@ namespace RayTracingExtendedNri {
 
         private output: NriTextureHandle | null = null;
         private outputStorage: NriDescriptorHandle | null = null;
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private descriptorPool: NriDescriptorPoolHandle | null = null;
         private textureSet: NriDescriptorSetHandle | null = null;
         // The output was copied from (after the first frame).
@@ -391,20 +392,13 @@ namespace RayTracingExtendedNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format: the shader writes the values the
             // sample's vkCmdCopyImage puts in its sRGB back buffer as they are.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Ray tracing pipelines: D3D12 or Vulkan (the Donut example's shaders have no DXBC).
             if (graphicsAPI == NriGraphicsAPI.D3D11) {
@@ -498,8 +492,8 @@ namespace RayTracingExtendedNri {
 
             // The output the ray generation shader writes: UNORM, in the back buffer's format, for the
             // copy.
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, format);
-            this.output = output;
+            this.createOutput(device);
+            const output = this.output;
             // CommonSampler.LinearWrap: linear, mips too, wrapped.
             const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
@@ -515,8 +509,11 @@ namespace RayTracingExtendedNri {
                 console.log("Cannot create the output");
                 return 0;
             }
-            const outputStorage = Nri_CreateStorageTextureView(output, format);
-            this.outputStorage = outputStorage;
+            const outputStorage = this.outputStorage;
+            if (!outputStorage) {
+                console.log("Cannot create the output");
+                return 0;
+            }
 
             for (const queuedFrame of this.queuedFrames) {
                 const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
@@ -1028,7 +1025,87 @@ namespace RayTracingExtendedNri {
             this.outputCopied = true;
         }
 
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The output the ray generation shader writes, at the swap chain's size and in its format,
+        // with its storage view.
+        createOutput(device: NriDeviceHandle) {
+            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+            this.output = output;
+            if (output) {
+                this.outputStorage = Nri_CreateStorageTextureView(output, this.swapChainFormat);
+            }
+        }
+
+        destroyOutput() {
+            this.destroyDescriptor(this.outputStorage);
+            this.outputStorage = null;
+            const output = this.output;
+            if (output) {
+                Nri_DestroyTexture(output);
+            }
+            this.output = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the output made again
+        // at its size, once the GPU is done with the old ones; every queued frame's set pointed at the
+        // new output, which starts in its creation state again (no CopySource barrier first). The
+        // camera's aspect ratio and the rays' dispatch read the size every frame.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            // (On D3D11, or without ray tracing, initialize stopped before making the output.)
+            let hadOutput = false;
+            if (this.output) {
+                hadOutput = true;
+            }
+            this.destroySwapChain();
+            this.destroyOutput();
+            this.createSwapChain(device);
+            if (!hadOutput) {
+                return;
+            }
+            this.createOutput(device);
+            this.outputCopied = false;
+            const outputStorage = this.outputStorage;
+            if (!outputStorage) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                const set = queuedFrame.set;
+                if (set) {
+                    Nri_UpdateDescriptor(set, 4, 0, outputStorage);
+                }
+            }
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.animate();
@@ -1103,15 +1180,11 @@ namespace RayTracingExtendedNri {
                     this.destroyDescriptor(queuedFrame.dynamicVertexView);
                     this.destroyBuffer(queuedFrame.dynamicVertexBuffer);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyDescriptor(this.outputStorage);
+                this.destroyOutput();
                 this.destroyDescriptor(this.topLevelASView);
                 this.destroyDescriptor(this.vertexView);
                 this.destroyDescriptor(this.indexView);
@@ -1123,10 +1196,6 @@ namespace RayTracingExtendedNri {
                 }
                 for (const texture of this.textures) {
                     Nri_DestroyTexture(texture);
-                }
-                const output = this.output;
-                if (output) {
-                    Nri_DestroyTexture(output);
                 }
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
@@ -1164,7 +1233,7 @@ namespace RayTracingExtendedNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1193,6 +1262,7 @@ namespace RayTracingExtendedNri {
         // UI).
         Nri_AddExampleOptionWithValues(sample, "-mode", 1);
         Nri_AddExampleOption(sample, "-noUI");
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-mode" && i + 1 < argc) {

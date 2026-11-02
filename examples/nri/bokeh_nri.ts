@@ -524,24 +524,15 @@ namespace BokehNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            const width = Nri_GetOutputWidth(this.sample);
-            const height = Nri_GetOutputHeight(this.sample);
-            this.frameWidth = width;
-            this.frameHeight = height;
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's R8G8B8A8_UNORM back buffers
             // (its FP16 scene copied as is).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const width = this.frameWidth;
+            const height = this.frameHeight;
+            const format = this.swapChainFormat;
 
             // Donut's AnisotropicWrap (trilinear, the device's maximum anisotropy) for the scene;
             // BokehRS's s0: FILTER_MIN_MAG_LINEAR_MIP_POINT, CreateEnergyTexRS's:
@@ -598,28 +589,19 @@ namespace BokehNri {
             this.energiesStorageView = energiesStorageView;
             this.scratchView = scratchView;
 
-            // The frame-sized targets (BokehEffect::ResizeResources): the scene's FP16 color and
-            // depth, the DOF target (two viewports at a quarter of the size one below the other, two
-            // at a sixteenth and two at a 64th along the bottom), the RGBZ copies.
-            this.dofHeight = Math.floor(2 * height / FIRST_DOWNSAMPLE) + Math.floor(height / (2 * FIRST_DOWNSAMPLE))
-                + Math.floor(height / (4 * FIRST_DOWNSAMPLE));
-            const sceneColor = this.createTarget(device, width, height);
-            const dofColor = this.createTarget(device, width, this.dofHeight);
-            const rgbzCopy = this.createTarget(device, width, height);
-            const rgbzHalfCopy = this.createTarget(device, Math.floor(width / FIRST_DOWNSAMPLE), Math.floor(height / FIRST_DOWNSAMPLE));
-            this.sceneColor = sceneColor;
-            this.dofColor = dofColor;
-            this.rgbzCopy = rgbzCopy;
-            this.rgbzHalfCopy = rgbzHalfCopy;
-            const sceneDepth = Nri_CreateSampledDepthTexture(device, this.queue, width, height, NriFormat.D32_SFLOAT);
-            this.sceneDepth = sceneDepth;
-            if (!sceneColor || !dofColor || !rgbzCopy || !rgbzHalfCopy || !sceneDepth) {
+            // The frame-sized targets (createSizeTargets).
+            if (!this.createSizeTargets(device)) {
                 console.log("Cannot create the render targets");
                 return 0;
             }
-            this.sceneDepthAttachment = Nri_CreateDepthAttachmentView(sceneDepth, NriFormat.D32_SFLOAT);
-            const sceneDepthView = Nri_CreateTextureView(sceneDepth, NriFormat.D32_SFLOAT);
-            this.sceneDepthView = sceneDepthView;
+            const sceneColor = this.sceneColor;
+            const dofColor = this.dofColor;
+            const rgbzCopy = this.rgbzCopy;
+            const rgbzHalfCopy = this.rgbzHalfCopy;
+            const sceneDepthView = this.sceneDepthView;
+            if (!sceneColor || !dofColor || !rgbzCopy || !rgbzHalfCopy || !sceneDepthView) {
+                return 0;
+            }
 
             // The layouts, as the Donut example's binding layouts: the scene's BasicEffect constants,
             // texture and sampler; the bokeh passes' BokehCB, textures and BokehRS's sampler (the
@@ -766,6 +748,87 @@ namespace BokehNri {
                 this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * height);
             }
             return 1;
+        }
+
+        // The frame-sized targets (BokehEffect::ResizeResources): the scene's FP16 color and depth,
+        // the DOF target (two viewports at a quarter of the size one below the other, two at a
+        // sixteenth and two at a 64th along the bottom), the RGBZ copies; false on failure.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const width = this.frameWidth;
+            const height = this.frameHeight;
+            this.dofHeight = Math.floor(2 * height / FIRST_DOWNSAMPLE) + Math.floor(height / (2 * FIRST_DOWNSAMPLE))
+                + Math.floor(height / (4 * FIRST_DOWNSAMPLE));
+            const sceneColor = this.createTarget(device, width, height);
+            const dofColor = this.createTarget(device, width, this.dofHeight);
+            const rgbzCopy = this.createTarget(device, width, height);
+            const rgbzHalfCopy = this.createTarget(device, Math.floor(width / FIRST_DOWNSAMPLE), Math.floor(height / FIRST_DOWNSAMPLE));
+            this.sceneColor = sceneColor;
+            this.dofColor = dofColor;
+            this.rgbzCopy = rgbzCopy;
+            this.rgbzHalfCopy = rgbzHalfCopy;
+            const sceneDepth = Nri_CreateSampledDepthTexture(device, this.queue, width, height, NriFormat.D32_SFLOAT);
+            this.sceneDepth = sceneDepth;
+            if (!sceneColor || !dofColor || !rgbzCopy || !rgbzHalfCopy || !sceneDepth) {
+                return false;
+            }
+            this.sceneDepthAttachment = Nri_CreateDepthAttachmentView(sceneDepth, NriFormat.D32_SFLOAT);
+            this.sceneDepthView = Nri_CreateTextureView(sceneDepth, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroySizeTargets() {
+            this.destroyTarget(this.sceneColor);
+            this.destroyTarget(this.dofColor);
+            this.destroyTarget(this.rgbzCopy);
+            this.destroyTarget(this.rgbzHalfCopy);
+            this.sceneColor = null;
+            this.dofColor = null;
+            this.rgbzCopy = null;
+            this.rgbzHalfCopy = null;
+            this.destroyDescriptor(this.sceneDepthAttachment);
+            this.destroyDescriptor(this.sceneDepthView);
+            this.destroyTexture(this.sceneDepth);
+            this.sceneDepthAttachment = null;
+            this.sceneDepthView = null;
+            this.sceneDepth = null;
+        }
+
+        // The sets' slots of the frame-sized targets pointed at the current ones: every queued frame's
+        // bokeh passes' sets and the copy's.
+        updateSizeDescriptors() {
+            const sceneColor = this.sceneColor;
+            const dofColor = this.dofColor;
+            const rgbzCopy = this.rgbzCopy;
+            const rgbzHalfCopy = this.rgbzHalfCopy;
+            const sceneDepthView = this.sceneDepthView;
+            if (!sceneColor || !dofColor || !rgbzCopy || !rgbzHalfCopy || !sceneDepthView) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                const rgbzSet = queuedFrame.rgbzSet;
+                if (rgbzSet) {
+                    Nri_UpdateDescriptor(rgbzSet, 1, 0, sceneColor.shaderResource);
+                    Nri_UpdateDescriptor(rgbzSet, 2, 0, sceneDepthView);
+                }
+                const downsampleSet = queuedFrame.downsampleSet;
+                if (downsampleSet) {
+                    Nri_UpdateDescriptor(downsampleSet, 1, 0, rgbzCopy.shaderResource);
+                }
+                const quadPointSet = queuedFrame.quadPointSet;
+                if (quadPointSet) {
+                    Nri_UpdateDescriptor(quadPointSet, 1, 0, rgbzHalfCopy.shaderResource);
+                }
+                const recombineSet = queuedFrame.recombineSet;
+                if (recombineSet) {
+                    Nri_UpdateDescriptor(recombineSet, 1, 0, dofColor.shaderResource);
+                    Nri_UpdateDescriptor(recombineSet, 2, 0, sceneDepthView);
+                    Nri_UpdateDescriptor(recombineSet, 3, 0, rgbzCopy.shaderResource);
+                }
+            }
+            const copySet = this.copySet;
+            if (copySet) {
+                Nri_UpdateDescriptor(copySet, 0, 0, sceneColor.shaderResource);
+            }
         }
 
         // A width x height FP16 render target, left as a shader resource; null on failure.
@@ -1191,7 +1254,55 @@ namespace BokehNri {
             Nri_CmdWriteTimestamp(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS + 2 * timer + end);
         }
 
+        createSwapChain(device: NriDeviceHandle) {
+            this.frameWidth = Nri_GetOutputWidth(this.sample);
+            this.frameHeight = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the frame-sized targets
+        // (BokehEffect::ResizeResources) made again at its size, once the GPU is done with the old
+        // ones, and the sets pointed at them. The new targets start as shader resources, as their
+        // Targets' states say; the passes' viewports, the DOF slices and the HUD read the size every
+        // frame.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.frameWidth && Nri_GetOutputHeight(this.sample) == this.frameHeight) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroySizeTargets();
+            this.createSwapChain(device);
+            if (!this.createSizeTargets(device)) {
+                return;
+            }
+            this.updateSizeDescriptors();
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.readTimestamps(queuedFrame);
@@ -1479,11 +1590,6 @@ namespace BokehNri {
                     }
                     this.destroyBuffer(queuedFrame.timestampBuffer);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -1491,13 +1597,7 @@ namespace BokehNri {
                 for (const model of this.models) {
                     model.destroy();
                 }
-                this.destroyTarget(this.sceneColor);
-                this.destroyTarget(this.dofColor);
-                this.destroyTarget(this.rgbzCopy);
-                this.destroyTarget(this.rgbzHalfCopy);
-                this.destroyDescriptor(this.sceneDepthAttachment);
-                this.destroyDescriptor(this.sceneDepthView);
-                this.destroyTexture(this.sceneDepth);
+                this.destroySizeTargets();
                 this.destroyDescriptor(this.irisView);
                 this.destroyTexture(this.irisTexture);
                 this.destroyDescriptor(this.energiesView);
@@ -1530,7 +1630,7 @@ namespace BokehNri {
                 this.destroyPipelineLayout(this.copyLayout);
                 this.destroyPipelineLayout(this.energyLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1585,6 +1685,7 @@ namespace BokehNri {
         Nri_AddExampleOption(sample, "-slow");
         Nri_AddExampleOption(sample, "-noUI");
         Nri_UseImgui(sample);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-preset" && i + 1 < argc) {

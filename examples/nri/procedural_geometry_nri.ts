@@ -233,6 +233,8 @@ namespace ProceduralGeometryNri {
         private frameFence: NriFenceHandle;
         private swapChain: NriSwapChainHandle;
         private swapChainTextures: SwapChainTexture[] = [];
+        // The swap chain textures' format (UNORM), the output's.
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private queuedFrames: QueuedFrame[] = [];
         private layout: NriPipelineLayoutHandle | null = null;
         private pipeline: NriPipelineHandle | null = null;
@@ -334,19 +336,12 @@ namespace ProceduralGeometryNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format, as the sample's CopyResource.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             // Queued frames (their sets come below)
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -453,6 +448,69 @@ namespace ProceduralGeometryNri {
                 this.readbackFormat = format;
             }
             return 1;
+        }
+
+        // The swap chain at the window's size, its semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // chain and the output made again at its size, every frame's set pointed at the new output.
+        // The new output starts in Storage, as the first frame's does (no barrier from CopySource).
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            const output = this.output;
+            if (!output) {
+                return;
+            }
+            this.destroyDescriptor(this.outputStorage);
+            Nri_DestroyTexture(output);
+            this.outputStorage = null;
+            this.output = null;
+            this.outputCopied = false;
+            const newOutput = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+            this.output = newOutput;
+            if (!newOutput) {
+                return;
+            }
+            const outputStorage = Nri_CreateStorageTextureView(newOutput, this.swapChainFormat);
+            this.outputStorage = outputStorage;
+            if (!outputStorage) {
+                return;
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                const set = queuedFrame.set;
+                if (set) {
+                    Nri_UpdateDescriptor(set, 1, 0, outputStorage);
+                }
+            }
         }
 
         // CreateRaytracingPipelineStateObject and BuildShaderTables: the ray generation shader, the
@@ -806,6 +864,7 @@ namespace ProceduralGeometryNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
 
             // Animate first, as Donut's onAnimate before onRender (its test mode steps float(1/60) s).
@@ -876,10 +935,6 @@ namespace ProceduralGeometryNri {
                     this.destroyDescriptor(queuedFrame.aabbAttributeView);
                     this.destroyBuffer(queuedFrame.aabbAttributeBuffer);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -924,7 +979,7 @@ namespace ProceduralGeometryNri {
                     Nri_DestroyPipelineLayout(layout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -949,6 +1004,7 @@ namespace ProceduralGeometryNri {
         // -benchmark: 1/60 s per frame; -time <seconds>: the geometry animation's time, fixed.
         Nri_AddExampleOption(sample, "-benchmark");
         Nri_AddExampleOptionWithValues(sample, "-time", 1);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-benchmark") {

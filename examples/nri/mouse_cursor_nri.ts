@@ -562,21 +562,13 @@ namespace MouseCursorNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            const width = Nri_GetOutputWidth(this.sample);
-            const height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's B8G8R8A8_UNORM back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const width = this.frameWidth;
+            const height = this.frameHeight;
             for (let i = 0; i < queuedFrameNum; i++) {
                 const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator)));
@@ -606,14 +598,11 @@ namespace MouseCursorNri {
                 return 0;
             }
 
-            // The depth buffer, for the window's size (it keeps it).
-            const depth = Nri_CreateDepthTexture(device, this.queue, width, height, NriFormat.D24_UNORM_S8_UINT);
-            this.depth = depth;
-            if (!depth) {
+            // The depth buffer, for the window's size (made again when it changes).
+            if (!this.createDepth(device)) {
                 console.log("Cannot create the depth buffer");
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D24_UNORM_S8_UINT);
 
             // The sprites' layout: SpriteConstants (push constants, b0), the texture (t0), the sampler
             // (s0). The models': the parameters (b0), the textures (t0, t1), the sampler (s0).
@@ -705,10 +694,8 @@ namespace MouseCursorNri {
                 return 0;
             }
 
-            // Main.cpp's OnWindowSizeChanged and the sample's CreateWindowSizeDependentResources,
-            // once: the window keeps its size.
-            this.frameWidth = width;
-            this.frameHeight = height;
+            // Main.cpp's OnWindowSizeChanged and the sample's CreateWindowSizeDependentResources (again
+            // on a resize: resizeIfNeeded).
             this.layout(width, height);
 
             if (this.test) {
@@ -1057,6 +1044,71 @@ namespace MouseCursorNri {
 
         // --- Rendering ----------------------------------------------------------------------------
 
+        // The swap chain at the window's size (frameWidth x frameHeight), its textures' views and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.frameWidth = Nri_GetOutputWidth(this.sample);
+            this.frameHeight = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The depth buffer at the swap chain's size; false if it can't be made.
+        createDepth(device: NriDeviceHandle): boolean {
+            const depth = Nri_CreateDepthTexture(device, this.queue, this.frameWidth, this.frameHeight, NriFormat.D24_UNORM_S8_UINT);
+            this.depth = depth;
+            if (!depth) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D24_UNORM_S8_UINT);
+            return true;
+        }
+
+        destroyDepth() {
+            this.destroyDescriptor(this.depthAttachment);
+            this.depthAttachment = null;
+            const depth = this.depth;
+            if (depth) {
+                Nri_DestroyTexture(depth);
+            }
+            this.depth = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and depth buffer made again at
+        // its size, once the GPU is done with the old ones, and Main.cpp's OnWindowSizeChanged (the
+        // menu's layout, the projection's aspect ratio).
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.frameWidth && Nri_GetOutputHeight(this.sample) == this.frameHeight) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroyDepth();
+            this.createSwapChain(device);
+            this.createDepth(device);
+            this.layout(this.frameWidth, this.frameHeight);
+            this.setView();
+        }
+
         // Waits for the frame that last used this frame's command allocator (and its constants).
         // OnPointerCaptureLost: the captured modes end when the window loses the focus (checked
         // here: NRIFramework calls this while the unfocused window waits, not renderFrame).
@@ -1132,6 +1184,7 @@ namespace MouseCursorNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (!this.test) {
@@ -1343,11 +1396,6 @@ namespace MouseCursorNri {
                         Nri_DestroyDescriptor(view);
                     }
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -1357,11 +1405,7 @@ namespace MouseCursorNri {
                 this.destroySprite(this.background);
                 this.destroySprite(this.tile);
                 this.destroySprite(this.tileBorder);
-                this.destroyDescriptor(this.depthAttachment);
-                const depth = this.depth;
-                if (depth) {
-                    Nri_DestroyTexture(depth);
-                }
+                this.destroyDepth();
                 this.destroyDescriptor(this.spriteSampler);
                 this.destroyDescriptor(this.linearWrapSampler);
                 this.destroyBuffer(this.constantBuffer);
@@ -1378,7 +1422,7 @@ namespace MouseCursorNri {
                     Nri_DestroyPipelineLayout(modelLayout);
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1413,6 +1457,7 @@ namespace MouseCursorNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const mouseCursor = new MouseCursor(sample);
         // -noUI: accepted, as Donut's examples accept it (the menu's text is the scene's, drawn anyway).
         Nri_AddExampleOption(sample, "-noUI");

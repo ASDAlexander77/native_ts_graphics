@@ -157,6 +157,8 @@ namespace EnvironmentMapNri {
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
+        // The swap chain textures' format (their views': viewFormat).
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private width: int = 0;
         private height: int = 0;
         private test: boolean = false;
@@ -307,22 +309,12 @@ namespace EnvironmentMapNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
 
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
             if (!this.loadScene(device, folder, graphicsAPI == NriGraphicsAPI.D3D11) || !this.createTargets(device) || !this.createLayouts(device)
@@ -416,28 +408,124 @@ namespace EnvironmentMapNri {
             return this.textures.load(device, this.queue, scene, folder);
         }
 
-        // The shadow map, the scene targets, tone mapping's buffers, the fallbacks.
-        createTargets(device: NriDeviceHandle) {
-            const shadowMap = Nri_CreateSampledDepthTexture(device, this.queue, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION,
-                NriFormat.D24_UNORM_S8_UINT);
-            this.shadowMap = shadowMap;
+        // The window-size scene targets: the HDR color, its depth and tone mapping's LDR color, in
+        // the states their creation leaves them in (the frames' barriers start from them).
+        createSizedTargets(device: NriDeviceHandle): boolean {
             const hdrColor = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
             this.hdrColor = hdrColor;
             const depth = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D24_UNORM_S8_UINT);
             this.depth = depth;
             const ldrColor = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_SRGB);
             this.ldrColor = ldrColor;
-            if (!shadowMap || !hdrColor || !depth || !ldrColor) {
-                console.log("Cannot create the render targets");
+            if (!hdrColor || !depth || !ldrColor) {
                 return false;
             }
-            this.shadowMapAttachment = Nri_CreateDepthAttachmentView(shadowMap, NriFormat.D24_UNORM_S8_UINT);
-            this.shadowMapView = Nri_CreateTextureArrayView(shadowMap, NriFormat.R24_UNORM_X8);
             this.hdrAttachment = Nri_CreateColorAttachmentView(hdrColor, NriFormat.RGBA16_SFLOAT);
             this.hdrView = Nri_CreateTextureView(hdrColor, NriFormat.RGBA16_SFLOAT);
             this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D24_UNORM_S8_UINT);
             this.ldrAttachment = Nri_CreateColorAttachmentView(ldrColor, NriFormat.RGBA8_SRGB);
             this.ldrView = Nri_CreateTextureView(ldrColor, NriFormat.RGBA8_SRGB);
+            return true;
+        }
+
+        destroySizedTargets() {
+            const descriptors = [this.hdrAttachment, this.hdrView, this.depthAttachment, this.ldrAttachment, this.ldrView];
+            for (const descriptor of descriptors) {
+                if (descriptor) {
+                    Nri_DestroyDescriptor(descriptor);
+                }
+            }
+            const textures = [this.hdrColor, this.depth, this.ldrColor];
+            for (const texture of textures) {
+                if (texture) {
+                    Nri_DestroyTexture(texture);
+                }
+            }
+            this.hdrAttachment = null;
+            this.hdrView = null;
+            this.depthAttachment = null;
+            this.ldrAttachment = null;
+            this.ldrView = null;
+            this.hdrColor = null;
+            this.depth = null;
+            this.ldrColor = null;
+        }
+
+        // The sets reading the window-size targets pointed at the new ones: the blit's LDR color, every
+        // queued frame's histogram and tone mapping HDR color.
+        updateSizedDescriptors() {
+            const hdrView = this.hdrView;
+            const ldrView = this.ldrView;
+            if (!hdrView || !ldrView) {
+                return;
+            }
+            const blitSet = this.blitSet;
+            if (blitSet) {
+                Nri_UpdateDescriptor(blitSet, 0, 0, ldrView);
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                Nri_UpdateDescriptor(queuedFrame.histogramSet, 1, 0, hdrView);
+                Nri_UpdateDescriptor(queuedFrame.toneMappingSet, 1, 0, hdrView);
+            }
+        }
+
+        // The swap chain at the window's size, its textures' views (sRGB, as Donut's sRGB back buffers)
+        // and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // chain and the scene targets made again at its size, and the sets pointed at them. The
+        // projection, tone mapping's constants and dispatch read the size every frame.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroySizedTargets();
+            this.createSwapChain(device);
+            if (this.createSizedTargets(device)) {
+                this.updateSizedDescriptors();
+            }
+        }
+
+        // The shadow map, the scene targets, tone mapping's buffers, the fallbacks.
+        createTargets(device: NriDeviceHandle) {
+            const shadowMap = Nri_CreateSampledDepthTexture(device, this.queue, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION,
+                NriFormat.D24_UNORM_S8_UINT);
+            this.shadowMap = shadowMap;
+            if (!shadowMap || !this.createSizedTargets(device)) {
+                console.log("Cannot create the render targets");
+                return false;
+            }
+            this.shadowMapAttachment = Nri_CreateDepthAttachmentView(shadowMap, NriFormat.D24_UNORM_S8_UINT);
+            this.shadowMapView = Nri_CreateTextureArrayView(shadowMap, NriFormat.R24_UNORM_X8);
 
             // The histogram (zeroed each frame) and the exposure (ToneMappingPass::ResetExposure: the
             // exposure's bits).
@@ -1126,6 +1214,7 @@ namespace EnvironmentMapNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
@@ -1213,19 +1302,15 @@ namespace EnvironmentMapNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
+                this.destroySwapChain();
+                this.destroySizedTargets();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
                 this.textures.destroy();
                 const descriptors = [this.vertexBufferView, this.instanceBufferView, this.environmentMapView, this.shadowMapAttachment,
-                    this.shadowMapView, this.hdrAttachment, this.hdrView, this.depthAttachment, this.ldrAttachment, this.ldrView,
-                    this.histogramStorage, this.histogramView, this.exposureStorage, this.exposureView, this.blackView,
+                    this.shadowMapView, this.histogramStorage, this.histogramView, this.exposureStorage, this.exposureView, this.blackView,
                     this.blackCubeArrayView, this.noShadowView, this.noShadowAttachment, this.anisotropicWrap, this.linearWrap,
                     this.linearClamp, this.shadowSampler];
                 for (const descriptor of descriptors) {
@@ -1239,7 +1324,7 @@ namespace EnvironmentMapNri {
                 for (const view of this.constantViews) {
                     Nri_DestroyDescriptor(view);
                 }
-                const textures = [this.environmentMap, this.shadowMap, this.hdrColor, this.depth, this.ldrColor, this.noShadowTexture];
+                const textures = [this.environmentMap, this.shadowMap, this.noShadowTexture];
                 for (const texture of textures) {
                     if (texture) {
                         Nri_DestroyTexture(texture);
@@ -1275,7 +1360,6 @@ namespace EnvironmentMapNri {
                     }
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
                 Nri_DestroyDevice(device);
             }
             const scene = this.scene;
@@ -1288,6 +1372,7 @@ namespace EnvironmentMapNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const environmentMap = new EnvironmentMap(sample);
         // --scene <path>: relative to the executable's directory.
         Nri_AddExampleOptionWithValues(sample, "--scene", 1);
