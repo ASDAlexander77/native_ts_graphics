@@ -20,6 +20,10 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
+// VK_IMAGE_FORMAT: the surface is R8_UINT (NRIFramework's Vulkan validation checks the shader's
+// declared format against the view's).
+#include <donut/shaders/binding_helpers.hlsli>
+
 // Shading rate enum values copied from D3D12 header
 /*
     {
@@ -32,7 +36,7 @@
         D3D12_SHADING_RATE_4X4	= 0xa
     } 	D3D12_SHADING_RATE;
 */
-RWTexture2D<uint> shadingRateSurface : register(u0);
+VK_IMAGE_FORMAT("r8ui") RWTexture2D<uint> shadingRateSurface : register(u0);
 Texture2D<float2> motionVectors : register(t0);
 Texture2D<float4> prevFrameColors : register(t1);
 

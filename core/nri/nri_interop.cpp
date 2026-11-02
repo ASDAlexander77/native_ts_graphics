@@ -87,10 +87,12 @@ namespace
     static_assert((int)nri::Format::R8_UNORM == 1 && (int)nri::Format::R16_UNORM == 16 && (int)nri::Format::R16_SFLOAT == 20);
     static_assert((int)nri::Format::RG16_SFLOAT == 25 && (int)nri::Format::R10_G10_B10_A2_UNORM == 46);
     static_assert((int)nri::Format::R11_G11_B10_UFLOAT == 48);
+    static_assert((int)nri::Format::R24_UNORM_X8 == 68 && (int)nri::Format::X24_G8_UINT == 69);
     static_assert((int)nri::Format::R32_UINT == 31);
     static_assert((int)nri::Format::R32_SFLOAT == 33 && (int)nri::Format::RG32_SFLOAT == 36);
     static_assert((int)nri::Format::RGB32_SFLOAT == 39 && (int)nri::Format::RGBA32_SFLOAT == 42);
     static_assert((int)nri::Format::D32_SFLOAT == 66 && (int)nri::Format::BC1_RGBA_UNORM == 50);
+    static_assert((int)nri::Format::BC3_RGBA_SRGB == 55 && (int)nri::Format::BC7_RGBA_SRGB == 63);
     static_assert((int)nri::Format::RGBA16_SNORM == 27 && (int)nri::Format::D24_UNORM_S8_UINT == 65
         && (int)nri::Format::R24_UNORM_X8 == 68);
     static_assert((int)nri::CompareOp::NONE == 0 && (int)nri::CompareOp::ALWAYS == 1 && (int)nri::CompareOp::NEVER == 2);
@@ -601,6 +603,8 @@ namespace
         nri::Descriptor* depthAttachment = nullptr;
         nri::Color32f clearColor = {};
         float clearDepth = 0.0f;
+        // The attachments cleared when the pass begins (Nri_DrawPassSetClearEnabled; on by default).
+        bool clear = true;
         uint32_t width = 0;
         uint32_t height = 0;
         nri::PipelineLayout* layout = nullptr;
@@ -608,6 +612,9 @@ namespace
         std::vector<std::pair<uint32_t, nri::DescriptorSet*>> descriptorSets;
         std::vector<std::pair<uint32_t, nri::Descriptor*>> rootDescriptors;
         nri::Buffer* indexBuffer = nullptr;
+        // The vertex buffer bound to stream 0 and its vertices' stride (Nri_DrawPassSetVertexBuffer).
+        nri::Buffer* vertexBuffer = nullptr;
+        uint32_t vertexStride = 0;
         std::vector<nri::Pipeline*> pipelines;
         // Nri_RecordDrawPassAsync's worker.
         std::thread worker;
@@ -618,16 +625,28 @@ namespace
     {
         NRI.BeginCommandBuffer(*commandBuffer, nullptr);
         nri::AttachmentsDesc attachments = {};
-        attachments.colors = &pass->colorAttachment;
-        attachments.colorNum = 1;
+        attachments.colors = pass->colorAttachment ? &pass->colorAttachment : nullptr;
+        attachments.colorNum = pass->colorAttachment ? 1 : 0;
         attachments.depthStencil = pass->depthAttachment;
         NRI.CmdBeginRendering(*commandBuffer, attachments);
-        nri::ClearDesc clears[2] = {};
-        clears[0].planes = nri::PlaneBits::COLOR;
-        clears[0].value.color.f = pass->clearColor;
-        clears[1].planes = nri::PlaneBits::DEPTH;
-        clears[1].value.depthStencil.depth = pass->clearDepth;
-        NRI.CmdClearAttachments(*commandBuffer, clears, 2, nullptr, 0);
+        if (pass->clear)
+        {
+            nri::ClearDesc clears[2] = {};
+            uint32_t clearNum = 0;
+            if (pass->colorAttachment)
+            {
+                clears[clearNum].planes = nri::PlaneBits::COLOR;
+                clears[clearNum].value.color.f = pass->clearColor;
+                clearNum++;
+            }
+            if (pass->depthAttachment)
+            {
+                clears[clearNum].planes = nri::PlaneBits::DEPTH;
+                clears[clearNum].value.depthStencil.depth = pass->clearDepth;
+                clearNum++;
+            }
+            NRI.CmdClearAttachments(*commandBuffer, clears, clearNum, nullptr, 0);
+        }
         const nri::Viewport viewport = { 0.0f, 0.0f, (float)pass->width, (float)pass->height, 0.0f, 1.0f };
         NRI.CmdSetViewports(*commandBuffer, &viewport, 1);
         const nri::Rect scissor = { 0, 0, (nri::Dim_t)pass->width, (nri::Dim_t)pass->height };
@@ -640,6 +659,11 @@ namespace
             NRI.CmdSetRootDescriptor(*commandBuffer, { rootIndex, descriptor, 0, nri::BindPoint::GRAPHICS });
         if (pass->indexBuffer)
             NRI.CmdSetIndexBuffer(*commandBuffer, *pass->indexBuffer, 0, nri::IndexType::UINT32);
+        if (pass->vertexBuffer)
+        {
+            const nri::VertexBufferDesc vertexBuffer = { pass->vertexBuffer, 0, pass->vertexStride };
+            NRI.CmdSetVertexBuffers(*commandBuffer, 0, &vertexBuffer, 1);
+        }
         for (const DrawListCommand& command : pass->list->commands)
         {
             switch (command.type)
@@ -1573,6 +1597,13 @@ extern "C"
                 counts |= 2 << i;
         }
         return counts;
+    }
+
+    // What the device can do with format (nri::FormatSupportBits: 1 sampled texture, 2 storage
+    // texture, 8 color attachment, ...), for Donut's queryFormatSupport's Texture | ShaderSample.
+    NRI_INTEROP_API int Nri_GetFormatSupport(nri::Device* device, int format)
+    {
+        return (int)NRI.GetFormatSupport(*device, (nri::Format)format);
     }
 
     // The ways Vulkan's render passes can resolve a multisampled depth buffer
@@ -2534,6 +2565,17 @@ extern "C"
         NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
     }
 
+    // Clears the depth attachment's depth to depth and its stencil to stencil (a format with a stencil
+    // plane: D24_UNORM_S8_UINT...), as NVRHI's clearDepthStencilTexture.
+    NRI_INTEROP_API void Nri_CmdClearDepthStencil(nri::CommandBuffer* commandBuffer, float depth, int stencil)
+    {
+        nri::ClearDesc clearDesc = {};
+        clearDesc.planes = nri::PlaneBits::DEPTH | nri::PlaneBits::STENCIL;
+        clearDesc.value.depthStencil.depth = depth;
+        clearDesc.value.depthStencil.stencil = (uint8_t)stencil;
+        NRI.CmdClearAttachments(*commandBuffer, &clearDesc, 1, nullptr, 0);
+    }
+
     // Binds a vertex buffer from offset bytes in, its vertices stride bytes apart, to stream slot.
     NRI_INTEROP_API void Nri_CmdSetVertexBuffer(nri::CommandBuffer* commandBuffer, int slot, nri::Buffer* buffer, int offset, int stride)
     {
@@ -2829,6 +2871,20 @@ extern "C"
     NRI_INTEROP_API void Nri_DrawPassSetIndexBuffer(DrawPass* pass, nri::Buffer* buffer)
     {
         pass->indexBuffer = buffer;
+    }
+
+    // The vertex buffer the draws read (stream 0, from its start), its vertices stride bytes apart.
+    NRI_INTEROP_API void Nri_DrawPassSetVertexBuffer(DrawPass* pass, nri::Buffer* buffer, int stride)
+    {
+        pass->vertexBuffer = buffer;
+        pass->vertexStride = (uint32_t)stride;
+    }
+
+    // Whether the attachments are cleared when the pass begins (1, the default) or kept (0: cleared
+    // before, in another command buffer).
+    NRI_INTEROP_API void Nri_DrawPassSetClearEnabled(DrawPass* pass, int enabled)
+    {
+        pass->clear = enabled != 0;
     }
 
     // The pipeline the list's slot means (changeable between recordings).
@@ -3755,6 +3811,88 @@ extern "C"
         upload.after = TextureState(5);
         upload.planes = nri::PlaneBits::ALL;
         return NRI.UploadData(*queue, &upload, 1, nullptr, 0) == nri::Result::SUCCESS ? 1 : 0;
+    }
+
+    // A texture's levels gathered on the CPU (copied: e.g. a Basis Universal transcoder's, which
+    // another library holds), for Nri_CreateTextureFromLevels: width x height, levelNum levels of
+    // format, each its own rows (of blocks, for a block-compressed format) rowPitch bytes apart.
+    struct TextureLevels
+    {
+        int width = 0;
+        int height = 0;
+        int format = 0;
+        std::vector<std::vector<uint8_t>> data;
+        std::vector<uint32_t> rowPitches;
+    };
+
+    // Rows (of blocks) of a level of a texture of format, height texels high at level 0.
+    uint32_t LevelRows(int format, int height, int level)
+    {
+        const uint32_t blockHeight = nri::nriGetFormatProps((nri::Format)format)->blockHeight;
+        const uint32_t levelHeight = std::max((uint32_t)height >> level, 1u);
+        return (levelHeight + blockHeight - 1) / blockHeight;
+    }
+
+    NRI_INTEROP_API TextureLevels* Nri_CreateTextureLevels(int width, int height, int levelNum, int format)
+    {
+        TextureLevels* levels = new TextureLevels();
+        levels->width = width;
+        levels->height = height;
+        levels->format = format;
+        levels->data.resize((size_t)std::max(levelNum, 1));
+        levels->rowPitches.resize(levels->data.size(), 0);
+        return levels;
+    }
+
+    // A level's data (copied): its rows rowPitch bytes apart, as many as the level has.
+    NRI_INTEROP_API void Nri_SetTextureLevel(TextureLevels* levels, int level, const void* data, int rowPitch)
+    {
+        if (level < 0 || (size_t)level >= levels->data.size())
+            return;
+        const size_t size = (size_t)rowPitch * LevelRows(levels->format, levels->height, level);
+        const uint8_t* bytes = (const uint8_t*)data;
+        levels->data[(size_t)level].assign(bytes, bytes + size);
+        levels->rowPitches[(size_t)level] = (uint32_t)rowPitch;
+    }
+
+    // A texture of the levels (all of them set), in device memory, uploaded on the queue (which this
+    // waits for) and left in NriTextureState.ShaderResource, as Donut's createTextureWithLevels and
+    // writeTextureLevel make it; null on failure. Destroyed with Nri_DestroyTexture.
+    NRI_INTEROP_API nri::Texture* Nri_CreateTextureFromLevels(nri::Device* device, nri::Queue* queue, TextureLevels* levels)
+    {
+        const uint32_t levelNum = (uint32_t)levels->data.size();
+        std::vector<nri::TextureSubresourceUploadDesc> subresources(levelNum);
+        for (uint32_t level = 0; level < levelNum; level++)
+        {
+            const uint32_t rowPitch = levels->rowPitches[level];
+            if (levels->data[level].empty())
+                return nullptr;
+            subresources[level] = { levels->data[level].data(), 1, rowPitch,
+                rowPitch * LevelRows(levels->format, levels->height, (int)level) };
+        }
+
+        nri::TextureDesc desc = ShaderResourceTextureDesc(levels->width, levels->height, levels->format);
+        desc.mipNum = (nri::Dim_t)levelNum;
+        nri::Texture* texture = nullptr;
+        if (NRI.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, desc, texture) != nri::Result::SUCCESS)
+            return nullptr;
+
+        nri::TextureUploadDesc upload = {};
+        upload.subresources = subresources.data();
+        upload.texture = texture;
+        upload.after = TextureState(5);
+        upload.planes = nri::PlaneBits::ALL;
+        if (NRI.UploadData(*queue, &upload, 1, nullptr, 0) != nri::Result::SUCCESS)
+        {
+            Nri_DestroyTexture(texture);
+            return nullptr;
+        }
+        return texture;
+    }
+
+    NRI_INTEROP_API void Nri_DestroyTextureLevels(TextureLevels* levels)
+    {
+        delete levels;
     }
 
     // A width x height texture (one mip) of format filled with data (rows rowPitch bytes apart), read

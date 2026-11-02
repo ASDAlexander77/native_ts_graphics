@@ -1045,6 +1045,10 @@ ExternalProject_Add(nri_interop_build
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         ${NRI_INTEROP_PLATFORM_ARGS}
         -DNRI_OUTPUT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
+        # Basis Universal's transcoder, which the main project fetches (FetchContent, further down: its
+        # checkout is there by the time this project configures, at build time) for nri_interop to compile
+        # too (texture_compression_basisu_nri, texture_compression_comparison_nri)
+        -DBASIS_UNIVERSAL_SOURCE_DIR=${CMAKE_BINARY_DIR}/_deps/basis_universal-src
     ${NRI_INTEROP_BUILD_COMMAND}
     # its build decides what's out of date (nri_interop.cpp edited, ...)
     BUILD_ALWAYS ON
@@ -1335,6 +1339,17 @@ donut_compile_shaders(
 )
 add_tslang_example(variable_shading core/matrix.ts MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(variable_shading)
+
+# variable_shading with NRI and NRIFramework instead of Donut: the example's shading rate compute
+# shader, Donut's forward shading, TAA (motion vectors, resolve) and blit shaders (shaders/framework,
+# donut_shaders), Sponza loaded as Donut's engine loads it. D3D12 and Vulkan (variable rate shading),
+# as the Donut example.
+add_tslang_nri_example(variable_shading_nri SHADERS variable_shading_shaders core/matrix.ts core/donut_first_person_camera.ts
+    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+add_tslang_example_test(variable_shading_nri)
+if (TARGET donut_shaders AND TARGET variable_shading_nri)
+    add_dependencies(variable_shading_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' async_compute: a compute-queue worker thread animates textures that the
 # render thread shows.
@@ -2558,6 +2573,16 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(texture_compression_comparison texture_compression_comparison_media)
 endif()
 
+# texture_compression_comparison with NRI and NRIFramework instead of Donut: its shaders (msaa.hlsl's),
+# its scene and KTX 2 textures (texture_compression_comparison_media) and Basis Universal's transcoder
+# (core/basis_transcoder.cpp, compiled into nri_interop).
+add_tslang_nri_example(texture_compression_comparison_nri SHADERS texture_compression_comparison_shaders core/matrix.ts
+    core/donut_first_person_camera.ts core/transcoded_texture.ts)
+add_tslang_example_test(texture_compression_comparison_nri)
+if (TARGET texture_compression_comparison_media AND TARGET texture_compression_comparison_nri)
+    add_dependencies(texture_compression_comparison_nri texture_compression_comparison_media)
+endif()
+
 # Port of Vulkan-Samples' shader_quad_control: a triangle over the screen, its pixel shader run in
 # full quads (VK_KHR_shader_quad_control's execution mode, as DXC's inline SPIR-V; D3D12 runs whole
 # quads anyway), optionally each quad showing its top left pixel's value. Quad operations need
@@ -3383,6 +3408,16 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(texture_compression_basisu texture_compression_basisu_media)
 endif()
 
+# texture_compression_basisu with NRI and NRIFramework instead of Donut: its shaders, its KTX 2 files
+# (texture_compression_basisu_media) and Basis Universal's transcoder (core/basis_transcoder.cpp,
+# compiled into nri_interop).
+add_tslang_nri_example(texture_compression_basisu_nri SHADERS texture_compression_basisu_shaders core/vulkan_samples_camera.ts
+    core/matrix.ts core/text_format.ts core/transcoded_texture.ts)
+add_tslang_example_test(texture_compression_basisu_nri)
+if (TARGET texture_compression_basisu_media AND TARGET texture_compression_basisu_nri)
+    add_dependencies(texture_compression_basisu_nri texture_compression_basisu_media)
+endif()
+
 # Port of the Xbox ATG FastBlockCompress sample (github.com/microsoft/Xbox-ATG-Samples,
 # XDKSamples/Graphics/FastBlockCompress): BC1, BC3 and BC5 compression at run time in compute shaders
 # (into R32G32_UINT / R32G32B32A32_UINT textures copied into BC textures) or on the CPU (the sample's
@@ -4097,6 +4132,19 @@ add_tslang_example(multithreading core/directx_math.ts core/squid_room.ts MEDIA 
 add_dxgs_media(multithreading multithreading Samples/Desktop/D3D12Multithreading/src/SquidRoom.bin)
 add_tslang_example_test(multithreading)
 add_tslang_example_test(multithreading SUFFIX single_threaded ARGS -singleThreaded)
+
+# multithreading with NRI and NRIFramework instead of Donut: the sample's shaders, its SquidRoom
+# data (multithreading_media), Donut's blit shaders (donut_shaders); the draws recorded on C++ worker
+# threads by nri_interop's draw passes.
+add_tslang_nri_example(multithreading_nri SHADERS multithreading_shaders core/directx_math.ts core/squid_room.ts core/nri_donut_blit.ts)
+if (TARGET multithreading_media AND TARGET multithreading_nri)
+    add_dependencies(multithreading_nri multithreading_media)
+endif()
+if (TARGET donut_shaders AND TARGET multithreading_nri)
+    add_dependencies(multithreading_nri donut_shaders)
+endif()
+add_tslang_example_test(multithreading_nri)
+add_tslang_example_test(multithreading_nri SUFFIX single_threaded ARGS -singleThreaded)
 
 # Port of DirectX-Graphics-Samples' D3D12Bundles: 30 copies of a city drawn with two pipeline states
 # taking turns, from a bundle recorded once (a draw batch here: DrawBatch in core/donut_interop.cpp)
