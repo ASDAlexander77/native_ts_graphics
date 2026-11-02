@@ -550,8 +550,6 @@ namespace MeshletCullNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
             if (this.test) {
                 this.mouseX = 640.0;
@@ -561,15 +559,8 @@ namespace MeshletCullNri {
 
             // Swap chain: rendered through UNORM views, as the sample's R8G8B8A8_UNORM back buffer.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.viewFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.viewFormat;
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
@@ -583,13 +574,10 @@ namespace MeshletCullNri {
             }
 
             // The sample's depth buffer: D32, cleared to 1.
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            if (!depthTexture) {
+            if (!this.createDepth(device)) {
                 console.log("Cannot create the depth buffer");
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
 
             // The sample's root signatures, as root descriptors: CBV(b0), CBV(b1), CBV(b2), SRV(t0)
             // .. SRV(t4); the frustum's CBV(b0); the culling data's CBV(b0), RootConstants(b1, 2),
@@ -1121,7 +1109,70 @@ namespace MeshletCullNri {
             }
         }
 
+        // The swap chain at the window's size, its textures' views (UNORM) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.viewFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The sample's depth buffer at the swap chain's size: D32, cleared to 1.
+        createDepth(device: NriDeviceHandle): boolean {
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!depthTexture) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroyDepth() {
+            this.destroyDescriptor(this.depthAttachment);
+            this.depthAttachment = null;
+            const depthTexture = this.depthTexture;
+            if (depthTexture) {
+                Nri_DestroyTexture(depthTexture);
+            }
+            this.depthTexture = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // chain and the depth buffer made again at its size.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroyDepth();
+            this.createSwapChain(device);
+            this.createDepth(device);
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const frameOffset = queuedFrameIndex * this.frameConstantsSize;
@@ -1195,11 +1246,7 @@ namespace MeshletCullNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
+                this.destroySwapChain();
                 for (const obj of this.objects) {
                     for (const mesh of obj.meshes) {
                         Nri_DestroyDescriptor(mesh.meshInfoView);
@@ -1213,13 +1260,9 @@ namespace MeshletCullNri {
                 }
                 this.destroyDescriptor(this.constantsView);
                 this.destroyDescriptor(this.constants256View);
-                this.destroyDescriptor(this.depthAttachment);
+                this.destroyDepth();
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
-                const depthTexture = this.depthTexture;
-                if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
-                }
                 this.destroyPipeline(this.meshPipeline);
                 this.destroyPipeline(this.frustumPipeline);
                 this.destroyPipeline(this.spherePipeline);
@@ -1228,7 +1271,6 @@ namespace MeshletCullNri {
                 this.destroyLayout(this.frustumLayout);
                 this.destroyLayout(this.cullDataLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1266,6 +1308,7 @@ namespace MeshletCullNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const meshletCull = new MeshletCull(sample);
         return meshletCull.run(argc, argv);
     }

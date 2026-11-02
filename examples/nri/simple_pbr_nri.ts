@@ -781,18 +781,10 @@ namespace SimplePbrNri {
             this.skyIndices = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(skyIndices[0]), skyIndices.length * 4, NriBufferUsage.IndexBuffer);
             this.skyIndexCount = skyIndices.length;
 
-            // The frame-sized targets: the R11G11B10 HDR scene, the D32 depth buffer.
-            const hdrScene = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.R11_G11_B10_UFLOAT);
-            this.hdrScene = hdrScene;
-            const depth = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depth = depth;
-            if (!hdrScene || !depth) {
+            if (!this.createSizedTargets(device)) {
                 console.log("Cannot create the HDR scene");
                 return 0;
             }
-            this.hdrSceneAttachment = Nri_CreateColorAttachmentView(hdrScene, NriFormat.R11_G11_B10_UFLOAT);
-            this.hdrSceneView = Nri_CreateTextureView(hdrScene, NriFormat.R11_G11_B10_UFLOAT);
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D32_SFLOAT);
 
             // The layouts (set 0 each): PBR_Constants (b0), the five textures (t0 to t4), the surface
             // and IBL samplers (s0, s1); the sky box's constants, cube map and sampler; the tone
@@ -1019,6 +1011,66 @@ namespace SimplePbrNri {
                 Nri_DestroySwapChain(swapChain);
             }
             this.swapChain = null;
+        }
+
+        // The frame-sized targets: the R11G11B10 HDR scene, the D32 depth buffer.
+        createSizedTargets(device: NriDeviceHandle): boolean {
+            const hdrScene = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.R11_G11_B10_UFLOAT);
+            this.hdrScene = hdrScene;
+            const depth = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depth = depth;
+            if (!hdrScene || !depth) {
+                return false;
+            }
+            this.hdrSceneAttachment = Nri_CreateColorAttachmentView(hdrScene, NriFormat.R11_G11_B10_UFLOAT);
+            this.hdrSceneView = Nri_CreateTextureView(hdrScene, NriFormat.R11_G11_B10_UFLOAT);
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D32_SFLOAT);
+            return true;
+        }
+
+        destroySizedTargets() {
+            destroyDescriptor(this.hdrSceneAttachment);
+            destroyDescriptor(this.hdrSceneView);
+            destroyDescriptor(this.depthAttachment);
+            destroyTexture(this.hdrScene);
+            destroyTexture(this.depth);
+            this.hdrSceneAttachment = null;
+            this.hdrSceneView = null;
+            this.depthAttachment = null;
+            this.hdrScene = null;
+            this.depth = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // chain (its color space as before) and the frame-sized targets made again at its size, and
+        // the queued frames' tone mapping sets pointed at the new HDR scene. The camera, the HUD's
+        // layout and the viewports read the size every frame.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.destroySwapChain();
+            this.createSwapChain(this.hdr10 ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
+            this.destroySizedTargets();
+            if (!this.createSizedTargets(device)) {
+                return;
+            }
+            const hdrSceneView = this.hdrSceneView;
+            if (hdrSceneView) {
+                for (const queuedFrame of this.queuedFrames) {
+                    const toneMapSet = queuedFrame.toneMapSet;
+                    if (toneMapSet) {
+                        Nri_UpdateDescriptor(toneMapSet, 1, 0, hdrSceneView);
+                    }
+                }
+            }
         }
 
         // DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR mode (the
@@ -1248,6 +1300,7 @@ namespace SimplePbrNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             // The Donut example's test mode steps 1/60 s (a float) a frame.
@@ -1350,13 +1403,9 @@ namespace SimplePbrNri {
                 destroyDescriptor(this.surfaceSampler);
                 destroyDescriptor(this.linearWrapSampler);
                 destroyDescriptor(this.pointClampSampler);
-                destroyDescriptor(this.hdrSceneAttachment);
-                destroyDescriptor(this.hdrSceneView);
-                destroyDescriptor(this.depthAttachment);
+                this.destroySizedTargets();
                 destroyTexture(this.radianceTexture);
                 destroyTexture(this.irradianceTexture);
-                destroyTexture(this.hdrScene);
-                destroyTexture(this.depth);
                 destroyBuffer(this.skyVertices);
                 destroyBuffer(this.skyIndices);
                 destroyBuffer(this.constantBuffer);
@@ -1377,6 +1426,7 @@ namespace SimplePbrNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();
+        Nri_UseResizableWindow(sample);
         const simplePbr = new SimplePbr(sample);
         // -sdr: the tone mapped SDR signal even on an HDR display. -noUI: accepted (the HUD is the
         // scene's, drawn as the Donut example draws it with -noUI).

@@ -267,6 +267,8 @@ namespace TimestampQueriesNri {
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
+        // The swap chain textures' format.
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private modelsLayout: NriPipelineLayoutHandle | null = null;
         private postLayout: NriPipelineLayoutHandle | null = null;
         private skyboxPipeline: NriPipelineHandle | null = null;
@@ -368,22 +370,12 @@ namespace TimestampQueriesNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
-            // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.viewFormat;
 
             // The models and the HDR cube map (as is).
             this.skybox = Nri_LoadGltfMesh(device, this.queue, SKYBOX_PATH);
@@ -461,19 +453,16 @@ namespace TimestampQueriesNri {
 
             // The sample's prepare_offscreen_buffer: two 128-bit RGBA floating point color buffers
             // and the depth buffer (D32, cleared to 0: reversed depth); the bloom filter's target.
-            const offscreenColor0 = this.createTarget(device, NriFormat.RGBA32_SFLOAT);
-            const offscreenColor1 = this.createTarget(device, NriFormat.RGBA32_SFLOAT);
-            const filterColor = this.createTarget(device, NriFormat.RGBA32_SFLOAT);
-            this.offscreenColor0 = offscreenColor0;
-            this.offscreenColor1 = offscreenColor1;
-            this.filterColor = filterColor;
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
-            this.depthTexture = depthTexture;
-            if (!offscreenColor0 || !offscreenColor1 || !filterColor || !depthTexture) {
+            if (!this.createSizeTargets(device)) {
                 console.log("Cannot create the offscreen targets");
                 return 0;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            const offscreenColor0 = this.offscreenColor0;
+            const offscreenColor1 = this.offscreenColor1;
+            const filterColor = this.filterColor;
+            if (!offscreenColor0 || !offscreenColor1 || !filterColor) {
+                return 0;
+            }
 
             // A queued frame's timestamps.
             const queryPool = Nri_CreateTimestampQueryPool(device, queuedFrameNum * TIMESTAMPS);
@@ -540,6 +529,96 @@ namespace TimestampQueriesNri {
                 this.readbackFormat = format;
             }
             return 1;
+        }
+
+        // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers; at the window's
+        // size (the stored width and height).
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            const swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            this.swapChain = swapChain;
+            const textureNum = Nri_GetSwapChainTextureNum(swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(swapChain, 0));
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.swapChainFormat = format;
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The sample's prepare_offscreen_buffer: two 128-bit RGBA floating point color buffers and the
+        // depth buffer (D32, cleared to 0: reversed depth); the bloom filter's target. At the stored
+        // size; the fullscreen passes' sets (once made) point at the new ones. False on failure.
+        createSizeTargets(device: NriDeviceHandle): boolean {
+            const offscreenColor0 = this.createTarget(device, NriFormat.RGBA32_SFLOAT);
+            const offscreenColor1 = this.createTarget(device, NriFormat.RGBA32_SFLOAT);
+            const filterColor = this.createTarget(device, NriFormat.RGBA32_SFLOAT);
+            this.offscreenColor0 = offscreenColor0;
+            this.offscreenColor1 = offscreenColor1;
+            this.filterColor = filterColor;
+            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            this.depthTexture = depthTexture;
+            if (!offscreenColor0 || !offscreenColor1 || !filterColor || !depthTexture) {
+                return false;
+            }
+            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            // The new filter target is cleared again before the composition reads it.
+            this.targetsInitialized = false;
+            const bloomFilterSet = this.bloomFilterSet;
+            if (bloomFilterSet) {
+                Nri_UpdateDescriptor(bloomFilterSet, 0, 0, offscreenColor0.shaderResource);
+                Nri_UpdateDescriptor(bloomFilterSet, 1, 0, offscreenColor1.shaderResource);
+            }
+            const compositionSet = this.compositionSet;
+            if (compositionSet) {
+                Nri_UpdateDescriptor(compositionSet, 0, 0, offscreenColor0.shaderResource);
+                Nri_UpdateDescriptor(compositionSet, 1, 0, filterColor.shaderResource);
+            }
+            return true;
+        }
+
+        destroySizeTargets() {
+            this.destroyTarget(this.offscreenColor0);
+            this.destroyTarget(this.offscreenColor1);
+            this.destroyTarget(this.filterColor);
+            this.destroyDescriptor(this.depthAttachment);
+            this.destroyTexture(this.depthTexture);
+            this.offscreenColor0 = null;
+            this.offscreenColor1 = null;
+            this.filterColor = null;
+            this.depthAttachment = null;
+            this.depthTexture = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain and the offscreen targets
+        // again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.destroySizeTargets();
+            this.createSizeTargets(device);
         }
 
         // A window-sized render target of format, left as a shader resource; null on failure.
@@ -827,6 +906,7 @@ namespace TimestampQueriesNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.readTimestamps(queuedFrame);
@@ -963,20 +1043,11 @@ namespace TimestampQueriesNri {
                     this.destroyDescriptor(queuedFrame.paramsView);
                     this.destroyBuffer(queuedFrame.timestampBuffer);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyTarget(this.offscreenColor0);
-                this.destroyTarget(this.offscreenColor1);
-                this.destroyTarget(this.filterColor);
-                this.destroyDescriptor(this.depthAttachment);
-                this.destroyTexture(this.depthTexture);
+                this.destroySizeTargets();
                 this.destroyDescriptor(this.envmapView);
                 this.destroyDescriptor(this.anisotropicSampler);
                 this.destroyDescriptor(this.pointSampler);
@@ -1002,7 +1073,7 @@ namespace TimestampQueriesNri {
                 this.destroyPipelineLayout(this.modelsLayout);
                 this.destroyPipelineLayout(this.postLayout);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -1059,6 +1130,7 @@ namespace TimestampQueriesNri {
         Nri_AddExampleOption(sample, "-noskybox");
         Nri_AddExampleOption(sample, "-noUI");
         Nri_UseImgui(sample);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-nobloom") {

@@ -323,15 +323,10 @@ namespace SimpleHdrNri {
             }
             console.log(`Display in HDR mode: ${this.hdr10 ? "yes" : "no"}`);
 
-            // The HDR scene: RGBA16F, window-sized.
-            const hdrScene = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
-            this.hdrScene = hdrScene;
-            if (!hdrScene) {
+            if (!this.createHdrScene(device)) {
                 console.log("Cannot create the HDR scene");
                 return 0;
             }
-            this.hdrSceneAttachment = Nri_CreateColorAttachmentView(hdrScene, NriFormat.RGBA16_SFLOAT);
-            this.hdrSceneView = Nri_CreateTextureView(hdrScene, NriFormat.RGBA16_SFLOAT);
             this.pointSampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
 
             // The layouts: the scene's DrawConstants (push constants, b0) and lines (t0); the
@@ -406,7 +401,8 @@ namespace SimpleHdrNri {
             Nri_UpdateDescriptor(convertSet, 0, 0, hdrSceneView);
             Nri_UpdateDescriptor(convertSet, 1, 0, pointSampler);
 
-            // The text, in the sample's font at its scales.
+            // The text, in the sample's font at its scales (at the starting height: text draws them at
+            // the current height's sizes, Nri_ImguiPushFontSized).
             if (Nri_InitImgui(this.sample, device) == 0) {
                 console.log("Cannot initialize the user interface");
                 return 0;
@@ -448,6 +444,55 @@ namespace SimpleHdrNri {
             }
             Nri_DestroyPipelineDesc(desc);
             return pipeline;
+        }
+
+        // The HDR scene: RGBA16F, at the stored (window's) size; the conversion's set (once made) reads
+        // the new one. False on failure.
+        createHdrScene(device: NriDeviceHandle): boolean {
+            const hdrScene = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+            this.hdrScene = hdrScene;
+            if (!hdrScene) {
+                return false;
+            }
+            this.hdrSceneAttachment = Nri_CreateColorAttachmentView(hdrScene, NriFormat.RGBA16_SFLOAT);
+            const hdrSceneView = Nri_CreateTextureView(hdrScene, NriFormat.RGBA16_SFLOAT);
+            this.hdrSceneView = hdrSceneView;
+            const convertSet = this.convertSet;
+            if (convertSet) {
+                Nri_UpdateDescriptor(convertSet, 0, 0, hdrSceneView);
+            }
+            return true;
+        }
+
+        destroyHdrScene() {
+            this.destroyDescriptor(this.hdrSceneAttachment);
+            this.destroyDescriptor(this.hdrSceneView);
+            const hdrScene = this.hdrScene;
+            if (hdrScene) {
+                Nri_DestroyTexture(hdrScene);
+            }
+            this.hdrSceneAttachment = null;
+            this.hdrSceneView = null;
+            this.hdrScene = null;
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain (in its color space as
+        // before) and the HDR scene again at its size, once the GPU is done with the old ones.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.destroySwapChain();
+            this.createSwapChain(this.hdr10 ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
+            this.destroyHdrScene();
+            this.createHdrScene(device);
         }
 
         // A swap chain of format (NriSwapChainFormat), its textures' views and semaphores.
@@ -565,7 +610,7 @@ namespace SimpleHdrNri {
         // Text at the sample's layout position, in one of its font scales; right-aligned at x if
         // alignRight (where the sample's text is rotated by -90 degrees).
         text(font: FontKind, x: number, y: number, text: string, alignRight: boolean) {
-            Nri_ImguiPushFont(this.fonts[font]);
+            Nri_ImguiPushFontSized(this.fonts[font], FONT_LAYOUT_SIZE * FONT_SCALES[font] * this.height / LAYOUT_HEIGHT);
             Nri_ImguiDrawText(x * this.width / LAYOUT_WIDTH, y * this.height / LAYOUT_HEIGHT, text, 1.0, 1.0, 1.0, 1.0, alignRight ? 1 : 0);
             Nri_ImguiPopFont();
         }
@@ -863,6 +908,7 @@ namespace SimpleHdrNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             // The Donut example's test mode steps 1/60 s (a float) a frame.
@@ -955,13 +1001,8 @@ namespace SimpleHdrNri {
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
-                this.destroyDescriptor(this.hdrSceneAttachment);
-                this.destroyDescriptor(this.hdrSceneView);
+                this.destroyHdrScene();
                 this.destroyDescriptor(this.pointSampler);
-                const hdrScene = this.hdrScene;
-                if (hdrScene) {
-                    Nri_DestroyTexture(hdrScene);
-                }
                 this.destroyBuffer(this.readbackBuffer);
                 this.destroyPipeline(this.rectPipeline);
                 this.destroyPipeline(this.linePipeline);
@@ -1011,6 +1052,7 @@ namespace SimpleHdrNri {
         Nri_AddExampleOption(sample, "-sdr");
         Nri_AddExampleOption(sample, "-noUI");
         Nri_UseImgui(sample);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-curve") {

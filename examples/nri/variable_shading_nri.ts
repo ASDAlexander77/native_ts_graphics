@@ -132,6 +132,7 @@ namespace VariableShadingNri {
         private swapChainTextures: SwapChainTexture[] = [];
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
+        private swapChainFormat: NriFormat = NriFormat.Unknown;
         private width: int = 0;
         private height: int = 0;
         private test: boolean = false;
@@ -298,36 +299,25 @@ namespace VariableShadingNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const format = this.swapChainFormat;
+            const viewFormat = this.viewFormat;
 
             if (Nri_IsFeatureSupported(device, NriFeature.VariableRateShading) == 0) {
                 this.unsupportedReason = "The device does not support Variable Rate Shading";
                 return 0;
             }
             // The VRS tile size (it can vary depending on hardware): the surface is about 1 / tileSize
-            // of the frame in both dimensions (rounded up).
+            // of the frame in both dimensions (rounded up; createSizeTargets).
             this.vrsTileSize = Nri_GetShadingRateTileSize(device);
             if (this.vrsTileSize == 0) {
                 this.unsupportedReason = "The device does not support Variable Rate Shading";
                 return 0;
             }
-            this.surfaceWidth = Math.floor((this.width + this.vrsTileSize - 1) / this.vrsTileSize);
-            this.surfaceHeight = Math.floor((this.height + this.vrsTileSize - 1) / this.vrsTileSize);
 
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             if (!this.loadScene(device, folder) || !this.createTargets(device) || !this.createLayouts(device)
@@ -405,6 +395,32 @@ namespace VariableShadingNri {
 
         // The temporal targets, the shading rate surface, the fallbacks.
         createTargets(device: NriDeviceHandle) {
+            if (!this.createSizeTargets(device)) {
+                return false;
+            }
+
+            const black = Nri_CreateSolidTexture(device, this.queue, 1, 0xFF000000, NriTextureState.AllShaderResource);
+            const blackCubes = Nri_CreateSolidTexture(device, this.queue, 6, 0xFF000000, NriTextureState.ShaderResource);
+            const noShadowTexture = Nri_CreateSampledDepthTexture(device, this.queue, 1, 1, NriFormat.D16_UNORM);
+            this.noShadowTexture = noShadowTexture;
+            if (!black || !blackCubes || !noShadowTexture) {
+                console.log("Cannot create the default textures");
+                return false;
+            }
+            this.solidTextures.push(black);
+            this.solidTextures.push(blackCubes);
+            this.blackView = Nri_CreateTextureView(black, NriFormat.RGBA8_UNORM);
+            this.blackCubeArrayView = Nri_CreateTextureCubeArrayView(blackCubes, NriFormat.RGBA8_UNORM);
+            this.noShadowView = Nri_CreateTextureArrayView(noShadowTexture, NriFormat.D16_UNORM);
+            this.noShadowAttachment = Nri_CreateDepthAttachmentView(noShadowTexture, NriFormat.D16_UNORM);
+            return true;
+        }
+
+        // The window-sized targets: the temporal targets and the shading rate surface (a texel per
+        // VRS tile), in the states the frames expect first (targetsCleared, resolvedInStorage).
+        createSizeTargets(device: NriDeviceHandle) {
+            this.surfaceWidth = Math.floor((this.width + this.vrsTileSize - 1) / this.vrsTileSize);
+            this.surfaceHeight = Math.floor((this.height + this.vrsTileSize - 1) / this.vrsTileSize);
             const width = this.width;
             const height = this.height;
             const depth = Nri_CreateSampledDepthTexture(device, this.queue, width, height, NriFormat.D24_UNORM_S8_UINT);
@@ -459,22 +475,85 @@ namespace VariableShadingNri {
             this.feedbackOutputStorage = Nri_CreateStorageTextureView(feedbackOutput, NriFormat.RGBA16_SFLOAT);
             this.shadingRateAttachment = Nri_CreateShadingRateAttachmentView(shadingRateSurface);
             this.shadingRateStorage = Nri_CreateStorageTextureView(shadingRateSurface, NriFormat.R8_UINT);
-
-            const black = Nri_CreateSolidTexture(device, this.queue, 1, 0xFF000000, NriTextureState.AllShaderResource);
-            const blackCubes = Nri_CreateSolidTexture(device, this.queue, 6, 0xFF000000, NriTextureState.ShaderResource);
-            const noShadowTexture = Nri_CreateSampledDepthTexture(device, this.queue, 1, 1, NriFormat.D16_UNORM);
-            this.noShadowTexture = noShadowTexture;
-            if (!black || !blackCubes || !noShadowTexture) {
-                console.log("Cannot create the default textures");
-                return false;
-            }
-            this.solidTextures.push(black);
-            this.solidTextures.push(blackCubes);
-            this.blackView = Nri_CreateTextureView(black, NriFormat.RGBA8_UNORM);
-            this.blackCubeArrayView = Nri_CreateTextureCubeArrayView(blackCubes, NriFormat.RGBA8_UNORM);
-            this.noShadowView = Nri_CreateTextureArrayView(noShadowTexture, NriFormat.D16_UNORM);
-            this.noShadowAttachment = Nri_CreateDepthAttachmentView(noShadowTexture, NriFormat.D16_UNORM);
             return true;
+        }
+
+        destroySizeTargets() {
+            const descriptors = [this.depthAttachment, this.depthView, this.stencilView, this.hdrAttachment, this.hdrView,
+                this.motionVectorsAttachment, this.motionVectorsView, this.resolvedStorage, this.resolvedView,
+                this.feedbackInputView, this.feedbackOutputStorage, this.shadingRateAttachment, this.shadingRateStorage];
+            for (const descriptor of descriptors) {
+                if (descriptor) {
+                    Nri_DestroyDescriptor(descriptor);
+                }
+            }
+            const textures = [this.depth, this.hdrColor, this.motionVectors, this.resolvedColor, this.feedbackInput,
+                this.feedbackOutput, this.shadingRateSurface];
+            for (const texture of textures) {
+                if (texture) {
+                    Nri_DestroyTexture(texture);
+                }
+            }
+            this.depthAttachment = null;
+            this.depthView = null;
+            this.stencilView = null;
+            this.hdrAttachment = null;
+            this.hdrView = null;
+            this.motionVectorsAttachment = null;
+            this.motionVectorsView = null;
+            this.resolvedStorage = null;
+            this.resolvedView = null;
+            this.feedbackInputView = null;
+            this.feedbackOutputStorage = null;
+            this.shadingRateAttachment = null;
+            this.shadingRateStorage = null;
+            this.depth = null;
+            this.hdrColor = null;
+            this.motionVectors = null;
+            this.resolvedColor = null;
+            this.feedbackInput = null;
+            this.feedbackOutput = null;
+            this.shadingRateSurface = null;
+        }
+
+        // The sets' slots of the window-sized targets pointed at the current ones: the shading rate
+        // surface's, the blit's and every queued frame's motion vectors' and resolve's.
+        updateSizeDescriptors() {
+            const depthView = this.depthView;
+            const stencilView = this.stencilView;
+            const hdrView = this.hdrView;
+            const motionVectorsView = this.motionVectorsView;
+            const feedbackInputView = this.feedbackInputView;
+            const resolvedStorage = this.resolvedStorage;
+            const resolvedView = this.resolvedView;
+            const feedbackOutputStorage = this.feedbackOutputStorage;
+            const shadingRateStorage = this.shadingRateStorage;
+            if (!depthView || !stencilView || !hdrView || !motionVectorsView || !feedbackInputView || !resolvedStorage) {
+                return;
+            }
+            if (!resolvedView || !feedbackOutputStorage || !shadingRateStorage) {
+                return;
+            }
+            const shadingRateSet = this.shadingRateSet;
+            if (shadingRateSet) {
+                Nri_UpdateDescriptor(shadingRateSet, 0, 0, shadingRateStorage);
+                Nri_UpdateDescriptor(shadingRateSet, 1, 0, motionVectorsView);
+                Nri_UpdateDescriptor(shadingRateSet, 1, 1, hdrView);
+            }
+            const blitSet = this.blitSet;
+            if (blitSet) {
+                Nri_UpdateDescriptor(blitSet, 0, 0, resolvedView);
+            }
+            for (const queuedFrame of this.queuedFrames) {
+                Nri_UpdateDescriptor(queuedFrame.motionVectorsSet, 1, 0, depthView);
+                Nri_UpdateDescriptor(queuedFrame.motionVectorsSet, 1, 1, stencilView);
+                Nri_UpdateDescriptor(queuedFrame.resolveSet, 2, 0, hdrView);
+                Nri_UpdateDescriptor(queuedFrame.resolveSet, 2, 1, motionVectorsView);
+                Nri_UpdateDescriptor(queuedFrame.resolveSet, 2, 2, feedbackInputView);
+                Nri_UpdateDescriptor(queuedFrame.resolveSet, 2, 3, hdrView);
+                Nri_UpdateDescriptor(queuedFrame.resolveSet, 3, 0, resolvedStorage);
+                Nri_UpdateDescriptor(queuedFrame.resolveSet, 3, 1, feedbackOutputStorage);
+            }
         }
 
         // The passes' layouts, as their shaders declare their bindings (Donut's register spaces).
@@ -986,7 +1065,60 @@ namespace VariableShadingNri {
             this.resolvedInStorage = false;
         }
 
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+            this.swapChainFormat = format;
+            const viewFormat = Nri_GetSrgbFormat(format);
+            this.viewFormat = viewFormat;
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): the swap chain, the temporal targets
+        // and the shading rate surface made again at its size, once the GPU is done with the old ones;
+        // the sets pointed at them; the first frame's clears done again, the resolved color back in
+        // NriTextureState.Storage, and the previous view forgotten (its projection had the old aspect
+        // ratio). The projection, viewports and dispatches read the size every frame.
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.destroySizeTargets();
+            this.createSwapChain(device);
+            if (!this.createSizeTargets(device)) {
+                return;
+            }
+            this.updateSizeDescriptors();
+            this.targetsCleared = false;
+            this.resolvedInStorage = true;
+            this.previousViewsValid = false;
+        }
+
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.writeConstants(queuedFrameIndex);
@@ -1078,22 +1210,15 @@ namespace VariableShadingNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
                 }
                 this.textures.destroy();
                 this.blit.destroy();
-                const descriptors = [this.vertexBufferView, this.instanceBufferView, this.depthAttachment, this.depthView,
-                    this.stencilView, this.hdrAttachment, this.hdrView, this.motionVectorsAttachment, this.motionVectorsView,
-                    this.resolvedStorage, this.resolvedView, this.feedbackInputView, this.feedbackOutputStorage,
-                    this.shadingRateAttachment, this.shadingRateStorage, this.blackView, this.blackCubeArrayView, this.noShadowView,
-                    this.noShadowAttachment, this.anisotropicWrap, this.linearWrap, this.linearClamp, this.shadowSampler,
+                this.destroySizeTargets();
+                const descriptors = [this.vertexBufferView, this.instanceBufferView, this.blackView, this.blackCubeArrayView,
+                    this.noShadowView, this.noShadowAttachment, this.anisotropicWrap, this.linearWrap, this.linearClamp, this.shadowSampler,
                     this.bilinearBorder];
                 for (const descriptor of descriptors) {
                     if (descriptor) {
@@ -1106,12 +1231,9 @@ namespace VariableShadingNri {
                 for (const view of this.constantViews) {
                     Nri_DestroyDescriptor(view);
                 }
-                const textures = [this.depth, this.hdrColor, this.motionVectors, this.resolvedColor, this.feedbackInput,
-                    this.feedbackOutput, this.shadingRateSurface, this.noShadowTexture];
-                for (const texture of textures) {
-                    if (texture) {
-                        Nri_DestroyTexture(texture);
-                    }
+                const noShadowTexture = this.noShadowTexture;
+                if (noShadowTexture) {
+                    Nri_DestroyTexture(noShadowTexture);
                 }
                 for (const texture of this.solidTextures) {
                     Nri_DestroyTexture(texture);
@@ -1139,7 +1261,7 @@ namespace VariableShadingNri {
                     }
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             const scene = this.scene;
@@ -1157,6 +1279,7 @@ namespace VariableShadingNri {
         // path (on D3D12; ignored otherwise).
         Nri_AddExampleOptionWithValues(sample, "--scene", 1);
         Nri_AddExampleOption(sample, "-raw");
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "--scene" && i + 1 < argc) {

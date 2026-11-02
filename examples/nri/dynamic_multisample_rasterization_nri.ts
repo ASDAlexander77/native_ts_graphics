@@ -279,22 +279,12 @@ namespace DynamicMultisampleRasterizationNri {
 
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, queuedFrameNum + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
+            this.createSwapChain(device);
+            const viewFormat = this.viewFormat;
 
             // The sample's prepare_supported_sample_count_list, then -samples' if supported.
             const supported = Nri_GetSupportedSampleCounts(device, viewFormat, DEPTH_FORMAT);
@@ -414,7 +404,7 @@ namespace DynamicMultisampleRasterizationNri {
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
                 this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
-                this.readbackFormat = format;
+                this.readbackFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
             }
             return 1;
         }
@@ -598,6 +588,47 @@ namespace DynamicMultisampleRasterizationNri {
                 this.pipelines.push(pipeline);
             }
             return pipeline;
+        }
+
+        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
+        createSwapChain(device: NriDeviceHandle) {
+            this.width = Nri_GetOutputWidth(this.sample);
+            this.height = Nri_GetOutputHeight(this.sample);
+            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
+            this.viewFormat = Nri_GetSrgbFormat(Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0)));
+            for (let i = 0; i < textureNum; i++) {
+                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
+                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
+            }
+        }
+
+        destroySwapChain() {
+            for (const swapChainTexture of this.swapChainTextures) {
+                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
+                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
+                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
+            }
+            this.swapChainTextures = [];
+            Nri_DestroySwapChain(this.swapChain);
+        }
+
+        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // chain, the depth buffer and the multisampled color made again at its size (createTargets
+        // points the resolve set at the new color).
+        resizeIfNeeded() {
+            const device = this.device;
+            if (!device) {
+                return;
+            }
+            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+                return;
+            }
+            Nri_DeviceWaitIdle(device);
+            this.destroySwapChain();
+            this.createSwapChain(device);
+            this.createTargets();
         }
 
         // The sample's attachments_setup: the depth buffer and (with multisampling) the
@@ -791,6 +822,7 @@ namespace DynamicMultisampleRasterizationNri {
         }
 
         renderFrame(frameIndex: int) {
+            this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             if (this.imgui) {
@@ -877,11 +909,6 @@ namespace DynamicMultisampleRasterizationNri {
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.uboView);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -914,7 +941,7 @@ namespace DynamicMultisampleRasterizationNri {
                 this.destroyBuffer(this.uniformBuffer);
                 this.destroyBuffer(this.readbackBuffer);
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.destroySwapChain();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
@@ -946,6 +973,7 @@ namespace DynamicMultisampleRasterizationNri {
         Nri_AddExampleOptionWithValues(sample, "-samples", 1);
         Nri_AddExampleOption(sample, "-noUI");
         Nri_UseImgui(sample);
+        Nri_UseResizableWindow(sample);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
             if (arg == "-samples" && i + 1 < argc) {
