@@ -198,6 +198,23 @@ completes tier 4; tier 5 (ray tracing) is next.
 The order is rt_triangle, dxr_refit, rt_shadows, rt_reflections, raytracing_simple_lighting, and
 ray_queries. After that come the scene-heavy ray-traced examples.
 
+First: rt_triangle_nri, on D3D12 and Vulkan (D3D11 has no ray tracing: skipped), its frames the Donut
+example's pixel for pixel. The interop gets NRI's ray tracing interface (`NriFeature.RayTracing`):
+`Nri_BuildTriangleBLAS` and `Nri_BuildSingleInstanceTLAS` build an acceleration structure each on
+the graphics queue and wait (as Donut's examples build theirs before the first frame; the TLAS's
+instance is Donut's: mask 1, counterclockwise front faces), `Nri_CreateRayTracingPipeline` makes the
+ray generation, miss and closest hit groups of one library blob (a .cfg's `-T lib`),
+`Nri_CreateShaderTable` writes their identifiers into a device shader table and
+`Nri_CmdDispatchRays` launches them; a layout with a ray tracing stage is a ray tracing layout
+(`Nri_CmdSetRayTracingPipelineLayout`), with acceleration structure ranges
+(`Nri_CreateDescriptorPoolWithAccelerationStructures`). The rays write an RGBA8 storage texture
+(`NriTextureState.RayTracingStorage`) that Donut's blit (`core/nri_donut_blit.ts`) draws into the
+sRGB swap chain view. NRI's D3D12 backend makes a DXIL library subobject of every shader exporting
+all of the blob's entry points, so three shaders of one blob export each name three times and
+CreateStateObject fails: `patches/NRI-d3d12-library-exports.patch` exports each shader's entry point
+alone. rt_triangle.hlsl's output now says it's rgba8 on Vulkan (`VK_IMAGE_FORMAT`): float4 made it
+Rgba32f, which the validation layer flags against the RGBA8 view (it didn't for the Donut example).
+
 ## Notes
 
 - D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is

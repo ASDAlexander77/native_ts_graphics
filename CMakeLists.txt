@@ -1222,6 +1222,13 @@ donut_compile_shaders(
 )
 add_tslang_example(rt_triangle)
 add_tslang_example_test(rt_triangle)
+# rt_triangle with NRI and NRIFramework instead of Donut: rt_triangle's shader library, blitted into the
+# swap chain with Donut's blit (shaders/framework's rect_vs and blit_ps).
+add_tslang_nri_example(rt_triangle_nri SHADERS rt_triangle_shaders core/nri_donut_blit.ts)
+add_tslang_example_test(rt_triangle_nri)
+if (TARGET donut_shaders AND TARGET rt_triangle_nri)
+    add_dependencies(rt_triangle_nri donut_shaders)
+endif()
 
 # Port of Donut-Samples' vertex_buffer.
 donut_compile_shaders_all_platforms(

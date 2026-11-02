@@ -49,6 +49,9 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # Its D3D11 CmdEndRendering leaves the render targets bound, so a compute pass reading what was
 # just rendered gets a null view (D3D11 drops shader resources still bound as outputs): patched to
 # unbind them (UAVs kept), in the emulated command buffers' replay too.
+# Its D3D12 ray tracing pipelines make a DXIL library of each shader exporting all the library's
+# entry points, so shaders sharing one library (a .cfg's "-T lib" blob) export them repeatedly, which
+# CreateStateObject rejects: patched to export each shader's entry point alone, for rt_triangle_nri.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
 include(FetchContent)
 set(NRI_PATCHES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../patches")
@@ -79,6 +82,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d11-end-rendering.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-library-exports.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

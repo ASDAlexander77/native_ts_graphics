@@ -35,7 +35,10 @@ struct Attributes {
 
 // ---[ Resources ]---
 
-RWTexture2D<float4> RTOutput				: register(u0);
+#include <donut/shaders/binding_helpers.hlsli>
+
+// RGBA8 on Vulkan too (createUAVTextureForFrame's format), not the Rgba32f float4 implies.
+VK_IMAGE_FORMAT("rgba8") RWTexture2D<float4> RTOutput				: register(u0);
 RaytracingAccelerationStructure SceneBVH : register(t0);
 
 
