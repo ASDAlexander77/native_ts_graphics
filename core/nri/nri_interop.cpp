@@ -1174,9 +1174,47 @@ extern "C"
         g_PrintfMessenger = messenger;
     }
 
+#if defined(_WIN32) && defined(NRI_D3D_AGILITY_SDK_VERSION)
+    // D3D12 devices made afterwards (NRI's) use the Agility SDK runtime in bin/D3D12 (this library's
+    // directory's), not the system's, which may lack shader model 6.9 and DXR 1.2: a device factory
+    // for it applied to D3D12's global state, before anything else of D3D12's (the debug layer too).
+    // D3D12 would take an executable's own D3D12SDKVersion and D3D12SDKPath exports instead, which
+    // tslang's JIT (tslang.exe) and the examples don't have. Once per process; the system's runtime
+    // stays if there's no bin/D3D12/D3D12Core.dll or if applying it fails.
+    void UseAgilitySdk()
+    {
+        static bool s_Done = false;
+        if (s_Done)
+            return;
+        s_Done = true;
+        if (GetProcAddress(GetModuleHandleW(nullptr), "D3D12SDKVersion"))
+            return;
+        const std::string path = LibraryDirectory() + "D3D12\\";
+        if (!std::filesystem::exists(path + "D3D12Core.dll"))
+            return;
+        ID3D12SDKConfiguration1* configuration = nullptr;
+        ID3D12DeviceFactory* factory = nullptr;
+        bool applied = SUCCEEDED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&configuration)))
+            && SUCCEEDED(configuration->CreateDeviceFactory(NRI_D3D_AGILITY_SDK_VERSION, path.c_str(), IID_PPV_ARGS(&factory)))
+            && SUCCEEDED(factory->ApplyToGlobalState());
+        if (factory)
+            factory->Release();
+        if (configuration)
+            configuration->Release();
+        if (applied)
+            printf("Using the D3D12 Agility SDK runtime %d in %s\n", NRI_D3D_AGILITY_SDK_VERSION, path.c_str());
+        else
+            printf("Cannot use the D3D12 Agility SDK runtime in %s: the system's is used\n", path.c_str());
+    }
+#endif
+
     // The device of the adapter and with the validation the command line chose, null on failure.
     NRI_INTEROP_API nri::Device* Nri_CreateDevice(TsSample* sample, int graphicsAPI)
     {
+#if defined(_WIN32) && defined(NRI_D3D_AGILITY_SDK_VERSION)
+        if ((nri::GraphicsAPI)graphicsAPI == nri::GraphicsAPI::D3D12)
+            UseAgilitySdk();
+#endif
         nri::AdapterDesc adapterDescs[2] = {};
         uint32_t adapterDescNum = helper::GetCountOf(adapterDescs);
         if (nri::nriEnumerateAdapters(adapterDescs, adapterDescNum) != nri::Result::SUCCESS || adapterDescNum == 0)
@@ -1343,7 +1381,7 @@ extern "C"
             return desc.graphicsAPI == nri::GraphicsAPI::VK && desc.features.rayTracing && desc.shaderFeatures.rayTracingPositionFetch ? 1 : 0;
         case 27:
             // Hit objects and thread reordering in ray generation shaders: D3D12's shader model 6.9
-            // with DXR tier 1.2 (without the Agility SDK, the runtime's highest may be 6.8), Vulkan's
+            // with DXR tier 1.2 (the Agility SDK runtime's: see UseAgilitySdk), Vulkan's
             // VK_NV_ray_tracing_invocation_reorder (VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV,
             // which NRI is patched to enable where the device has it)
             if (!desc.features.rayTracing)

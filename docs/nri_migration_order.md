@@ -384,12 +384,10 @@ ray_tracing_invocation_reorder_nri: ray_tracing_extended_nri's scene with a hit 
 (the instances' hit group offsets) and Shader Execution Reordering of the primary rays, from the
 library with hit objects where the device has them (`NriFeature.ShaderExecutionReordering`). That is
 Vulkan's VK_NV_ray_tracing_invocation_reorder, which NRI doesn't enable on its own
-(`patches/NRI-vk-ray-tracing-invocation-reorder.patch`). D3D12's hit objects are shader model 6.9,
-which needs the Agility SDK runtime: without it (nri_interop has none) the runtime reports 6.8, so on
-D3D12 the port traces with the library without them, and its overlay says SER isn't supported, as the
-Donut example's does on such a device. Outside the overlay (NRIFramework's default font is larger) its
-Vulkan frame is Donut's pixel for pixel, with SER and with `-noser`; its D3D12 frame differs from
-Donut's (which has hit objects) at one pixel by 1.
+(`patches/NRI-vk-ray-tracing-invocation-reorder.patch`), and D3D12's shader model 6.9 with DXR 1.2,
+the Agility SDK runtime's (the system's here reports 6.8): nri_interop's D3D12 devices use it (see the
+notes). Outside the overlay (NRIFramework's default font is larger) its frames are Donut's pixel for
+pixel on D3D12 and Vulkan, with SER and with `-noser`.
 
 conservative_rasterization_nri also runs on D3D11 (NRI reports a tier there; the Donut example
 skips D3D11, NVRHI not reporting the feature). wave_intrinsics_nri skips D3D11 (no DXBC), as the Donut
@@ -446,9 +444,14 @@ handed out and ignores others (saying so once in the debugger's output).
 - `-test` runs are headless, as Donut's: NRIFramework always makes a window (the swap chain needs
   one), and under `-test` it's never shown (`patches/NRIFramework-hidden-window.patch`); rendering and
   the readback don't need it on screen.
-- D3D12 runs with legacy resource barriers here (nri_interop has no Agility SDK): depth access is
-  the write bit alone, and textures are moved to their layout once at creation instead of from
-  Undefined each frame.
+- D3D12 devices use the Agility SDK runtime in `bin/D3D12` (the main project's, as Donut's examples
+  do), for shader model 6.9 and DXR 1.2: nri_interop applies it to D3D12's global state before the
+  first device (`ID3D12SDKConfiguration1::CreateDeviceFactory`, `ApplyToGlobalState`), since D3D12
+  would otherwise want the executable to export `D3D12SDKVersion` and `D3D12SDKPath`, which tslang's
+  JIT (tslang.exe) can't. `-debug` gets that runtime's debug layer (`D3D12SDKLayers.dll`).
+- NRI itself is built without its Agility SDK support, so D3D12 runs with legacy resource barriers
+  here: depth access is the write bit alone, and textures are moved to their layout once at creation
+  instead of from Undefined each frame.
 - The examples reuse Donut's SPIR-V, compiled with register shifts t 0, s 128, b 256, u 384:
   `Nri_CreateDevice` sets NRI's `vkBindingOffsets` to those (NRIFramework's defaults differ).
 - NRI's D3D12 descriptor pool gives every set its ranges' whole descriptorNum, ignoring the
@@ -575,10 +578,10 @@ These need something NRI does not provide:
   associations, hit groups, shader and pipeline configs) defined in the DXIL library itself, and its
   local root signature; NRI builds the state object from its own description and has no local root
   arguments (its shader table records are identifiers alone, as on Vulkan).
-- **sakura_forest_ser**: D3D12 only, its one library shader model 6.9 hit objects (no variant
-  without them), which need the Agility SDK runtime nri_interop doesn't have; and like
-  raytracing_library_subobjects, its state object comes from the library's subobjects with a local
-  root signature and a hit record per instance.
+- **sakura_forest_ser**: like raytracing_library_subobjects, its state object comes from the DXIL
+  library's subobjects, with a local root signature and a hit record (its local arguments) per
+  instance. (Its shader model 6.9 hit objects alone would run: nri_interop's D3D12 devices use the
+  Agility SDK runtime.)
 - **rtxcr_***, **rtxpt**, **feature_demo**, **opacity_micromaps**, **fast_block_compress**,
   **video_texture**, **denoised_rtao**: they are built on C++ SDK integrations through
   Donut/NVRHI.
