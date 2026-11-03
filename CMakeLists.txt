@@ -1049,6 +1049,9 @@ ExternalProject_Add(nri_interop_build
         # checkout is there by the time this project configures, at build time) for nri_interop to compile
         # too (texture_compression_basisu_nri, texture_compression_comparison_nri)
         -DBASIS_UNIVERSAL_SOURCE_DIR=${CMAKE_BINARY_DIR}/_deps/basis_universal-src
+        # The Agility SDK runtime in bin/D3D12 (see DONUT_D3D_AGILITY_SDK_URL), which nri_interop's D3D12
+        # devices use
+        -DNRI_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION}
     ${NRI_INTEROP_BUILD_COMMAND}
     # its build decides what's out of date (nri_interop.cpp edited, ...)
     BUILD_ALWAYS ON
@@ -1751,9 +1754,9 @@ if (TARGET ray_tracing_extended_media AND TARGET ray_tracing_extended_nri)
 endif()
 
 # ray_tracing_invocation_reorder with NRI and NRIFramework instead of Donut: its shaders (the library
-# with hit objects where the device has them: Vulkan's VK_NV_ray_tracing_invocation_reorder, which NRI
-# is patched to enable; not D3D12, whose shader model 6.9 needs the Agility SDK NRI is built
-# without), ray_tracing_extended's scene and textures. The second test traces without reordering.
+# with hit objects where the device has them: D3D12's shader model 6.9, the Agility SDK runtime's;
+# Vulkan's VK_NV_ray_tracing_invocation_reorder, which NRI is patched to enable),
+# ray_tracing_extended's scene and textures. The second test traces without reordering.
 add_tslang_nri_example(ray_tracing_invocation_reorder_nri SHADERS ray_tracing_invocation_reorder_shaders core/matrix.ts
     core/random.ts core/donut_first_person_camera.ts)
 add_tslang_example_test(ray_tracing_invocation_reorder_nri)

@@ -158,8 +158,12 @@ FetchContent_Declare(d3d12ma
 # looks for the libraries a library imports in the executable's directory (tslang.exe's), not bin/.
 set(NRI_STATIC_LIBRARY ON CACHE BOOL "" FORCE)
 
-# Without the Agility SDK: NRI's D3D12 backend would then need D3D12SDKVersion and D3D12SDKPath
-# exported from the executable (a tslang one exports nothing), and the triangle needs no new D3D12.
+# NRI built without its Agility SDK support (its own package and code paths: enhanced barriers,
+# ...), which would need D3D12SDKVersion and D3D12SDKPath exported from the executable (tslang's
+# JIT runs tslang.exe). The D3D12 runtime is the Agility SDK's all the same: nri_interop applies the
+# main project's (bin/D3D12, NRI_D3D_AGILITY_SDK_VERSION) to D3D12's global state before the first
+# device (Nri_CreateDevice), for shader model 6.9 and DXR 1.2 (ray_tracing_invocation_reorder_nri's
+# hit objects).
 set(NRI_ENABLE_AGILITY_SDK_SUPPORT OFF CACHE BOOL "" FORCE)
 
 if (ANDROID)
@@ -217,6 +221,10 @@ FetchContent_GetProperties(cgltf)
 target_include_directories(nri_interop PRIVATE "${cgltf_SOURCE_DIR}")
 if (WIN32)
     target_compile_definitions(nri_interop PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    # The Agility SDK runtime's version (D3D12Core.dll in bin/D3D12, copied by the main project).
+    if (NRI_D3D_AGILITY_SDK_VERSION)
+        target_compile_definitions(nri_interop PRIVATE NRI_D3D_AGILITY_SDK_VERSION=${NRI_D3D_AGILITY_SDK_VERSION})
+    endif()
     # NRIFramework's link options (/NOIMPLIB, /NOEXP: for an executable exporting the Agility SDK's
     # symbols) would leave this library without the import library the examples link.
     set_property(TARGET NRIFramework PROPERTY INTERFACE_LINK_OPTIONS "")

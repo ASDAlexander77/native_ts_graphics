@@ -287,8 +287,8 @@ namespace RayTracingInvocationReorderNri {
     // TLAS rebuilt every frame) with a hit group per material, which the instances select (their hit
     // group offsets), and Shader Execution Reordering: the primary rays are traced into hit objects,
     // the threads reordered by them (coherence hints: the instance hit) before their hit shaders run.
-    // Where the device has no hit objects (D3D12 without shader model 6.9, which needs the Agility SDK
-    // NRI is built without), the library without them traces as ray_tracing_extended does. Rays are
+    // Where the device has no hit objects (D3D12 without shader model 6.9 and DXR 1.2), the library
+    // without them traces as ray_tracing_extended does. Rays are
     // traced into a storage texture, copied to the back buffer, the UI drawn over it.
     class RayTracingInvocationReorder {
         private device: NriDeviceHandle | null = null;

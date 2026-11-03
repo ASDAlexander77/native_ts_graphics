@@ -163,7 +163,8 @@ enum NriFeature {
     RayTracingPositionFetch = 26,
     // Ray generation shaders tracing rays into hit objects, reordering their threads by them and then
     // invoking their hit or miss shaders (Shader Execution Reordering): D3D12's shader model 6.9 with
-    // DXR tier 1.2 (D3D12 doesn't say whether the GPU reorders), Vulkan's
+    // DXR tier 1.2 (the Agility SDK runtime's, which nri_interop's D3D12 devices use; D3D12 doesn't
+    // say whether the GPU reorders), Vulkan's
     // VK_NV_ray_tracing_invocation_reorder, which NRI is patched to enable; the Donut examples'
     // App.getShaderExecutionReordering() != None
     ShaderExecutionReordering = 27
