@@ -35,6 +35,8 @@
 @cpp declare class NriAsyncComputeLoopHandle { private readonly __nriAsyncComputeLoop: index; }
 // A file's bytes (Nri_LoadFile).
 @cpp declare class NriFileHandle { private readonly __nriFile: index; }
+// Sound: a playback device and the sounds mixed into it (Nri_CreateAudio, core/nri/nri_audio.cpp).
+@cpp declare class NriAudioHandle { private readonly __nriAudio: index; }
 // A glTF mesh primitive's vertex and index buffers (Nri_LoadGltfMesh).
 @cpp declare class NriGltfMeshHandle { private readonly __nriGltfMesh: index; }
 // Every primitive of a glTF file with its materials and nodes, on the CPU (Nri_LoadGltfModel).
@@ -1239,6 +1241,12 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // regions uploaded.
 @nodrops declare function Nri_LoadFile(path: string): NriFileHandle | null;
 @nodrops declare function Nri_DestroyFile(file: NriFileHandle): void;
+// Sound (miniaudio): a playback device on the default output, started, or null if there's none or it
+// won't start. Nri_PlaySound starts a synthesized sound: 0 splash, 1 fizz, 2 crackle, 3 boom, at
+// volume (0 .. 1) and pitch (1 its own); dropped when 24 are already starting.
+@nodrops declare function Nri_CreateAudio(): NriAudioHandle | null;
+@nodrops declare function Nri_PlaySound(audio: NriAudioHandle, sound: int, volume: number, pitch: number): void;
+@nodrops declare function Nri_DestroyAudio(audio: NriAudioHandle): void;
 // The bytes of a file Nri_LoadFile read (valid until Nri_DestroyFile), e.g. for a loader taking them
 // (MeshletModel.load), and their count.
 @nodrops declare function Nri_GetFileData(file: NriFileHandle): Opaque;

@@ -1,5 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { formatFixed } from "../../core/text_format";
+import { JsonReader } from "../../core/json_reader";
 
 namespace PowderSandboxNri {
     // A falling-sand sandbox in the spirit of The Powder Toy, with real fluid physics: pick a
@@ -22,6 +23,20 @@ namespace PowderSandboxNri {
     // remakes the grid in the same buffers.
     const CAPACITY = 1 << 18;
     const DEFAULT_GRID_HEIGHT = 144;
+    // Auto quality: the GPU's step time, averaged over frames QUALITY_FRAMES[0] .. [1] after the
+    // start; over STEP_BUDGET_MS (3 steps a frame: 6 of a 60 Hz frame's 16.7 ms), the grid made
+    // smaller, its cells fewer by that ratio (MIN_GRID_HEIGHT along its shorter side at the least).
+    // Measured once, on the U-tube's water (an empty grid's step says little of a painted one's),
+    // before the session starts at the size chosen (a regrid would crop what's there). The substeps
+    // stay: heat and the solve are tuned per step
+    // (and the heat's explicit diffusion is at its stability limit).
+    const QUALITY_FRAMES = [30, 90];
+    const STEP_BUDGET_MS = 2.0;
+    const MIN_GRID_HEIGHT = 72;
+    // Where the chosen height is kept (beside the save): QUALITY_MAGIC, the height.
+    const QUALITY_PATH = "powder_sandbox.quality";
+    const QUALITY_MAGIC = 0x51445750;
+    const QUALITY_HEADER_INTS = 2;
     const MAX_GRID_LONG = 432;
     const GRID_CAPACITY = (DEFAULT_GRID_HEIGHT + 1) * (MAX_GRID_LONG + 1);
     // A toolbar tile's narrowest (its label in ImGui's default font fits).
@@ -43,14 +58,28 @@ namespace PowderSandboxNri {
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's particle types (1 .. PARTICLE_TYPES, a count section each), gridInt and
     // gridFloat sections, and u_Alloc's free list's start.
-    // (probe_cs's counts end at u_Alloc[3 + PARTICLE_TYPES], under its salinity at ALLOC_LIST - 1:
-    // up to 11 types)
-    const PARTICLE_TYPES = 11;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 5;
+    // (probe_cs packs the counts two to an int from u_Alloc[4], under its salinity at ALLOC_LIST - 1:
+    // up to 22 types)
+    const PARTICLE_TYPES = 12;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 9;
+    // The step's events for sound (I_EVENTS: splash, fizz, fire, boom), read back after the probe's
+    // ints.
+    const I_EVENTS = 6 + PARTICLE_TYPES + 8;
+    const EVENT_COUNT = 4;
+    const EVENT_NAMES = ["splash", "fizz", "fire", "boom"];
+    // Nri_PlaySound's sounds for them, the fewest events a sound needs, the time before it plays again
+    // (seconds), and its loudness at EVENTS_LOUD events.
+    const EVENT_MIN = [8, 1, 30, 3];
+    const EVENT_COOLDOWN = [0.12, 0.25, 0.07, 0.6];
+    const EVENTS_LOUD = [400, 60, 3000, 300];
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
     const SALT_SCALE = 256.0;
-    const FLOAT_SECTIONS = 12;
+    const FLOAT_SECTIONS = 13;
+    // The rigid bodies' records in F_BODY (powder_sandbox.hlsl's MAX_BODIES of BODY_FLOATS).
+    const F_BODY = 12;
+    const MAX_BODIES = 16;
+    const BODY_FLOATS = 10;
     const ALLOC_LIST = 16;
     const I_COUNT = 6;
     // The float sections a regrid carries over (the rest the next step remakes): F_TPRE .. F_LIFE,
@@ -61,6 +90,14 @@ namespace PowderSandboxNri {
     const PARTICLE_SIZE = 32;
     // The HUD's readout: u_Alloc's first 16 ints (free slots, then probe_cs's).
     const PROBE_INTS = 16;
+    // Its int that's 1 while there are viscous particles (A_VISCOUS).
+    const PROBE_VISCOUS = 14;
+    // And the air's fastest face (a float, A_WIND).
+    const PROBE_WIND = 13;
+    // The wind at the probe's cell (x, then y: floats).
+    const PROBE_AIR = 10;
+    // A level's goal's count (A_GOAL).
+    const PROBE_GOAL = 12;
 
     // Cells per second squared, down.
     const GRAVITY = 300.0;
@@ -76,6 +113,9 @@ namespace PowderSandboxNri {
     const SOLVER_MULTIGRID = 1;
     const DEFAULT_VCYCLES = 1;
     const DEFAULT_SMOOTH = 2;
+    // viscosity_cs's red-black sweep pairs a step (-viscosity N; 0 leaves honey and lava as runny as
+    // water).
+    const DEFAULT_VISCOSITY_SWEEPS = 4;
     const MG_COARSE_CELLS = 256;
 
     // Materials and tools (powder_sandbox.hlsl's numbers).
@@ -87,6 +127,7 @@ namespace PowderSandboxNri {
     const ACID = 9;
     const SALT = 10;
     const GUNPOWDER = 11;
+    const HONEY = 12;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
@@ -95,6 +136,8 @@ namespace PowderSandboxNri {
     const ICE = 21;
     const STONE = 22;
     const METAL = 23;
+    const FAN = 24;
+    const BLOCK = 25;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
@@ -124,9 +167,15 @@ namespace PowderSandboxNri {
     const MG_RESTRICT = 17;
     const MG_PROLONG = 18;
     const MG_COARSE = 19;
+    const VISCOSITY = 20;
+    const AIR = 21;
+    const BODIES = 22;
+    const GOAL = 23;
+    // The floats at u_Multigrid's start that hold the air's faces (powder_sandbox.hlsl's AIR_FLOATS).
+    const AIR_FLOATS = 3040;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs", "goal_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -152,6 +201,14 @@ namespace PowderSandboxNri {
     const ACTION_UNDO = 106;
     const ACTION_SAVE = 107;
     const ACTION_LOAD = 108;
+    const ACTION_LEVEL = 109;
+    // Levels: their files (LEVEL_DIRECTORY<name>.json), the ones the Levels tile goes through listed
+    // in LEVEL_DIRECTORY/index.json ({ "levels": [names] }). A level: { "name": "...", "goal":
+    // { "text": "...", "material": "water", "box": [x0, y0, x1, y1], "count": N }, "strokes": [{
+    // "tool": "glass", "box": [x0, y0, x1, y1], "emit": "sand" (an emitter's), "blow": "right" (a
+    // fan's), "repeat": N (strokes painted N frames) }, ...] }, boxes in fractions of the grid.
+    const LEVEL_DIRECTORY = "media/powder_sandbox/scenes/";
+    const BLOW_NAMES = ["right", "down", "left", "up"];
 
     // The simulation's state, for undo and saves: the particles, the grid's float sections (the
     // temperatures, the pressure the next step starts from, burning and melting), the cells, the free
@@ -165,7 +222,8 @@ namespace PowderSandboxNri {
     // Version 2: the grid's buffers at GRID_CAPACITY (version 1's were the grid's own size).
     const SAVE_PATH = "powder_sandbox.save";
     const SAVE_MAGIC = 0x53445750;
-    const SAVE_VERSION = 2;
+    // (3: the bodies' float section)
+    const SAVE_VERSION = 3;
     const SAVE_HEADER_INTS = 5;
     // How long a message (saved, loaded, nothing to undo) shows, in seconds.
     const MESSAGE_TIME = 2.5;
@@ -197,6 +255,29 @@ namespace PowderSandboxNri {
     const SAND_LAYER = 0.06;
     const GUNPOWDER_WALL = 0.5;
     const POOL = [0.8, 0.7];
+    // Scene 6: a block of water and one of honey (x0 .. x1 across from their side's left, from y0 to
+    // the floor), either side of a glass divider at HONEY_DIVIDER, let go at once. (Small, on a wide
+    // floor: spread out, water's a film, not a slab as deep as honey's mound.)
+    const DAM = [0.05, 0.13, 0.85];
+    const HONEY_DIVIDER = 0.5;
+    // Scene 7: a film of water a cell thick (x0, y0, x1, to the floor) on the open floor: surface
+    // tension pulls it into beads, covering at most BEAD_SHARE of its columns.
+    const BEAD = [0.3, 0.985, 0.7];
+    const BEAD_SHARE = 0.6;
+    // Scene 8: a fan line (x, y0 down to the floor) blowing right across a stream of sand falling from
+    // an emitter (x, y) inside its jet; the sand must land WIND_DRIFT of the grid's width right of the
+    // emitter on average. (The fan's air comes back over it: sand falling through that too, or smoke
+    // rising into it, goes both ways.)
+    const WIND_FAN = [0.06, 0.3, 1.0];
+    const WIND_SAND = [0.3, 0.4];
+    const WIND_DRIFT = 0.05;
+    // Scene 9: a pool (glass walls at x0 and x1 from y, water from WATER_Y) with a block dropped in
+    // (FLOATER: x0, y0, x1, y1), and a ledge (x0, y, x1) with a tall block standing half over its
+    // edge (TIPPER: x0, y0, x1, its bottom at the ledge).
+    const BODY_POOL = [0.05, 0.5, 0.5, 0.62];
+    const FLOATER = [0.2, 0.3, 0.32, 0.38];
+    const LEDGE = [0.65, 0.7, 0.8];
+    const TIPPER = [0.78, 0.45, 0.82];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -235,6 +316,18 @@ namespace PowderSandboxNri {
         return floats;
     }
 
+    // A fan's direction from the pointer's move (dx, dy, in cells): its larger axis, up for under a
+    // cell.
+    function fanDirectionOf(dx: number, dy: number): int {
+        if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0) {
+            return 3;
+        }
+        if (Math.abs(dx) >= Math.abs(dy)) {
+            return dx > 0.0 ? 0 : 2;
+        }
+        return dy > 0.0 ? 1 : 3;
+    }
+
     function materialName(material: int): string {
         if (material == 1) { return "water"; }
         if (material == 2) { return "oil"; }
@@ -247,6 +340,7 @@ namespace PowderSandboxNri {
         if (material == 9) { return "acid"; }
         if (material == 10) { return "salt"; }
         if (material == 11) { return "gunpowder"; }
+        if (material == 12) { return "honey"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -255,7 +349,40 @@ namespace PowderSandboxNri {
         if (material == 21) { return "ice"; }
         if (material == 22) { return "stone"; }
         if (material == 23) { return "metal"; }
+        if (material == 24) { return "fan"; }
+        if (material == 25) { return "block"; }
         return "air";
+    }
+
+    // A tool or material by its name in a level's file (materialName's, or the tools'), or -1.
+    function toolNamed(name: string): int {
+        // ("air" is materialName's answer for the ids that name nothing)
+        for (let m = 1; m < 32; m++) {
+            if (materialName(m) == name && name != "air") {
+                return m;
+            }
+        }
+        if (name == "erase") { return ERASE; }
+        if (name == "heat") { return HEAT; }
+        if (name == "cool") { return COOL; }
+        if (name == "salt water") { return SALT_WATER; }
+        return -1;
+    }
+
+    // A level read from its file: its strokes (in fractions of the grid) and its goal (goalCount
+    // particles of goalMaterial, or cells of a solid one, in goalBox; none if goalCount is 0).
+    class LevelStroke {
+        constructor(public tool: int, public box: number[], public emit: int) {
+        }
+    }
+
+    class Level {
+        name: string = "";
+        goalText: string = "";
+        goalMaterial: int = 0;
+        goalBox: number[] = [];
+        goalCount: int = 0;
+        strokes: LevelStroke[] = [];
     }
 
     // A rectangle a scene paints with a tool (in cells); emit: an emitter's material.
@@ -272,6 +399,8 @@ namespace PowderSandboxNri {
     // timestamps around its simulation (and how many steps it took), read when its turn comes again.
     class QueuedFrame {
         public timedSteps: int = -1;
+        // The steps it simulated (whether or not timed), for its events.
+        public steps: int = 0;
         constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
             public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
         }
@@ -413,15 +542,27 @@ namespace PowderSandboxNri {
         // Where a press on the grid began (in cells): a line's or a box's first corner.
         private anchorX: number = 0.0;
         private anchorY: number = 0.0;
+        // The way a fan being painted blows (0 right, 1 down, 2 left, 3 up): the way the pointer
+        // went from where it was pressed, up for a tap.
+        private fanDirection: int = 3;
 
         private constants: f32[] = [];
         private probe: int[] = [];
         private probeFloats: f32[] = [];
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
-        // ice and stone; 4 metal, acid and salt; 5 gunpowder);
-        // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N.
+        // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water; 7 a film of water
+        // beading; 8 a fan blowing falling sand; 9 blocks floating and tipping over; -air 0: still air;
+        // -bodies 0: no rigid bodies);
+        // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
+        // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
+        // -sceneFile name: a level from LEVEL_DIRECTORY instead (its goal must be reached in a test).
+        sceneFile: string = "";
+        private level: Level | null = null;
+        private levelNames: string[] = [];
+        private levelIndex: int = -1;
+        private goalReached: boolean = false;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
         // Time the simulation hasn't stepped through yet (under a step). It steps in fixed steps of
@@ -433,6 +574,32 @@ namespace PowderSandboxNri {
         solver: int = SOLVER_MULTIGRID;
         vcycles: int = DEFAULT_VCYCLES;
         smooth: int = DEFAULT_SMOOTH;
+        viscositySweeps: int = DEFAULT_VISCOSITY_SWEEPS;
+        // -air 0: no air_cs (still air: gases slow to rest, as before air moved).
+        air: boolean = true;
+        // -bodies 0: no bodies_cs (no blocks made, none moving).
+        bodies: boolean = true;
+        // Sound (none with -mute, nor in tests but for -sound: the device opened, playing nothing): the
+        // playback device, the events counted so far (each
+        // frame's last step's, times its steps), each sound's time till it may play again.
+        mute: boolean = false;
+        soundCheck: boolean = false;
+        private audio: NriAudioHandle | null = null;
+        private eventTotals: int[] = [];
+        private soundCooldowns: number[] = [];
+        // The grid's cells along its shorter side (-gridHeight N, MIN_GRID_HEIGHT .. DEFAULT_GRID_HEIGHT:
+        // no auto quality then), and auto quality (-quality auto: the cached size, or measured; fixed:
+        // off; calibrate: measured again. Unset, auto, but in a test fixed, or measured without
+        // caching it for -stepBudget ms, its budget).
+        gridHeight: int = DEFAULT_GRID_HEIGHT;
+        gridHeightSet: boolean = false;
+        quality: string = "";
+        stepBudget: number = STEP_BUDGET_MS;
+        private calibrating: boolean = false;
+        private calibrationScene: int = 0;
+        private calibrationLevel: Level | null = null;
+        private qualitySum: number = 0.0;
+        private qualityCount: int = 0;
         // -test: the float sections, read back at the end (the pressure equation's residual).
         private floatReadback: NriBufferHandle | null = null;
         // -testFrames N: the test's length instead of TEST_FRAMES.
@@ -444,13 +611,18 @@ namespace PowderSandboxNri {
             for (let i = 0; i < CONSTANTS_FLOATS; i++) {
                 this.constants.push(0.0);
             }
-            for (let i = 0; i < PROBE_INTS; i++) {
+            for (let i = 0; i < PROBE_INTS + EVENT_COUNT; i++) {
                 this.probe.push(0);
                 this.probeFloats.push(0.0);
+            }
+            for (let k = 0; k < EVENT_COUNT; k++) {
+                this.eventTotals.push(0);
+                this.soundCooldowns.push(0.0);
             }
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
             this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
+            this.tiles.push(new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
             this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
             this.tiles.push(new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
@@ -459,6 +631,8 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
+            this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
             this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
@@ -477,6 +651,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Levels", ACTION_LEVEL, 0.3, 0.3, 0.3));
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -503,6 +678,9 @@ namespace PowderSandboxNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
+            if (this.sceneFile != "") {
+                this.startLevel(this.readLevel(this.sceneFile));
+            }
             const device = Nri_CreateDevice(this.sample, graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
@@ -514,8 +692,14 @@ namespace PowderSandboxNri {
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
-            if (this.test && this.scene == 0) {
+            // (a test's default scene is the U-tube, not a level's empty one)
+            if (this.test && this.scene == 0 && !this.level) {
                 this.scene = 1;
+            }
+            this.startQuality();
+            if ((!this.test || this.soundCheck) && !this.mute) {
+                this.audio = Nri_CreateAudio();
+                console.log(this.audio ? "Sound: the audio output started" : "No sound: no audio output");
             }
 
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
@@ -535,7 +719,7 @@ namespace PowderSandboxNri {
             }
             for (let i = 0; i < queuedFrameNum; i++) {
                 const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-                const probeReadback = Nri_CreateReadbackBuffer(device, PROBE_INTS * 4);
+                const probeReadback = Nri_CreateReadbackBuffer(device, (PROBE_INTS + EVENT_COUNT) * 4);
                 if (!probeReadback) {
                     console.log("Cannot create the readback buffers");
                     return 0;
@@ -597,8 +781,8 @@ namespace PowderSandboxNri {
 
             // The particles, the grid's int and float sections, the cells, the free list, the multigrid's
             // coarser levels (for the longest grid, either way around).
-            const multigridSize = Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
-                multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG)) * 4;
+            const multigridSize = (AIR_FLOATS + Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
+                multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG))) * 4;
             const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
                 GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4, multigridSize];
             const strides = [PARTICLE_SIZE, 4, 4, 4, 4, 4];
@@ -794,16 +978,16 @@ namespace PowderSandboxNri {
             return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
         }
 
-        // The grid's size from the shape of the window above the toolbar: DEFAULT_GRID_HEIGHT cells
-        // along its shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
+        // The grid's size from the shape of the window above the toolbar: gridHeight cells along its
+        // shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
         fitGrid() {
             const playHeight = this.height - this.toolbarTileHeight();
-            let gridW: int = DEFAULT_GRID_HEIGHT;
-            let gridH: int = DEFAULT_GRID_HEIGHT;
+            let gridW: int = this.gridHeight;
+            let gridH: int = this.gridHeight;
             if (this.width >= playHeight) {
-                gridW = Math.floor(DEFAULT_GRID_HEIGHT * this.width / playHeight);
+                gridW = Math.floor(this.gridHeight * this.width / playHeight);
             } else {
-                gridH = Math.floor(DEFAULT_GRID_HEIGHT * playHeight / this.width);
+                gridH = Math.floor(this.gridHeight * playHeight / this.width);
             }
             this.gridW = Math.min(gridW, MAX_GRID_LONG);
             this.gridH = Math.min(gridH, MAX_GRID_LONG);
@@ -867,13 +1051,15 @@ namespace PowderSandboxNri {
                 this.saveRequested = true;
             } else if (action == ACTION_LOAD) {
                 this.loadRequested = true;
+            } else if (action == ACTION_LEVEL) {
+                this.nextLevel();
             } else if (action == ACTION_SHAPE) {
                 this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
                 if (action == WATER || action == OIL || action == SAND || action == SALT || action == GUNPOWDER || action == LAVA
-                    || action == ACID || action == FIRE) {
+                    || action == ACID || action == HONEY || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -970,12 +1156,15 @@ namespace PowderSandboxNri {
                 }
             }
             // On the grid: circles and squares paint along the path; lines and boxes when released.
-            const stretches = this.brushShape == SHAPE_LINE || this.brushShape == SHAPE_BOX;
+            // (a Block is always a box: a body of that size)
+            const boxing = this.brushShape == SHAPE_BOX || this.tool == BLOCK;
+            const stretches = this.brushShape == SHAPE_LINE || boxing;
             const pressOnGrid = this.wasDown && !this.pressOnToolbar;
             if (inspecting) {
                 // (nothing painted)
             } else if (down && !this.pressOnToolbar && !stretches) {
                 brushMode = 1;
+                this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
                 this.setFloat(10, this.lastGridX);
                 this.setFloat(11, this.lastGridY);
                 this.setFloat(12, gx);
@@ -983,7 +1172,8 @@ namespace PowderSandboxNri {
                 this.lastGridX = gx;
                 this.lastGridY = gy;
             } else if (!down && pressOnGrid && stretches && !middle) {
-                brushMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                brushMode = boxing ? 2 : 1;
+                this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
                 this.setFloat(10, this.anchorX);
                 this.setFloat(11, this.anchorY);
                 this.setFloat(12, gx);
@@ -996,7 +1186,7 @@ namespace PowderSandboxNri {
             let cursorX = gx;
             let cursorY = gy;
             if (down && !this.pressOnToolbar && stretches) {
-                cursorMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                cursorMode = boxing ? 2 : 1;
                 cursorX = this.anchorX;
                 cursorY = this.anchorY;
             } else if (this.brushShape == SHAPE_BOX) {
@@ -1035,7 +1225,7 @@ namespace PowderSandboxNri {
             this.setInt(6, this.frameIndex);
             this.setInt(8, this.tool);
             this.setFloat(14, this.brushRadius);
-            this.setInt(15, this.emitType);
+            this.setInt(15, this.tool == FAN ? this.fanDirection : this.emitType);
             this.setFloat(17, FLIP_RATIO);
             this.setInt(18, this.overlay);
             this.setFloat(19, this.time);
@@ -1196,6 +1386,9 @@ namespace PowderSandboxNri {
             Nri_CmdCopyBufferRegion(commandBuffer, scratch, 0, cells, 0, oldW * oldH * 4);
             Nri_CmdCopyBufferRegion(commandBuffer, scratch, oldStride * 4, gridFloat, F_TPRE * oldStride * 4,
                 CARRIED_FLOAT_SECTIONS * oldStride * 4);
+            // (then the bodies, which regrid_grid_cs moves by the offset)
+            Nri_CmdCopyBufferRegion(commandBuffer, scratch, (1 + CARRIED_FLOAT_SECTIONS) * oldStride * 4, gridFloat,
+                F_BODY * oldStride * 4, MAX_BODIES * BODY_FLOATS * 4);
             Nri_CmdBufferBarrier(commandBuffer, scratch, NriBufferState.CopyDestination, NriBufferState.Storage);
             Nri_CmdBufferBarrier(commandBuffer, gridFloat, NriBufferState.CopySource, NriBufferState.Storage);
             Nri_CmdBufferBarrier(commandBuffer, cells, NriBufferState.CopySource, NriBufferState.Storage);
@@ -1346,11 +1539,27 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
                 this.dispatch(commandBuffer, P2G, CAPACITY, B_ALL);
                 this.dispatch(commandBuffer, GRID, this.stride, B_ALL);
+                // (only with viscous particles, as the readout a frame or two late says)
+                const viscousSweeps = this.probe[PROBE_VISCOUS] != 0 ? this.viscositySweeps : 0;
+                for (let k = 0; k < viscousSweeps; k++) {
+                    for (let parity = 0; parity < 2; parity++) {
+                        this.setInt(16, parity);
+                        this.dispatch(commandBuffer, VISCOSITY, this.stride, B_GRID_FLOAT);
+                    }
+                }
+                // The air once a frame, over its steps.
+                if (this.air && s == steps - 1) {
+                    this.setInt(16, steps);
+                    this.dispatch(commandBuffer, AIR, 1, B_ALL);
+                }
                 this.dispatch(commandBuffer, HEAT_SOURCE, cells, B_ALL);
                 this.dispatch(commandBuffer, HEAT_DIFFUSE, cells, B_ALL);
                 this.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
                 this.recordPressure(commandBuffer);
                 this.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
+                if (this.bodies) {
+                    this.dispatch(commandBuffer, BODIES, MAX_BODIES * GROUP_SIZE, B_ALL);
+                }
                 this.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
                 this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
             }
@@ -1427,6 +1636,88 @@ namespace PowderSandboxNri {
             }
         }
 
+        // Auto quality, once (not in tests, but for -stepBudget): the GPU's step time measured on the
+        // U-tube's water, the grid's size chosen from it and cached in QUALITY_PATH; or the cached size.
+        startQuality() {
+            // (unset: auto, but in a test fixed, unless it gives a budget to measure against)
+            const mode = this.quality != "" ? this.quality : (this.test && this.stepBudget == STEP_BUDGET_MS ? "fixed" : "auto");
+            if (mode == "fixed" || this.gridHeightSet) {
+                return;
+            }
+            if (mode != "calibrate" && !(this.test && this.quality == "")) {
+                const cached = this.readCachedHeight();
+                if (cached > 0) {
+                    this.gridHeight = cached;
+                    console.log(`Auto quality: the grid's ${cached} cells high (${QUALITY_PATH})`);
+                    return;
+                }
+            }
+            this.calibrating = true;
+            this.calibrationScene = this.scene;
+            this.calibrationLevel = this.level;
+            this.level = null;
+            this.scene = 1;
+            this.showMessage("Measuring the GPU...");
+        }
+
+        // The grid height QUALITY_PATH holds, or 0.
+        readCachedHeight(): int {
+            const file = Nri_LoadFile(QUALITY_PATH);
+            if (!file) {
+                return 0;
+            }
+            const bytes: int[] = [];
+            for (let i = 0; i < QUALITY_HEADER_INTS * 4; i++) {
+                bytes.push(0);
+            }
+            Nri_CopyFileBytes(file, 0, bytes.length, Ref(bytes[0]));
+            Nri_DestroyFile(file);
+            const ints: int[] = [];
+            for (let i = 0; i < QUALITY_HEADER_INTS; i++) {
+                ints.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
+            }
+            if (ints[0] != QUALITY_MAGIC || ints[1] < MIN_GRID_HEIGHT || ints[1] > DEFAULT_GRID_HEIGHT) {
+                return 0;
+            }
+            return ints[1];
+        }
+
+        // While calibrating: the step time summed over QUALITY_FRAMES, then the grid's size from its mean
+        // (smaller when over the budget), cached, and the session begun at it.
+        qualityRequests(frameIndex: int) {
+            if (!this.calibrating) {
+                return;
+            }
+            if (frameIndex >= QUALITY_FRAMES[0] && this.stepMs > 0.0) {
+                this.qualitySum += this.stepMs;
+                this.qualityCount++;
+            }
+            if (frameIndex < QUALITY_FRAMES[1]) {
+                return;
+            }
+            this.calibrating = false;
+            const mean = this.qualityCount > 0 ? this.qualitySum / this.qualityCount : 0.0;
+            if (mean > this.stepBudget) {
+                this.gridHeight = Math.max(Math.min(Math.floor(this.gridHeight * Math.sqrt(this.stepBudget / mean) / 8) * 8,
+                    this.gridHeight), MIN_GRID_HEIGHT);
+            }
+            this.fitGrid();
+            this.layout();
+            console.log(`Auto quality: ${formatFixed(mean, 3)} ms a step (budget ${formatFixed(this.stepBudget, 2)}): the grid ${this.gridW} x ${this.gridH}`);
+            // (a test's kept only when it asked for auto quality)
+            if ((!this.test || this.quality != "") && this.queuedFrames.length > 0) {
+                const header: int[] = [QUALITY_MAGIC, this.gridHeight];
+                Nri_SaveBufferToFile(this.queuedFrames[0].probeReadback, 0, Ref(header[0]), QUALITY_HEADER_INTS, QUALITY_PATH);
+            }
+            // The session, begun at that size.
+            this.scene = this.calibrationScene;
+            this.level = this.calibrationLevel;
+            this.script = [];
+            this.sceneOnClear = true;
+            this.needsInit = true;
+            this.messageTime = 0.0;
+        }
+
         // -regrid 1: halfway, the grid remade 20 cells taller (on its floor, so the water stays where it
         // is), then back; 2: turned, its width and height swapped (the U-tube cropped at its sides
         // and its divider still in the middle).
@@ -1456,8 +1747,156 @@ namespace PowderSandboxNri {
         // The starting scene's strokes: 1 the U-tube's water (its divider is init_grid_cs's), 2 a
         // showcase of the materials, 3 lava poured into a pool with an ice block in it, and next to
         // a wood block.
+        // The next level of index.json's list (read when first wanted), the grid cleared for it.
+        nextLevel() {
+            if (this.levelNames.length == 0) {
+                const reader = this.readJson("index");
+                if (reader && reader.beginObject()) {
+                    while (reader.nextKey()) {
+                        if (reader.readString() == "levels" && reader.beginArray()) {
+                            while (reader.nextItem()) {
+                                this.levelNames.push(reader.readString());
+                            }
+                        } else {
+                            reader.skipValue();
+                        }
+                    }
+                }
+                if (this.levelNames.length == 0) {
+                    this.showMessage("No levels");
+                    return;
+                }
+            }
+            this.levelIndex = (this.levelIndex + 1) % this.levelNames.length;
+            const level = this.readLevel(this.levelNames[this.levelIndex]);
+            if (level) {
+                this.startLevel(level);
+                this.snapshotRequested = true;
+                this.needsInit = true;
+                this.showMessage(level.name);
+            }
+        }
+
+        startLevel(level: Level | null) {
+            if (level) {
+                this.level = level;
+                this.scene = 0;
+                this.sceneOnClear = true;
+                this.goalReached = false;
+            }
+        }
+
+        // A file of LEVEL_DIRECTORY (name.json) in a reader, or null (with a message).
+        readJson(name: string): JsonReader | null {
+            const file = Nri_LoadFile(`${LEVEL_DIRECTORY}${name}.json`);
+            if (!file) {
+                this.showMessage(`No level file ${name}.json`);
+                return null;
+            }
+            const reader = new JsonReader();
+            if (reader.resize(Nri_GetFileSize(file))) {
+                Nri_CopyFileBytes(file, 0, reader.bytes.length, Ref(reader.bytes[0]));
+            }
+            Nri_DestroyFile(file);
+            return reader;
+        }
+
+        // A level from its file, or null (with a message: what didn't read).
+        readLevel(name: string): Level | null {
+            const reader = this.readJson(name);
+            if (!reader) {
+                return null;
+            }
+            const level = new Level();
+            let unknown = "";
+            if (reader.beginObject()) {
+                while (reader.nextKey()) {
+                    const key = reader.readString();
+                    if (key == "name") {
+                        level.name = reader.readString();
+                    } else if (key == "goal" && reader.beginObject()) {
+                        while (reader.nextKey()) {
+                            const goalKey = reader.readString();
+                            if (goalKey == "text") {
+                                level.goalText = reader.readString();
+                            } else if (goalKey == "material") {
+                                const material = reader.readString();
+                                level.goalMaterial = toolNamed(material);
+                                if (level.goalMaterial < 0) {
+                                    unknown = material;
+                                }
+                            } else if (goalKey == "box") {
+                                level.goalBox = reader.readNumbers();
+                            } else if (goalKey == "count") {
+                                level.goalCount = Math.floor(reader.readNumber());
+                            } else {
+                                reader.skipValue();
+                            }
+                        }
+                    } else if (key == "strokes" && reader.beginArray()) {
+                        while (reader.nextItem()) {
+                            let tool = -1;
+                            let box: number[] = [];
+                            let emit = WATER;
+                            let repeat = 1;
+                            if (reader.beginObject()) {
+                                while (reader.nextKey()) {
+                                    const strokeKey = reader.readString();
+                                    if (strokeKey == "tool") {
+                                        const toolName = reader.readString();
+                                        tool = toolNamed(toolName);
+                                        if (tool < 0) {
+                                            unknown = toolName;
+                                        }
+                                    } else if (strokeKey == "box") {
+                                        box = reader.readNumbers();
+                                    } else if (strokeKey == "emit") {
+                                        const emitName = reader.readString();
+                                        emit = toolNamed(emitName);
+                                        if (emit < 0) {
+                                            unknown = emitName;
+                                        }
+                                    } else if (strokeKey == "blow") {
+                                        const blow = reader.readString();
+                                        emit = BLOW_NAMES.indexOf(blow);
+                                        if (emit < 0) {
+                                            unknown = blow;
+                                        }
+                                    } else if (strokeKey == "repeat") {
+                                        repeat = Math.max(Math.floor(reader.readNumber()), 1);
+                                    } else {
+                                        reader.skipValue();
+                                    }
+                                }
+                            }
+                            if (tool >= 0 && box.length == 4) {
+                                for (let k = 0; k < repeat; k++) {
+                                    level.strokes.push(new LevelStroke(tool, box, emit));
+                                }
+                            }
+                        }
+                    } else {
+                        reader.skipValue();
+                    }
+                }
+            }
+            if (reader.error != "" || unknown != "" || (level.goalCount > 0 && level.goalBox.length != 4)) {
+                this.showMessage(`${name}.json: ${reader.error != "" ? reader.error : (unknown != "" ? `no tool or material "${unknown}"` : "the goal needs a box")}`);
+                return null;
+            }
+            console.log(`Level ${name}: ${level.name}, ${level.strokes.length} strokes`);
+            return level;
+        }
+
         buildScene() {
             this.script = [];
+            const level = this.level;
+            if (level) {
+                for (const stroke of level.strokes) {
+                    this.addStroke(stroke.tool, stroke.box[0], stroke.box[1], stroke.box[2], stroke.box[3], stroke.emit);
+                }
+                return;
+            }
             if (this.scene == 1) {
                 this.script.push(new Stroke(WATER, 1.0, this.gridH * 0.2, this.gridW / 2 - 0.01, this.gridH - 1.0, WATER));
             } else if (this.scene == 2) {
@@ -1476,6 +1915,32 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 9) {
+                // A block dropped into a pool floats; one standing half over a ledge tips off it.
+                this.addStroke(GLASS, BODY_POOL[0] - 0.005, BODY_POOL[1], BODY_POOL[0], 1.0, WATER);
+                this.addStroke(GLASS, BODY_POOL[2], BODY_POOL[1], BODY_POOL[2] + 0.005, 1.0, WATER);
+                this.addStroke(WATER, BODY_POOL[0], BODY_POOL[3], BODY_POOL[2], 1.0, WATER);
+                this.addStroke(WALL, LEDGE[0], LEDGE[1], LEDGE[2], 1.0, WATER);
+                this.addStroke(BLOCK, FLOATER[0], FLOATER[1], FLOATER[2], FLOATER[3], WATER);
+                this.addStroke(BLOCK, TIPPER[0], TIPPER[1], TIPPER[2], LEDGE[1] - 0.005, WATER);
+            } else if (this.scene == 8) {
+                // A fan blowing across falling sand: the grains go with the wind. (The probe a little
+                // right of the fan, for the log.)
+                this.mouseGridX = WIND_SAND[0] * this.gridW;
+                this.mouseGridY = 0.55 * this.gridH;
+                this.addStroke(FAN, WIND_FAN[0], WIND_FAN[1], WIND_FAN[0] + 0.005, WIND_FAN[2], 0);
+                // (one cell: a thicker stream packs its cells, and packed sand isn't airborne)
+                const ex = (Math.floor(WIND_SAND[0] * this.gridW) + 0.05) / this.gridW;
+                const ey = (Math.floor(WIND_SAND[1] * this.gridH) + 0.05) / this.gridH;
+                this.addStroke(EMITTER, ex, ey, ex + 0.9 / this.gridW, ey + 0.9 / this.gridH, SAND);
+            } else if (this.scene == 7) {
+                // A film of water on the floor: it beads up.
+                this.addStroke(WATER, BEAD[0], BEAD[1], BEAD[2], 1.0, WATER);
+            } else if (this.scene == 6) {
+                // Water and honey let go side by side: the water runs out, the honey slumps.
+                this.addStroke(GLASS, HONEY_DIVIDER, 0.2, HONEY_DIVIDER + 0.005, 1.0, WATER);
+                this.addStroke(WATER, DAM[0], DAM[2], DAM[1], 1.0, WATER);
+                this.addStroke(HONEY, HONEY_DIVIDER + 0.005 + DAM[0], DAM[2], HONEY_DIVIDER + 0.005 + DAM[1], 1.0, WATER);
             } else if (this.scene == 5) {
                 // Gunpowder under sand, next to a pool, lit from its side.
                 const x0 = GUNPOWDER_PILE[0];
@@ -1578,7 +2043,7 @@ namespace PowderSandboxNri {
             if (cell < WALL) {
                 contents = "";
                 for (let m = 0; m < PARTICLE_TYPES; m++) {
-                    const n = this.probe[4 + m];
+                    const n = (this.probe[4 + (m >> 1)] >> (16 * (m & 1))) & 0xFFFF;
                     if (n > 0) {
                         contents = `${contents}${contents == "" ? "" : ", "}${n} ${materialName(m + 1)}`;
                     }
@@ -1587,12 +2052,25 @@ namespace PowderSandboxNri {
                     contents = "air";
                 }
                 // (probe_cs puts the water's salinity last)
-                if (this.probe[4] > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
+                if ((this.probe[4] & 0xFFFF) > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
                     contents = `${contents} (salinity ${formatFixed(100.0 * this.probeFloats[PROBE_INTS - 1], 0)}%)`;
                 }
             }
-            y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents],
-                y, labelHeight, 0.85);
+            const windX = this.probeFloats[PROBE_AIR];
+            const windY = this.probeFloats[PROBE_AIR + 1];
+            const wind = Math.sqrt(windX * windX + windY * windY);
+            y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents,
+                wind >= 0.5 ? `wind ${formatFixed(wind, 0)}` : ""], y, labelHeight, 0.85);
+            const level = this.level;
+            if (level && level.goalCount > 0) {
+                const count = this.probe[PROBE_GOAL];
+                if (count >= level.goalCount && !this.goalReached) {
+                    this.goalReached = true;
+                    this.showMessage(`${level.name}: done!`);
+                }
+                y = this.drawWrapped([`${level.name}: ${level.goalText} ${Math.min(count, level.goalCount)} / ${level.goalCount}`,
+                    this.goalReached ? "done" : ""], y, labelHeight, 1.0);
+            }
             if (this.messageTime > 0.0) {
                 Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
             }
@@ -1652,8 +2130,9 @@ namespace PowderSandboxNri {
 
             // The readout this slot's last frame wrote, and its simulation's time.
             if (frameIndex >= this.queuedFrames.length) {
-                Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS);
+                Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS + EVENT_COUNT);
                 Nri_ReadBufferFloats(queuedFrame.probeReadback, Ref(this.probeFloats[0]), PROBE_INTS);
+                this.playSounds(queuedFrame.steps, frameTime);
             } else {
                 this.probe[0] = CAPACITY;
             }
@@ -1680,6 +2159,7 @@ namespace PowderSandboxNri {
             if (this.test && this.regrid != 0) {
                 this.regridRequests(frameIndex);
             }
+            this.qualityRequests(frameIndex);
             const brushMode = this.test ? 0 : this.handleInput();
             this.prepareStateRequests();
             this.fillConstants(step);
@@ -1705,6 +2185,7 @@ namespace PowderSandboxNri {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
                 }
                 this.recordSimulation(commandBuffer, brushMode, steps);
+                queuedFrame.steps = this.paused ? 0 : steps;
                 const timestampReadback = queuedFrame.timestampReadback;
                 if (queryPool) {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase + 1);
@@ -1714,10 +2195,27 @@ namespace PowderSandboxNri {
                     }
                 }
                 this.dispatch(commandBuffer, PROBE, 1, 0);
+                // (the brush's fields stand for the goal's material and box)
+                const level = this.level;
+                if (level && level.goalCount > 0) {
+                    this.setInt(8, level.goalMaterial);
+                    this.setFloat(10, level.goalBox[0] * this.gridW);
+                    this.setFloat(11, level.goalBox[1] * this.gridH);
+                    this.setFloat(12, level.goalBox[2] * this.gridW);
+                    this.setFloat(13, level.goalBox[3] * this.gridH);
+                    this.dispatch(commandBuffer, GOAL, 1, 0);
+                    this.setInt(8, this.tool);
+                }
                 const alloc = this.buffers[4];
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
                 Nri_CmdCopyBuffer(commandBuffer, queuedFrame.probeReadback, alloc, PROBE_INTS * 4);
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.CopySource, NriBufferState.Storage);
+                // (then the last step's events)
+                const gridInt = this.buffers[1];
+                Nri_CmdBufferBarrier(commandBuffer, gridInt, NriBufferState.Storage, NriBufferState.CopySource);
+                Nri_CmdCopyBufferRegion(commandBuffer, queuedFrame.probeReadback, PROBE_INTS * 4, gridInt, I_EVENTS * this.stride * 4,
+                    EVENT_COUNT * 4);
+                Nri_CmdBufferBarrier(commandBuffer, gridInt, NriBufferState.CopySource, NriBufferState.Storage);
                 const testReadback = this.testReadback;
                 if (testReadback) {
                     if (frameIndex == this.testFrames - 1) {
@@ -1775,6 +2273,30 @@ namespace PowderSandboxNri {
             // Signaled after the present, as NRISamples do
             Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
             this.finishStateRequests();
+        }
+
+        // Sounds for the events the probe's readout carries (its frame's last step's, of steps): each
+        // when there are enough, louder the more, then not again for its cooldown.
+        playSounds(steps: int, frameTime: number) {
+            if (steps <= 0) {
+                return;
+            }
+            for (let k = 0; k < EVENT_COUNT; k++) {
+                const events = this.probe[PROBE_INTS + k] * steps;
+                this.eventTotals[k] += events;
+                this.soundCooldowns[k] -= frameTime;
+                // (nested: tslang's && can't take a @cpp handle, issue #23)
+                const audio = this.audio;
+                if (audio) {
+                    if (!this.test && events >= EVENT_MIN[k] && this.soundCooldowns[k] <= 0.0) {
+                        const loudness = Math.min(0.25 + 0.75 * Math.log(1.0 + events) / Math.log(1.0 + EVENTS_LOUD[k]), 1.0);
+                        // (bigger booms lower)
+                        const pitch = k == 3 ? 1.2 - 0.5 * Math.min(events / EVENTS_LOUD[k], 1.0) : 0.85 + 0.3 * Math.random();
+                        Nri_PlaySound(audio, k, loudness, pitch);
+                        this.soundCooldowns[k] = EVENT_COOLDOWN[k] * (0.8 + 0.4 * Math.random());
+                    }
+                }
+            }
         }
 
         // The simulation's GPU time per step, from the frame this slot last recorded (finished: latencySleep
@@ -1856,6 +2378,66 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 6) {
+                const error = this.checkViscosity(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
+            if (this.scene == 7) {
+                const error = this.checkBead(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
+            if (this.scene == 8) {
+                const error = this.checkWind(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
+            if (this.scene == 9) {
+                const error = this.checkBodies(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
+            if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
+                return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
+            }
+            let eventLog = "";
+            for (let k = 0; k < EVENT_COUNT; k++) {
+                eventLog = `${eventLog}${k > 0 ? ", " : ""}${EVENT_NAMES[k]} ${this.eventTotals[k]}`;
+            }
+            console.log(`Sound events: ${eventLog}`);
+            // (the showcase's falling water and burning wood; the acid eating wood; the gunpowder.
+            // Pushed, not a ternary of array literals: that crashed tslang's code at run time)
+            const expected: int[] = [];
+            if (this.scene == 2) {
+                expected.push(0);
+                expected.push(2);
+            } else if (this.scene == 4) {
+                expected.push(1);
+            } else if (this.scene == 5) {
+                expected.push(2);
+                expected.push(3);
+            }
+            for (const k of expected) {
+                if (this.eventTotals[k] == 0) {
+                    return `no ${EVENT_NAMES[k]} events`;
+                }
+            }
+            const level = this.level;
+            if (this.sceneFile != "" && !level) {
+                return `the level ${this.sceneFile} didn't load`;
+            }
+            if (level && level.goalCount > 0) {
+                const count = this.probe[PROBE_GOAL];
+                console.log(`Level: ${level.name}, ${level.goalText} ${count} of ${level.goalCount}`);
+                if (count < level.goalCount) {
+                    return `the level's goal wasn't reached: ${count} of ${level.goalCount}`;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -1888,8 +2470,8 @@ namespace PowderSandboxNri {
             }
             const share = 100.0 * blue / pixels.length;
             console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
-            // (a turned U-tube is a narrow grid between margins)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : 1.0;
+            // (a turned U-tube is a narrow grid between margins; scene 8 has no water)
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
@@ -2007,8 +2589,8 @@ namespace PowderSandboxNri {
                 return false;
             }
             let n = 0;
-            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9) and GUNPOWDER (10)
-            for (const k of [0, 1, 2, 7, 8, 9, 10]) {
+            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9), GUNPOWDER (10) and HONEY (11)
+            for (const k of [0, 1, 2, 7, 8, 9, 10, 11]) {
                 n += grid[(I_COUNT + k) * this.stride + c];
             }
             return n > 0;
@@ -2174,9 +2756,174 @@ namespace PowderSandboxNri {
             return "";
         }
 
-        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a fifth
-        // of it, at least: burning alone, the sand would only fall into the pile's place); its glass
-        // wall held, and nothing ended up in a solid cell.
+        // Scene 9: the dropped block floats (its center within half its height of the pool's surface,
+        // measured where no block is), and the one on the ledge tipped over (turned over 1 radian).
+        checkBodies(grid: int[]): string {
+            const floatReadback = this.floatReadback;
+            const cellsReadback = this.cellsReadback;
+            if (!floatReadback || !cellsReadback) {
+                return "cannot read the grid back";
+            }
+            const w = this.gridW;
+            const h = this.gridH;
+            const floats: f32[] = [];
+            for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
+                floats.push(0.0);
+            }
+            const cells: int[] = [];
+            for (let i = 0; i < w * h; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0
+                || Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return "cannot read the grid back";
+            }
+            // (bodies 0 and 1: the strokes made them in that order)
+            const body = F_BODY * this.stride;
+            if (floats[body] == 0.0 || floats[body + BODY_FLOATS] == 0.0) {
+                return "the blocks weren't made";
+            }
+            for (let k = 0; k < MAX_BODIES; k++) {
+                const r = body + k * BODY_FLOATS;
+                if (floats[r] != 0.0) {
+                    console.log(`Body ${k}: at (${formatFixed(floats[r + 1], 1)}, ${formatFixed(floats[r + 2], 1)}), ${formatFixed(2.0 * floats[r + 7], 1)} x ${formatFixed(2.0 * floats[r + 8], 1)}, turned ${formatFixed(floats[r + 3], 2)}`);
+                }
+            }
+            const floaterHeight = h - 1 - floats[body + 2];
+            const floaterHalf = floats[body + 8];
+            const tipperAngle = floats[body + BODY_FLOATS + 3];
+            // The pool's surface over its columns with no block cell in them.
+            const x0: int = Math.ceil(BODY_POOL[0] * w);
+            const x1: int = Math.floor(BODY_POOL[2] * w) - 1;
+            let sum = 0.0;
+            let columns = 0;
+            for (let x = x0; x <= x1; x++) {
+                let blocked = false;
+                for (let y = 1; y < h - 1; y++) {
+                    if ((cells[y * w + x] & 0xFF) == BLOCK) {
+                        blocked = true;
+                    }
+                }
+                if (!blocked) {
+                    sum += this.surfaceLevel(grid, x, x);
+                    columns++;
+                }
+            }
+            const level = columns > 0 ? sum / columns : 0.0;
+            console.log(`Bodies: the floating block's center ${formatFixed(floaterHeight, 1)} cells above the floor (half its height ${formatFixed(floaterHalf, 1)}), the water's surface at ${formatFixed(level, 1)}; the ledge's block turned ${formatFixed(tipperAngle, 2)} radians`);
+            if (Math.abs(floaterHeight - level) > floaterHalf) {
+                return `the block didn't float: its center ${formatFixed(floaterHeight, 1)} cells above the floor, the water's surface at ${formatFixed(level, 1)}`;
+            }
+            if (Math.abs(tipperAngle) < 1.0) {
+                return `the block on the ledge didn't tip over: turned ${formatFixed(tipperAngle, 2)} radians`;
+            }
+            return "";
+        }
+
+        // Scene 8: the wind took the sand: its mean x at least WIND_DRIFT of the grid's width right of
+        // the emitter (without air, it piles under it).
+        checkWind(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            let sand = 0;
+            let sumX = 0.0;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const c = y * w + x;
+                    const n = grid[(I_COUNT + SAND - 1) * this.stride + c];
+                    sand += n;
+                    sumX += n * (x + 0.5);
+                }
+            }
+            const emitterX = WIND_SAND[0] * w;
+            const drift = sand > 0 ? sumX / sand - emitterX : 0.0;
+            console.log(`Wind: ${sand} sand grains, ${formatFixed(drift, 1)} cells right of the emitter on average; the air at up to ${formatFixed(this.probeFloats[PROBE_WIND], 1)} cells a second, (${formatFixed(this.probeFloats[PROBE_AIR], 1)}, ${formatFixed(this.probeFloats[PROBE_AIR + 1], 1)}) beside the fan`);
+            if (sand == 0) {
+                return "no sand fell";
+            }
+            if (drift < WIND_DRIFT * w) {
+                return `the wind didn't carry the sand: ${formatFixed(drift, 1)} cells right of the emitter, under ${formatFixed(WIND_DRIFT * w, 1)}`;
+            }
+            return "";
+        }
+
+        // Scene 7: the film beaded: it covers at most BEAD_SHARE of the columns it was painted over (a
+        // column covered with 2 particles in a cell or more; without surface tension it stays a film,
+        // or spreads).
+        checkBead(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            let columns = 0;
+            let water = 0;
+            for (let x = 1; x < w - 1; x++) {
+                let covered = false;
+                for (let y = 1; y < h - 1; y++) {
+                    const n = grid[(I_COUNT + WATER - 1) * this.stride + y * w + x];
+                    water += n;
+                    if (n >= 2) {
+                        covered = true;
+                    }
+                }
+                if (covered) {
+                    columns++;
+                }
+            }
+            const painted: int = Math.floor((BEAD[2] - BEAD[0]) * w);
+            console.log(`Surface tension: ${water} water particles over ${columns} columns, the film ${painted}`);
+            if (columns > BEAD_SHARE * painted) {
+                return `the film didn't bead: over ${columns} columns of its ${painted}`;
+            }
+            return "";
+        }
+
+        // Scene 6: the honey held up: its mean height (its particles', above the floor) at least 1.3
+        // times the water's, and its front under 0.6 times as far as the water's (each from its own
+        // side's left). Without viscosity, both are about the water's.
+        checkViscosity(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            const divider: int = Math.floor(HONEY_DIVIDER * w);
+            let water = 0;
+            let honey = 0;
+            let waterHeight = 0.0;
+            let honeyHeight = 0.0;
+            let waterFront = 0;
+            let honeyFront = 0;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const c = y * w + x;
+                    const height = h - 1 - y;
+                    const nw = grid[(I_COUNT + WATER - 1) * this.stride + c];
+                    const nh = grid[(I_COUNT + HONEY - 1) * this.stride + c];
+                    if (x < divider) {
+                        water += nw;
+                        waterHeight += nw * (height + 0.5);
+                        if (nw >= 2) {
+                            waterFront = Math.max(waterFront, x);
+                        }
+                    }
+                    if (x > divider) {
+                        honey += nh;
+                        honeyHeight += nh * (height + 0.5);
+                        if (nh >= 2) {
+                            honeyFront = Math.max(honeyFront, x - divider);
+                        }
+                    }
+                }
+            }
+            waterHeight /= Math.max(water, 1);
+            honeyHeight /= Math.max(honey, 1);
+            console.log(`Viscosity: water ${formatFixed(waterHeight, 1)} cells high on average, its front at ${waterFront}; honey ${formatFixed(honeyHeight, 1)}, its front at ${honeyFront}`);
+            if (honeyHeight < 1.3 * waterHeight || honeyFront >= 0.6 * waterFront) {
+                return `the honey ran like water: ${formatFixed(honeyHeight, 1)} cells high on average (the water ${formatFixed(waterHeight, 1)}), its front at ${honeyFront} (the water's ${waterFront})`;
+            }
+            return "";
+        }
+
+        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a
+        // twentieth of it, at least: runs throw 11 to 30%, the air slowing the grains, and burning
+        // alone, none, the sand only falling into the pile's place); its glass wall held, and nothing
+        // ended up in a solid cell.
         checkGunpowder(grid: int[]): string {
             const cellsReadback = this.cellsReadback;
             if (!cellsReadback) {
@@ -2226,7 +2973,7 @@ namespace PowderSandboxNri {
             if (gunpowder > 0) {
                 return `${gunpowder} grains of gunpowder didn't go off`;
             }
-            if (thrown * 5 < sand) {
+            if (thrown * 20 < sand) {
                 return `the blast threw too little sand clear: ${thrown} of ${sand} grains`;
             }
             if (wall != wallPainted) {
@@ -2256,6 +3003,11 @@ namespace PowderSandboxNri {
         }
 
         destroy() {
+            const audio = this.audio;
+            if (audio) {
+                Nri_DestroyAudio(audio);
+                this.audio = null;
+            }
             const device = this.device;
             if (device) {
                 Nri_DeviceWaitIdle(device);
@@ -2335,6 +3087,10 @@ namespace PowderSandboxNri {
         Nri_AddExampleOption(sample, "-roundTrip");
         Nri_AddExampleOptionWithValues(sample, "-regrid", 1);
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
+        Nri_AddExampleOptionWithValues(sample, "-sceneFile", 1);
+        Nri_AddExampleOptionWithValues(sample, "-gridHeight", 1);
+        Nri_AddExampleOptionWithValues(sample, "-quality", 1);
+        Nri_AddExampleOptionWithValues(sample, "-stepBudget", 1);
         Nri_AddExampleOptionWithValues(sample, "-view", 1);
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
         Nri_AddExampleOptionWithValues(sample, "-iterations", 1);
@@ -2342,6 +3098,11 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-zoom", 1);
         Nri_AddExampleOptionWithValues(sample, "-vcycles", 1);
         Nri_AddExampleOptionWithValues(sample, "-smooth", 1);
+        Nri_AddExampleOptionWithValues(sample, "-viscosity", 1);
+        Nri_AddExampleOptionWithValues(sample, "-air", 1);
+        Nri_AddExampleOptionWithValues(sample, "-bodies", 1);
+        Nri_AddExampleOption(sample, "-mute");
+        Nri_AddExampleOption(sample, "-sound");
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
@@ -2357,6 +3118,19 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-view" && i + 1 < argc) {
                 sandbox.overlay = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0), 2);
+                i++;
+            } else if (arg == "-gridHeight" && i + 1 < argc) {
+                sandbox.gridHeight = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), MIN_GRID_HEIGHT), DEFAULT_GRID_HEIGHT);
+                sandbox.gridHeightSet = true;
+                i++;
+            } else if (arg == "-quality" && i + 1 < argc) {
+                sandbox.quality = Nri_GetArg(argc, argv, i + 1);
+                i++;
+            } else if (arg == "-stepBudget" && i + 1 < argc) {
+                sandbox.stepBudget = Math.max(parseFloat(Nri_GetArg(argc, argv, i + 1)), 0.001);
+                i++;
+            } else if (arg == "-sceneFile" && i + 1 < argc) {
+                sandbox.sceneFile = Nri_GetArg(argc, argv, i + 1);
                 i++;
             } else if (arg == "-scene" && i + 1 < argc) {
                 sandbox.scene = parseInt(Nri_GetArg(argc, argv, i + 1));
@@ -2375,6 +3149,19 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-vcycles" && i + 1 < argc) {
                 sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-mute") {
+                sandbox.mute = true;
+            } else if (arg == "-sound") {
+                sandbox.soundCheck = true;
+            } else if (arg == "-bodies" && i + 1 < argc) {
+                sandbox.bodies = parseInt(Nri_GetArg(argc, argv, i + 1)) != 0;
+                i++;
+            } else if (arg == "-air" && i + 1 < argc) {
+                sandbox.air = parseInt(Nri_GetArg(argc, argv, i + 1)) != 0;
+                i++;
+            } else if (arg == "-viscosity" && i + 1 < argc) {
+                sandbox.viscositySweeps = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0);
                 i++;
             } else if (arg == "-smooth" && i + 1 < argc) {
                 sandbox.smooth = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0);

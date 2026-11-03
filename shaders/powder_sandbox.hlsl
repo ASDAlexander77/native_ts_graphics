@@ -81,8 +81,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define ACID 9
 #define SALT 10
 #define GUNPOWDER 11
+#define HONEY 12
 // Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 11
+#define PARTICLE_TYPES 12
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -91,6 +92,10 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define ICE 21
 #define STONE 22
 #define METAL 23
+// A solid that blows the air (its direction in bits 8 and 9: 0 right, 1 down, 2 left, 3 up).
+#define FAN 24
+// A rigid body's cell (its body in bits 8..11; bodies_cs draws them).
+#define BLOCK 25
 // Tools that aren't materials.
 #define ERASE 32
 #define HEAT 33
@@ -131,6 +136,40 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define BLAST_VOLUME 1.5
 #define BLAST_TEMP 1500.0
 #define BLAST_SPEED 150.0
+// Viscosity, in cells^2 a second (its velocity diffusing that fast): honey's, and lava's from cold
+// (where it sets) to LAVA_TEMP. Water, oil and acid have none.
+#define HONEY_VISCOSITY 10000.0
+#define LAVA_VISCOSITY_COLD 200.0
+#define LAVA_VISCOSITY_HOT 40.0
+// Surface tension, for thin liquid only (drops, streams, films): a liquid particle is pulled toward
+// where its 3 x 3 cells hold more liquid (each cell's count capped at REST_COUNT), at up to
+// SURFACE_TENSION cells a second squared, fading out as its 5 x 5 cells fill up to TENSION_FULL cells'
+// worth. A body of liquid, its surface too (two full rows under it), is past that: there it would
+// only fight the pressure solve.
+#define SURFACE_TENSION 4000.0
+#define TENSION_FULL 12.0
+// Air (air_cs): its coarse cells' size, the most cells and faces it has (432 x 144 cells: 54 x 18),
+// where its faces' velocities are in u_Multigrid, and how it moves: fans' push (cells a second
+// squared, for a fan line across a coarse cell), damping (a second), top speed, the pressure's
+// sweeps. Gases relax toward it as they slowed toward rest (GAS_DRAG a step); airborne grains (under
+// REST_COUNT in their cell) at POWDER_DRAG a second.
+#define AIR_CELL 8
+#define AIR_THREADS 256
+#define AIR_MAX_CELLS 972
+#define AIR_MAX_FACES 1026
+#define AIR_PER_THREAD 5
+#define AIR_U 0
+#define AIR_V 1032
+// (the pressure, kept for the next step's solve to start from)
+#define AIR_P 2064
+#define AIR_FLOATS 3040
+#define FAN_ACCEL 6000.0
+#define AIR_DAMPING 1.0
+#define WIND_MAX 200.0
+#define AIR_ITERATIONS 20
+#define AIR_OMEGA 1.7
+#define GAS_DRAG 0.03
+#define POWDER_DRAG 3.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -148,7 +187,23 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_SALT (I_TSUM + 3)
 // The cell's gunpowder going off this step.
 #define I_BLAST (I_TSUM + 4)
-#define INT_SECTIONS (I_TSUM + 5)
+// The faces' viscosity sums (weight * viscosity, the viscous particles' only; unscaled, as the
+// WEIGHT_SCALE of I_UM would overflow at honey's).
+#define I_UVISC (I_TSUM + 5)
+#define I_VVISC (I_TSUM + 6)
+// The cell's liquid particles (the FLIP ones but the powders), for surface tension.
+#define I_LIQUID (I_TSUM + 7)
+// The step's events for sound, in its first EVENT_COUNT elements (g2p_cs's; read back with the
+// probe): liquid hitting something (its velocity changed by over SPLASH_SPEED in a step), acid eating
+// a cell or water boiling, fire burning, gunpowder going off.
+#define I_EVENTS (I_TSUM + 8)
+#define INT_SECTIONS (I_TSUM + 9)
+#define EVENT_SPLASH 0
+#define EVENT_FIZZ 1
+#define EVENT_FIRE 2
+#define EVENT_BOOM 3
+#define EVENT_COUNT 4
+#define SPLASH_SPEED 50.0
 
 // gridFloat sections.
 #define F_U 0
@@ -167,10 +222,38 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define F_TCELL 10
 // a burning cell's remaining seconds; melting ice's or stone's latent heat taken in so far
 #define F_LIFE 11
+// the rigid bodies' records (MAX_BODIES of BODY_FLOATS)
+#define F_BODY 12
+#define MAX_BODIES 16
+#define BODY_FLOATS 10
+#define B_ACTIVE 0
+#define B_X 1
+#define B_Y 2
+#define B_ANGLE 3
+#define B_VX 4
+#define B_VY 5
+#define B_SPIN 6
+#define B_HALFW 7
+#define B_HALFH 8
+#define B_DENSITY 9
+// Blocks: their density (they float), how they bounce and slide, their drag in liquid (a second, all
+// wet), bodies_cs's workgroup.
+#define BLOCK_DENSITY 0.6
+#define BODY_RESTITUTION 0.1
+#define BODY_FRICTION 0.6
+#define BODY_WATER_DRAG 3.0
+#define BODY_THREADS 256
 
 // u_Alloc: the free particle slots' count, the HUD's probe, then the free slots.
 #define A_FREE 0
 #define A_PROBE 1
+// 1 while a frame's steps have viscous particles (p2g_cs sets it, clear_cs clears it at the frame's
+// first step); read back with the probe, so the CPU skips viscosity_cs without them.
+#define A_VISCOUS 14
+// The air's fastest face this step (air_cs's; a float), for the tests' log.
+#define A_WIND 13
+// A level's goal's count (goal_cs's).
+#define A_GOAL 12
 #define A_LIST 16
 
 #define VEL_SCALE 4096.0
@@ -216,7 +299,7 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= GUNPOWDER);
+    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= HONEY);
 }
 
 // Powders pile (static friction) instead of flowing level.
@@ -232,7 +315,7 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : 1.0)))));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : 1.0))))));
 }
 
 // A particle's density: its material's, salt water's by its salinity.
@@ -347,6 +430,8 @@ RWStructuredBuffer<int> u_GridInt : register(u1);
 RWStructuredBuffer<float> u_GridFloat : register(u2);
 RWStructuredBuffer<uint> u_Cells : register(u3);
 RWStructuredBuffer<int> u_Alloc : register(u4);
+// The air's faces (AIR_FLOATS), then the multigrid's levels from 1.
+RWStructuredBuffer<float> u_Multigrid : register(u5);
 
 uint gi(uint section, uint index)
 {
@@ -384,7 +469,7 @@ int countOf(uint material, int x, int y)
 int flipCount(int x, int y)
 {
     return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
-        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y);
+        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y);
 }
 
 bool fluidCell(int x, int y)
@@ -447,6 +532,10 @@ uint seedOf(uint index, uint salt)
 void init_grid_cs(uint3 id : SV_DispatchThreadID)
 {
     const uint t = id.x;
+    if (t < AIR_FLOATS)
+    {
+        u_Multigrid[t] = 0.0;
+    }
     if (t >= g_C.stride)
     {
         return;
@@ -459,6 +548,8 @@ void init_grid_cs(uint3 id : SV_DispatchThreadID)
     u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
     u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
     u_GridFloat[gi(F_LIFE, t)] = 0.0;
+    // (no bodies)
+    u_GridFloat[gi(F_BODY, t)] = 0.0;
     if (t >= g_C.gridW * g_C.gridH)
     {
         return;
@@ -525,6 +616,10 @@ int2 regridOffset()
 void regrid_grid_cs(uint3 id : SV_DispatchThreadID)
 {
     const uint t = id.x;
+    if (t < AIR_FLOATS)
+    {
+        u_Multigrid[t] = 0.0;
+    }
     if (t >= g_C.stride)
     {
         return;
@@ -537,6 +632,21 @@ void regrid_grid_cs(uint3 id : SV_DispatchThreadID)
     u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
     u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
     u_GridFloat[gi(F_LIFE, t)] = 0.0;
+    // The bodies (after the carried sections in the scratch), moved by the offset.
+    if (t < MAX_BODIES * BODY_FLOATS)
+    {
+        const uint oldStride = (oldGridW() + 1) * (oldGridH() + 1);
+        float value = asfloat(u_GridInt[(2 + F_LIFE - F_TPRE) * oldStride + t]);
+        if (t % BODY_FLOATS == B_X)
+        {
+            value += float(regridOffset().x);
+        }
+        else if (t % BODY_FLOATS == B_Y)
+        {
+            value += float(regridOffset().y);
+        }
+        u_GridFloat[gi(F_BODY, t)] = value;
+    }
     if (t >= g_C.gridW * g_C.gridH)
     {
         return;
@@ -609,6 +719,10 @@ void clear_cs(uint3 id : SV_DispatchThreadID)
     {
         u_GridInt[id.x] = 0;
     }
+    if (id.x == 0 && g_C.substep == 0)
+    {
+        u_Alloc[A_VISCOUS] = 0;
+    }
 }
 
 void splat(uint sumSection, uint weightSection, uint massSection, uint index, float w, float vel, float rho)
@@ -616,6 +730,25 @@ void splat(uint sumSection, uint weightSection, uint massSection, uint index, fl
     InterlockedAdd(u_GridInt[gi(sumSection, index)], int(round(w * vel * VEL_SCALE)));
     InterlockedAdd(u_GridInt[gi(weightSection, index)], int(round(w * WEIGHT_SCALE)));
     InterlockedAdd(u_GridInt[gi(massSection, index)], int(round(w * rho * WEIGHT_SCALE)));
+}
+
+// A particle's viscosity (lava's falls as it heats up).
+float viscosity(Particle p)
+{
+    if (p.type == HONEY)
+    {
+        return HONEY_VISCOSITY;
+    }
+    if (p.type == LAVA)
+    {
+        return lerp(LAVA_VISCOSITY_COLD, LAVA_VISCOSITY_HOT, saturate((p.temp - SOLIDIFY_LAVA) / (LAVA_TEMP - SOLIDIFY_LAVA)));
+    }
+    return 0.0;
+}
+
+void splatViscosity(uint section, uint index, float w, float nu)
+{
+    InterlockedAdd(u_GridInt[gi(section, index)], int(round(w * nu)));
 }
 
 // Particles to grid: the counts and temperatures of the cells; the liquids' and powders' momentum
@@ -656,6 +789,15 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         return;
     }
     const float rho = particleDensity(p);
+    const float nu = viscosity(p);
+    if (!isPowder(p.type))
+    {
+        InterlockedAdd(u_GridInt[gi(I_LIQUID, c)], 1);
+    }
+    if (nu > 0.0 && u_Alloc[A_VISCOUS] == 0)
+    {
+        InterlockedOr(u_Alloc[A_VISCOUS], 1);
+    }
 
     // u faces at (i, j + 0.5)
     {
@@ -669,6 +811,13 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         splat(I_USUM, I_UW, I_UM, uIndex(i0 + 1, j0), tx * (1 - ty), p.vel.x, rho);
         splat(I_USUM, I_UW, I_UM, uIndex(i0, j0 + 1), (1 - tx) * ty, p.vel.x, rho);
         splat(I_USUM, I_UW, I_UM, uIndex(i0 + 1, j0 + 1), tx * ty, p.vel.x, rho);
+        if (nu > 0.0)
+        {
+            splatViscosity(I_UVISC, uIndex(i0, j0), (1 - tx) * (1 - ty), nu);
+            splatViscosity(I_UVISC, uIndex(i0 + 1, j0), tx * (1 - ty), nu);
+            splatViscosity(I_UVISC, uIndex(i0, j0 + 1), (1 - tx) * ty, nu);
+            splatViscosity(I_UVISC, uIndex(i0 + 1, j0 + 1), tx * ty, nu);
+        }
     }
     // v faces at (i + 0.5, j)
     {
@@ -682,6 +831,13 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         splat(I_VSUM, I_VW, I_VM, vIndex(i0 + 1, j0), tx * (1 - ty), p.vel.y, rho);
         splat(I_VSUM, I_VW, I_VM, vIndex(i0, j0 + 1), (1 - tx) * ty, p.vel.y, rho);
         splat(I_VSUM, I_VW, I_VM, vIndex(i0 + 1, j0 + 1), tx * ty, p.vel.y, rho);
+        if (nu > 0.0)
+        {
+            splatViscosity(I_VVISC, vIndex(i0, j0), (1 - tx) * (1 - ty), nu);
+            splatViscosity(I_VVISC, vIndex(i0 + 1, j0), tx * (1 - ty), nu);
+            splatViscosity(I_VVISC, vIndex(i0, j0 + 1), (1 - tx) * ty, nu);
+            splatViscosity(I_VVISC, vIndex(i0 + 1, j0 + 1), tx * ty, nu);
+        }
     }
 }
 
@@ -736,12 +892,775 @@ void grid_cs(uint3 id : SV_DispatchThreadID)
     }
 }
 
+// Rigid bodies: rectangles, MAX_BODIES records of BODY_FLOATS in F_BODY (saved with the state):
+// active, center, angle (from x toward y, clockwise on screen), velocity, spin, half extents,
+// density. bodies_cs moves them and draws them into the cells as BLOCK (the body in bits 8..11).
+struct Body
+{
+    bool active;
+    float2 pos;
+    float angle;
+    float2 vel;
+    float spin;
+    float2 half;
+    float density;
+};
+
+Body loadBody(uint b)
+{
+    const uint base = b * BODY_FLOATS;
+    Body body;
+    body.active = gf(F_BODY, base + B_ACTIVE) != 0.0;
+    body.pos = float2(gf(F_BODY, base + B_X), gf(F_BODY, base + B_Y));
+    body.angle = gf(F_BODY, base + B_ANGLE);
+    body.vel = float2(gf(F_BODY, base + B_VX), gf(F_BODY, base + B_VY));
+    body.spin = gf(F_BODY, base + B_SPIN);
+    body.half = float2(gf(F_BODY, base + B_HALFW), gf(F_BODY, base + B_HALFH));
+    body.density = gf(F_BODY, base + B_DENSITY);
+    return body;
+}
+
+void storeBody(uint b, Body body)
+{
+    const uint base = b * BODY_FLOATS;
+    u_GridFloat[gi(F_BODY, base + B_ACTIVE)] = body.active ? 1.0 : 0.0;
+    u_GridFloat[gi(F_BODY, base + B_X)] = body.pos.x;
+    u_GridFloat[gi(F_BODY, base + B_Y)] = body.pos.y;
+    u_GridFloat[gi(F_BODY, base + B_ANGLE)] = body.angle;
+    u_GridFloat[gi(F_BODY, base + B_VX)] = body.vel.x;
+    u_GridFloat[gi(F_BODY, base + B_VY)] = body.vel.y;
+    u_GridFloat[gi(F_BODY, base + B_SPIN)] = body.spin;
+    u_GridFloat[gi(F_BODY, base + B_HALFW)] = body.half.x;
+    u_GridFloat[gi(F_BODY, base + B_HALFH)] = body.half.y;
+    u_GridFloat[gi(F_BODY, base + B_DENSITY)] = body.density;
+}
+
+// A point in the body's own frame, and back.
+float2 bodyLocal(Body body, float2 p)
+{
+    const float2 d = p - body.pos;
+    const float c = cos(body.angle);
+    const float s = sin(body.angle);
+    return float2(c * d.x + s * d.y, -s * d.x + c * d.y);
+}
+
+float2 bodyWorld(Body body, float2 l)
+{
+    const float c = cos(body.angle);
+    const float s = sin(body.angle);
+    return body.pos + float2(c * l.x - s * l.y, s * l.x + c * l.y);
+}
+
+bool insideBody(Body body, float2 p)
+{
+    const float2 l = bodyLocal(body, p);
+    return abs(l.x) <= body.half.x && abs(l.y) <= body.half.y;
+}
+
+float2 bodyPointVelocity(Body body, float2 p)
+{
+    const float2 r = p - body.pos;
+    return body.vel + body.spin * float2(-r.y, r.x);
+}
+
+// The body a cell is drawn for, or MAX_BODIES.
+uint cellBody(int x, int y)
+{
+    if (!inGrid(x, y))
+    {
+        return MAX_BODIES;
+    }
+    const uint word = u_Cells[cellIndex(x, y)];
+    return (word & 0xFF) == BLOCK ? (word >> 8) & 15u : MAX_BODIES;
+}
+
+// A cell's liquid particles, capped at the rest count (over-full cells pulling harder would pack the
+// liquid tighter and tighter); none in solid cells.
+float liquidCount(int x, int y)
+{
+    return inGrid(x, y) && !solidCell(x, y) ? min(float(u_GridInt[gi(I_LIQUID, cellIndex(x, y))]), REST_COUNT) : 0.0;
+}
+
+// Surface tension's pull on a liquid particle in cell (x, y): toward the side of its 3 x 3 cells
+// with more liquid, in cells a second squared (zero in the bulk; g2p_cs gives it the liquids, not
+// powders).
+float2 cohesion(int x, int y)
+{
+    float2 offset = float2(0.0, 0.0);
+    float near = 0.0;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            const float n = liquidCount(x + dx, y + dy);
+            offset += n * float2(dx, dy);
+            near += n;
+        }
+    }
+    // (most particles are in the bulk, their 3 x 3 cells full: no pull, and no 5 x 5 to look at)
+    if (near >= 9.0 * REST_COUNT)
+    {
+        return float2(0.0, 0.0);
+    }
+    float around = near;
+    for (int ry = -2; ry <= 2; ry++)
+    {
+        for (int rx = -2; rx <= 2; rx++)
+        {
+            if (abs(rx) == 2 || abs(ry) == 2)
+            {
+                around += liquidCount(x + rx, y + ry);
+            }
+        }
+    }
+    const float thin = saturate(1.0 - around / (TENSION_FULL * REST_COUNT));
+    return near > 0.0 && thin > 0.0 ? thin * SURFACE_TENSION * offset / near : float2(0.0, 0.0);
+}
+
+// Viscosity: the faces' velocities diffused where the fluid is viscous, implicitly (stable at any
+// viscosity), by red-black Gauss-Seidel sweeps of (1 + n a) u - a sum(u's neighbors) = u*, a = the
+// face's viscosity * dt, u* the velocity grid_cs left (F_UOLD, plus gravity for v). Solid neighbors
+// count at 0 (no slip), air ones not at all (no stress at the surface). Faces without viscosity are
+// left as they are, so water is untouched. parity: the faces updated ((i + j) & 1).
+float faceViscosity(uint viscSection, uint weightSection, uint t)
+{
+    const int weight = u_GridInt[gi(weightSection, t)];
+    return weight > 0 ? float(u_GridInt[gi(viscSection, t)]) / (float(weight) / WEIGHT_SCALE) : 0.0;
+}
+
+void viscousNeighbor(bool isU, int i, int j, inout float sum, inout float n)
+{
+    const int w = int(g_C.gridW);
+    const int h = int(g_C.gridH);
+    bool solid;
+    uint t;
+    if (isU)
+    {
+        solid = i < 0 || i > w || j < 0 || j >= h || solidCell(i - 1, j) || solidCell(i, j);
+        t = solid ? 0u : uIndex(i, j);
+    }
+    else
+    {
+        solid = i < 0 || i >= w || j < 0 || j > h || solidCell(i, j - 1) || solidCell(i, j);
+        t = solid ? 0u : vIndex(i, j);
+    }
+    if (solid)
+    {
+        n += 1.0;
+    }
+    else if (u_GridInt[gi(isU ? I_UW : I_VW, t)] > 0)
+    {
+        sum += gf(isU ? F_U : F_V, t);
+        n += 1.0;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void viscosity_cs(uint3 id : SV_DispatchThreadID)
+{
+    const uint t = id.x;
+    const int w = int(g_C.gridW);
+    const int h = int(g_C.gridH);
+    if (t < uint((w + 1) * h))
+    {
+        const int i = int(t % uint(w + 1));
+        const int j = int(t / uint(w + 1));
+        const float nu = faceViscosity(I_UVISC, I_UW, t);
+        if (uint((i + j) & 1) == (g_C.parity & 1) && nu > 0.0 && !solidCell(i - 1, j) && !solidCell(i, j))
+        {
+            const float a = nu * g_C.dt;
+            float sum = 0.0;
+            float n = 0.0;
+            viscousNeighbor(true, i - 1, j, sum, n);
+            viscousNeighbor(true, i + 1, j, sum, n);
+            viscousNeighbor(true, i, j - 1, sum, n);
+            viscousNeighbor(true, i, j + 1, sum, n);
+            u_GridFloat[gi(F_U, t)] = (gf(F_UOLD, t) + a * sum) / (1.0 + a * n);
+        }
+    }
+    if (t < uint(w * (h + 1)))
+    {
+        const int i = int(t % uint(w));
+        const int j = int(t / uint(w));
+        const float nu = faceViscosity(I_VVISC, I_VW, t);
+        if (uint((i + j) & 1) == (g_C.parity & 1) && nu > 0.0 && !solidCell(i, j - 1) && !solidCell(i, j))
+        {
+            const float a = nu * g_C.dt;
+            float sum = 0.0;
+            float n = 0.0;
+            viscousNeighbor(false, i - 1, j, sum, n);
+            viscousNeighbor(false, i + 1, j, sum, n);
+            viscousNeighbor(false, i, j - 1, sum, n);
+            viscousNeighbor(false, i, j + 1, sum, n);
+            u_GridFloat[gi(F_V, t)] = (gf(F_VOLD, t) + g_C.gravity * g_C.dt + a * sum) / (1.0 + a * n);
+        }
+    }
+}
+
+// Air: a coarse grid, a cell AIR_CELL x AIR_CELL of the simulation's, its velocity on the faces (in
+// cells a second) at the start of u_Multigrid (AIR_U, AIR_V; not saved: the wind starts calm after a
+// load). air_cs moves it a frame (parity: its steps) in one workgroup, at the frame's last step (a
+// step at a time, the coarse grid's interpolation blurred a fan's jet away before it went anywhere): a coarse cell is blocked (solid) when as many of its
+// cells as two lines across it are solid (fans let air through) or hold liquid, so walls two cells
+// thick stop the wind (not the grid's one-cell border; past it the air is open, at pressure 0, so a
+// fan blows through as through an open room, not round and round a closed box); fans push it, damping slows it, it carries itself along
+// (semi-Lagrangian), and a pressure solve keeps it incompressible but for gunpowder's gas, which
+// pushes it outward. Gases relax toward it, airborne grains
+// are dragged by it.
+groupshared float s_AirU[AIR_MAX_FACES];
+groupshared float s_AirV[AIR_MAX_FACES];
+// Bit 0 blocked, bits 1 and 2 the fans' direction, 3 .. 9 their cells, 10 and up gunpowder going off.
+groupshared uint s_AirCell[AIR_MAX_CELLS];
+groupshared float s_AirP[AIR_MAX_CELLS];
+groupshared uint s_AirMax;
+
+int airW()
+{
+    return int((g_C.gridW + AIR_CELL - 1) / AIR_CELL);
+}
+
+int airH()
+{
+    return int((g_C.gridH + AIR_CELL - 1) / AIR_CELL);
+}
+
+bool airOutside(int i, int j)
+{
+    return i < 0 || j < 0 || i >= airW() || j >= airH();
+}
+
+// (outside the grid is open air)
+bool airBlocked(int i, int j)
+{
+    return !airOutside(i, j) && (s_AirCell[j * airW() + i] & 1u) != 0;
+}
+
+float airPressure(int i, int j)
+{
+    return airOutside(i, j) ? 0.0 : s_AirP[j * airW() + i];
+}
+
+// A coarse cell's fans' push: their direction, times their cells over AIR_CELL (a fan line across it
+// pushes 1).
+float2 airFans(int i, int j)
+{
+    if (i < 0 || j < 0 || i >= airW() || j >= airH())
+    {
+        return float2(0.0, 0.0);
+    }
+    const uint cell = s_AirCell[j * airW() + i];
+    const uint dir = (cell >> 1) & 3u;
+    const float2 direction = dir == 0 ? float2(1, 0) : (dir == 1 ? float2(0, 1) : (dir == 2 ? float2(-1, 0) : float2(0, -1)));
+    return direction * float((cell >> 3) & 127u) / AIR_CELL;
+}
+
+float sharedAirU(int i, int j)
+{
+    return s_AirU[clamp(j, 0, airH() - 1) * (airW() + 1) + clamp(i, 0, airW())];
+}
+
+float sharedAirV(int i, int j)
+{
+    return s_AirV[clamp(j, 0, airH()) * airW() + clamp(i, 0, airW() - 1)];
+}
+
+// The air's velocity at pos (in the simulation's cells), from the faces in groupshared memory.
+float2 sharedAir(float2 pos)
+{
+    const float2 q = pos / AIR_CELL;
+    const float2 a = q - float2(0.0, 0.5);
+    const int2 ia = int2(floor(a));
+    const float2 fa = a - float2(ia);
+    const float u = lerp(lerp(sharedAirU(ia.x, ia.y), sharedAirU(ia.x + 1, ia.y), fa.x),
+        lerp(sharedAirU(ia.x, ia.y + 1), sharedAirU(ia.x + 1, ia.y + 1), fa.x), fa.y);
+    const float2 b = q - float2(0.5, 0.0);
+    const int2 ib = int2(floor(b));
+    const float2 fb = b - float2(ib);
+    const float v = lerp(lerp(sharedAirV(ib.x, ib.y), sharedAirV(ib.x + 1, ib.y), fb.x),
+        lerp(sharedAirV(ib.x, ib.y + 1), sharedAirV(ib.x + 1, ib.y + 1), fb.x), fb.y);
+    return float2(u, v);
+}
+
+// The same from u_Multigrid (g2p_cs's).
+float airU(int i, int j)
+{
+    return u_Multigrid[AIR_U + clamp(j, 0, airH() - 1) * (airW() + 1) + clamp(i, 0, airW())];
+}
+
+float airV(int i, int j)
+{
+    return u_Multigrid[AIR_V + clamp(j, 0, airH()) * airW() + clamp(i, 0, airW() - 1)];
+}
+
+float2 airVelocity(float2 pos)
+{
+    const float2 q = pos / AIR_CELL;
+    const float2 a = q - float2(0.0, 0.5);
+    const int2 ia = int2(floor(a));
+    const float2 fa = a - float2(ia);
+    const float u = lerp(lerp(airU(ia.x, ia.y), airU(ia.x + 1, ia.y), fa.x),
+        lerp(airU(ia.x, ia.y + 1), airU(ia.x + 1, ia.y + 1), fa.x), fa.y);
+    const float2 b = q - float2(0.5, 0.0);
+    const int2 ib = int2(floor(b));
+    const float2 fb = b - float2(ib);
+    const float v = lerp(lerp(airV(ib.x, ib.y), airV(ib.x + 1, ib.y), fb.x),
+        lerp(airV(ib.x, ib.y + 1), airV(ib.x + 1, ib.y + 1), fb.x), fb.y);
+    return float2(u, v);
+}
+
+// The outward flux of a coarse cell's faces, over AIR_CELL (in cells a second).
+float airOutflow(int i, int j)
+{
+    const int w = airW();
+    return s_AirU[j * (w + 1) + i + 1] - s_AirU[j * (w + 1) + i] + s_AirV[(j + 1) * w + i] - s_AirV[j * w + i];
+}
+
+[numthreads(AIR_THREADS, 1, 1)]
+void air_cs(uint3 id : SV_GroupThreadID)
+{
+    const uint tid = id.x;
+    const int w = airW();
+    const int h = airH();
+    const uint cells = uint(w * h);
+    const uint uFaces = uint((w + 1) * h);
+    const uint vFaces = uint(w * (h + 1));
+    const float steps = float(max(g_C.parity, 1u));
+    const float dt = g_C.dt * steps;
+    if (tid == 0)
+    {
+        s_AirMax = 0;
+    }
+    for (uint t = tid; t < uFaces; t += AIR_THREADS)
+    {
+        s_AirU[t] = u_Multigrid[AIR_U + t];
+    }
+    for (uint t = tid; t < vFaces; t += AIR_THREADS)
+    {
+        s_AirV[t] = u_Multigrid[AIR_V + t];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // The coarse cells: blocked, fans, gunpowder.
+    for (uint c = tid; c < cells; c += AIR_THREADS)
+    {
+        const int ci = int(c % uint(w));
+        const int cj = int(c / uint(w));
+        uint blocked = 0;
+        uint fans = 0;
+        uint dir = 3;
+        uint blast = 0;
+        for (int y = cj * AIR_CELL; y < (cj + 1) * AIR_CELL; y++)
+        {
+            for (int x = ci * AIR_CELL; x < (ci + 1) * AIR_CELL; x++)
+            {
+                if (!inGrid(x, y))
+                {
+                    continue;
+                }
+                const uint k = cellIndex(x, y);
+                const uint word = u_Cells[k];
+                const uint m = word & 0xFF;
+                if (m == FAN)
+                {
+                    fans++;
+                    dir = (word >> 8) & 3u;
+                }
+                if ((isSolidMaterial(m) && m != FAN) || liquidCount(x, y) >= 2.0)
+                {
+                    blocked++;
+                }
+                // (the last step's, for the frame's)
+                blast += uint(u_GridInt[gi(I_BLAST, k)]) * uint(steps);
+            }
+        }
+        const bool isBlocked = blocked >= 2 * AIR_CELL;
+        s_AirCell[c] = (isBlocked ? 1u : 0u) | (dir << 1) | (min(fans, 127u) << 3) | (min(blast, 0x3FFFFFu) << 10);
+        s_AirP[c] = isBlocked ? 0.0 : u_Multigrid[AIR_P + c];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // The faces: carried along, pushed by fans, damped (the faces of blocked cells still).
+    float newU[AIR_PER_THREAD];
+    float newV[AIR_PER_THREAD];
+    uint k = 0;
+    for (uint t = tid; t < uFaces; t += AIR_THREADS)
+    {
+        const int i = int(t % uint(w + 1));
+        const int j = int(t / uint(w + 1));
+        float u = 0.0;
+        if (!airBlocked(i - 1, j) && !airBlocked(i, j))
+        {
+            const float2 at = float2(i, j + 0.5) * AIR_CELL;
+            u = sharedAir(at - dt * sharedAir(at)).x;
+            u += dt * FAN_ACCEL * 0.5 * (airFans(i - 1, j).x + airFans(i, j).x);
+            u = clamp(u * saturate(1.0 - AIR_DAMPING * dt), -WIND_MAX, WIND_MAX);
+        }
+        newU[k++] = u;
+    }
+    k = 0;
+    for (uint t = tid; t < vFaces; t += AIR_THREADS)
+    {
+        const int i = int(t % uint(w));
+        const int j = int(t / uint(w));
+        float v = 0.0;
+        if (!airBlocked(i, j - 1) && !airBlocked(i, j))
+        {
+            const float2 at = float2(i + 0.5, j) * AIR_CELL;
+            v = sharedAir(at - dt * sharedAir(at)).y;
+            v += dt * FAN_ACCEL * 0.5 * (airFans(i, j - 1).y + airFans(i, j).y);
+            v = clamp(v * saturate(1.0 - AIR_DAMPING * dt), -WIND_MAX, WIND_MAX);
+        }
+        newV[k++] = v;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    k = 0;
+    for (uint t = tid; t < uFaces; t += AIR_THREADS)
+    {
+        s_AirU[t] = newU[k++];
+    }
+    k = 0;
+    for (uint t = tid; t < vFaces; t += AIR_THREADS)
+    {
+        s_AirV[t] = newV[k++];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // The pressure (a potential: the faces lose its difference over AIR_CELL), red-black SOR: a cell's
+    // open neighbors' sum (0 outside) less its own times their count is AIR_CELL times its outflow
+    // less its gunpowder's gas (as volume a second).
+    for (uint iteration = 0; iteration < AIR_ITERATIONS; iteration++)
+    {
+        for (uint color = 0; color < 2; color++)
+        {
+            for (uint c = tid; c < cells; c += AIR_THREADS)
+            {
+                const int ci = int(c % uint(w));
+                const int cj = int(c / uint(w));
+                if (uint((ci + cj) & 1) != color || airBlocked(ci, cj))
+                {
+                    continue;
+                }
+                float sum = 0.0;
+                float n = 0.0;
+                const int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+                for (int o = 0; o < 4; o++)
+                {
+                    const int ni = ci + offsets[o].x;
+                    const int nj = cj + offsets[o].y;
+                    if (!airBlocked(ni, nj))
+                    {
+                        sum += airPressure(ni, nj);
+                        n += 1.0;
+                    }
+                }
+                if (n > 0.0)
+                {
+                    const float gas = float(s_AirCell[c] >> 10) * BLAST_VOLUME / dt;
+                    const float target = (sum - (AIR_CELL * airOutflow(ci, cj) - gas)) / n;
+                    s_AirP[c] = lerp(s_AirP[c], target, AIR_OMEGA);
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+
+    // Projected, and stored (the pressure too).
+    for (uint c = tid; c < cells; c += AIR_THREADS)
+    {
+        u_Multigrid[AIR_P + c] = s_AirP[c];
+    }
+    for (uint t = tid; t < uFaces; t += AIR_THREADS)
+    {
+        const int i = int(t % uint(w + 1));
+        const int j = int(t / uint(w + 1));
+        float u = s_AirU[t];
+        if (!airBlocked(i - 1, j) && !airBlocked(i, j))
+        {
+            u -= (airPressure(i, j) - airPressure(i - 1, j)) / AIR_CELL;
+        }
+        u_Multigrid[AIR_U + t] = u;
+        InterlockedMax(s_AirMax, asuint(abs(u)));
+    }
+    for (uint t = tid; t < vFaces; t += AIR_THREADS)
+    {
+        const int i = int(t % uint(w));
+        const int j = int(t / uint(w));
+        float v = s_AirV[t];
+        if (!airBlocked(i, j - 1) && !airBlocked(i, j))
+        {
+            v -= (airPressure(i, j) - airPressure(i, j - 1)) / AIR_CELL;
+        }
+        u_Multigrid[AIR_V + t] = v;
+        InterlockedMax(s_AirMax, asuint(abs(v)));
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (tid == 0)
+    {
+        u_Alloc[A_WIND] = int(s_AirMax);
+    }
+}
+
+// The bodies, a workgroup each (after the pressure solve): the liquid's pressure on the faces of
+// its cells (buoyancy), gravity and drag in liquid; contacts with solids (other bodies too) at
+// points along its edges, pushed out and their closing velocity taken off, with friction (off its
+// center, a contact turns it: blocks tip over); then its cells drawn again where it is now. A Block
+// box painted makes one in the first free record; erasing over a body's center removes it.
+groupshared float4 s_BodyForce[BODY_THREADS];
+groupshared Body s_Body;
+
+bool bodyContactSolid(float2 p, uint b)
+{
+    const int x = int(floor(p.x));
+    const int y = int(floor(p.y));
+    return solidCell(x, y) && cellBody(x, y) != b;
+}
+
+void bodyBounds(Body body, out int2 lo, out int2 hi)
+{
+    const float reach = length(body.half) + 1.0;
+    lo = int2(max(int(floor(body.pos.x - reach)), 1), max(int(floor(body.pos.y - reach)), 1));
+    hi = int2(min(int(floor(body.pos.x + reach)), int(g_C.gridW) - 2), min(int(floor(body.pos.y + reach)), int(g_C.gridH) - 2));
+}
+
+[numthreads(BODY_THREADS, 1, 1)]
+void bodies_cs(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+{
+    const uint b = group.x;
+    const uint tid = thread.x;
+    if (b >= MAX_BODIES)
+    {
+        return;
+    }
+    // A Block box painted: a body in the first free record, made by the first group only (each
+    // looking for the first free one, a group could see another's new body and make a second).
+    if (b == 0 && tid == 0 && g_C.brushMode == 2 && g_C.tool == BLOCK)
+    {
+        uint first = MAX_BODIES;
+        for (uint k = 0; k < MAX_BODIES && first == MAX_BODIES; k++)
+        {
+            if (gf(F_BODY, k * BODY_FLOATS + B_ACTIVE) == 0.0)
+            {
+                first = k;
+            }
+        }
+        if (first < MAX_BODIES)
+        {
+            const float2 a = float2(g_C.brushX0, g_C.brushY0);
+            const float2 c = float2(g_C.brushX1, g_C.brushY1);
+            Body made;
+            made.active = true;
+            made.pos = 0.5 * (a + c);
+            made.angle = 0.0;
+            made.vel = float2(0.0, 0.0);
+            made.spin = 0.0;
+            made.half = max(0.5 * abs(c - a), float2(1.0, 1.0));
+            made.density = BLOCK_DENSITY;
+            storeBody(first, made);
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    Body body = loadBody(b);
+    if (!body.active)
+    {
+        return;
+    }
+    const float dt = g_C.dt;
+
+    // The liquid's pressure on its cells' faces.
+    int2 lo;
+    int2 hi;
+    bodyBounds(body, lo, hi);
+    const int bw = max(hi.x - lo.x + 1, 0);
+    const int bh = max(hi.y - lo.y + 1, 0);
+    float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+    for (uint k = tid; k < uint(bw * bh); k += BODY_THREADS)
+    {
+        const int x = lo.x + int(k % uint(bw));
+        const int y = lo.y + int(k / uint(bw));
+        if (cellBody(x, y) != b)
+        {
+            continue;
+        }
+        const int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+        for (int o = 0; o < 4; o++)
+        {
+            const int nx = x + offsets[o].x;
+            const int ny = y + offsets[o].y;
+            if (cellBody(nx, ny) != b && fluidCell(nx, ny))
+            {
+                const float pressure = gf(F_P, cellIndex(nx, ny)) / dt;
+                const float2 force = -pressure * float2(offsets[o]);
+                const float2 r = (float2(x, y) + float2(nx, ny)) * 0.5 + 0.5 - body.pos;
+                sum += float4(force, r.x * force.y - r.y * force.x, 1.0);
+            }
+        }
+    }
+    s_BodyForce[tid] = sum;
+    GroupMemoryBarrierWithGroupSync();
+    for (uint stride = BODY_THREADS / 2; stride > 0; stride >>= 1)
+    {
+        if (tid < stride)
+        {
+            s_BodyForce[tid] += s_BodyForce[tid + stride];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (tid == 0)
+    {
+        const float4 total = s_BodyForce[0];
+        const float2 size = 2.0 * body.half;
+        const float mass = body.density * size.x * size.y;
+        const float inertia = mass * dot(size, size) / 12.0;
+        body.vel += (float2(0.0, g_C.gravity) + total.xy / mass) * dt;
+        body.spin += total.z / inertia * dt;
+        // Drag where it's wet (its faces against liquid over all of them).
+        const float wet = saturate(total.w / (2.0 * (size.x + size.y)));
+        body.vel *= saturate(1.0 - BODY_WATER_DRAG * wet * dt);
+        body.spin *= saturate(1.0 - BODY_WATER_DRAG * wet * dt);
+        body.pos += body.vel * dt;
+        body.angle += body.spin * dt;
+
+        // Contacts, at points a cell apart along its edges (twice over: a push can make another).
+        const int2 samples = int2(ceil(size)) + 1;
+        for (uint pass = 0; pass < 2; pass++)
+        {
+            for (int e = 0; e < 4; e++)
+            {
+                const int count = e < 2 ? samples.x : samples.y;
+                for (int i = 0; i < count; i++)
+                {
+                    const float t = count > 1 ? float(i) / float(count - 1) * 2.0 - 1.0 : 0.0;
+                    const float2 l = e == 0 ? float2(t * body.half.x, -body.half.y) : (e == 1 ? float2(t * body.half.x, body.half.y)
+                        : (e == 2 ? float2(-body.half.x, t * body.half.y) : float2(body.half.x, t * body.half.y)));
+                    const float2 p = bodyWorld(body, l);
+                    if (!bodyContactSolid(p, b))
+                    {
+                        continue;
+                    }
+                    // Out of the solid cell the shortest way into a free one.
+                    const float2 cell = floor(p);
+                    const float4 depths = float4(p.x - cell.x, cell.x + 1.0 - p.x, p.y - cell.y, cell.y + 1.0 - p.y);
+                    const float2 normals[4] = { float2(-1, 0), float2(1, 0), float2(0, -1), float2(0, 1) };
+                    float depth = 1e9;
+                    float2 n = float2(0.0, -1.0);
+                    for (int d = 0; d < 4; d++)
+                    {
+                        if (depths[d] < depth && !bodyContactSolid(cell + 0.5 + normals[d], b))
+                        {
+                            depth = depths[d];
+                            n = normals[d];
+                        }
+                    }
+                    if (depth > 1.0)
+                    {
+                        continue;
+                    }
+                    body.pos += n * (depth + 0.01);
+                    const float2 r = p - body.pos;
+                    const float2 vp = body.vel + body.spin * float2(-r.y, r.x);
+                    const float vn = dot(vp, n);
+                    if (vn < 0.0)
+                    {
+                        const float rn = r.x * n.y - r.y * n.x;
+                        const float j = -(1.0 + BODY_RESTITUTION) * vn / (1.0 / mass + rn * rn / inertia);
+                        body.vel += j * n / mass;
+                        body.spin += rn * j / inertia;
+                        const float2 tangent = float2(-n.y, n.x);
+                        const float2 vq = body.vel + body.spin * float2(-r.y, r.x);
+                        const float rt = r.x * tangent.y - r.y * tangent.x;
+                        const float jt = clamp(-dot(vq, tangent) / (1.0 / mass + rt * rt / inertia), -BODY_FRICTION * j, BODY_FRICTION * j);
+                        body.vel += jt * tangent / mass;
+                        body.spin += rt * jt / inertia;
+                    }
+                }
+            }
+        }
+        if (g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(body.pos))
+        {
+            body.active = false;
+        }
+        storeBody(b, body);
+        s_Body = body;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Its cells drawn again: the old ones cleared, the new ones where they're free (not over solids
+    // or other bodies; particles there are pushed out in g2p_cs).
+    for (uint k = tid; k < uint(bw * bh); k += BODY_THREADS)
+    {
+        const int x = lo.x + int(k % uint(bw));
+        const int y = lo.y + int(k / uint(bw));
+        if (cellBody(x, y) == b)
+        {
+            u_Cells[cellIndex(x, y)] = EMPTY;
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    const Body moved = s_Body;
+    if (!moved.active)
+    {
+        return;
+    }
+    int2 lo2;
+    int2 hi2;
+    bodyBounds(moved, lo2, hi2);
+    const int bw2 = max(hi2.x - lo2.x + 1, 0);
+    const int bh2 = max(hi2.y - lo2.y + 1, 0);
+    for (uint k = tid; k < uint(bw2 * bh2); k += BODY_THREADS)
+    {
+        const int x = lo2.x + int(k % uint(bw2));
+        const int y = lo2.y + int(k / uint(bw2));
+        if (insideBody(moved, float2(x, y) + 0.5) && !solidCell(x, y))
+        {
+            u_Cells[cellIndex(x, y)] = BLOCK | (b << 8);
+        }
+    }
+}
+
+// A level's goal: the particles of a material (tool), or the cells of a solid one, in the box
+// (brushX0, brushY0) .. (brushX1, brushY1), counted into u_Alloc[A_GOAL] once a frame.
+groupshared uint s_Goal;
+
+[numthreads(256, 1, 1)]
+void goal_cs(uint3 id : SV_GroupThreadID)
+{
+    const uint tid = id.x;
+    if (tid == 0)
+    {
+        s_Goal = 0;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    const int w = int(g_C.gridW);
+    const int h = int(g_C.gridH);
+    const int x0 = clamp(int(floor(min(g_C.brushX0, g_C.brushX1))), 0, w - 1);
+    const int y0 = clamp(int(floor(min(g_C.brushY0, g_C.brushY1))), 0, h - 1);
+    const int x1 = clamp(int(floor(max(g_C.brushX0, g_C.brushX1))), 0, w - 1);
+    const int y1 = clamp(int(floor(max(g_C.brushY0, g_C.brushY1))), 0, h - 1);
+    const uint bw = uint(x1 - x0 + 1);
+    const uint bh = uint(y1 - y0 + 1);
+    const uint m = g_C.tool;
+    uint count = 0;
+    for (uint k = tid; k < bw * bh; k += 256)
+    {
+        const int x = x0 + int(k % bw);
+        const int y = y0 + int(k / bw);
+        count += m <= PARTICLE_TYPES ? uint(countOf(m, x, y)) : (cellMaterial(x, y) == m ? 1u : 0u);
+    }
+    InterlockedAdd(s_Goal, count);
+    GroupMemoryBarrierWithGroupSync();
+    if (tid == 0)
+    {
+        u_Alloc[A_GOAL] = int(s_Goal);
+    }
+}
+
 // How fast heat crosses a cell's faces, per step (at most 0.25 for the explicit diffusion to stay
 // stable with 4 faces).
 float conductivity(int x, int y)
 {
     const uint m = cellMaterial(x, y);
-    if (m == WALL || m == EMITTER)
+    if (m == WALL || m == EMITTER || m == FAN)
     {
         return 0.4;
     }
@@ -753,7 +1672,7 @@ float conductivity(int x, int y)
     {
         return 0.3;
     }
-    if (m == WOOD)
+    if (m == WOOD || m == BLOCK)
     {
         return 0.25;
     }
@@ -1004,7 +1923,6 @@ void pressure_cs(uint3 id : SV_DispatchThreadID)
 // otherwise; a coarse face's coefficient is the mean of the two finer faces on it (a missing one
 // counts 0). The dispatches' level is in parity's bits 8 and up (its color in bit 0).
 
-RWStructuredBuffer<float> u_Multigrid : register(u5);
 
 #define MG_SOLID 0
 #define MG_FLUID 1
@@ -1036,7 +1954,7 @@ MgLevel mgLevel(uint level)
 {
     MgLevel l;
     l.level = level;
-    l.base = 0;
+    l.base = AIR_FLOATS;
     for (uint k = 1; k < level; k++)
     {
         const uint w = (g_C.gridW + (1u << k) - 1u) >> k;
@@ -1485,6 +2403,16 @@ bool eatable(int x, int y)
     return isSolidMaterial(m) && m != GLASS;
 }
 
+// An event of the step counted: the wave's at once (one atomic a wave, not a particle).
+void countEvent(uint event, bool happened)
+{
+    const uint n = WaveActiveCountBits(happened);
+    if (n > 0 && WaveIsFirstLane())
+    {
+        InterlockedAdd(u_GridInt[gi(I_EVENTS, event)], int(n));
+    }
+}
+
 // Grid to particles: the liquids' and powders' new velocities (FLIP: the grid's change added to
 // their own; sand takes the grid's, with friction where it rests), their moves; the gases' buoyancy;
 // the neutrons' flight; temperatures and the changes they cause.
@@ -1507,6 +2435,8 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     bool kill = g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(p.pos);
     // (from the temperature p2g_cs saw, so each grain that went off there blasts once)
     const bool goesOff = p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER;
+    bool splash = false;
+    bool fizz = false;
     const int cx = clamp(int(floor(p.pos.x)), 0, w - 1);
     const int cy = clamp(int(floor(p.pos.y)), 0, h - 1);
     const uint c = cellIndex(cx, cy);
@@ -1551,18 +2481,19 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
                     p.vel.x = 0.0;
                 }
             }
+            // Airborne grains (and a pile's loose top: fewer than a packed cell's): dragged by the air.
+            if (float(flipCount(cx, cy)) < REST_COUNT)
+            {
+                p.vel += (airVelocity(p.pos) - p.vel) * saturate(POWDER_DRAG * dt);
+            }
             moveParticle(p.pos, p.vel, p.vel * dt);
         }
         else
         {
             const float2 old = sampleVelocity(p.pos, true);
-            p.vel = lerp(grid, p.vel + (grid - old), g_C.flip);
-            if (p.type == LAVA)
-            {
-                // Thick: its sideways flow damped, less the hotter it is (it still falls freely).
-                const float rate = lerp(12.0, 3.0, saturate((p.temp - SOLIDIFY_LAVA) / 500.0));
-                p.vel.x *= saturate(1.0 - rate * dt);
-            }
+            splash = length(grid - old) > SPLASH_SPEED;
+            // (viscous liquids take the grid's velocity, PIC: their own would undo the diffusion)
+            p.vel = lerp(grid, p.vel + (grid - old), viscosity(p) > 0.0 ? 0.0 : g_C.flip);
             // RK2 through the grid's velocity, plus the drift of a lighter or heavier particle
             // through the mixture around it (oil rising out of water): its buoyancy over a relaxation
             // time.
@@ -1570,6 +2501,9 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             const float mixture = 4.0 / (gf(F_UA, uIndex(cx, cy)) + gf(F_UA, uIndex(cx + 1, cy)) + gf(F_VA, vIndex(cx, cy))
                 + gf(F_VA, vIndex(cx, cy + 1)));
             const float drift = (particleDensity(p) - mixture) / mixture * g_C.gravity * 0.08;
+            // Surface tension: a pull on its velocity, not its position (a positional drift carries no
+            // momentum: it held small drops up in the air, gravity never getting a fall going).
+            p.vel += cohesion(cx, cy) * dt;
             moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift)) * dt);
         }
     }
@@ -1579,7 +2513,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         float jitter = p.type == FIRE ? 400.0 : (p.type == SMOKE ? 150.0 : 200.0);
         p.vel.y -= buoyancy * dt;
         p.vel.x += (random01(seedOf(index, 3)) - 0.5) * jitter * dt;
-        p.vel *= 0.97;
+        p.vel = lerp(p.vel, airVelocity(p.pos), GAS_DRAG);
         moveParticle(p.pos, p.vel, p.vel * dt);
     }
     else
@@ -1647,6 +2581,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     else if (p.type == WATER && p.temp >= 100.0)
     {
         p.type = random01(seedOf(index, 11)) < p.life ? SALT : STEAM;
+        fizz = true;
         p.life = 0.0;
         if (p.type == STEAM)
         {
@@ -1707,7 +2642,27 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             uint original;
             InterlockedCompareExchange(u_Cells[c], before, EMPTY, original);
             kill = original == before;
+            fizz = kill;
         }
+    }
+
+    // In a body's cell (one drawn over it): out past its nearest edge, at its velocity.
+    const uint inBody = cellBody(int(floor(p.pos.x)), int(floor(p.pos.y)));
+    if (p.type != NEUTRON && inBody < MAX_BODIES)
+    {
+        const Body body = loadBody(inBody);
+        float2 l = bodyLocal(body, p.pos);
+        const float2 depth = body.half - abs(l);
+        if (depth.x < depth.y)
+        {
+            l.x = (l.x >= 0.0 ? 1.0 : -1.0) * (body.half.x + 1.0);
+        }
+        else
+        {
+            l.y = (l.y >= 0.0 ? 1.0 : -1.0) * (body.half.y + 1.0);
+        }
+        p.pos = bodyWorld(body, l);
+        p.vel = bodyPointVelocity(body, p.pos);
     }
 
     // Stuck in a solid (one painted over it): gone.
@@ -1715,6 +2670,10 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         kill = true;
     }
+    countEvent(EVENT_SPLASH, splash);
+    countEvent(EVENT_FIZZ, fizz);
+    countEvent(EVENT_FIRE, p.type == FIRE && !kill);
+    countEvent(EVENT_BOOM, goesOff);
     if (kill)
     {
         p.type = EMPTY;
@@ -1782,11 +2741,12 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
                 spawn(FIRE, randomInCell(x, y, seedOf(c, 21)), float2(0, 0), 800.0, 1.0 + random01(seedOf(c, 23)), 0, reserve);
             }
         }
-        else if (isSolidMaterial(tool) && tool < ERASE)
+        else if (isSolidMaterial(tool) && tool < ERASE && tool != BLOCK)
         {
             // (the tools from ERASE on paint no material: Heat and Cool act in heat_source_cs)
-            const uint painted = tool | (tool == EMITTER ? g_C.emitType << 8 : 0);
-            if (m != tool)
+            const uint painted = tool | (tool == EMITTER || tool == FAN ? g_C.emitType << 8 : 0);
+            // (a fan painted over again takes the new direction)
+            if (m != tool || (tool == FAN && u_Cells[c] != painted))
             {
                 u_Cells[c] = painted;
                 u_GridFloat[gi(F_TCELL, c)] = tool == ICE ? ICE_TEMP : AMBIENT;
@@ -1896,12 +2856,19 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     u_Alloc[A_PROBE + 0] = asint(gf(F_TCELL, c));
     u_Alloc[A_PROBE + 1] = asint(gf(F_P, c) / (g_C.dt * g_C.gravity));
     u_Alloc[A_PROBE + 2] = int(u_Cells[c]);
-    // (A_PROBE + 2 + PARTICLE_TYPES must stay under A_LIST: up to 13 types)
-    for (uint m = WATER; m <= PARTICLE_TYPES; m++)
+    // The counts two to an int (16 bits each, the odd types' low), from A_PROBE + 3 up to under the
+    // salinity at A_LIST - 1: up to 22 types. (u_Alloc is saved, so A_LIST stays put.)
+    for (uint k = 0; k < (PARTICLE_TYPES + 1) / 2; k++)
     {
-        u_Alloc[A_PROBE + 2 + m] = countOf(m, x, y);
+        const uint m = WATER + 2 * k;
+        const uint high = m + 1 <= PARTICLE_TYPES ? min(uint(countOf(m + 1, x, y)), 0xFFFFu) : 0u;
+        u_Alloc[A_PROBE + 3 + k] = int(min(uint(countOf(m, x, y)), 0xFFFFu) | (high << 16));
     }
     u_Alloc[A_LIST - 1] = asint(cellSalinity(c, x, y));
+    // The wind there (u_Alloc[A_PROBE + 9 .. 10], under A_WIND).
+    const float2 wind = airVelocity(float2(x, y) + 0.5);
+    u_Alloc[A_PROBE + 9] = asint(wind.x);
+    u_Alloc[A_PROBE + 10] = asint(wind.y);
 }
 
 #endif // SIMULATION
@@ -1979,6 +2946,7 @@ float3 materialColor(uint m)
     case ACID: return float3(0.45, 0.92, 0.18);
     case SALT: return float3(0.92, 0.92, 0.95);
     case GUNPOWDER: return float3(0.2, 0.2, 0.22);
+    case HONEY: return float3(0.85, 0.55, 0.1);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -1987,6 +2955,8 @@ float3 materialColor(uint m)
     case ICE: return float3(0.75, 0.92, 1.0);
     case STONE: return float3(0.33, 0.3, 0.29);
     case METAL: return float3(0.6, 0.64, 0.7);
+    case FAN: return float3(0.3, 0.5, 0.58);
+    case BLOCK: return float3(0.72, 0.52, 0.3);
     }
     return float3(0.0, 0.0, 0.0);
 }
@@ -2023,7 +2993,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float acid = sampleCount(g, ACID);
     const float salt = sampleCount(g, SALT);
     const float gunpowder = sampleCount(g, GUNPOWDER);
-    const float total = water + oil + sand + lava + acid + salt + gunpowder;
+    const float honey = sampleCount(g, HONEY);
+    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey;
     if (total > 0.01)
     {
         // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
@@ -2031,8 +3002,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
         const float3 waterColor = lerp(materialColor(WATER), float3(0.1, 0.55, 0.62), salinity);
         float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
             + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)
-            + gunpowder * materialColor(GUNPOWDER)) / total;
-        if (sand + salt + gunpowder > water + oil + lava + acid)
+            + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY)) / total;
+        if (sand + salt + gunpowder > water + oil + lava + acid + honey)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
@@ -2099,6 +3070,18 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
             else if (m == EMITTER)
             {
                 solid = length(f - 0.5) < 0.22 ? materialColor((cell >> 8) & 0xFF) : solid;
+            }
+            else if (m == BLOCK)
+            {
+                // A shade a body, planks across it.
+                solid *= 0.85 + 0.05 * float((cell >> 8) & 3u) + 0.08 * step(0.5, frac(g.y * 0.34));
+            }
+            else if (m == FAN)
+            {
+                // Stripes moving the way it blows.
+                const uint dir = (cell >> 8) & 3u;
+                const float along = dir == 0 ? g.x : (dir == 1 ? g.y : (dir == 2 ? -g.x : -g.y));
+                solid *= 0.75 + 0.35 * step(0.5, frac(along * 0.5 - g_C.time * 3.0));
             }
             color = solid;
         }

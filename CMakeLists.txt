@@ -770,10 +770,13 @@ function(add_tslang_android_app name media)
         COMMENT "Packaging ${name}.apk"
         VERBATIM)
     add_dependencies(${name}_apk ${name}_app)
+    # (the media it packages: an NRI app's own folders, if it has any)
+    if (media OR NOT APP_NRI)
+        add_dependencies(${name}_apk copy_media)
+    endif()
     if (APP_NRI)
         return()
     endif()
-    add_dependencies(${name}_apk copy_media)
     if (TARGET donut_shaders)
         add_dependencies(${name}_apk donut_shaders)
     endif()
@@ -1065,13 +1068,14 @@ if (WIN32)
 endif()
 add_dependencies(nri_interop nri_interop_build)
 
-# add_tslang_nri_example(<name> [SHADERS <target>] [<source>...]): examples/nri/<name>.ts, rendering
-# with NRI through core/nri/nri_interop.d.ts, the shaders it loads, compiled by <target>, and the
-# further sources: modules it imports that need nothing of Donut (core/random.ts). It links
+# add_tslang_nri_example(<name> [SHADERS <target>] [<source>...] [MEDIA <folder>...]):
+# examples/nri/<name>.ts, rendering with NRI through core/nri/nri_interop.d.ts, the shaders it
+# loads, compiled by <target>, the media/ folders it reads (copied beside it, in the APK's assets),
+# and the further sources: modules it imports that need nothing of Donut (core/random.ts). It links
 # nri_interop, and nothing of Donut (tslang_core, donut_interop_static). On Android, only the app
 # (<name>_app, <name>_apk): its window is the activity's.
 function(add_tslang_nri_example name)
-    cmake_parse_arguments(PARSE_ARGV 1 EXAMPLE "" "SHADERS" "")
+    cmake_parse_arguments(PARSE_ARGV 1 EXAMPLE "" "SHADERS" "MEDIA")
     set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     list(FILTER module_ts INCLUDE REGEX "\\.ts$")
     set(module_ts_paths ${module_ts})
@@ -1080,7 +1084,7 @@ function(add_tslang_nri_example name)
         "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts;${module_ts_paths}")
     tslang_own_facts(examples/nri/${name}.ts ${module_ts})
     if (ANDROID)
-        add_tslang_android_app(${name} "" SHADERS ${EXAMPLE_SHADERS} NRI ${EXAMPLE_UNPARSED_ARGUMENTS})
+        add_tslang_android_app(${name} "${EXAMPLE_MEDIA}" SHADERS ${EXAMPLE_SHADERS} NRI ${EXAMPLE_UNPARSED_ARGUMENTS})
         return()
     endif()
     add_executable(${name} examples/nri/${name}.ts ${EXAMPLE_UNPARSED_ARGUMENTS})
@@ -1088,6 +1092,9 @@ function(add_tslang_nri_example name)
     target_link_libraries(${name} PRIVATE ${TSLANG_LINK_LIBS} nri_interop)
     if (EXAMPLE_SHADERS)
         add_dependencies(${name} ${EXAMPLE_SHADERS})
+    endif()
+    if (EXAMPLE_MEDIA)
+        add_dependencies(${name} copy_media)
     endif()
 endfunction()
 
@@ -1441,7 +1448,7 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/spirv
 )
-add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/text_format.ts)
+add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/text_format.ts core/json_reader.ts MEDIA powder_sandbox)
 add_tslang_example_test(powder_sandbox_nri)
 # The materials' showcase: oil on water, a sand pile, burning wood, uranium in a pool, an emitter.
 add_tslang_example_test(powder_sandbox_nri SUFFIX showcase ARGS -scene 2 -testFrames 600)
@@ -1452,6 +1459,19 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX lava ARGS -scene 3 -testFrames
 add_tslang_example_test(powder_sandbox_nri SUFFIX materials ARGS -scene 4 -testFrames 900)
 # Gunpowder under sand next to a pool, lit: it goes off, throws the sand, and its glass wall holds.
 add_tslang_example_test(powder_sandbox_nri SUFFIX gunpowder ARGS -scene 5 -testFrames 600)
+# Water and honey let go side by side: the honey (viscous) stays higher and runs half as far.
+add_tslang_example_test(powder_sandbox_nri SUFFIX viscosity ARGS -scene 6 -testFrames 120)
+# A film of water on the floor: surface tension pulls it into beads.
+add_tslang_example_test(powder_sandbox_nri SUFFIX tension ARGS -scene 7 -testFrames 180)
+# A fan blowing across falling sand: the wind carries the grains to the right.
+add_tslang_example_test(powder_sandbox_nri SUFFIX wind ARGS -scene 8 -testFrames 180)
+# Rigid bodies: a block dropped into a pool floats at its surface, one half over a ledge tips off.
+add_tslang_example_test(powder_sandbox_nri SUFFIX bodies ARGS -scene 9 -testFrames 300)
+# A level from its file (media/powder_sandbox/scenes/test_fill.json): an emitter fills a cup, the
+# level's goal.
+add_tslang_example_test(powder_sandbox_nri SUFFIX level ARGS -sceneFile test_fill -testFrames 600)
+# Auto quality, its budget set below any GPU's step time: the grid is made smaller.
+add_tslang_example_test(powder_sandbox_nri SUFFIX quality ARGS -scene 2 -testFrames 300 -stepBudget 0.01)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
 add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTrip)
 # The U-tube's grid remade halfway (a phone turned): 20 cells taller and back, losing nothing; and

@@ -24,9 +24,10 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
-  acid, salt), `-scene 5` (gunpowder), `-roundTrip` (undo,
-  save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
-  emulator and on a phone.
+  acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
+  (wind), `-scene 9` (blocks), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
+  Vulkan, on the Android emulator and on a phone.
 
 ## Roadmap
 
@@ -104,7 +105,7 @@ Run so far on two phones:
   grid and shows margins, so dragging a desktop window's edge doesn't crop it again and again.
   - The grid's buffers are sized for the longest grid (432 cells, a window about 3 to 1), whichever
     way it's turned, so a regrid needs no new buffers and the snapshots and saves stay one size
-    (saves are version 2). A wider window shows margins.
+    (saves were version 2 then; the blocks of step 5 made them 3). A wider window shows margins.
   - `regrid_grid_cs` and `regrid_particles_cs` move the cells, their temperatures and the particles
     (from a copy in the int sections, which every step remakes); the old grid's walls aren't carried
     over, and particles that end in a wall are freed.
@@ -179,18 +180,136 @@ format is unchanged (version 2): the new state lives in the particles.
   stone 50 °C), acid over wood in a glass tub (all the wood eaten, the glass kept), salt poured
   into a tank of fresh water (all dissolved; the bottom third about 10% salt, the top under 1%).
 - **Test scene 5**: gunpowder under a layer of sand, against a glass wall with a pool behind it,
-  lit from its side. It all goes off, the blast throws at least a fifth of the sand clear of the
+  lit from its side. It all goes off, the blast throws at least a twentieth of the sand clear of the
   pile, the wall holds, and no particle ends up inside a solid.
 
-### 5. Physics
+### 5. Physics (done)
 
-- **Viscosity** as a real diffusion of velocity (honey), replacing lava's damping.
-- **Air as a fluid**: wind and fans, blast waves moving gases and light powders.
-- **Rigid bodies**: blocks that float and tip over.
-- **Surface tension**: droplets and thin streams.
+- **Viscosity** (done): honey (type 12, density 1.4, viscosity 10,000 cells²/s) and lava (200
+  cold, 40 at 1200 °C) diffuse their velocity, replacing lava's sideways damping.
+  - Particle-to-grid sums each face's viscosity (from the viscous particles only), and
+    `viscosity_cs` solves the implicit diffusion `(1 + n a) u - a sum(neighbors) = u*` (`a` the
+    face's viscosity times dt) by red-black Gauss-Seidel, 4 sweep pairs a step (`-viscosity N`, 0
+    off). Solid neighbors count at 0 (no slip), air ones not at all (a free surface).
+  - Faces without viscosity are skipped, so water is untouched, and the sweeps run only while a
+    viscous particle exists (a flag read back with the HUD probe): no cost without honey or lava.
+  - Viscous particles take the grid's velocity (PIC): FLIP's own velocity would undo the diffusion.
+  - Gauss-Seidel carries the diffusion a few cells a step, so the liquid is rigid over a few cells:
+    poured honey lands and piles, a large body slumps to a thick slab. Holding a tall column would
+    need a multigrid solve per velocity component.
+  - The probe's counts are packed two to an int (room for 22 types); `u_Alloc` is saved, so its
+    free list stays at 16 and saves are still version 2.
+  - **Test scene 6**: a block of water and one of honey let go side by side. The honey's mean height
+    must be 1.3 times the water's and its front under 0.6 times as far (5.1 vs 3.3 cells, 62 vs 144);
+    with `-viscosity 0` the honey runs like water (3.0 cells, 143) and the test fails.
+- **Surface tension** (done), for thin liquid only: drops, streams and films.
+  - A liquid particle is pulled toward the side of its 3 x 3 cells holding more liquid
+    (particle-to-grid counts each cell's liquid particles, capped at the rest count), at up to 4000
+    cells a second squared, on its velocity. It first moved the particle's position instead (150
+    cells a second): a drift like that carries no momentum, so it held small drops up in the air,
+    and an emitter's water never fell; pulled on their velocities, a drop's particles' pulls cancel
+    out and it falls, and the U-tube's pressure residual is as without it (0.37, against 4.8).
+  - It fades out as the 5 x 5 cells around fill up to 12 cells' worth. A body of liquid, its surface
+    too, is past that: there the pull only fought the pressure solve (the U-tube's levels sank 5
+    cells and its residual rose a hundredfold when it acted on every surface).
+  - Uncapped counts made it unstable: full cells pulled harder, packing the water into a few cells.
+  - Bulk particles (their 3 x 3 cells full) return early; it costs nothing measurable.
+  - **Test scene 7**: a film of water one cell thick on the floor pulls into beads, covering at most
+    60% of its columns (27 of 115; without surface tension it stays a film over 110).
+- **Air as a fluid** (done): wind, fans, and blasts that move gases and airborne grains.
+  - A coarse grid, a cell 8 x 8 of the simulation's (37 x 18 at 290 x 144), its face velocities at
+    the start of the multigrid buffer, not saved: the wind starts calm after a load and a regrid.
+  - `air_cs` moves it once a frame, over the frame's steps, in one workgroup: an air cell is blocked
+    when as many of its cells as two lines across it are solid (fans let air through) or hold
+    liquid; fans push it, damping slows it (1 a second), it carries itself along
+    (semi-Lagrangian), and a red-black pressure solve in groupshared memory (20 sweeps, from the
+    last frame's) keeps it incompressible but for gunpowder's gas. The liquids' solve is untouched.
+  - Past the grid's edge the air is open, at pressure 0. In a closed box a fan only drove one swirl
+    round the box: the air it pushed came back over it, and sand falling through both went nowhere.
+  - Once a frame, not a step: stepped 180 times a second, the coarse grid's interpolation blurred a
+    fan's jet away before it reached anything.
+  - Gases relax toward the wind as they slowed toward rest before (3% a step), so still air changes
+    nothing; airborne grains (under the rest count in their cell) are dragged at 3 a second.
+  - **Fan**: a solid tile that blows the way the pointer moves while painting it (up for a tap); it
+    shows stripes moving that way. Inspect shows the wind at a cell.
+  - Costs 0.014 ms a step on desktop. `-air 0` turns it off.
+  - The coarse grid misses detail: air under a ceiling sits in a blocked cell, so smoke collecting
+    there isn't blown along.
+  - **Test scene 8**: a fan blowing across a stream of sand falling inside its jet: the sand lands
+    56 to 76 cells right of the emitter, at least 5% of the grid's width (1 with `-air 0`).
+- **Rigid bodies** (done): blocks that float and tip over.
+  - Up to 16 rectangles, their records (center, angle, velocity, spin, half extents, density) in a
+    13th float section: saved, undone and regridded with the rest. Saves are version 3: version 2
+    files are refused ("from another version").
+  - `bodies_cs`, a workgroup a body after the pressure solve: the liquid's pressure on its cells'
+    faces (buoyancy falls out of it), gravity, drag where wet; contacts with solids and other bodies
+    at points a cell apart along its edges, pushed out the shortest way into a free cell, the
+    closing velocity taken off (restitution 0.1) with friction (0.6). A contact off the center turns
+    it, so a block half over a ledge tips off.
+  - It then clears its old cells and draws itself where it is (BLOCK, the body in bits 8..11), not
+    over solids or other bodies. Particles in its cells are pushed out past its nearest edge at its
+    velocity instead of being freed.
+  - **Block**: a tile that's always a box: dragging it makes a body that size (density 0.6, so it
+    floats with 60% under). Erasing over a block's center removes it; Clear removes them all.
+  - Only the first workgroup makes new bodies: each looking for the first free record, a group
+    could see another's new body and make a second copy.
+  - The liquid isn't pushed by a moving block's faces (they count as still walls); it's moved by
+    the particles pushed out, which makes a falling block splash less than it should.
+  - **Test scene 9**: a block dropped into a pool floats (its center 0.5 to 1 cell under the
+    surface, within half its height), and a tall one standing half over a ledge tips off it
+    (turned 1.57 radians, lying on the floor). Also checked through a regrid and on D3D12.
 
-### 6. Engine side
+### 6. Engine side (done)
 
-- **Scenes as data**: levels and challenges in JSON files instead of code.
-- **Sound**: splashes, fizzing, fire, driven by particle events.
-- **Auto quality**: substeps and grid size chosen from measured frame time.
+- **Scenes as data** (done): levels in JSON files, `media/powder_sandbox/scenes/<name>.json`
+  (copied beside the executable, and into the APK's assets: `add_tslang_nri_example` takes `MEDIA`
+  folders now, and an NRI app's APK waits for `copy_media` when it has some). Not yet run on a phone.
+  - A level: `{ "name": "...", "goal": { "text": "...", "material": "water", "box": [x0, y0, x1,
+    y1], "count": N }, "strokes": [{ "tool": "glass", "box": [...], "emit": "sand", "blow": "right",
+    "repeat": N }, ...] }`, boxes in fractions of the grid; tools and materials by their names
+    (Inspect's), plus `erase`, `heat`, `cool` and `salt water`. A file that doesn't read, or names
+    something unknown, is refused with a message saying what.
+  - The goal: so many particles of a material (cells, for a solid) in the box. `goal_cs` counts it
+    once a frame (one workgroup), read back with the HUD's probe; the HUD shows it, and "done" once
+    it's reached.
+  - The **Levels** tile goes through `index.json`'s list (`cup`: fill the cup from a pool behind a
+    wooden dam; `stone`: get the lava on a shelf into the pool, where it sets: untouched it doesn't),
+    clearing the grid for each. `-sceneFile name`
+    starts on one; in a test its goal must be reached.
+  - `core/json_reader.ts`: a small reader over a file's bytes, read in order by a caller who knows
+    the shape it expects (no tree); strings are ASCII (tslang has no `String.fromCharCode`: they're
+    built from a printable-character table).
+  - The test scenes (`-scene 2` to `9`) stay in code: their checks share their geometry.
+  - **Test** `level`: `test_fill.json`, an emitter over a cup (with a fan and fire, for the format's
+    other fields): the cup gets its 400 particles of water.
+- **Sound** (done; not yet listened to on a phone): splashes, fizzing, fire and booms, from the
+  simulation's events.
+  - `core/nri/nri_audio.cpp`: a playback device on the default output (miniaudio 0.11.21, one header,
+    public domain or MIT-0, fetched by core/nri's CMake: WASAPI on Windows, AAudio or OpenSL ES on
+    Android, loaded at run time) and four sounds synthesized from noise and a sine, no audio files:
+    a splash (noise low-passed, its cutoff falling), a fizz (noise high-passed, flickering),
+    crackle (sparse clicks), a boom (a falling low sine under rumble). Up to 24 voices, soft-clipped;
+    `Nri_PlaySound` hands a voice to the callback, which only tries the lock.
+  - Events: g2p counts each step's liquid impacts (a particle's velocity changed by over 50 cells a
+    second in a step), acid eating a cell or water boiling, fire particles, and gunpowder going off,
+    in an int section, one atomic a wave (`WaveActiveCountBits`); the frame's last step's are read
+    back with the probe, times its steps.
+  - Each sound plays when its event count is over its least (8 impacts, 30 fire particles, 3 grains
+    going off, one fizz), louder by the count's log, then waits its cooldown (0.07 to 0.6 s); booms
+    lower the bigger they are.
+  - None in tests (`-sound` opens the device, playing nothing) nor with `-mute`. Tests log the event
+    totals, and the showcase (splash, fire), scene 4 (fizz) and scene 5 (fire, boom) need theirs.
+- **Auto quality** (done): the grid's size chosen from the GPU's measured step time.
+  - Once, at the first start: the U-tube's water for 90 frames (an empty grid's step says little of
+    a painted one's), its mean step time from frame 30 on; over the budget (2 ms a step: 6 ms of a
+    60 Hz frame at 3 steps) the grid is made smaller, its cells fewer by that ratio (72 cells along
+    its shorter side at the least). The session then starts at that size (a regrid would crop what's
+    there). The size is cached in `powder_sandbox.quality` beside the save, so later starts skip it.
+  - Only the grid: the substeps stay, as heat and the pressure solve are tuned per step and the
+    heat's explicit diffusion is at its stability limit (fewer, longer steps would need it implicit).
+  - `-gridHeight N` sets the size (no auto quality); `-quality fixed` turns it off, `calibrate`
+    measures again. Tests don't measure (or read the cache) unless asked: `-stepBudget ms` measures
+    against that budget without caching it.
+  - On the desktop the step is 0.2 to 0.3 ms, so the grid stays 144 high; the phone's is still to be
+    measured.
+  - **Test** `quality`: a budget of 0.01 ms: the showcase starts on a 145 x 72 grid.
