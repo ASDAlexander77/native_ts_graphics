@@ -1482,14 +1482,20 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_logs ARGS -sceneFile
 add_tslang_example_test(powder_sandbox_nri SUFFIX unsolved_logs ARGS -sceneFile logs -testStars 0 -testFrames 720)
 add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_hole ARGS -sceneFile hole -solve 1 -testStars 3 -testFrames 360)
 add_tslang_example_test(powder_sandbox_nri SUFFIX unsolved_hole ARGS -sceneFile hole -testStars 0 -testFrames 360)
-add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_dry ARGS -sceneFile dry -solve 1 -testStars 3 -testFrames 720)
-add_tslang_example_test(powder_sandbox_nri SUFFIX unsolved_dry ARGS -sceneFile dry -testStars 0 -testFrames 720)
+add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_dry ARGS -sceneFile dry -solve 1 -testStars 3 -testFrames 900)
+add_tslang_example_test(powder_sandbox_nri SUFFIX unsolved_dry ARGS -sceneFile dry -testStars 0 -testFrames 900)
 add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_melt ARGS -sceneFile melt -solve 1 -testStars 3 -testFrames 1080)
 add_tslang_example_test(powder_sandbox_nri SUFFIX unsolved_melt ARGS -sceneFile melt -testStars 0 -testFrames 1080)
 add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_stone ARGS -sceneFile stone -solve 1 -testStars 3 -testFrames 480)
 add_tslang_example_test(powder_sandbox_nri SUFFIX unsolved_stone ARGS -sceneFile stone -testStars 0 -testFrames 480)
 add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_lamp_late ARGS -sceneFile lamp -solve 4 -testStars 2 -testFrames 480)
 add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_lamp_later ARGS -sceneFile lamp -solve 7 -testStars 1 -testFrames 600)
+# In a window held upright (a phone's shape), a level's grid is still wider than tall: the challenges
+# laid out on it are solved as they are in a wide one.
+add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_dry_upright ARGS -sceneFile dry -solve 1 -testStars 3 -window 540 1170 -testFrames 900)
+# At the S23's shape held sideways (a 278 x 144 grid): the dry cup's water, falling from its emitter, used to reach the cup within a second there.
+add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_dry_s23 ARGS -sceneFile dry -solve 1 -testStars 3 -window 1280 751 -testFrames 900)
+add_tslang_example_test(powder_sandbox_nri SUFFIX challenge_stone_upright ARGS -sceneFile stone -solve 1 -testStars 3 -window 540 1170 -testFrames 480)
 # Acid diluted by water (and warming it); oil and petrol lit: the petrol burns away, the oil slowly.
 add_tslang_example_test(powder_sandbox_nri SUFFIX acid ARGS -scene 10 -testFrames 900)
 add_tslang_example_test(powder_sandbox_nri SUFFIX burning ARGS -scene 11 -testFrames 900)

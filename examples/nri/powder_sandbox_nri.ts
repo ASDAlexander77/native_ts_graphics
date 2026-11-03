@@ -1219,7 +1219,7 @@ namespace PowderSandboxNri {
             Nri_DeviceWaitIdle(device);
             this.destroySwapChain();
             this.createSwapChain(device);
-            const wide = this.width >= this.height - this.toolbarTileHeight();
+            const wide = this.wantsWide() || this.width >= this.height - this.toolbarTileHeight();
             if (wide != (this.gridW >= this.gridH)) {
                 const oldW = this.gridW;
                 const oldH = this.gridH;
@@ -1289,6 +1289,16 @@ namespace PowderSandboxNri {
             return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
         }
 
+        // Whether the grid's wider than tall whatever the window's shape: a level's, and the test
+        // scenes' from 4, are laid out on one (on a phone held upright, it's turned, drawn smaller).
+        wantsWide(): boolean {
+            const level = this.level;
+            if (level) {
+                return true;
+            }
+            return this.test && this.scene >= 4;
+        }
+
         // The grid's size from the shape of the window above the toolbar: gridHeight cells along its
         // shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
         fitGrid() {
@@ -1300,9 +1310,7 @@ namespace PowderSandboxNri {
             } else {
                 gridH = Math.floor(this.gridHeight * playHeight / this.width);
             }
-            // (the test scenes from 4 are laid out on a grid wider than tall: on a phone held upright
-            // they're on one turned, drawn smaller)
-            if (this.test && this.scene >= 4 && !this.level && gridH > gridW) {
+            if (this.wantsWide() && gridH > gridW) {
                 const turned = gridW;
                 gridW = gridH;
                 gridH = turned;
@@ -2188,6 +2196,14 @@ namespace PowderSandboxNri {
                 this.startLevel(level);
                 this.snapshotRequested = true;
                 this.needsInit = true;
+                // (on a grid wider than tall: turned, if the window's upright)
+                if (this.gridW < this.gridH) {
+                    const oldW = this.gridW;
+                    const oldH = this.gridH;
+                    this.fitGrid();
+                    this.reshaped(oldW, oldH);
+                    this.layout();
+                }
                 const best = this.bestStars[this.levelIndex];
                 this.showMessage(best > 0 ? `${level.name} (best ${starText(best)})` : level.name);
             }
@@ -4365,6 +4381,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOption(sample, "-mute");
         Nri_AddExampleOptionWithValues(sample, "-gravity", 1);
         Nri_AddExampleOptionWithValues(sample, "-tilt", 2);
+        Nri_AddExampleOptionWithValues(sample, "-window", 2);
         Nri_AddExampleOption(sample, "-sound");
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
@@ -4423,6 +4440,10 @@ namespace PowderSandboxNri {
                 sandbox.mute = true;
             } else if (arg == "-tilt" && i + 2 < argc) {
                 sandbox.setTilt(parseFloat(Nri_GetArg(argc, argv, i + 1)), parseFloat(Nri_GetArg(argc, argv, i + 2)));
+                i += 2;
+            } else if (arg == "-window" && i + 2 < argc) {
+                // (the window's size: -window 540 1170 is a phone held upright)
+                Nri_SetWindowSize(sample, Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 64), Math.max(parseInt(Nri_GetArg(argc, argv, i + 2)), 64));
                 i += 2;
             } else if (arg == "-gravity" && i + 1 < argc) {
                 sandbox.gravityMode = Math.max(GRAVITY_NAMES.indexOf(Nri_GetArg(argc, argv, i + 1)), 0);
