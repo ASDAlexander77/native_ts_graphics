@@ -472,6 +472,14 @@ int flipCount(int x, int y)
         + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y);
 }
 
+// A cell's side o's neighbor, as an offset: 0 left, 1 right, 2 up, 3 down. (Worked out, not a local
+// const int2[4]: Adreno's compiler got such an array indexed in a loop wrong, the bodies' pressure
+// forces NaN.)
+int2 sideOffset(int o)
+{
+    return o < 2 ? int2(o * 2 - 1, 0) : int2(0, o * 2 - 5);
+}
+
 bool fluidCell(int x, int y)
 {
     return inGrid(x, y) && !solidCell(x, y) && flipCount(x, y) > 0;
@@ -1342,11 +1350,10 @@ void air_cs(uint3 id : SV_GroupThreadID)
                 }
                 float sum = 0.0;
                 float n = 0.0;
-                const int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
                 for (int o = 0; o < 4; o++)
                 {
-                    const int ni = ci + offsets[o].x;
-                    const int nj = cj + offsets[o].y;
+                    const int ni = ci + sideOffset(o).x;
+                    const int nj = cj + sideOffset(o).y;
                     if (!airBlocked(ni, nj))
                     {
                         sum += airPressure(ni, nj);
@@ -1481,15 +1488,14 @@ void bodies_cs(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
         {
             continue;
         }
-        const int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
         for (int o = 0; o < 4; o++)
         {
-            const int nx = x + offsets[o].x;
-            const int ny = y + offsets[o].y;
+            const int nx = x + sideOffset(o).x;
+            const int ny = y + sideOffset(o).y;
             if (cellBody(nx, ny) != b && fluidCell(nx, ny))
             {
                 const float pressure = gf(F_P, cellIndex(nx, ny)) / dt;
-                const float2 force = -pressure * float2(offsets[o]);
+                const float2 force = -pressure * float2(sideOffset(o));
                 const float2 r = (float2(x, y) + float2(nx, ny)) * 0.5 + 0.5 - body.pos;
                 sum += float4(force, r.x * force.y - r.y * force.x, 1.0);
             }
@@ -1541,15 +1547,14 @@ void bodies_cs(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
                     // Out of the solid cell the shortest way into a free one.
                     const float2 cell = floor(p);
                     const float4 depths = float4(p.x - cell.x, cell.x + 1.0 - p.x, p.y - cell.y, cell.y + 1.0 - p.y);
-                    const float2 normals[4] = { float2(-1, 0), float2(1, 0), float2(0, -1), float2(0, 1) };
                     float depth = 1e9;
                     float2 n = float2(0.0, -1.0);
                     for (int d = 0; d < 4; d++)
                     {
-                        if (depths[d] < depth && !bodyContactSolid(cell + 0.5 + normals[d], b))
+                        if (depths[d] < depth && !bodyContactSolid(cell + 0.5 + float2(sideOffset(d)), b))
                         {
                             depth = depths[d];
-                            n = normals[d];
+                            n = float2(sideOffset(d));
                         }
                     }
                     if (depth > 1.0)
@@ -1757,11 +1762,10 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
     const float t = gf(F_TSRC, c);
     const float k = conductivity(x, y);
     float flow = 0.0;
-    const int2 offsets[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
     for (int i = 0; i < 4; i++)
     {
-        const int nx = x + offsets[i].x;
-        const int ny = y + offsets[i].y;
+        const int nx = x + sideOffset(i).x;
+        const int ny = y + sideOffset(i).y;
         if (inGrid(nx, ny))
         {
             flow += min(k, conductivity(nx, ny)) * 0.25 * (gf(F_TSRC, cellIndex(nx, ny)) - t);
@@ -1796,7 +1800,7 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
             bool touched = false;
             for (int k = 0; k < 4; k++)
             {
-                touched = touched || countOf(FIRE, x + offsets[k].x, y + offsets[k].y) > 0;
+                touched = touched || countOf(FIRE, x + sideOffset(k).x, y + sideOffset(k).y) > 0;
             }
             if (next > 280.0 || touched)
             {
@@ -1838,11 +1842,10 @@ void divergence_cs(uint3 id : SV_DispatchThreadID)
     // Inside the fluid (no air next to it) a sparse cell is drawn together too; at the surface only
     // a crowded one is pushed apart (the surface's cells are partly empty by nature).
     bool interior = true;
-    const int2 offsets[4] = { int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1) };
     for (int i = 0; i < 4; i++)
     {
-        const int nx = x + offsets[i].x;
-        const int ny = y + offsets[i].y;
+        const int nx = x + sideOffset(i).x;
+        const int ny = y + sideOffset(i).y;
         interior = interior && (solidCell(nx, ny) || flipCount(nx, ny) > 0);
     }
     float excess = clamp(float(flipCount(x, y)) / REST_COUNT - 1.0, -1.0, 2.0);
@@ -2633,8 +2636,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     // claimed with a compare-exchange: of the acid around it, one takes it.
     if (p.type == ACID && !kill)
     {
-        const int2 offsets[4] = { int2(0, 1), int2(1, 0), int2(-1, 0), int2(0, -1) };
-        const int2 n = int2(floor(p.pos)) + offsets[hash(seedOf(index, 8)) & 3];
+        const int2 n = int2(floor(p.pos)) + sideOffset(int(hash(seedOf(index, 8)) & 3));
         if (eatable(n.x, n.y) && random01(seedOf(index, 9)) < ACID_RATE * dt)
         {
             const uint c = cellIndex(n.x, n.y);
@@ -2797,11 +2799,10 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
     if (m == EMITTER)
     {
         const uint emitted = (cell >> 8) & 0xFF;
-        const int2 offsets[4] = { int2(0, 1), int2(1, 0), int2(-1, 0), int2(0, -1) };
         for (int i = 0; i < 4; i++)
         {
-            const int nx = x + offsets[i].x;
-            const int ny = y + offsets[i].y;
+            const int nx = x + sideOffset(i).x;
+            const int ny = y + sideOffset(i).y;
             if (solidCell(nx, ny))
             {
                 continue;
@@ -2811,7 +2812,7 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
             {
                 if (flipCount(nx, ny) < 2 && random01(seed) < 0.5)
                 {
-                    spawn(emitted, randomInCell(nx, ny, seed + 1), float2(offsets[i]) * 10.0, emitted == LAVA ? LAVA_TEMP : AMBIENT, 0.0, 0, 0);
+                    spawn(emitted, randomInCell(nx, ny, seed + 1), float2(sideOffset(i)) * 10.0, emitted == LAVA ? LAVA_TEMP : AMBIENT, 0.0, 0, 0);
                 }
             }
             else if (emitted == FIRE && random01(seed) < 0.25)
