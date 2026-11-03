@@ -173,10 +173,12 @@ namespace PowderSandboxNri {
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
     let retainedFrameCallbacks: NriFrameCallback[] = [];
 
-    // What a frame in flight records into, and where it reads the HUD's probe back.
+    // What a frame in flight records into, where it reads the HUD's probe back, and the GPU's
+    // timestamps around its simulation (and how many steps it took), read when its turn comes again.
     class QueuedFrame {
+        public timedSteps: int = -1;
         constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public probeReadback: NriBufferHandle) {
+            public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
         }
     }
 
@@ -281,6 +283,11 @@ namespace PowderSandboxNri {
         private needsInit: boolean = true;
         private time: number = 0.0;
         private frameRate: number = 0.0;
+        // The GPU's time for the simulation (a queued frame's two timestamps), the last frame's that
+        // stepped, per step.
+        private queryPool: NriQueryPoolHandle | null = null;
+        private querySize: int = 8;
+        private stepMs: number = 0.0;
         private fpsFrames: int = 0;
         private fpsTime: number = 0.0;
 
@@ -368,6 +375,7 @@ namespace PowderSandboxNri {
 
             let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, this.testFrames);
             if (result == 0 && this.test) {
+                console.log(`Simulation: ${formatFixed(this.stepMs, 3)} ms a step (GPU)`);
                 const failure = this.checkTest();
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
                 result = failure == "" ? 0 : 1;
@@ -401,6 +409,11 @@ namespace PowderSandboxNri {
             this.stateH = this.gridH;
 
             // Queued frames
+            const queryPool = Nri_CreateTimestampQueryPool(device, 2 * queuedFrameNum);
+            this.queryPool = queryPool;
+            if (queryPool) {
+                this.querySize = Nri_GetQuerySize(queryPool);
+            }
             for (let i = 0; i < queuedFrameNum; i++) {
                 const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const probeReadback = Nri_CreateReadbackBuffer(device, PROBE_INTS * 4);
@@ -408,7 +421,9 @@ namespace PowderSandboxNri {
                     console.log("Cannot create the readback buffers");
                     return 0;
                 }
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), probeReadback));
+                const timestampReadback = queryPool ? Nri_CreateReadbackBuffer(device, 2 * this.querySize) : null;
+                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), probeReadback,
+                    timestampReadback));
             }
 
             // The layouts: the constants (b0) and five storage buffers (u0 .. u4) for the
@@ -1286,7 +1301,8 @@ namespace PowderSandboxNri {
 
             // Particles in use, the brush, the view; the cell under the pointer.
             const used = CAPACITY - this.probe[0];
-            let y = this.drawWrapped([`${formatFixed(this.frameRate, 0)} fps`, `particles ${used} / ${CAPACITY}`,
+            let y = this.drawWrapped([`${formatFixed(this.frameRate, 0)} fps`, `step ${formatFixed(this.stepMs, 2)} ms`,
+                `particles ${used} / ${CAPACITY}`,
                 `brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}`, `view: ${VIEW_NAMES[this.overlay]}`,
                 this.paused ? "PAUSED" : ""], 6.0, labelHeight, 1.0);
             const cell = this.probe[3] & 0xFF;
@@ -1363,13 +1379,14 @@ namespace PowderSandboxNri {
                 this.fpsTime = 0.0;
             }
 
-            // The readout this slot's last frame wrote.
+            // The readout this slot's last frame wrote, and its simulation's time.
             if (frameIndex >= this.queuedFrames.length) {
                 Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS);
                 Nri_ReadBufferFloats(queuedFrame.probeReadback, Ref(this.probeFloats[0]), PROBE_INTS);
             } else {
                 this.probe[0] = CAPACITY;
             }
+            this.readTimestamps(queuedFrame);
 
             // The steps this frame's time covers; after a long frame (over two frames at 60 Hz) the
             // simulation falls behind rather than taking ever more steps.
@@ -1410,7 +1427,21 @@ namespace PowderSandboxNri {
                 // over it.
                 Nri_BeginCommandBuffer(commandBuffer);
                 this.recordStateRequests(commandBuffer);
+                const queryPool = this.queryPool;
+                const queryBase = (frameIndex % this.queuedFrames.length) * 2;
+                if (queryPool) {
+                    Nri_CmdResetQueries(commandBuffer, queryPool, queryBase, 2);
+                    Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
+                }
                 this.recordSimulation(commandBuffer, brushMode, steps);
+                const timestampReadback = queuedFrame.timestampReadback;
+                if (queryPool) {
+                    Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase + 1);
+                    if (timestampReadback) {
+                        Nri_CmdCopyQueries(commandBuffer, queryPool, queryBase, 2, timestampReadback, 0);
+                        queuedFrame.timedSteps = this.paused ? 0 : steps;
+                    }
+                }
                 this.dispatch(commandBuffer, PROBE, 1, 0);
                 const alloc = this.buffers[4];
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
@@ -1467,6 +1498,24 @@ namespace PowderSandboxNri {
             // Signaled after the present, as NRISamples do
             Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
             this.finishStateRequests();
+        }
+
+        // The simulation's GPU time per step, from the frame this slot last recorded (finished: latencySleep
+        // waited for it), if it stepped.
+        readTimestamps(queuedFrame: QueuedFrame) {
+            const device = this.device;
+            const timestampReadback = queuedFrame.timestampReadback;
+            if (!device || !timestampReadback) {
+                return;
+            }
+            const steps = queuedFrame.timedSteps;
+            queuedFrame.timedSteps = -1;
+            if (steps > 0) {
+                const ms = Nri_ReadTimestampIntervalMs(device, timestampReadback, 0, this.querySize);
+                if (ms >= 0.0) {
+                    this.stepMs = ms / steps;
+                }
+            }
         }
 
         // -test: the U-tube's two sides hold water to the same level (its mean depth in cells over
@@ -1673,6 +1722,14 @@ namespace PowderSandboxNri {
                     Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     Nri_DestroyBuffer(queuedFrame.probeReadback);
+                    const timestampReadback = queuedFrame.timestampReadback;
+                    if (timestampReadback) {
+                        Nri_DestroyBuffer(timestampReadback);
+                    }
+                }
+                const queryPool = this.queryPool;
+                if (queryPool) {
+                    Nri_DestroyQueryPool(queryPool);
                 }
                 this.destroySwapChain();
                 for (const view of this.storageViews) {
