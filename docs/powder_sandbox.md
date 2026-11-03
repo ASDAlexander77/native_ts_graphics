@@ -24,11 +24,10 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
-  acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7`
-  (surface tension), `-scene 8` (wind), `-scene 9`
-  (blocks), `-roundTrip` (undo,
-  save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
-  emulator and on a phone.
+  acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
+  (wind), `-scene 9` (blocks), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
+  Vulkan, on the Android emulator and on a phone.
 
 ## Roadmap
 
@@ -260,7 +259,7 @@ format is unchanged (version 2): the new state lives in the particles.
     surface, within half its height), and a tall one standing half over a ledge tips off it
     (turned 1.57 radians, lying on the floor). Also checked through a regrid and on D3D12.
 
-### 6. Engine side (in progress)
+### 6. Engine side (done)
 
 - **Scenes as data** (done): levels in JSON files, `media/powder_sandbox/scenes/<name>.json`
   (copied beside the executable, and into the APK's assets: `add_tslang_nri_example` takes `MEDIA`
@@ -274,7 +273,8 @@ format is unchanged (version 2): the new state lives in the particles.
     once a frame (one workgroup), read back with the HUD's probe; the HUD shows it, and "done" once
     it's reached.
   - The **Levels** tile goes through `index.json`'s list (`cup`: fill the cup from a pool behind a
-    wooden dam; `stone`: set the lava on a shelf), clearing the grid for each. `-sceneFile name`
+    wooden dam; `stone`: get the lava on a shelf into the pool, where it sets: untouched it doesn't),
+    clearing the grid for each. `-sceneFile name`
     starts on one; in a test its goal must be reached.
   - `core/json_reader.ts`: a small reader over a file's bytes, read in order by a caller who knows
     the shape it expects (no tree); strings are ASCII (tslang has no `String.fromCharCode`: they're
@@ -294,9 +294,9 @@ format is unchanged (version 2): the new state lives in the particles.
     second in a step), acid eating a cell or water boiling, fire particles, and gunpowder going off,
     in an int section, one atomic a wave (`WaveActiveCountBits`); the frame's last step's are read
     back with the probe, times its steps.
-  - Each sound plays when its event count is over its least (8 impacts, 30 fire particles, one of
-    the others), louder by the count's log, then waits its cooldown (0.07 to 0.35 s); booms lower
-    the bigger they are.
+  - Each sound plays when its event count is over its least (8 impacts, 30 fire particles, 3 grains
+    going off, one fizz), louder by the count's log, then waits its cooldown (0.07 to 0.6 s); booms
+    lower the bigger they are.
   - None in tests (`-sound` opens the device, playing nothing) nor with `-mute`. Tests log the event
     totals, and the showcase (splash, fire), scene 4 (fizz) and scene 5 (fire, boom) need theirs.
 - **Auto quality** (done): the grid's size chosen from the GPU's measured step time.

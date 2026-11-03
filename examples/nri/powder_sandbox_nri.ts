@@ -69,8 +69,8 @@ namespace PowderSandboxNri {
     const EVENT_NAMES = ["splash", "fizz", "fire", "boom"];
     // Nri_PlaySound's sounds for them, the fewest events a sound needs, the time before it plays again
     // (seconds), and its loudness at EVENTS_LOUD events.
-    const EVENT_MIN = [8, 1, 30, 1];
-    const EVENT_COOLDOWN = [0.12, 0.25, 0.07, 0.35];
+    const EVENT_MIN = [8, 1, 30, 3];
+    const EVENT_COOLDOWN = [0.12, 0.25, 0.07, 0.6];
     const EVENTS_LOUD = [400, 60, 3000, 300];
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
@@ -356,8 +356,9 @@ namespace PowderSandboxNri {
 
     // A tool or material by its name in a level's file (materialName's, or the tools'), or -1.
     function toolNamed(name: string): int {
+        // ("air" is materialName's answer for the ids that name nothing)
         for (let m = 1; m < 32; m++) {
-            if (materialName(m) == name) {
+            if (materialName(m) == name && name != "air") {
                 return m;
             }
         }
