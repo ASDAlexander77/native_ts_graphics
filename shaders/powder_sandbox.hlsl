@@ -1662,8 +1662,9 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
                 spawn(FIRE, randomInCell(x, y, seedOf(c, 21)), float2(0, 0), 800.0, 1.0 + random01(seedOf(c, 23)), 0, reserve);
             }
         }
-        else if (isSolidMaterial(tool))
+        else if (isSolidMaterial(tool) && tool < ERASE)
         {
+            // (the tools from ERASE on paint no material: Heat and Cool act in heat_source_cs)
             const uint painted = tool | (tool == EMITTER ? g_C.emitType << 8 : 0);
             if (m != tool)
             {
