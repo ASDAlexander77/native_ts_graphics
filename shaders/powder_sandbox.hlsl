@@ -94,6 +94,8 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define METAL 23
 // A solid that blows the air (its direction in bits 8 and 9: 0 right, 1 down, 2 left, 3 up).
 #define FAN 24
+// A rigid body's cell (its body in bits 8..11; bodies_cs draws them).
+#define BLOCK 25
 // Tools that aren't materials.
 #define ERASE 32
 #define HEAT 33
@@ -210,6 +212,27 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define F_TCELL 10
 // a burning cell's remaining seconds; melting ice's or stone's latent heat taken in so far
 #define F_LIFE 11
+// the rigid bodies' records (MAX_BODIES of BODY_FLOATS)
+#define F_BODY 12
+#define MAX_BODIES 16
+#define BODY_FLOATS 10
+#define B_ACTIVE 0
+#define B_X 1
+#define B_Y 2
+#define B_ANGLE 3
+#define B_VX 4
+#define B_VY 5
+#define B_SPIN 6
+#define B_HALFW 7
+#define B_HALFH 8
+#define B_DENSITY 9
+// Blocks: their density (they float), how they bounce and slide, their drag in liquid (a second, all
+// wet), bodies_cs's workgroup.
+#define BLOCK_DENSITY 0.6
+#define BODY_RESTITUTION 0.1
+#define BODY_FRICTION 0.6
+#define BODY_WATER_DRAG 3.0
+#define BODY_THREADS 256
 
 // u_Alloc: the free particle slots' count, the HUD's probe, then the free slots.
 #define A_FREE 0
@@ -513,6 +536,8 @@ void init_grid_cs(uint3 id : SV_DispatchThreadID)
     u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
     u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
     u_GridFloat[gi(F_LIFE, t)] = 0.0;
+    // (no bodies)
+    u_GridFloat[gi(F_BODY, t)] = 0.0;
     if (t >= g_C.gridW * g_C.gridH)
     {
         return;
@@ -595,6 +620,21 @@ void regrid_grid_cs(uint3 id : SV_DispatchThreadID)
     u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
     u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
     u_GridFloat[gi(F_LIFE, t)] = 0.0;
+    // The bodies (after the carried sections in the scratch), moved by the offset.
+    if (t < MAX_BODIES * BODY_FLOATS)
+    {
+        const uint oldStride = (oldGridW() + 1) * (oldGridH() + 1);
+        float value = asfloat(u_GridInt[(2 + F_LIFE - F_TPRE) * oldStride + t]);
+        if (t % BODY_FLOATS == B_X)
+        {
+            value += float(regridOffset().x);
+        }
+        else if (t % BODY_FLOATS == B_Y)
+        {
+            value += float(regridOffset().y);
+        }
+        u_GridFloat[gi(F_BODY, t)] = value;
+    }
     if (t >= g_C.gridW * g_C.gridH)
     {
         return;
@@ -838,6 +878,88 @@ void grid_cs(uint3 id : SV_DispatchThreadID)
         u_GridFloat[gi(F_V, t)] = solid ? 0.0 : vel;
         u_GridFloat[gi(F_VA, t)] = 1.0 / max(rho, 0.1);
     }
+}
+
+// Rigid bodies: rectangles, MAX_BODIES records of BODY_FLOATS in F_BODY (saved with the state):
+// active, center, angle (from x toward y, clockwise on screen), velocity, spin, half extents,
+// density. bodies_cs moves them and draws them into the cells as BLOCK (the body in bits 8..11).
+struct Body
+{
+    bool active;
+    float2 pos;
+    float angle;
+    float2 vel;
+    float spin;
+    float2 half;
+    float density;
+};
+
+Body loadBody(uint b)
+{
+    const uint base = b * BODY_FLOATS;
+    Body body;
+    body.active = gf(F_BODY, base + B_ACTIVE) != 0.0;
+    body.pos = float2(gf(F_BODY, base + B_X), gf(F_BODY, base + B_Y));
+    body.angle = gf(F_BODY, base + B_ANGLE);
+    body.vel = float2(gf(F_BODY, base + B_VX), gf(F_BODY, base + B_VY));
+    body.spin = gf(F_BODY, base + B_SPIN);
+    body.half = float2(gf(F_BODY, base + B_HALFW), gf(F_BODY, base + B_HALFH));
+    body.density = gf(F_BODY, base + B_DENSITY);
+    return body;
+}
+
+void storeBody(uint b, Body body)
+{
+    const uint base = b * BODY_FLOATS;
+    u_GridFloat[gi(F_BODY, base + B_ACTIVE)] = body.active ? 1.0 : 0.0;
+    u_GridFloat[gi(F_BODY, base + B_X)] = body.pos.x;
+    u_GridFloat[gi(F_BODY, base + B_Y)] = body.pos.y;
+    u_GridFloat[gi(F_BODY, base + B_ANGLE)] = body.angle;
+    u_GridFloat[gi(F_BODY, base + B_VX)] = body.vel.x;
+    u_GridFloat[gi(F_BODY, base + B_VY)] = body.vel.y;
+    u_GridFloat[gi(F_BODY, base + B_SPIN)] = body.spin;
+    u_GridFloat[gi(F_BODY, base + B_HALFW)] = body.half.x;
+    u_GridFloat[gi(F_BODY, base + B_HALFH)] = body.half.y;
+    u_GridFloat[gi(F_BODY, base + B_DENSITY)] = body.density;
+}
+
+// A point in the body's own frame, and back.
+float2 bodyLocal(Body body, float2 p)
+{
+    const float2 d = p - body.pos;
+    const float c = cos(body.angle);
+    const float s = sin(body.angle);
+    return float2(c * d.x + s * d.y, -s * d.x + c * d.y);
+}
+
+float2 bodyWorld(Body body, float2 l)
+{
+    const float c = cos(body.angle);
+    const float s = sin(body.angle);
+    return body.pos + float2(c * l.x - s * l.y, s * l.x + c * l.y);
+}
+
+bool insideBody(Body body, float2 p)
+{
+    const float2 l = bodyLocal(body, p);
+    return abs(l.x) <= body.half.x && abs(l.y) <= body.half.y;
+}
+
+float2 bodyPointVelocity(Body body, float2 p)
+{
+    const float2 r = p - body.pos;
+    return body.vel + body.spin * float2(-r.y, r.x);
+}
+
+// The body a cell is drawn for, or MAX_BODIES.
+uint cellBody(int x, int y)
+{
+    if (!inGrid(x, y))
+    {
+        return MAX_BODIES;
+    }
+    const uint word = u_Cells[cellIndex(x, y)];
+    return (word & 0xFF) == BLOCK ? (word >> 8) & 15u : MAX_BODIES;
 }
 
 // A cell's liquid particles, capped at the rest count (over-full cells pulling harder would pack the
@@ -1265,6 +1387,224 @@ void air_cs(uint3 id : SV_GroupThreadID)
     }
 }
 
+// The bodies, a workgroup each (after the pressure solve): the liquid's pressure on the faces of
+// its cells (buoyancy), gravity and drag in liquid; contacts with solids (other bodies too) at
+// points along its edges, pushed out and their closing velocity taken off, with friction (off its
+// center, a contact turns it: blocks tip over); then its cells drawn again where it is now. A Block
+// box painted makes one in the first free record; erasing over a body's center removes it.
+groupshared float4 s_BodyForce[BODY_THREADS];
+groupshared Body s_Body;
+
+bool bodyContactSolid(float2 p, uint b)
+{
+    const int x = int(floor(p.x));
+    const int y = int(floor(p.y));
+    return solidCell(x, y) && cellBody(x, y) != b;
+}
+
+void bodyBounds(Body body, out int2 lo, out int2 hi)
+{
+    const float reach = length(body.half) + 1.0;
+    lo = int2(max(int(floor(body.pos.x - reach)), 1), max(int(floor(body.pos.y - reach)), 1));
+    hi = int2(min(int(floor(body.pos.x + reach)), int(g_C.gridW) - 2), min(int(floor(body.pos.y + reach)), int(g_C.gridH) - 2));
+}
+
+[numthreads(BODY_THREADS, 1, 1)]
+void bodies_cs(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
+{
+    const uint b = group.x;
+    const uint tid = thread.x;
+    if (b >= MAX_BODIES)
+    {
+        return;
+    }
+    // A Block box painted: a body in the first free record, made by the first group only (each
+    // looking for the first free one, a group could see another's new body and make a second).
+    if (b == 0 && tid == 0 && g_C.brushMode == 2 && g_C.tool == BLOCK)
+    {
+        uint first = MAX_BODIES;
+        for (uint k = 0; k < MAX_BODIES && first == MAX_BODIES; k++)
+        {
+            if (gf(F_BODY, k * BODY_FLOATS + B_ACTIVE) == 0.0)
+            {
+                first = k;
+            }
+        }
+        if (first < MAX_BODIES)
+        {
+            const float2 a = float2(g_C.brushX0, g_C.brushY0);
+            const float2 c = float2(g_C.brushX1, g_C.brushY1);
+            Body made;
+            made.active = true;
+            made.pos = 0.5 * (a + c);
+            made.angle = 0.0;
+            made.vel = float2(0.0, 0.0);
+            made.spin = 0.0;
+            made.half = max(0.5 * abs(c - a), float2(1.0, 1.0));
+            made.density = BLOCK_DENSITY;
+            storeBody(first, made);
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    Body body = loadBody(b);
+    if (!body.active)
+    {
+        return;
+    }
+    const float dt = g_C.dt;
+
+    // The liquid's pressure on its cells' faces.
+    int2 lo;
+    int2 hi;
+    bodyBounds(body, lo, hi);
+    const int bw = max(hi.x - lo.x + 1, 0);
+    const int bh = max(hi.y - lo.y + 1, 0);
+    float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+    for (uint k = tid; k < uint(bw * bh); k += BODY_THREADS)
+    {
+        const int x = lo.x + int(k % uint(bw));
+        const int y = lo.y + int(k / uint(bw));
+        if (cellBody(x, y) != b)
+        {
+            continue;
+        }
+        const int2 offsets[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+        for (int o = 0; o < 4; o++)
+        {
+            const int nx = x + offsets[o].x;
+            const int ny = y + offsets[o].y;
+            if (cellBody(nx, ny) != b && fluidCell(nx, ny))
+            {
+                const float pressure = gf(F_P, cellIndex(nx, ny)) / dt;
+                const float2 force = -pressure * float2(offsets[o]);
+                const float2 r = (float2(x, y) + float2(nx, ny)) * 0.5 + 0.5 - body.pos;
+                sum += float4(force, r.x * force.y - r.y * force.x, 1.0);
+            }
+        }
+    }
+    s_BodyForce[tid] = sum;
+    GroupMemoryBarrierWithGroupSync();
+    for (uint stride = BODY_THREADS / 2; stride > 0; stride >>= 1)
+    {
+        if (tid < stride)
+        {
+            s_BodyForce[tid] += s_BodyForce[tid + stride];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (tid == 0)
+    {
+        const float4 total = s_BodyForce[0];
+        const float2 size = 2.0 * body.half;
+        const float mass = body.density * size.x * size.y;
+        const float inertia = mass * dot(size, size) / 12.0;
+        body.vel += (float2(0.0, g_C.gravity) + total.xy / mass) * dt;
+        body.spin += total.z / inertia * dt;
+        // Drag where it's wet (its faces against liquid over all of them).
+        const float wet = saturate(total.w / (2.0 * (size.x + size.y)));
+        body.vel *= saturate(1.0 - BODY_WATER_DRAG * wet * dt);
+        body.spin *= saturate(1.0 - BODY_WATER_DRAG * wet * dt);
+        body.pos += body.vel * dt;
+        body.angle += body.spin * dt;
+
+        // Contacts, at points a cell apart along its edges (twice over: a push can make another).
+        const int2 samples = int2(ceil(size)) + 1;
+        for (uint pass = 0; pass < 2; pass++)
+        {
+            for (int e = 0; e < 4; e++)
+            {
+                const int count = e < 2 ? samples.x : samples.y;
+                for (int i = 0; i < count; i++)
+                {
+                    const float t = count > 1 ? float(i) / float(count - 1) * 2.0 - 1.0 : 0.0;
+                    const float2 l = e == 0 ? float2(t * body.half.x, -body.half.y) : (e == 1 ? float2(t * body.half.x, body.half.y)
+                        : (e == 2 ? float2(-body.half.x, t * body.half.y) : float2(body.half.x, t * body.half.y)));
+                    const float2 p = bodyWorld(body, l);
+                    if (!bodyContactSolid(p, b))
+                    {
+                        continue;
+                    }
+                    // Out of the solid cell the shortest way into a free one.
+                    const float2 cell = floor(p);
+                    const float4 depths = float4(p.x - cell.x, cell.x + 1.0 - p.x, p.y - cell.y, cell.y + 1.0 - p.y);
+                    const float2 normals[4] = { float2(-1, 0), float2(1, 0), float2(0, -1), float2(0, 1) };
+                    float depth = 1e9;
+                    float2 n = float2(0.0, -1.0);
+                    for (int d = 0; d < 4; d++)
+                    {
+                        if (depths[d] < depth && !bodyContactSolid(cell + 0.5 + normals[d], b))
+                        {
+                            depth = depths[d];
+                            n = normals[d];
+                        }
+                    }
+                    if (depth > 1.0)
+                    {
+                        continue;
+                    }
+                    body.pos += n * (depth + 0.01);
+                    const float2 r = p - body.pos;
+                    const float2 vp = body.vel + body.spin * float2(-r.y, r.x);
+                    const float vn = dot(vp, n);
+                    if (vn < 0.0)
+                    {
+                        const float rn = r.x * n.y - r.y * n.x;
+                        const float j = -(1.0 + BODY_RESTITUTION) * vn / (1.0 / mass + rn * rn / inertia);
+                        body.vel += j * n / mass;
+                        body.spin += rn * j / inertia;
+                        const float2 tangent = float2(-n.y, n.x);
+                        const float2 vq = body.vel + body.spin * float2(-r.y, r.x);
+                        const float rt = r.x * tangent.y - r.y * tangent.x;
+                        const float jt = clamp(-dot(vq, tangent) / (1.0 / mass + rt * rt / inertia), -BODY_FRICTION * j, BODY_FRICTION * j);
+                        body.vel += jt * tangent / mass;
+                        body.spin += rt * jt / inertia;
+                    }
+                }
+            }
+        }
+        if (g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(body.pos))
+        {
+            body.active = false;
+        }
+        storeBody(b, body);
+        s_Body = body;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // Its cells drawn again: the old ones cleared, the new ones where they're free (not over solids
+    // or other bodies; particles there are pushed out in g2p_cs).
+    for (uint k = tid; k < uint(bw * bh); k += BODY_THREADS)
+    {
+        const int x = lo.x + int(k % uint(bw));
+        const int y = lo.y + int(k / uint(bw));
+        if (cellBody(x, y) == b)
+        {
+            u_Cells[cellIndex(x, y)] = EMPTY;
+        }
+    }
+    DeviceMemoryBarrierWithGroupSync();
+    const Body moved = s_Body;
+    if (!moved.active)
+    {
+        return;
+    }
+    int2 lo2;
+    int2 hi2;
+    bodyBounds(moved, lo2, hi2);
+    const int bw2 = max(hi2.x - lo2.x + 1, 0);
+    const int bh2 = max(hi2.y - lo2.y + 1, 0);
+    for (uint k = tid; k < uint(bw2 * bh2); k += BODY_THREADS)
+    {
+        const int x = lo2.x + int(k % uint(bw2));
+        const int y = lo2.y + int(k / uint(bw2));
+        if (insideBody(moved, float2(x, y) + 0.5) && !solidCell(x, y))
+        {
+            u_Cells[cellIndex(x, y)] = BLOCK | (b << 8);
+        }
+    }
+}
+
 // How fast heat crosses a cell's faces, per step (at most 0.25 for the explicit diffusion to stay
 // stable with 4 faces).
 float conductivity(int x, int y)
@@ -1282,7 +1622,7 @@ float conductivity(int x, int y)
     {
         return 0.3;
     }
-    if (m == WOOD)
+    if (m == WOOD || m == BLOCK)
     {
         return 0.25;
     }
@@ -2238,6 +2578,25 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         }
     }
 
+    // In a body's cell (one drawn over it): out past its nearest edge, at its velocity.
+    const uint inBody = cellBody(int(floor(p.pos.x)), int(floor(p.pos.y)));
+    if (p.type != NEUTRON && inBody < MAX_BODIES)
+    {
+        const Body body = loadBody(inBody);
+        float2 l = bodyLocal(body, p.pos);
+        const float2 depth = body.half - abs(l);
+        if (depth.x < depth.y)
+        {
+            l.x = (l.x >= 0.0 ? 1.0 : -1.0) * (body.half.x + 1.0);
+        }
+        else
+        {
+            l.y = (l.y >= 0.0 ? 1.0 : -1.0) * (body.half.y + 1.0);
+        }
+        p.pos = bodyWorld(body, l);
+        p.vel = bodyPointVelocity(body, p.pos);
+    }
+
     // Stuck in a solid (one painted over it): gone.
     if (p.type != NEUTRON && solidAt(p.pos))
     {
@@ -2310,7 +2669,7 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
                 spawn(FIRE, randomInCell(x, y, seedOf(c, 21)), float2(0, 0), 800.0, 1.0 + random01(seedOf(c, 23)), 0, reserve);
             }
         }
-        else if (isSolidMaterial(tool) && tool < ERASE)
+        else if (isSolidMaterial(tool) && tool < ERASE && tool != BLOCK)
         {
             // (the tools from ERASE on paint no material: Heat and Cool act in heat_source_cs)
             const uint painted = tool | (tool == EMITTER || tool == FAN ? g_C.emitType << 8 : 0);
@@ -2525,6 +2884,7 @@ float3 materialColor(uint m)
     case STONE: return float3(0.33, 0.3, 0.29);
     case METAL: return float3(0.6, 0.64, 0.7);
     case FAN: return float3(0.3, 0.5, 0.58);
+    case BLOCK: return float3(0.72, 0.52, 0.3);
     }
     return float3(0.0, 0.0, 0.0);
 }
@@ -2638,6 +2998,11 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
             else if (m == EMITTER)
             {
                 solid = length(f - 0.5) < 0.22 ? materialColor((cell >> 8) & 0xFF) : solid;
+            }
+            else if (m == BLOCK)
+            {
+                // A shade a body, planks across it.
+                solid *= 0.85 + 0.05 * float((cell >> 8) & 3u) + 0.08 * step(0.5, frac(g.y * 0.34));
             }
             else if (m == FAN)
             {

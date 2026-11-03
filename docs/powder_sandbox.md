@@ -25,7 +25,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7`
-  (surface tension), `-scene 8` (wind), `-roundTrip` (undo,
+  (surface tension), `-scene 8` (wind), `-scene 9`
+  (blocks), `-roundTrip` (undo,
   save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
   emulator and on a phone.
 
@@ -105,7 +106,7 @@ Run so far on two phones:
   grid and shows margins, so dragging a desktop window's edge doesn't crop it again and again.
   - The grid's buffers are sized for the longest grid (432 cells, a window about 3 to 1), whichever
     way it's turned, so a regrid needs no new buffers and the snapshots and saves stay one size
-    (saves are version 2). A wider window shows margins.
+    (saves were version 2 then; the blocks of step 5 made them 3). A wider window shows margins.
   - `regrid_grid_cs` and `regrid_particles_cs` move the cells, their temperatures and the particles
     (from a copy in the int sections, which every step remakes); the old grid's walls aren't carried
     over, and particles that end in a wall are freed.
@@ -183,7 +184,7 @@ format is unchanged (version 2): the new state lives in the particles.
   lit from its side. It all goes off, the blast throws at least a twentieth of the sand clear of the
   pile, the wall holds, and no particle ends up inside a solid.
 
-### 5. Physics (in progress)
+### 5. Physics (done)
 
 - **Viscosity** (done): honey (type 12, density 1.4, viscosity 10,000 cells²/s) and lava (200
   cold, 40 at 1200 °C) diffuse their velocity, replacing lava's sideways damping.
@@ -233,7 +234,27 @@ format is unchanged (version 2): the new state lives in the particles.
     there isn't blown along.
   - **Test scene 8**: a fan blowing across a stream of sand falling inside its jet: the sand lands
     56 to 76 cells right of the emitter, at least 5% of the grid's width (1 with `-air 0`).
-- **Rigid bodies**: blocks that float and tip over.
+- **Rigid bodies** (done): blocks that float and tip over.
+  - Up to 16 rectangles, their records (center, angle, velocity, spin, half extents, density) in a
+    13th float section: saved, undone and regridded with the rest. Saves are version 3: version 2
+    files are refused ("from another version").
+  - `bodies_cs`, a workgroup a body after the pressure solve: the liquid's pressure on its cells'
+    faces (buoyancy falls out of it), gravity, drag where wet; contacts with solids and other bodies
+    at points a cell apart along its edges, pushed out the shortest way into a free cell, the
+    closing velocity taken off (restitution 0.1) with friction (0.6). A contact off the center turns
+    it, so a block half over a ledge tips off.
+  - It then clears its old cells and draws itself where it is (BLOCK, the body in bits 8..11), not
+    over solids or other bodies. Particles in its cells are pushed out past its nearest edge at its
+    velocity instead of being freed.
+  - **Block**: a tile that's always a box: dragging it makes a body that size (density 0.6, so it
+    floats with 60% under). Erasing over a block's center removes it; Clear removes them all.
+  - Only the first workgroup makes new bodies: each looking for the first free record, a group
+    could see another's new body and make a second copy.
+  - The liquid isn't pushed by a moving block's faces (they count as still walls); it's moved by
+    the particles pushed out, which makes a falling block splash less than it should.
+  - **Test scene 9**: a block dropped into a pool floats (its center 0.5 to 1 cell under the
+    surface, within half its height), and a tall one standing half over a ledge tips off it
+    (turned 1.57 radians, lying on the floor). Also checked through a regrid and on D3D12.
 
 ### 6. Engine side
 

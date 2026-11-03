@@ -50,7 +50,11 @@ namespace PowderSandboxNri {
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
     const SALT_SCALE = 256.0;
-    const FLOAT_SECTIONS = 12;
+    const FLOAT_SECTIONS = 13;
+    // The rigid bodies' records in F_BODY (powder_sandbox.hlsl's MAX_BODIES of BODY_FLOATS).
+    const F_BODY = 12;
+    const MAX_BODIES = 16;
+    const BODY_FLOATS = 10;
     const ALLOC_LIST = 16;
     const I_COUNT = 6;
     // The float sections a regrid carries over (the rest the next step remakes): F_TPRE .. F_LIFE,
@@ -106,6 +110,7 @@ namespace PowderSandboxNri {
     const STONE = 22;
     const METAL = 23;
     const FAN = 24;
+    const BLOCK = 25;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
@@ -137,11 +142,12 @@ namespace PowderSandboxNri {
     const MG_COARSE = 19;
     const VISCOSITY = 20;
     const AIR = 21;
+    const BODIES = 22;
     // The floats at u_Multigrid's start that hold the air's faces (powder_sandbox.hlsl's AIR_FLOATS).
     const AIR_FLOATS = 3040;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -180,7 +186,8 @@ namespace PowderSandboxNri {
     // Version 2: the grid's buffers at GRID_CAPACITY (version 1's were the grid's own size).
     const SAVE_PATH = "powder_sandbox.save";
     const SAVE_MAGIC = 0x53445750;
-    const SAVE_VERSION = 2;
+    // (3: the bodies' float section)
+    const SAVE_VERSION = 3;
     const SAVE_HEADER_INTS = 5;
     // How long a message (saved, loaded, nothing to undo) shows, in seconds.
     const MESSAGE_TIME = 2.5;
@@ -228,6 +235,13 @@ namespace PowderSandboxNri {
     const WIND_FAN = [0.06, 0.3, 1.0];
     const WIND_SAND = [0.3, 0.4];
     const WIND_DRIFT = 0.05;
+    // Scene 9: a pool (glass walls at x0 and x1 from y, water from WATER_Y) with a block dropped in
+    // (FLOATER: x0, y0, x1, y1), and a ledge (x0, y, x1) with a tall block standing half over its
+    // edge (TIPPER: x0, y0, x1, its bottom at the ledge).
+    const BODY_POOL = [0.05, 0.5, 0.5, 0.62];
+    const FLOATER = [0.2, 0.3, 0.32, 0.38];
+    const LEDGE = [0.65, 0.7, 0.8];
+    const TIPPER = [0.78, 0.45, 0.82];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -300,6 +314,7 @@ namespace PowderSandboxNri {
         if (material == 22) { return "stone"; }
         if (material == 23) { return "metal"; }
         if (material == 24) { return "fan"; }
+        if (material == 25) { return "block"; }
         return "air";
     }
 
@@ -468,7 +483,8 @@ namespace PowderSandboxNri {
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
         // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water; 7 a film of water
-        // beading; 8 a fan blowing falling sand; -air 0: still air);
+        // beading; 8 a fan blowing falling sand; 9 blocks floating and tipping over; -air 0: still air;
+        // -bodies 0: no rigid bodies);
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
         // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
@@ -486,6 +502,8 @@ namespace PowderSandboxNri {
         viscositySweeps: int = DEFAULT_VISCOSITY_SWEEPS;
         // -air 0: no air_cs (still air: gases slow to rest, as before air moved).
         air: boolean = true;
+        // -bodies 0: no bodies_cs (no blocks made, none moving).
+        bodies: boolean = true;
         // -test: the float sections, read back at the end (the pressure equation's residual).
         private floatReadback: NriBufferHandle | null = null;
         // -testFrames N: the test's length instead of TEST_FRAMES.
@@ -514,6 +532,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
             this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
+            this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
             this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
@@ -1025,7 +1044,9 @@ namespace PowderSandboxNri {
                 }
             }
             // On the grid: circles and squares paint along the path; lines and boxes when released.
-            const stretches = this.brushShape == SHAPE_LINE || this.brushShape == SHAPE_BOX;
+            // (a Block is always a box: a body of that size)
+            const boxing = this.brushShape == SHAPE_BOX || this.tool == BLOCK;
+            const stretches = this.brushShape == SHAPE_LINE || boxing;
             const pressOnGrid = this.wasDown && !this.pressOnToolbar;
             if (inspecting) {
                 // (nothing painted)
@@ -1039,7 +1060,7 @@ namespace PowderSandboxNri {
                 this.lastGridX = gx;
                 this.lastGridY = gy;
             } else if (!down && pressOnGrid && stretches && !middle) {
-                brushMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                brushMode = boxing ? 2 : 1;
                 this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
                 this.setFloat(10, this.anchorX);
                 this.setFloat(11, this.anchorY);
@@ -1053,7 +1074,7 @@ namespace PowderSandboxNri {
             let cursorX = gx;
             let cursorY = gy;
             if (down && !this.pressOnToolbar && stretches) {
-                cursorMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                cursorMode = boxing ? 2 : 1;
                 cursorX = this.anchorX;
                 cursorY = this.anchorY;
             } else if (this.brushShape == SHAPE_BOX) {
@@ -1253,6 +1274,9 @@ namespace PowderSandboxNri {
             Nri_CmdCopyBufferRegion(commandBuffer, scratch, 0, cells, 0, oldW * oldH * 4);
             Nri_CmdCopyBufferRegion(commandBuffer, scratch, oldStride * 4, gridFloat, F_TPRE * oldStride * 4,
                 CARRIED_FLOAT_SECTIONS * oldStride * 4);
+            // (then the bodies, which regrid_grid_cs moves by the offset)
+            Nri_CmdCopyBufferRegion(commandBuffer, scratch, (1 + CARRIED_FLOAT_SECTIONS) * oldStride * 4, gridFloat,
+                F_BODY * oldStride * 4, MAX_BODIES * BODY_FLOATS * 4);
             Nri_CmdBufferBarrier(commandBuffer, scratch, NriBufferState.CopyDestination, NriBufferState.Storage);
             Nri_CmdBufferBarrier(commandBuffer, gridFloat, NriBufferState.CopySource, NriBufferState.Storage);
             Nri_CmdBufferBarrier(commandBuffer, cells, NriBufferState.CopySource, NriBufferState.Storage);
@@ -1421,6 +1445,9 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
                 this.recordPressure(commandBuffer);
                 this.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
+                if (this.bodies) {
+                    this.dispatch(commandBuffer, BODIES, MAX_BODIES * GROUP_SIZE, B_ALL);
+                }
                 this.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
                 this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
             }
@@ -1546,6 +1573,14 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 9) {
+                // A block dropped into a pool floats; one standing half over a ledge tips off it.
+                this.addStroke(GLASS, BODY_POOL[0] - 0.005, BODY_POOL[1], BODY_POOL[0], 1.0, WATER);
+                this.addStroke(GLASS, BODY_POOL[2], BODY_POOL[1], BODY_POOL[2] + 0.005, 1.0, WATER);
+                this.addStroke(WATER, BODY_POOL[0], BODY_POOL[3], BODY_POOL[2], 1.0, WATER);
+                this.addStroke(WALL, LEDGE[0], LEDGE[1], LEDGE[2], 1.0, WATER);
+                this.addStroke(BLOCK, FLOATER[0], FLOATER[1], FLOATER[2], FLOATER[3], WATER);
+                this.addStroke(BLOCK, TIPPER[0], TIPPER[1], TIPPER[2], LEDGE[1] - 0.005, WATER);
             } else if (this.scene == 8) {
                 // A fan blowing across falling sand: the grains go with the wind. (The probe a little
                 // right of the fan, for the log.)
@@ -1965,6 +2000,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 9) {
+                const error = this.checkBodies(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -2283,6 +2324,70 @@ namespace PowderSandboxNri {
             return "";
         }
 
+        // Scene 9: the dropped block floats (its center within half its height of the pool's surface,
+        // measured where no block is), and the one on the ledge tipped over (turned over 1 radian).
+        checkBodies(grid: int[]): string {
+            const floatReadback = this.floatReadback;
+            const cellsReadback = this.cellsReadback;
+            if (!floatReadback || !cellsReadback) {
+                return "cannot read the grid back";
+            }
+            const w = this.gridW;
+            const h = this.gridH;
+            const floats: f32[] = [];
+            for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
+                floats.push(0.0);
+            }
+            const cells: int[] = [];
+            for (let i = 0; i < w * h; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0
+                || Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return "cannot read the grid back";
+            }
+            // (bodies 0 and 1: the strokes made them in that order)
+            const body = F_BODY * this.stride;
+            if (floats[body] == 0.0 || floats[body + BODY_FLOATS] == 0.0) {
+                return "the blocks weren't made";
+            }
+            for (let k = 0; k < MAX_BODIES; k++) {
+                const r = body + k * BODY_FLOATS;
+                if (floats[r] != 0.0) {
+                    console.log(`Body ${k}: at (${formatFixed(floats[r + 1], 1)}, ${formatFixed(floats[r + 2], 1)}), ${formatFixed(2.0 * floats[r + 7], 1)} x ${formatFixed(2.0 * floats[r + 8], 1)}, turned ${formatFixed(floats[r + 3], 2)}`);
+                }
+            }
+            const floaterHeight = h - 1 - floats[body + 2];
+            const floaterHalf = floats[body + 8];
+            const tipperAngle = floats[body + BODY_FLOATS + 3];
+            // The pool's surface over its columns with no block cell in them.
+            const x0: int = Math.ceil(BODY_POOL[0] * w);
+            const x1: int = Math.floor(BODY_POOL[2] * w) - 1;
+            let sum = 0.0;
+            let columns = 0;
+            for (let x = x0; x <= x1; x++) {
+                let blocked = false;
+                for (let y = 1; y < h - 1; y++) {
+                    if ((cells[y * w + x] & 0xFF) == BLOCK) {
+                        blocked = true;
+                    }
+                }
+                if (!blocked) {
+                    sum += this.surfaceLevel(grid, x, x);
+                    columns++;
+                }
+            }
+            const level = columns > 0 ? sum / columns : 0.0;
+            console.log(`Bodies: the floating block's center ${formatFixed(floaterHeight, 1)} cells above the floor (half its height ${formatFixed(floaterHalf, 1)}), the water's surface at ${formatFixed(level, 1)}; the ledge's block turned ${formatFixed(tipperAngle, 2)} radians`);
+            if (Math.abs(floaterHeight - level) > floaterHalf) {
+                return `the block didn't float: its center ${formatFixed(floaterHeight, 1)} cells above the floor, the water's surface at ${formatFixed(level, 1)}`;
+            }
+            if (Math.abs(tipperAngle) < 1.0) {
+                return `the block on the ledge didn't tip over: turned ${formatFixed(tipperAngle, 2)} radians`;
+            }
+            return "";
+        }
+
         // Scene 8: the wind took the sand: its mean x at least WIND_DRIFT of the grid's width right of
         // the emitter (without air, it piles under it).
         checkWind(grid: int[]): string {
@@ -2554,6 +2659,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-smooth", 1);
         Nri_AddExampleOptionWithValues(sample, "-viscosity", 1);
         Nri_AddExampleOptionWithValues(sample, "-air", 1);
+        Nri_AddExampleOptionWithValues(sample, "-bodies", 1);
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
@@ -2587,6 +2693,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-vcycles" && i + 1 < argc) {
                 sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-bodies" && i + 1 < argc) {
+                sandbox.bodies = parseInt(Nri_GetArg(argc, argv, i + 1)) != 0;
                 i++;
             } else if (arg == "-air" && i + 1 < argc) {
                 sandbox.air = parseInt(Nri_GetArg(argc, argv, i + 1)) != 0;

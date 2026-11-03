@@ -1458,6 +1458,8 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX viscosity ARGS -scene 6 -testF
 add_tslang_example_test(powder_sandbox_nri SUFFIX tension ARGS -scene 7 -testFrames 180)
 # A fan blowing across falling sand: the wind carries the grains to the right.
 add_tslang_example_test(powder_sandbox_nri SUFFIX wind ARGS -scene 8 -testFrames 180)
+# Rigid bodies: a block dropped into a pool floats at its surface, one half over a ledge tips off.
+add_tslang_example_test(powder_sandbox_nri SUFFIX bodies ARGS -scene 9 -testFrames 300)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
 add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTrip)
 # The U-tube's grid remade halfway (a phone turned): 20 cells taller and back, losing nothing; and
