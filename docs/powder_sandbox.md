@@ -26,7 +26,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
   (wind), `-scene 9` (blocks), `-scene 10` (acid in water), `-scene 11` (oil and petrol burning),
-  `-scene 12` (gases), `-scene 13 -gravity off|point` (no gravity, an attraction point),
+  `-scene 12` (gases), `-scene 13 -gravity off|point|tilt` (no gravity, an attraction point, tilted),
   `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
@@ -369,3 +369,32 @@ format is unchanged (version 2): the new state lives in the particles.
   move under 2 cells in 5 s. Toward the point, in 10 s their mean distance from it falls from 38 to
   about 22 cells (the water round the sand, the sand in a mound); with gravity down they fall 70 to
   80 cells, failing both.
+
+### 9. Look and feel (in progress)
+
+- **Glow**: what's bright lights its surroundings. Each frame, after the last step, `glow_emit_cs`
+  puts each cell's light in three fixed-point sections past the int grid's (the int buffer isn't
+  part of the saved state, so the save format is unchanged): incandescence (`heatColor` of a solid
+  or of a cell with particles, not hot air), fire, embers, burning wood and uranium. `glow_x_cs` and
+  `glow_y_cs` blur it with a Gaussian (`GLOW_SIGMA` 7 cells, out to 18), and the display adds it
+  `GLOW_STRENGTH` 3 times over.
+- **Hot air shimmers**: in a non-solid cell above 60 °C the display's lookup wavers, up to 0.3 cells
+  at 360 °C, so what's seen through a fire's plume ripples.
+- **Embers** (particle type 14): a fire particle throws one 0.4 times a second, and lava's surface
+  (lava with nothing above it, against the gravity) 0.15 times a second a cell. They're dragged by
+  the air (up a plume), fall at a quarter of the gravity, wander, and live 0.6 to 1.8 s; water puts
+  them out. They're only shown and glow: they give the cells no heat, so they light nothing.
+- **Test scene 12** (above) also checks the glow: its red 6 cells beside the burning wood is about
+  0.35, at the grid's side 0; and that the fire threw embers (about 960 at 5 s). With the cells'
+  light and the embers off, both are 0 and the test fails.
+- **Tilt**: a fourth gravity mode (the Gravity tile cycles Gravity, No gravity, Attract, Tilt):
+  the gravity, as strong, points the phone's down across the screen. `Nri_GetGravity` reads the
+  gravity sensor (else the accelerometer, low-passed) through a callback queue on the main thread's
+  looper (GLFW's event pump runs its callbacks; a plain ident's events would never be taken off
+  it), only while the mode is on, and turns the reading into the window's frame by the display's
+  rotation (`Display.getRotation`, through JNI every half second). While the phone lies flat (under
+  0.15 g across the screen) the last direction is kept. On desktop there's no sensor: Tilt is down,
+  or `-tilt x y`'s direction. Saves keep the mode (a tilted save loads tilted).
+- **Test** `tilted`: scene 13 with `-gravity tilt -tilt 1 0`. In 3 s the water's center moves about
+  145 cells right and the sand's 91, under 5 across; with the shader's tilt ignored (gravity down)
+  the water moves -44 along it and 73 across, and the test fails.

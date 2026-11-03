@@ -28,6 +28,11 @@
 #if defined(__ANDROID__)
 // glfwSetAndroidApp, of GLFW's Android platform (patches/glfw-android-platform.patch)
 #include "GLFW/glfw3native.h"
+// Nri_GetGravity's sensor, and the display's rotation through JNI
+#include <android/looper.h>
+#include <android/native_activity.h>
+#include <android/sensor.h>
+#include <jni.h>
 #endif
 
 #include <algorithm>
@@ -199,6 +204,90 @@ namespace
 
     // -testOutput <file>: where Nri_ReadBufferRGBA8 saves the frame it reads (the test's), as PNG.
     std::string g_TestOutput;
+
+#if defined(__ANDROID__)
+    // Nri_GetGravity's: the gravity sensor (else the accelerometer, low-passed), its queue on the
+    // main thread's looper (which GLFW's event pump runs: with a callback, as a plain ident's events
+    // would never be taken from it), the last reading, and the display's rotation (0 .. 3, Surface's
+    // ROTATION_0 .. ROTATION_270), looked up now and then.
+    struct GravitySensor
+    {
+        ANativeActivity* activity = nullptr;
+        ASensorManager* manager = nullptr;
+        const ASensor* sensor = nullptr;
+        ASensorEventQueue* queue = nullptr;
+        bool filtered = false;
+        bool enabled = false;
+        bool has = false;
+        float device[3] = {};
+        int rotation = 0;
+        std::chrono::steady_clock::time_point rotationTime;
+    };
+    GravitySensor g_Gravity;
+
+    int OnGravityEvents(int, int, void*)
+    {
+        GravitySensor& g = g_Gravity;
+        ASensorEvent events[16];
+        ssize_t count = 0;
+        while (g.queue && (count = ASensorEventQueue_getEvents(g.queue, events, 16)) > 0)
+        {
+            for (ssize_t i = 0; i < count; ++i)
+            {
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float v = events[i].vector.v[k];
+                    g.device[k] = g.filtered || !g.has ? v : g.device[k] + 0.15f * (v - g.device[k]);
+                }
+                g.has = true;
+            }
+        }
+        return 1;
+    }
+
+    // Activity.getWindowManager().getDefaultDisplay().getRotation(), or 0 if that fails.
+    int DisplayRotation(ANativeActivity* activity)
+    {
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (activity->vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK)
+        {
+            if (activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env)
+                return 0;
+            attached = true;
+        }
+        int rotation = 0;
+        jclass activityClass = env->GetObjectClass(activity->clazz);
+        jmethodID getWindowManager = env->GetMethodID(activityClass, "getWindowManager", "()Landroid/view/WindowManager;");
+        jobject windowManager = getWindowManager && !env->ExceptionCheck() ? env->CallObjectMethod(activity->clazz, getWindowManager) : nullptr;
+        if (windowManager && !env->ExceptionCheck())
+        {
+            jclass windowManagerClass = env->FindClass("android/view/WindowManager");
+            jmethodID getDefaultDisplay = env->GetMethodID(windowManagerClass, "getDefaultDisplay", "()Landroid/view/Display;");
+            jobject display = getDefaultDisplay && !env->ExceptionCheck() ? env->CallObjectMethod(windowManager, getDefaultDisplay) : nullptr;
+            if (display && !env->ExceptionCheck())
+            {
+                jclass displayClass = env->FindClass("android/view/Display");
+                jmethodID getRotation = env->GetMethodID(displayClass, "getRotation", "()I");
+                if (getRotation && !env->ExceptionCheck())
+                    rotation = env->CallIntMethod(display, getRotation);
+                env->DeleteLocalRef(displayClass);
+                env->DeleteLocalRef(display);
+            }
+            env->DeleteLocalRef(windowManagerClass);
+            env->DeleteLocalRef(windowManager);
+        }
+        env->DeleteLocalRef(activityClass);
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+            rotation = 0;
+        }
+        if (attached)
+            activity->vm->DetachCurrentThread();
+        return rotation & 3;
+    }
+#endif
 
     // The directory of this library (bin/, where the shaders are), with a separator at the end.
     std::string LibraryDirectory()
@@ -850,6 +939,12 @@ extern "C"
     {
         glfwSetAndroidApp(app);
     }
+
+    // Its activity, for Nri_GetGravity (the display's rotation, from Java).
+    NRI_INTEROP_API void Nri_SetAndroidActivity(ANativeActivity* activity)
+    {
+        g_Gravity.activity = activity;
+    }
 #endif
 
     // Called by Nri_RunSample once the window is made: makes the device and what the frames need,
@@ -1057,6 +1152,77 @@ extern "C"
     NRI_INTEROP_API double Nri_GetMouseWheel(TsSample* sample)
     {
         return sample->GetMouseWheel();
+    }
+
+    // The gravity the device feels, in the window's frame (x right, y down, z out of the screen;
+    // m/s^2) into dst[0..2]: 1, or 0 with no sensor (or no reading yet; always on desktop). The
+    // sensor runs while asked for with enable 1; enable 0 turns it off (and returns 0).
+    NRI_INTEROP_API int Nri_GetGravity(int enable, float* dst)
+    {
+#if defined(__ANDROID__)
+        GravitySensor& g = g_Gravity;
+        if (!enable)
+        {
+            if (g.enabled)
+            {
+                ASensorEventQueue_disableSensor(g.queue, g.sensor);
+                g.enabled = false;
+                g.has = false;
+            }
+            return 0;
+        }
+        if (!g.queue)
+        {
+            g.manager = ASensorManager_getInstanceForPackage(nullptr);
+            g.sensor = g.manager ? ASensorManager_getDefaultSensor(g.manager, ASENSOR_TYPE_GRAVITY) : nullptr;
+            g.filtered = g.sensor != nullptr;
+            if (g.manager && !g.sensor)
+                g.sensor = ASensorManager_getDefaultSensor(g.manager, ASENSOR_TYPE_ACCELEROMETER);
+            ALooper* looper = ALooper_forThread();
+            if (!looper)
+                looper = ALooper_prepare(0);
+            if (!g.sensor || !looper)
+                return 0;
+            g.queue = ASensorManager_createEventQueue(g.manager, looper, ALOOPER_POLL_CALLBACK, OnGravityEvents, nullptr);
+            if (!g.queue)
+                return 0;
+        }
+        if (!g.enabled)
+        {
+            if (ASensorEventQueue_enableSensor(g.queue, g.sensor) < 0)
+                return 0;
+            ASensorEventQueue_setEventRate(g.queue, g.sensor, 20000);
+            g.enabled = true;
+            g.rotationTime = {};
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (g.activity && now - g.rotationTime > std::chrono::milliseconds(500))
+        {
+            g.rotation = DisplayRotation(g.activity);
+            g.rotationTime = now;
+        }
+        if (!g.has)
+            return 0;
+        // The reading points up, against the gravity, in the device's frame (x right, y toward its top
+        // in its natural orientation): turned into the screen's (y up), then down and y down.
+        const float x = g.device[0];
+        const float y = g.device[1];
+        float sx = x, sy = y;
+        switch (g.rotation)
+        {
+        case 1: sx = -y; sy = x; break;
+        case 2: sx = -x; sy = -y; break;
+        case 3: sx = y; sy = -x; break;
+        }
+        dst[0] = -sx;
+        dst[1] = sy;
+        dst[2] = -g.device[2];
+        return 1;
+#else
+        (void)enable;
+        (void)dst;
+        return 0;
+#endif
     }
 
     // 1 if the key (a GLFW key code: NriKey, or Donut's Key) is down, else 0.

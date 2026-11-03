@@ -563,6 +563,10 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 @nodrops declare function Nri_SetCursorPosition(sample: NriSampleHandle, x: int, y: int): void;
 // 1 if the window has the input focus, else 0.
 @nodrops declare function Nri_IsWindowFocused(sample: NriSampleHandle): int;
+// The gravity the device feels, in the window's frame (x right, y down, z out of the screen; m/s^2)
+// into dst[0..2]: 1, or 0 with no sensor or no reading yet (always on desktop). The sensor runs
+// while asked for with enable 1; enable 0 turns it off.
+@nodrops declare function Nri_GetGravity(enable: int, dst: Ref<f32>): int;
 // The mouse wheel's turn this frame.
 @nodrops declare function Nri_GetMouseWheel(sample: NriSampleHandle): number;
 // The last frame's duration, in seconds.
