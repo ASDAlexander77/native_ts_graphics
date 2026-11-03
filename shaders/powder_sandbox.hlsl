@@ -58,13 +58,14 @@ struct SandboxConstants
     float probeY;
     // Bits 0..3: the brush's shape in mode 1 (0 round, 1 square). Bits 4..7: display_ps's cursor, the
     // outline of the area a brush in that mode (0 none) would paint from (cursorX0, cursorY0) to the
-    // pointer; 3 the cell under the pointer, inspected.
+    // pointer; 3 the cell under the pointer, inspected. Bits 8..9: the gravity (GRAVITY_DOWN, _OFF,
+    // _POINT: toward (gravityX, gravityY)), gravity strong.
     uint brushShape;
 
     float cursorX0;
     float cursorY0;
-    float pad3;
-    float pad4;
+    float gravityX;
+    float gravityY;
 };
 DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 
@@ -187,6 +188,20 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define AIR_OMEGA 1.7
 #define GAS_DRAG 0.03
 #define POWDER_DRAG 3.0
+// Gases: lighter than the air around them by how much hotter ((T - AMBIENT) over T, absolute), and
+// steam by STEAM_LIGHTNESS more (its molar mass 18 to air's 29), so they rise against gravity that
+// much; cooling toward AMBIENT at GAS_COOLING a second (fire stays hot while it burns), slowing as
+// they cool; pushed apart where they're crowded (GAS_SPREAD a particle of difference between
+// neighbors, cells a second squared), so they fill a room or spread under a ceiling; wandering
+// (GAS_JITTER). The air takes their lift too (AIR_LIFT of it, over a coarse cell of GAS_FULL a
+// cell): plumes, the air drawn in under a fire and turning over at the top.
+#define STEAM_LIGHTNESS 0.38
+#define GAS_COOLING 0.4
+#define GAS_SPREAD 60.0
+#define AIR_LIFT 1.0
+#define GAS_FULL 2.0
+// How long smoke lingers (seconds, up to twice as long): long enough to fill a room.
+#define SMOKE_LIFE 6.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -416,6 +431,18 @@ float3 heatColor(float t)
 
 // --- Simulation (compute) ------------------------------------------------------------------
 
+// Gravity (brushShape's bits 8..9): down, off, or toward the point (gravityX, gravityY), as strong
+// everywhere (a planet's), easing off within GRAVITY_CORE cells of it.
+#define GRAVITY_DOWN 0
+#define GRAVITY_OFF 1
+#define GRAVITY_POINT 2
+#define GRAVITY_CORE 2.0
+
+uint gravityMode()
+{
+    return (g_C.brushShape >> 8) & 3u;
+}
+
 #ifdef SIMULATION
 
 RWStructuredBuffer<Particle> u_Particles : register(u0);
@@ -500,6 +527,55 @@ int2 sideOffset(int o)
 bool fluidCell(int x, int y)
 {
     return inGrid(x, y) && !solidCell(x, y) && flipCount(x, y) > 0;
+}
+
+float2 gravityAt(float2 pos)
+{
+    const uint mode = gravityMode();
+    if (mode == GRAVITY_OFF)
+    {
+        return float2(0.0, 0.0);
+    }
+    if (mode == GRAVITY_POINT)
+    {
+        const float2 d = float2(g_C.gravityX, g_C.gravityY) - pos;
+        const float len = length(d);
+        return len > 1e-3 ? d / len * g_C.gravity * saturate(len / GRAVITY_CORE) : float2(0.0, 0.0);
+    }
+    return float2(0.0, g_C.gravity);
+}
+
+// Down at pos, as the neighbor (of the eight) the gravity points nearest; false with none (a powder
+// there isn't resting on anything).
+bool gravityDown(float2 pos, out int2 down)
+{
+    const float2 g = gravityAt(pos);
+    down = int2(0, 1);
+    if (dot(g, g) < 1e-6)
+    {
+        return false;
+    }
+    // (within 22.5 degrees of an axis: that one)
+    const float2 n = normalize(g);
+    down = int2(abs(n.x) > 0.3827 ? (n.x > 0.0 ? 1 : -1) : 0, abs(n.y) > 0.3827 ? (n.y > 0.0 ? 1 : -1) : 0);
+    return true;
+}
+
+// A neighbor's offset turned 45 degrees, one way (+1) or the other.
+int2 turned45(int2 d, int way)
+{
+    return way > 0 ? int2(sign(d.x - d.y), sign(d.x + d.y)) : int2(sign(d.x + d.y), sign(d.y - d.x));
+}
+
+// A gas's lift, as a fraction of gravity: its heat over the air's, steam lighter still.
+float gasLift(uint type, float temp)
+{
+    return max(temp - AMBIENT, 0.0) / (max(temp, AMBIENT) + 273.15) + (type == STEAM ? STEAM_LIGHTNESS : 0.0);
+}
+
+int gasCount(int x, int y)
+{
+    return countOf(FIRE, x, y) + countOf(SMOKE, x, y) + countOf(STEAM, x, y);
 }
 
 // A side open to the air (in the grid, not solid, no liquid or powder in it): where oil can burn.
@@ -922,8 +998,12 @@ void grid_cs(uint3 id : SV_DispatchThreadID)
         {
             vel = 0.0;
         }
-        u_GridFloat[gi(F_U, t)] = vel;
         u_GridFloat[gi(F_UOLD, t)] = vel;
+        if (weight > 0 && !(solidCell(i - 1, j) || solidCell(i, j)))
+        {
+            vel += gravityAt(float2(i, j + 0.5)).x * g_C.dt;
+        }
+        u_GridFloat[gi(F_U, t)] = vel;
         u_GridFloat[gi(F_UA, t)] = 1.0 / max(rho, 0.1);
     }
     if (t < uint(w * (h + 1)))
@@ -942,7 +1022,7 @@ void grid_cs(uint3 id : SV_DispatchThreadID)
         u_GridFloat[gi(F_VOLD, t)] = solid ? 0.0 : vel;
         if (weight > 0)
         {
-            vel += g_C.gravity * g_C.dt;
+            vel += gravityAt(float2(i + 0.5, j)).y * g_C.dt;
         }
         u_GridFloat[gi(F_V, t)] = solid ? 0.0 : vel;
         u_GridFloat[gi(F_VA, t)] = 1.0 / max(rho, 0.1);
@@ -1132,7 +1212,7 @@ void viscosity_cs(uint3 id : SV_DispatchThreadID)
             viscousNeighbor(true, i + 1, j, sum, n);
             viscousNeighbor(true, i, j - 1, sum, n);
             viscousNeighbor(true, i, j + 1, sum, n);
-            u_GridFloat[gi(F_U, t)] = (gf(F_UOLD, t) + a * sum) / (1.0 + a * n);
+            u_GridFloat[gi(F_U, t)] = (gf(F_UOLD, t) + gravityAt(float2(i, j + 0.5)).x * g_C.dt + a * sum) / (1.0 + a * n);
         }
     }
     if (t < uint(w * (h + 1)))
@@ -1149,7 +1229,7 @@ void viscosity_cs(uint3 id : SV_DispatchThreadID)
             viscousNeighbor(false, i + 1, j, sum, n);
             viscousNeighbor(false, i, j - 1, sum, n);
             viscousNeighbor(false, i, j + 1, sum, n);
-            u_GridFloat[gi(F_V, t)] = (gf(F_VOLD, t) + g_C.gravity * g_C.dt + a * sum) / (1.0 + a * n);
+            u_GridFloat[gi(F_V, t)] = (gf(F_VOLD, t) + gravityAt(float2(i + 0.5, j)).y * g_C.dt + a * sum) / (1.0 + a * n);
         }
     }
 }
@@ -1169,6 +1249,8 @@ groupshared float s_AirV[AIR_MAX_FACES];
 // Bit 0 blocked, bits 1 and 2 the fans' direction, 3 .. 9 their cells, 10 and up gunpowder going off.
 groupshared uint s_AirCell[AIR_MAX_CELLS];
 groupshared float s_AirP[AIR_MAX_CELLS];
+// (a coarse cell's gases' lift, a fraction of gravity: GAS_FULL a cell is all of theirs)
+groupshared float s_AirLift[AIR_MAX_CELLS];
 groupshared uint s_AirMax;
 
 int airW()
@@ -1209,6 +1291,14 @@ float2 airFans(int i, int j)
     const uint dir = (cell >> 1) & 3u;
     const float2 direction = dir == 0 ? float2(1, 0) : (dir == 1 ? float2(0, 1) : (dir == 2 ? float2(-1, 0) : float2(0, -1)));
     return direction * float((cell >> 3) & 127u) / AIR_CELL;
+}
+
+// The gases' lift (a fraction of gravity) between two coarse cells: their mean, outside cells none.
+float airLift(int i0, int j0, int i1, int j1)
+{
+    const bool in0 = i0 >= 0 && j0 >= 0 && i0 < airW() && j0 < airH();
+    const bool in1 = i1 >= 0 && j1 >= 0 && i1 < airW() && j1 < airH();
+    return 0.5 * ((in0 ? s_AirLift[j0 * airW() + i0] : 0.0) + (in1 ? s_AirLift[j1 * airW() + i1] : 0.0));
 }
 
 float sharedAirU(int i, int j)
@@ -1306,6 +1396,7 @@ void air_cs(uint3 id : SV_GroupThreadID)
         uint fans = 0;
         uint dir = 3;
         uint blast = 0;
+        float lift = 0.0;
         for (int y = cj * AIR_CELL; y < (cj + 1) * AIR_CELL; y++)
         {
             for (int x = ci * AIR_CELL; x < (ci + 1) * AIR_CELL; x++)
@@ -1328,11 +1419,18 @@ void air_cs(uint3 id : SV_GroupThreadID)
                 }
                 // (the last step's, for the frame's)
                 blast += uint(u_GridInt[gi(I_BLAST, k)]) * uint(steps);
+                const int gases = gasCount(x, y);
+                if (gases > 0)
+                {
+                    const float t = gf(F_TCELL, k);
+                    lift += float(countOf(FIRE, x, y) + countOf(SMOKE, x, y)) * gasLift(FIRE, t) + float(countOf(STEAM, x, y)) * gasLift(STEAM, t);
+                }
             }
         }
         const bool isBlocked = blocked >= 2 * AIR_CELL;
         s_AirCell[c] = (isBlocked ? 1u : 0u) | (dir << 1) | (min(fans, 127u) << 3) | (min(blast, 0x3FFFFFu) << 10);
         s_AirP[c] = isBlocked ? 0.0 : u_Multigrid[AIR_P + c];
+        s_AirLift[c] = isBlocked ? 0.0 : lift / (GAS_FULL * AIR_CELL * AIR_CELL);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -1350,6 +1448,7 @@ void air_cs(uint3 id : SV_GroupThreadID)
             const float2 at = float2(i, j + 0.5) * AIR_CELL;
             u = sharedAir(at - dt * sharedAir(at)).x;
             u += dt * FAN_ACCEL * 0.5 * (airFans(i - 1, j).x + airFans(i, j).x);
+            u -= dt * AIR_LIFT * airLift(i - 1, j, i, j) * gravityAt(at).x;
             u = clamp(u * saturate(1.0 - AIR_DAMPING * dt), -WIND_MAX, WIND_MAX);
         }
         newU[k++] = u;
@@ -1365,6 +1464,7 @@ void air_cs(uint3 id : SV_GroupThreadID)
             const float2 at = float2(i + 0.5, j) * AIR_CELL;
             v = sharedAir(at - dt * sharedAir(at)).y;
             v += dt * FAN_ACCEL * 0.5 * (airFans(i, j - 1).y + airFans(i, j).y);
+            v -= dt * AIR_LIFT * airLift(i, j - 1, i, j) * gravityAt(at).y;
             v = clamp(v * saturate(1.0 - AIR_DAMPING * dt), -WIND_MAX, WIND_MAX);
         }
         newV[k++] = v;
@@ -1567,7 +1667,7 @@ void bodies_cs(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
         const float2 size = 2.0 * body.half;
         const float mass = body.density * size.x * size.y;
         const float inertia = mass * dot(size, size) / 12.0;
-        body.vel += (float2(0.0, g_C.gravity) + total.xy / mass) * dt;
+        body.vel += (gravityAt(body.pos) + total.xy / mass) * dt;
         body.spin += total.z / inertia * dt;
         // Drag where it's wet (its faces against liquid over all of them).
         const float wet = saturate(total.w / (2.0 * (size.x + size.y)));
@@ -2512,27 +2612,34 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         if (isPowder(p.type))
         {
             p.vel = grid;
-            // Resting on something: slide down a free diagonal, else hold (static friction).
-            // (the pressure keeping a pile from compressing nudges it up a little: still resting)
-            if (sandBlocked(cx, cy + 1, 1) && p.vel.y > -20.0)
+            // Resting on something (below it, along the gravity): slide down a free diagonal, else
+            // hold (static friction). (the pressure keeping a pile from compressing nudges it up a
+            // little: still resting)
+            int2 down;
+            if (gravityDown(p.pos, down) && sandBlocked(cx + down.x, cy + down.y, 1) && dot(p.vel, normalize(float2(down))) > -20.0)
             {
-                // (an empty diagonal: a steeper slope than 45 degrees)
-                const bool freeLeft = !sandBlocked(cx - 1, cy + 1, 1) && !solidCell(cx - 1, cy);
-                const bool freeRight = !sandBlocked(cx + 1, cy + 1, 1) && !solidCell(cx + 1, cy);
-                if (freeLeft || freeRight)
+                // (an empty cell 45 degrees either side of down, the one beside it on the way not
+                // solid: a steeper slope than 45 degrees)
+                const int2 slideA = turned45(down, -1);
+                const int2 slideB = turned45(down, 1);
+                const int2 besideA = slideA - down;
+                const int2 besideB = slideB - down;
+                const bool freeA = !sandBlocked(cx + slideA.x, cy + slideA.y, 1) && !solidCell(cx + besideA.x, cy + besideA.y);
+                const bool freeB = !sandBlocked(cx + slideB.x, cy + slideB.y, 1) && !solidCell(cx + besideB.x, cy + besideB.y);
+                const float2 across = normalize(float2(-down.y, down.x));
+                const float sideways = dot(p.vel, across);
+                float target = 0.0;
+                if (freeA || freeB)
                 {
-                    float side = freeLeft ? -1.0 : 1.0;
-                    if (freeLeft && freeRight)
+                    float2 way = normalize(float2(freeA ? besideA : besideB));
+                    if (freeA && freeB && random01(seedOf(index, 2)) < 0.5)
                     {
-                        side = random01(seedOf(index, 2)) < 0.5 ? -1.0 : 1.0;
+                        way = normalize(float2(besideB));
                     }
-                    p.vel.x = lerp(p.vel.x, side * 12.0, 0.3);
+                    target = lerp(sideways, dot(way, across) * 12.0, 0.3);
                 }
-                else
-                {
-                    // Held by static friction: the pressure that levels liquids doesn't spread a pile.
-                    p.vel.x = 0.0;
-                }
+                // (else held by static friction: the pressure that levels liquids doesn't spread a pile)
+                p.vel += across * (target - sideways);
             }
             // Airborne grains (and a pile's loose top: fewer than a packed cell's): dragged by the air.
             if (float(flipCount(cx, cy)) < REST_COUNT)
@@ -2553,20 +2660,36 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             const float2 mid = p.pos + 0.5 * dt * grid;
             const float mixture = 4.0 / (gf(F_UA, uIndex(cx, cy)) + gf(F_UA, uIndex(cx + 1, cy)) + gf(F_VA, vIndex(cx, cy))
                 + gf(F_VA, vIndex(cx, cy + 1)));
-            const float drift = (particleDensity(p) - mixture) / mixture * g_C.gravity * 0.08;
+            const float2 drift = (particleDensity(p) - mixture) / mixture * gravityAt(p.pos) * 0.08;
             // Surface tension: a pull on its velocity, not its position (a positional drift carries no
             // momentum: it held small drops up in the air, gravity never getting a fall going).
             p.vel += cohesion(cx, cy) * dt;
-            moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift)) * dt);
+            moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + drift) * dt);
         }
     }
     else if (isGasMaterial(p.type))
     {
-        float buoyancy = p.type == FIRE ? 260.0 : (p.type == SMOKE ? 50.0 : 140.0);
-        float jitter = p.type == FIRE ? 400.0 : (p.type == SMOKE ? 150.0 : 200.0);
-        p.vel.y -= buoyancy * dt;
-        p.vel.x += (random01(seedOf(index, 3)) - 0.5) * jitter * dt;
+        // Lift against the gravity, from its heat; pushed from where gas is more crowded; wandering;
+        // carried by the air; cooling (fire stays hot while it burns).
+        p.vel -= gravityAt(p.pos) * gasLift(p.type, p.temp) * dt;
+        const int n = gasCount(cx, cy);
+        float2 crowd = float2(0.0, 0.0);
+        for (int o = 0; o < 4; o++)
+        {
+            const int2 s = int2(cx, cy) + sideOffset(o);
+            if (inGrid(s.x, s.y) && !solidCell(s.x, s.y))
+            {
+                crowd += float2(sideOffset(o)) * float(gasCount(s.x, s.y) - n);
+            }
+        }
+        p.vel -= GAS_SPREAD * 0.5 * crowd * dt;
+        const float jitter = p.type == FIRE ? 400.0 : (p.type == SMOKE ? 150.0 : 200.0);
+        p.vel += (float2(random01(seedOf(index, 3)), random01(seedOf(index, 17))) - 0.5) * jitter * dt;
         p.vel = lerp(p.vel, airVelocity(p.pos), GAS_DRAG);
+        if (p.type != FIRE)
+        {
+            p.temp = lerp(p.temp, AMBIENT, saturate(GAS_COOLING * dt));
+        }
         moveParticle(p.pos, p.vel, p.vel * dt);
     }
     else
@@ -2691,7 +2814,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             if (random01(seedOf(index, 6)) < 0.35)
             {
                 p.type = SMOKE;
-                p.life = 2.0 + 2.0 * random01(seedOf(index, 7));
+                p.life = SMOKE_LIFE * (1.0 + random01(seedOf(index, 7)));
                 p.temp = 300.0;
             }
             else
@@ -3181,6 +3304,20 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     else if (g_C.overlay == 2)
     {
         color = lerp(color * 0.3, temperatureRamp(sampleFloat(g, F_TCELL)), 0.8);
+    }
+
+    // The attraction point: a ring round it, white with a dark rim.
+    if (gravityMode() == GRAVITY_POINT)
+    {
+        const float ring = abs(length(g - float2(g_C.gravityX, g_C.gravityY)) * g_C.cellPixels - 7.0);
+        if (ring < 1.0)
+        {
+            color = lerp(color, float3(1.0, 1.0, 1.0), 0.9);
+        }
+        else if (ring < 2.5)
+        {
+            color *= 0.25;
+        }
     }
 
     // The cursor: the edge of the area the brush paints, a white line with a dark rim either side.

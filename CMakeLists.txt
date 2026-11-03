@@ -1473,6 +1473,11 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX level ARGS -sceneFile test_fil
 # Acid diluted by water (and warming it); oil and petrol lit: the petrol burns away, the oil slowly.
 add_tslang_example_test(powder_sandbox_nri SUFFIX acid ARGS -scene 10 -testFrames 900)
 add_tslang_example_test(powder_sandbox_nri SUFFIX burning ARGS -scene 11 -testFrames 900)
+# A fire's plume drives the air, its smoke spreads under a ceiling; water and sand with no gravity
+# stay put, and gather round an attraction point.
+add_tslang_example_test(powder_sandbox_nri SUFFIX gases ARGS -scene 12 -testFrames 300)
+add_tslang_example_test(powder_sandbox_nri SUFFIX weightless ARGS -scene 13 -testFrames 300 -gravity off)
+add_tslang_example_test(powder_sandbox_nri SUFFIX attractor ARGS -scene 13 -testFrames 600 -gravity point)
 # Auto quality, its budget set below any GPU's step time: the grid is made smaller.
 add_tslang_example_test(powder_sandbox_nri SUFFIX quality ARGS -scene 2 -testFrames 300 -stepBudget 0.01)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
