@@ -13,7 +13,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Simulation:** water, oil, sand (and, from this roadmap, lava) are FLIP particles on a MAC grid.
   A variable-density pressure solve (multigrid, warm-started from the last step) plus a
   particle-density correction keeps their volume. Sand takes the grid's velocity and holds a pile
-  by static friction. Fire, smoke and steam rise by buoyancy; neutrons fly straight.
+  by static friction. Fire, smoke and steam rise by their heat; neutrons fly straight.
 - **Fixed time step:** 1 / (60 substeps) s per step, from accumulated frame time. The warm-started
   pressure is in units of dt, so a dt that follows the frame time (on some setups frame times
   alternate 0.5 / 13 ms) tears the water apart.
@@ -26,6 +26,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
   (wind), `-scene 9` (blocks), `-scene 10` (acid in water), `-scene 11` (oil and petrol burning),
+  `-scene 12` (gases), `-scene 13 -gravity off|point` (no gravity, an attraction point),
   `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
@@ -337,3 +338,34 @@ format is unchanged (version 2): the new state lives in the particles.
 - **Test scene 11**: oil and petrol pools, both lit at their surface, and oil sealed under a glass
   lid. After 5 s the petrol is gone, the open oil keeps about two thirds of the sealed oil's; with
   catching off the oil doesn't burn and the test fails.
+
+### 8. Gases and gravity (done)
+
+- **Gas lift from heat**: a gas is lighter than the air around it by (T - ambient) / T (absolute),
+  and steam by 0.38 more (its molar mass 18 to air's 29), so it rises against the gravity that much:
+  fire about 0.73 g, smoke at 300 °C 0.49 g, cooled smoke nothing. Gases but fire cool toward
+  ambient (`GAS_COOLING` 0.4 a second) and slow as they do. Smoke lingers 6 to 12 s.
+- **Gases spread**: a gas particle is pushed from where its neighbors hold more gas
+  (`GAS_SPREAD` 60 cells/s² a particle of difference), so smoke under a ceiling spreads into a layer
+  (without it, a fire's smoke packed into a cell or two); the wander is in both directions now.
+- **Plumes move the air**: the air grid takes the gases' lift (each coarse cell's, over `GAS_FULL`
+  2 particles a cell), so a fire drives a plume: air drawn in at its base, turning over at the top,
+  carrying the smoke.
+- **Gravity**: down, off, or toward a point, as strong everywhere (a planet's), easing off within 2
+  cells of it. It's applied on both velocity faces, to the blocks, to the drift of lighter and
+  heavier liquids, against the gases' lift, and as the powders' down: the neighbor (of eight) the
+  gravity points nearest, with the slides 45 degrees either side of it (with four, a slab of sand at
+  45 degrees to the point never slid). With none, a powder rests on nothing.
+  - The Gravity tile cycles Gravity, No gravity and Attract; with Attract a tap or drag on the grid
+    moves the point (a ring), until another tool is picked. `-gravity down|off|point` (the point
+    the grid's center).
+  - In the constants the mode is in `brushShape`'s bits 8 and 9, the point in the last two floats.
+    The save is version 4: its header holds the gravity's mode and point. Version 3 saves still
+    load, their gravity down.
+- **Test scene 12**: a wood fire under a glass ceiling. After 5 s the air above it rises at about
+  60 cells a second and the smoke under the ceiling spans about a third of the width; with the air's
+  lift off the air is still (and the test fails), with spreading off the smoke spans 3%.
+- **Test scene 13**: a block of water and one of sand in mid-air. With no gravity their centers
+  move under 2 cells in 5 s. Toward the point, in 10 s their mean distance from it falls from 38 to
+  about 22 cells (the water round the sand, the sand in a mound); with gravity down they fall 70 to
+  80 cells, failing both.

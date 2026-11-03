@@ -123,6 +123,7 @@ namespace PowderSandboxNri {
     const OIL = 2;
     const SAND = 3;
     const FIRE = 4;
+    const SMOKE = 5;
     const LAVA = 8;
     const ACID = 9;
     const SALT = 10;
@@ -203,6 +204,15 @@ namespace PowderSandboxNri {
     const ACTION_SAVE = 107;
     const ACTION_LOAD = 108;
     const ACTION_LEVEL = 109;
+    // The Gravity tile cycles the gravity: down, off, toward a point (GRAVITY_PLACE then the tool,
+    // a tap on the grid moving the point).
+    const ACTION_GRAVITY = 110;
+    const GRAVITY_DOWN = 0;
+    const GRAVITY_OFF = 1;
+    const GRAVITY_POINT = 2;
+    const GRAVITY_NAMES = ["down", "off", "point"];
+    const GRAVITY_LABELS = ["Gravity", "No gravity", "Attract"];
+    const GRAVITY_PLACE = 37;
     // Levels: their files (LEVEL_DIRECTORY<name>.json), the ones the Levels tile goes through listed
     // in LEVEL_DIRECTORY/index.json ({ "levels": [names] }). A level: { "name": "...", "goal":
     // { "text": "...", "material": "water", "box": [x0, y0, x1, y1], "count": N }, "strokes": [{
@@ -223,9 +233,11 @@ namespace PowderSandboxNri {
     // Version 2: the grid's buffers at GRID_CAPACITY (version 1's were the grid's own size).
     const SAVE_PATH = "powder_sandbox.save";
     const SAVE_MAGIC = 0x53445750;
-    // (3: the bodies' float section)
-    const SAVE_VERSION = 3;
-    const SAVE_HEADER_INTS = 5;
+    // (3: the bodies' float section; 4: the gravity in the header (its mode, its point in 1/256
+    // cells), version 3's still read, its gravity down)
+    const SAVE_VERSION = 4;
+    const SAVE_HEADER_INTS = 8;
+    const SAVE_HEADER_INTS_3 = 5;
     // How long a message (saved, loaded, nothing to undo) shows, in seconds.
     const MESSAGE_TIME = 2.5;
     // GLFW's key codes.
@@ -290,6 +302,23 @@ namespace PowderSandboxNri {
     const TUB_LIQUID = 0.8;
     const ACID_POUR = [0.62, 0.72];
     const FIRE_BAND = [0.77, 0.83];
+    // Scene 12: a wood fire (GAS_WOOD: x0, y0, x1, to the floor) under a glass ceiling (GAS_CEILING:
+    // x0, y, x1): its plume drives the air up through the probe above it (GAS_PROBE), at
+    // PLUME_WIND cells a second at the least, and its smoke spreads under the ceiling, over
+    // SMOKE_SPREAD of the grid's width (both nothing like that without the air's lift, or the
+    // gases' spreading).
+    const GAS_WOOD = [0.45, 0.88, 0.55];
+    const GAS_CEILING = [0.1, 0.5, 0.9];
+    const GAS_PROBE = [0.5, 0.65];
+    const PLUME_WIND = 10.0;
+    const SMOKE_SPREAD = 0.25;
+    // Scene 13: a block of water and one of sand in mid-air (BLOBS: each one's x0, y0, x1, y1).
+    // With -gravity off they stay (their centers within BLOB_DRIFT cells); toward the point (the
+    // grid's center), they gather round it (their mean distance from it under GATHERED of where
+    // they started).
+    const BLOBS = [0.3, 0.3, 0.45, 0.55, 0.55, 0.3, 0.7, 0.55];
+    const BLOB_DRIFT = 3.0;
+    const GATHERED = 0.75;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -594,6 +623,14 @@ namespace PowderSandboxNri {
         bodies: boolean = true;
         // (tubCount's last tub's liquid temperature)
         private tubTemp: number = 0.0;
+        // The gravity (-gravity down|off|point): its mode, and its point (in cells; under 0: the grid's
+        // center); the tool before the point was being placed.
+        gravityMode: int = GRAVITY_DOWN;
+        private gravityX: number = -1.0;
+        private gravityY: number = -1.0;
+        private toolBeforePlace: int = WATER;
+        // handleInput's brush shape and cursor (constants[27], the gravity's mode above them).
+        private shapeWord: int = 0;
         // Sound (none with -mute, nor in tests but for -sound: the device opened, playing nothing): the
         // playback device, the events counted so far (each
         // frame's last step's, times its steps), each sound's time till it may play again.
@@ -661,6 +698,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Gravity", ACTION_GRAVITY, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
@@ -1078,6 +1116,16 @@ namespace PowderSandboxNri {
                 this.nextLevel();
             } else if (action == ACTION_SHAPE) {
                 this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
+            } else if (action == ACTION_GRAVITY) {
+                this.gravityMode = (this.gravityMode + 1) % GRAVITY_NAMES.length;
+                // (toward a point: a tap on the grid moves it, till another tool's picked)
+                if (this.gravityMode == GRAVITY_POINT) {
+                    this.toolBeforePlace = this.tool;
+                    this.tool = GRAVITY_PLACE;
+                } else if (this.tool == GRAVITY_PLACE) {
+                    this.tool = this.toolBeforePlace;
+                }
+                this.showMessage(`Gravity: ${GRAVITY_NAMES[this.gravityMode]}`);
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
@@ -1146,7 +1194,13 @@ namespace PowderSandboxNri {
             this.zWasDown = z;
 
             let brushMode = 0;
-            const inspecting = this.tool == INSPECT;
+            // (placing the attraction point paints nothing either)
+            const placing = this.tool == GRAVITY_PLACE;
+            if (placing && down && !this.pressOnToolbar && !(down && !this.wasDown && overToolbar)) {
+                this.gravityX = Math.min(Math.max(gx, 1.0), this.gridW - 1.0);
+                this.gravityY = Math.min(Math.max(gy, 1.0), this.gridH - 1.0);
+            }
+            const inspecting = this.tool == INSPECT || placing;
             if (down && !this.wasDown) {
                 this.pressOnToolbar = overToolbar;
                 this.pressTime = this.time;
@@ -1222,7 +1276,7 @@ namespace PowderSandboxNri {
                 cursorMode = 0;
             }
             const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
-            this.setInt(27, shape | (cursorMode << 4));
+            this.shapeWord = shape | (cursorMode << 4);
             this.setFloat(28, cursorX);
             this.setFloat(29, cursorY);
             this.wasDown = down;
@@ -1260,6 +1314,18 @@ namespace PowderSandboxNri {
             this.setFloat(24, this.solver == SOLVER_SOR ? SOR_OMEGA : 1.0);
             this.setFloat(25, this.mouseGridX);
             this.setFloat(26, this.mouseGridY);
+            this.setInt(27, this.shapeWord | (this.gravityMode << 8));
+            this.setFloat(30, this.gravityPointX());
+            this.setFloat(31, this.gravityPointY());
+        }
+
+        // The attraction point, in the grid (its center until one's placed).
+        gravityPointX(): number {
+            return this.gravityX < 0.0 ? this.gridW * 0.5 : Math.min(this.gravityX, this.gridW - 1.0);
+        }
+
+        gravityPointY(): number {
+            return this.gravityY < 0.0 ? this.gridH * 0.5 : Math.min(this.gravityY, this.gridH - 1.0);
         }
 
         barriers(commandBuffer: NriCommandBufferHandle, mask: int, before: NriBufferState, after: NriBufferState) {
@@ -1452,20 +1518,24 @@ namespace PowderSandboxNri {
             for (let i = 0; i < SAVE_HEADER_INTS * 4; i++) {
                 bytes.push(0);
             }
-            Nri_CopyFileBytes(file, 0, bytes.length, Ref(bytes[0]));
+            Nri_CopyFileBytes(file, 0, Math.min(bytes.length, Nri_GetFileSize(file)), Ref(bytes[0]));
             const header: int[] = [];
             for (let i = 0; i < SAVE_HEADER_INTS; i++) {
                 header.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
             }
+            const headerInts = header[1] == 3 ? SAVE_HEADER_INTS_3 : SAVE_HEADER_INTS;
             let loadBuffer: NriBufferHandle | null = null;
-            if (header[0] != SAVE_MAGIC || header[1] != SAVE_VERSION || header[4] != CAPACITY
-                || Nri_GetFileSize(file) != SAVE_HEADER_INTS * 4 + this.stateSize
+            if (header[0] != SAVE_MAGIC || (header[1] != SAVE_VERSION && header[1] != 3) || header[4] != CAPACITY
+                || Nri_GetFileSize(file) != headerInts * 4 + this.stateSize
                 || header[2] < 3 || header[3] < 3 || (header[2] + 1) * (header[3] + 1) > GRID_CAPACITY) {
                 this.showMessage("The save is from another version");
             } else {
                 this.loadW = header[2];
                 this.loadH = header[3];
-                loadBuffer = Nri_CreateStorageBufferFromFile(device, this.queue, file, SAVE_HEADER_INTS * 4, this.stateSize, 4,
+                this.gravityMode = header[1] == 3 ? GRAVITY_DOWN : Math.min(Math.max(header[5], 0), GRAVITY_POINT);
+                this.gravityX = header[1] == 3 ? -1.0 : header[6] / 256.0;
+                this.gravityY = header[1] == 3 ? -1.0 : header[7] / 256.0;
+                loadBuffer = Nri_CreateStorageBufferFromFile(device, this.queue, file, headerInts * 4, this.stateSize, 4,
                     NriBufferState.CopySource);
                 if (!loadBuffer) {
                     this.showMessage("Cannot load: out of memory");
@@ -1488,7 +1558,8 @@ namespace PowderSandboxNri {
                 Nri_DeviceWaitIdle(device);
             }
             if (saveReadback) {
-                const header: int[] = [SAVE_MAGIC, SAVE_VERSION, this.gridW, this.gridH, CAPACITY];
+                const header: int[] = [SAVE_MAGIC, SAVE_VERSION, this.gridW, this.gridH, CAPACITY, this.gravityMode,
+                    Math.round(this.gravityPointX() * 256.0), Math.round(this.gravityPointY() * 256.0)];
                 const saved = Nri_SaveBufferToFile(saveReadback, this.stateSize, Ref(header[0]), SAVE_HEADER_INTS, SAVE_PATH) != 0;
                 this.showMessage(saved ? "Saved" : "Cannot save");
                 Nri_DestroyBuffer(saveReadback);
@@ -1938,6 +2009,19 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 13) {
+                // Water and sand in mid-air.
+                this.addStroke(WATER, BLOBS[0], BLOBS[1], BLOBS[2], BLOBS[3], WATER);
+                this.addStroke(SAND, BLOBS[4], BLOBS[5], BLOBS[6], BLOBS[7], WATER);
+            } else if (this.scene == 12) {
+                // A wood fire under a glass ceiling. (The probe above it, for the wind there.)
+                this.mouseGridX = GAS_PROBE[0] * this.gridW;
+                this.mouseGridY = GAS_PROBE[1] * this.gridH;
+                this.addStroke(GLASS, GAS_CEILING[0], GAS_CEILING[1], GAS_CEILING[2], GAS_CEILING[1] + 0.01, WATER);
+                this.addStroke(WOOD, GAS_WOOD[0], GAS_WOOD[1], GAS_WOOD[2], 1.0, WATER);
+                for (let k = 0; k < 10; k++) {
+                    this.addStroke(FIRE, GAS_WOOD[0], GAS_WOOD[1] - 0.04, GAS_WOOD[2], GAS_WOOD[1], WATER);
+                }
             } else if (this.scene == 11) {
                 // Oil and petrol lit; oil sealed away from the air.
                 this.addTubs(3);
@@ -2044,7 +2128,8 @@ namespace PowderSandboxNri {
                 if (x0 + tileWidth <= 0.0 || x0 >= this.width) {
                     continue;
                 }
-                const selected = tile.tool == this.tool || (tile.tool == ACTION_PAUSE && this.paused);
+                const selected = tile.tool == this.tool || (tile.tool == ACTION_PAUSE && this.paused)
+                    || (tile.tool == ACTION_GRAVITY && this.tool == GRAVITY_PLACE);
                 if (selected) {
                     Nri_ImguiDrawRect(x0 + 1.0, top + 1.0, x0 + tileWidth - 1.0, bottom - 1.0, 0.95, 0.95, 0.95, 1.0);
                 }
@@ -2054,6 +2139,8 @@ namespace PowderSandboxNri {
                     label = "Play";
                 } else if (tile.tool == ACTION_SHAPE) {
                     label = SHAPE_NAMES[this.brushShape];
+                } else if (tile.tool == ACTION_GRAVITY) {
+                    label = GRAVITY_LABELS[this.gravityMode];
                 } else if (tile.tool == EMITTER) {
                     // What it emits, in the middle of its swatch.
                     let emitted = tile;
@@ -2456,6 +2543,18 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 12) {
+                const error = this.checkGases(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
+            if (this.scene == 13) {
+                const error = this.checkGravity(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
                 return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
             }
@@ -2480,6 +2579,8 @@ namespace PowderSandboxNri {
             } else if (this.scene == 11) {
                 expected.push(2);
                 expected.push(3);
+            } else if (this.scene == 12) {
+                expected.push(2);
             }
             for (const k of expected) {
                 if (this.eventTotals[k] == 0) {
@@ -2531,8 +2632,8 @@ namespace PowderSandboxNri {
             const gridPixels = Math.min(this.gridW * this.gridH * this.cellPixels * this.cellPixels, pixels.length);
             const share = 100.0 * blue / gridPixels;
             console.log(`Water: ${formatFixed(share, 1)}% of the grid`);
-            // (a turned U-tube is a narrow grid between margins; scenes 8 and 11 have no water)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 ? 0.0 : 1.0);
+            // (a turned U-tube is a narrow grid between margins; scenes 8, 11 and 12 have no water)
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 || this.scene == 12 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the grid, not ${formatFixed(minShare, 0)} to 50%`;
@@ -2767,6 +2868,80 @@ namespace PowderSandboxNri {
             }
             if (oil >= 0.95 * sealed || oil < sealed / 3) {
                 return `the oil didn't burn slowly: ${oil} left of the sealed oil's ${sealed}`;
+            }
+            return "";
+        }
+
+        // Scene 12: the plume drove the air up through the probe; the smoke spread under the ceiling
+        // (the columns with smoke in the cells just under it span SMOKE_SPREAD of the width).
+        checkGases(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            const windY = this.probeFloats[PROBE_AIR + 1];
+            const y0: int = Math.floor(GAS_CEILING[1] * h) + 2;
+            let left = w;
+            let right = -1;
+            let smoke = 0;
+            for (let y = y0; y < y0 + 6; y++) {
+                for (let x = 0; x < w; x++) {
+                    const n = grid[(I_COUNT + SMOKE - 1) * this.stride + y * w + x];
+                    if (n > 0) {
+                        smoke += n;
+                        left = Math.min(left, x);
+                        right = Math.max(right, x);
+                    }
+                }
+            }
+            const spread = right >= left ? (right - left + 1) / w : 0.0;
+            console.log(`Gases: the air ${formatFixed(-windY, 1)} cells a second up above the fire; ${smoke} smoke under the ceiling, over ${formatFixed(100.0 * spread, 0)}% of the width`);
+            if (-windY < PLUME_WIND) {
+                return `the plume didn't drive the air: ${formatFixed(-windY, 1)} cells a second up, under ${formatFixed(PLUME_WIND, 0)}`;
+            }
+            if (spread < SMOKE_SPREAD) {
+                return `the smoke didn't spread under the ceiling: over ${formatFixed(100.0 * spread, 0)}% of the width`;
+            }
+            return "";
+        }
+
+        // Scene 13: with no gravity the blobs stayed put; toward the point they gathered round it.
+        checkGravity(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            const px = this.gravityPointX();
+            const py = this.gravityPointY();
+            for (let k = 0; k < 2; k++) {
+                const material = k == 0 ? WATER : SAND;
+                const startX = 0.5 * (BLOBS[4 * k] + BLOBS[4 * k + 2]) * w;
+                const startY = 0.5 * (BLOBS[4 * k + 1] + BLOBS[4 * k + 3]) * h;
+                let n = 0;
+                let sumX = 0.0;
+                let sumY = 0.0;
+                let sumDistance = 0.0;
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const count = grid[(I_COUNT + material - 1) * this.stride + y * w + x];
+                        if (count > 0) {
+                            n += count;
+                            sumX += count * (x + 0.5);
+                            sumY += count * (y + 0.5);
+                            sumDistance += count * Math.sqrt((x + 0.5 - px) * (x + 0.5 - px) + (y + 0.5 - py) * (y + 0.5 - py));
+                        }
+                    }
+                }
+                if (n == 0) {
+                    return `no ${materialName(material)} left`;
+                }
+                const drift = Math.sqrt((sumX / n - startX) * (sumX / n - startX) + (sumY / n - startY) * (sumY / n - startY));
+                // (the blob's own mean distance from the point, as painted: about its center's)
+                const startDistance = Math.sqrt((startX - px) * (startX - px) + (startY - py) * (startY - py));
+                const distance = sumDistance / n;
+                console.log(`Gravity ${GRAVITY_NAMES[this.gravityMode]}: the ${materialName(material)} (${n}) ${formatFixed(drift, 1)} cells from where it was, ${formatFixed(distance, 1)} from the point (it began ${formatFixed(startDistance, 1)})`);
+                if (this.gravityMode == GRAVITY_OFF && drift > BLOB_DRIFT) {
+                    return `with no gravity the ${materialName(material)} moved ${formatFixed(drift, 1)} cells`;
+                }
+                if (this.gravityMode == GRAVITY_POINT && distance > GATHERED * startDistance) {
+                    return `the ${materialName(material)} didn't gather round the point: ${formatFixed(distance, 1)} cells from it (it began ${formatFixed(startDistance, 1)})`;
+                }
             }
             return "";
         }
@@ -3234,6 +3409,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-air", 1);
         Nri_AddExampleOptionWithValues(sample, "-bodies", 1);
         Nri_AddExampleOption(sample, "-mute");
+        Nri_AddExampleOptionWithValues(sample, "-gravity", 1);
         Nri_AddExampleOption(sample, "-sound");
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
@@ -3284,6 +3460,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-mute") {
                 sandbox.mute = true;
+            } else if (arg == "-gravity" && i + 1 < argc) {
+                sandbox.gravityMode = Math.max(GRAVITY_NAMES.indexOf(Nri_GetArg(argc, argv, i + 1)), 0);
+                i++;
             } else if (arg == "-sound") {
                 sandbox.soundCheck = true;
             } else if (arg == "-bodies" && i + 1 < argc) {
