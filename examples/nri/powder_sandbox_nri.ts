@@ -58,9 +58,9 @@ namespace PowderSandboxNri {
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's particle types (1 .. PARTICLE_TYPES, a count section each), gridInt and
     // gridFloat sections, and u_Alloc's free list's start.
-    // (probe_cs packs the counts two to an int from u_Alloc[4], under its salinity at ALLOC_LIST - 1:
-    // up to 22 types)
-    const PARTICLE_TYPES = 12;
+    // (probe_cs packs the counts three to an int, 10 bits each, from u_Alloc[4], under the wind at
+    // u_Alloc[10]: up to 18 types)
+    const PARTICLE_TYPES = 13;
     const INT_SECTIONS = 6 + PARTICLE_TYPES + 9;
     // The step's events for sound (I_EVENTS: splash, fizz, fire, boom), read back after the probe's
     // ints.
@@ -128,6 +128,7 @@ namespace PowderSandboxNri {
     const SALT = 10;
     const GUNPOWDER = 11;
     const HONEY = 12;
+    const PETROL = 13;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
@@ -278,6 +279,17 @@ namespace PowderSandboxNri {
     const FLOATER = [0.2, 0.3, 0.32, 0.38];
     const LEDGE = [0.65, 0.7, 0.8];
     const TIPPER = [0.78, 0.45, 0.82];
+    // Scenes 10 and 11: glass tubs (TUBS: each one's x0, x1; their walls from TUB_TOP, their liquid
+    // from TUB_LIQUID to the floor). Scene 10: acid poured (from ACID_POUR[0] to [1]) over water in
+    // the first and into the empty second: the water dilutes it (warmed), the glass holds the other.
+    // Scene 11: oil in the first, petrol in the second, both lit at their surface (FIRE_BAND, from
+    // its top to its bottom), and oil sealed in the third (a glass lid at TUB_TOP) that can't burn:
+    // the petrol burns away, the oil burns down slowly.
+    const TUBS = [0.05, 0.3, 0.375, 0.625, 0.7, 0.95];
+    const TUB_TOP = 0.6;
+    const TUB_LIQUID = 0.8;
+    const ACID_POUR = [0.62, 0.72];
+    const FIRE_BAND = [0.77, 0.83];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -341,6 +353,7 @@ namespace PowderSandboxNri {
         if (material == 10) { return "salt"; }
         if (material == 11) { return "gunpowder"; }
         if (material == 12) { return "honey"; }
+        if (material == 13) { return "petrol"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -579,6 +592,8 @@ namespace PowderSandboxNri {
         air: boolean = true;
         // -bodies 0: no bodies_cs (no blocks made, none moving).
         bodies: boolean = true;
+        // (tubCount's last tub's liquid temperature)
+        private tubTemp: number = 0.0;
         // Sound (none with -mute, nor in tests but for -sound: the device opened, playing nothing): the
         // playback device, the events counted so far (each
         // frame's last step's, times its steps), each sound's time till it may play again.
@@ -622,6 +637,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
             this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
+            this.tiles.push(new Tile("Petrol", PETROL, 0.95, 0.88, 0.5));
             this.tiles.push(new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
             this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
@@ -1066,7 +1082,7 @@ namespace PowderSandboxNri {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
                 if (action == WATER || action == OIL || action == SAND || action == SALT || action == GUNPOWDER || action == LAVA
-                    || action == ACID || action == HONEY || action == FIRE) {
+                    || action == ACID || action == HONEY || action == PETROL || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -1922,6 +1938,23 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 11) {
+                // Oil and petrol lit; oil sealed away from the air.
+                this.addTubs(3);
+                this.addStroke(OIL, TUBS[0] + 0.005, TUB_LIQUID, TUBS[1], 1.0, WATER);
+                this.addStroke(PETROL, TUBS[2] + 0.005, TUB_LIQUID, TUBS[3], 1.0, WATER);
+                this.addStroke(OIL, TUBS[4] + 0.005, TUB_LIQUID, TUBS[5], 1.0, WATER);
+                this.addStroke(GLASS, TUBS[4], TUB_TOP - 0.01, TUBS[5] + 0.005, TUB_TOP, WATER);
+                for (let k = 0; k < 10; k++) {
+                    this.addStroke(FIRE, TUBS[0] + 0.03, FIRE_BAND[0], TUBS[1] - 0.03, FIRE_BAND[1], WATER);
+                    this.addStroke(FIRE, TUBS[2] + 0.03, FIRE_BAND[0], TUBS[3] - 0.03, FIRE_BAND[1], WATER);
+                }
+            } else if (this.scene == 10) {
+                // Acid poured over water, and into an empty tub.
+                this.addTubs(2);
+                this.addStroke(WATER, TUBS[0] + 0.005, TUB_LIQUID, TUBS[1], 1.0, WATER);
+                this.addStroke(ACID, TUBS[0] + 0.005, ACID_POUR[0], TUBS[1], ACID_POUR[1], WATER);
+                this.addStroke(ACID, TUBS[2] + 0.005, ACID_POUR[0], TUBS[3], ACID_POUR[1], WATER);
             } else if (this.scene == 9) {
                 // A block dropped into a pool floats; one standing half over a ledge tips off it.
                 this.addStroke(GLASS, BODY_POOL[0] - 0.005, BODY_POOL[1], BODY_POOL[0], 1.0, WATER);
@@ -1988,6 +2021,14 @@ namespace PowderSandboxNri {
             }
         }
 
+        // Scenes 10 and 11's glass tubs, the first n of TUBS.
+        addTubs(n: int) {
+            for (let k = 0; k < n; k++) {
+                this.addStroke(GLASS, TUBS[2 * k], TUB_TOP, TUBS[2 * k] + 0.005, 1.0, WATER);
+                this.addStroke(GLASS, TUBS[2 * k + 1], TUB_TOP, TUBS[2 * k + 1] + 0.005, 1.0, WATER);
+            }
+        }
+
         // The toolbar and the readout.
         buildUI() {
             Nri_ImguiNewFrame(this.sample);
@@ -2050,7 +2091,7 @@ namespace PowderSandboxNri {
             if (cell < WALL) {
                 contents = "";
                 for (let m = 0; m < PARTICLE_TYPES; m++) {
-                    const n = (this.probe[4 + (m >> 1)] >> (16 * (m & 1))) & 0xFFFF;
+                    const n = (this.probe[4 + Math.floor(m / 3)] >> (10 * (m % 3))) & 0x3FF;
                     if (n > 0) {
                         contents = `${contents}${contents == "" ? "" : ", "}${n} ${materialName(m + 1)}`;
                     }
@@ -2059,7 +2100,7 @@ namespace PowderSandboxNri {
                     contents = "air";
                 }
                 // (probe_cs puts the water's salinity last)
-                if ((this.probe[4] & 0xFFFF) > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
+                if ((this.probe[4] & 0x3FF) > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
                     contents = `${contents} (salinity ${formatFixed(100.0 * this.probeFloats[PROBE_INTS - 1], 0)}%)`;
                 }
             }
@@ -2409,6 +2450,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 10 || this.scene == 11) {
+                const error = this.checkChemistry(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
                 return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
             }
@@ -2426,6 +2473,11 @@ namespace PowderSandboxNri {
             } else if (this.scene == 4) {
                 expected.push(1);
             } else if (this.scene == 5) {
+                expected.push(2);
+                expected.push(3);
+            } else if (this.scene == 10) {
+                expected.push(1);
+            } else if (this.scene == 11) {
                 expected.push(2);
                 expected.push(3);
             }
@@ -2479,8 +2531,8 @@ namespace PowderSandboxNri {
             const gridPixels = Math.min(this.gridW * this.gridH * this.cellPixels * this.cellPixels, pixels.length);
             const share = 100.0 * blue / gridPixels;
             console.log(`Water: ${formatFixed(share, 1)}% of the grid`);
-            // (a turned U-tube is a narrow grid between margins; scene 8 has no water)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 ? 0.0 : 1.0);
+            // (a turned U-tube is a narrow grid between margins; scenes 8 and 11 have no water)
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the grid, not ${formatFixed(minShare, 0)} to 50%`;
@@ -2598,8 +2650,9 @@ namespace PowderSandboxNri {
                 return false;
             }
             let n = 0;
-            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9), GUNPOWDER (10) and HONEY (11)
-            for (const k of [0, 1, 2, 7, 8, 9, 10, 11]) {
+            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9), GUNPOWDER (10), HONEY (11) and
+            // PETROL (12)
+            for (const k of [0, 1, 2, 7, 8, 9, 10, 11, 12]) {
                 n += grid[(I_COUNT + k) * this.stride + c];
             }
             return n > 0;
@@ -2647,6 +2700,73 @@ namespace PowderSandboxNri {
             const croppedSides = this.gridW < this.gridH;
             if (this.regrid == 2 && (croppedSides ? used == 0 || used >= this.regridCount : used != this.regridCount)) {
                 return `the turned grid kept ${used} of ${this.regridCount} particles`;
+            }
+            return "";
+        }
+
+        // A particle type's count in a tub of TUBS (k), and its cells' mean temperature (where there's
+        // liquid, from floats' F_TCELL) into this.tubTemp.
+        tubCount(grid: int[], floats: f32[], k: int, material: int): int {
+            const w = this.gridW;
+            const h = this.gridH;
+            const x0: int = Math.floor(TUBS[2 * k] * w) + 1;
+            const x1: int = Math.floor(TUBS[2 * k + 1] * w);
+            const y0: int = Math.floor(TUB_TOP * h);
+            let n = 0;
+            let tempSum = 0.0;
+            let liquidCells = 0;
+            for (let y = y0; y < h - 1; y++) {
+                for (let x = x0; x < x1; x++) {
+                    const c = y * w + x;
+                    n += grid[(I_COUNT + material - 1) * this.stride + c];
+                    if (grid[(I_COUNT + WATER - 1) * this.stride + c] > 0) {
+                        tempSum += floats[10 * this.stride + c];
+                        liquidCells++;
+                    }
+                }
+            }
+            this.tubTemp = liquidCells > 0 ? tempSum / liquidCells : 0.0;
+            return n;
+        }
+
+        // Scene 10: the water diluted its acid (under half what the other tub holds) and was warmed by
+        // it; scene 11: the petrol burned away (under a tenth of the sealed oil), the open oil burned
+        // but slowly (between a third and 95% of the sealed oil). Without the reactions, each tub keeps
+        // what was poured.
+        checkChemistry(grid: int[]): string {
+            const floatReadback = this.floatReadback;
+            if (!floatReadback) {
+                return "cannot read the grid back";
+            }
+            const floats: f32[] = [];
+            for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
+                floats.push(0.0);
+            }
+            if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0) {
+                return "cannot read the grid back";
+            }
+            if (this.scene == 10) {
+                const diluted = this.tubCount(grid, floats, 0, ACID);
+                const waterTemp = this.tubTemp;
+                const kept = this.tubCount(grid, floats, 1, ACID);
+                console.log(`Chemistry: acid ${diluted} over water (the water at ${formatFixed(waterTemp, 1)} C), ${kept} alone`);
+                if (kept == 0 || diluted >= 0.5 * kept) {
+                    return `the water didn't dilute the acid: ${diluted} left of the ${kept} alone`;
+                }
+                if (waterTemp < 23.0) {
+                    return `the acid didn't warm the water: ${formatFixed(waterTemp, 1)} C`;
+                }
+                return "";
+            }
+            const oil = this.tubCount(grid, floats, 0, OIL);
+            const petrol = this.tubCount(grid, floats, 1, PETROL);
+            const sealed = this.tubCount(grid, floats, 2, OIL);
+            console.log(`Chemistry: oil ${oil} lit, petrol ${petrol} lit, oil ${sealed} sealed`);
+            if (sealed == 0 || petrol >= 0.1 * sealed) {
+                return `the petrol didn't burn away: ${petrol} left (the sealed oil ${sealed})`;
+            }
+            if (oil >= 0.95 * sealed || oil < sealed / 3) {
+                return `the oil didn't burn slowly: ${oil} left of the sealed oil's ${sealed}`;
             }
             return "";
         }

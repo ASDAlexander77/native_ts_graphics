@@ -82,8 +82,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define SALT 10
 #define GUNPOWDER 11
 #define HONEY 12
+#define PETROL 13
 // Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 12
+#define PARTICLE_TYPES 13
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -118,8 +119,11 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define ICE_TEMP -30.0
 #define LATENT_ICE 80.0
 #define LATENT_STONE 200.0
-// How often (per second) an acid particle next to a solid eats it, through the face it tries.
+// How often (per second) an acid particle next to a solid eats it, through the face it tries; and
+// in water, dilutes into it (becoming water), DILUTE_HEAT warmer: much acid in little water boils.
 #define ACID_RATE 2.0
+#define DILUTE_RATE 0.5
+#define DILUTE_HEAT 80.0
 // Salt water: a WATER particle's life is its salinity (0 fresh .. 1 as salty as it gets), which
 // makes it up to SALT_DENSITY denser. Salt in water dissolves at DISSOLVE_RATE a second (into a
 // particle of salinity 1) while its cell's water is under SATURATED; the water in a cell evens its
@@ -136,6 +140,19 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define BLAST_VOLUME 1.5
 #define BLAST_TEMP 1500.0
 #define BLAST_SPEED 150.0
+// Oil and petrol burn where they're open to the air, from fire in their cell or beside it, or from
+// heat. Oil slowly: a particle there turns to fire CATCH_OIL times a second (living OIL_BURN seconds
+// and more), so a burning slick lasts. Petrol catches CATCH_PETROL times a second (heated to
+// IGNITE_PETROL), so its heat lights it through, then burns hot and short with a whoosh: a grain in
+// PETROL_WHOOSH blasts, as gunpowder's do.
+#define IGNITE_OIL 250.0
+#define CATCH_OIL 1.0
+#define OIL_BURN 3.0
+#define IGNITE_PETROL 200.0
+#define CATCH_PETROL 40.0
+#define PETROL_BURN 0.4
+#define PETROL_FIRE_TEMP 1200.0
+#define PETROL_WHOOSH 8
 // Viscosity, in cells^2 a second (its velocity diffusing that fast): honey's, and lava's from cold
 // (where it sets) to LAVA_TEMP. Water, oil and acid have none.
 #define HONEY_VISCOSITY 10000.0
@@ -299,7 +316,7 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= HONEY);
+    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= PETROL);
 }
 
 // Powders pile (static friction) instead of flowing level.
@@ -315,7 +332,7 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : 1.0))))));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : (m == PETROL ? 0.7 : 1.0)))))));
 }
 
 // A particle's density: its material's, salt water's by its salinity.
@@ -469,7 +486,7 @@ int countOf(uint material, int x, int y)
 int flipCount(int x, int y)
 {
     return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
-        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y);
+        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y) + countOf(PETROL, x, y);
 }
 
 // A cell's side o's neighbor, as an offset: 0 left, 1 right, 2 up, 3 down. (Worked out, not a local
@@ -483,6 +500,38 @@ int2 sideOffset(int o)
 bool fluidCell(int x, int y)
 {
     return inGrid(x, y) && !solidCell(x, y) && flipCount(x, y) > 0;
+}
+
+// A side open to the air (in the grid, not solid, no liquid or powder in it): where oil can burn.
+bool airBeside(int x, int y)
+{
+    for (int o = 0; o < 4; o++)
+    {
+        const int2 n = int2(x, y) + sideOffset(o);
+        if (inGrid(n.x, n.y) && !solidCell(n.x, n.y) && flipCount(n.x, n.y) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Fire in the cell or a side's.
+bool fireBeside(int x, int y)
+{
+    if (countOf(FIRE, x, y) > 0)
+    {
+        return true;
+    }
+    for (int o = 0; o < 4; o++)
+    {
+        const int2 n = int2(x, y) + sideOffset(o);
+        if (inGrid(n.x, n.y) && countOf(FIRE, n.x, n.y) > 0)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 float gf(uint section, uint index)
@@ -788,7 +837,7 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     {
         InterlockedAdd(u_GridInt[gi(I_SALT, c)], int(round(p.life * SALT_SCALE)));
     }
-    if (p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER)
+    if ((p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER) || (p.type == PETROL && p.temp >= IGNITE_PETROL && id.x % PETROL_WHOOSH == 0))
     {
         InterlockedAdd(u_GridInt[gi(I_BLAST, c)], 1);
     }
@@ -2438,6 +2487,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     bool kill = g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(p.pos);
     // (from the temperature p2g_cs saw, so each grain that went off there blasts once)
     const bool goesOff = p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER;
+    const bool petrolLit = p.type == PETROL && p.temp >= IGNITE_PETROL;
     bool splash = false;
     bool fizz = false;
     const int cx = clamp(int(floor(p.pos.x)), 0, w - 1);
@@ -2571,6 +2621,22 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         p.type = WATER;
         p.life = 1.0;
     }
+    else if (p.type == ACID && countOf(WATER, cx, cy) >= 1 && random01(seedOf(index, 14)) < DILUTE_RATE * dt)
+    {
+        p.type = WATER;
+        p.life = 0.0;
+        p.temp += DILUTE_HEAT;
+        fizz = true;
+    }
+
+    // Oil and petrol beside fire catch: heated to where they light (below). Only at their surface
+    // (open to the air: the fire's heat would light a pool through), oil burning down from it.
+    const bool exposed = (p.type == OIL || p.type == PETROL) && airBeside(cx, cy);
+    const bool lit = exposed && (p.temp >= (p.type == OIL ? IGNITE_OIL : IGNITE_PETROL) || fireBeside(cx, cy));
+    if (p.type == PETROL && !petrolLit && lit && random01(seedOf(index, 15)) < CATCH_PETROL * dt)
+    {
+        p.temp = max(p.temp, IGNITE_PETROL);
+    }
 
     // What the temperature does. Gunpowder goes off; salt water boiling leaves its salt (as often
     // as it's salty).
@@ -2595,10 +2661,18 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         p.type = WATER;
     }
-    else if (p.type == OIL && p.temp >= 250.0)
+    else if (p.type == OIL && lit && random01(seedOf(index, 15)) < CATCH_OIL * dt)
     {
         p.type = FIRE;
-        p.life = 1.5 + random01(seedOf(index, 5));
+        p.life = OIL_BURN + 2.0 * random01(seedOf(index, 5));
+    }
+    else if (petrolLit)
+    {
+        // (lit last step, its whoosh in that step's pressure)
+        p.type = FIRE;
+        p.temp = PETROL_FIRE_TEMP;
+        p.life = PETROL_BURN + 0.3 * random01(seedOf(index, 16));
+        p.vel.y -= 30.0;
     }
     else if (p.type == FIRE)
     {
@@ -2675,7 +2749,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     countEvent(EVENT_SPLASH, splash);
     countEvent(EVENT_FIZZ, fizz);
     countEvent(EVENT_FIRE, p.type == FIRE && !kill);
-    countEvent(EVENT_BOOM, goesOff);
+    countEvent(EVENT_BOOM, goesOff || (petrolLit && index % PETROL_WHOOSH == 0));
     if (kill)
     {
         p.type = EMPTY;
@@ -2857,13 +2931,17 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     u_Alloc[A_PROBE + 0] = asint(gf(F_TCELL, c));
     u_Alloc[A_PROBE + 1] = asint(gf(F_P, c) / (g_C.dt * g_C.gravity));
     u_Alloc[A_PROBE + 2] = int(u_Cells[c]);
-    // The counts two to an int (16 bits each, the odd types' low), from A_PROBE + 3 up to under the
-    // salinity at A_LIST - 1: up to 22 types. (u_Alloc is saved, so A_LIST stays put.)
-    for (uint k = 0; k < (PARTICLE_TYPES + 1) / 2; k++)
+    // The counts three to an int (10 bits each, the first type of three lowest), from A_PROBE + 3
+    // up to under the wind at A_PROBE + 9: up to 18 types. (u_Alloc is saved, so A_LIST stays put.)
+    for (uint k = 0; k < (PARTICLE_TYPES + 2) / 3; k++)
     {
-        const uint m = WATER + 2 * k;
-        const uint high = m + 1 <= PARTICLE_TYPES ? min(uint(countOf(m + 1, x, y)), 0xFFFFu) : 0u;
-        u_Alloc[A_PROBE + 3 + k] = int(min(uint(countOf(m, x, y)), 0xFFFFu) | (high << 16));
+        uint packed = 0u;
+        for (uint j = 0; j < 3; j++)
+        {
+            const uint m = WATER + 3 * k + j;
+            packed |= (m <= PARTICLE_TYPES ? min(uint(countOf(m, x, y)), 1023u) : 0u) << (10 * j);
+        }
+        u_Alloc[A_PROBE + 3 + k] = int(packed);
     }
     u_Alloc[A_LIST - 1] = asint(cellSalinity(c, x, y));
     // The wind there (u_Alloc[A_PROBE + 9 .. 10], under A_WIND).
@@ -2948,6 +3026,7 @@ float3 materialColor(uint m)
     case SALT: return float3(0.92, 0.92, 0.95);
     case GUNPOWDER: return float3(0.2, 0.2, 0.22);
     case HONEY: return float3(0.85, 0.55, 0.1);
+    case PETROL: return float3(0.95, 0.88, 0.5);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -2995,7 +3074,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float salt = sampleCount(g, SALT);
     const float gunpowder = sampleCount(g, GUNPOWDER);
     const float honey = sampleCount(g, HONEY);
-    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey;
+    const float petrol = sampleCount(g, PETROL);
+    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey + petrol;
     if (total > 0.01)
     {
         // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
@@ -3003,8 +3083,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
         const float3 waterColor = lerp(materialColor(WATER), float3(0.1, 0.55, 0.62), salinity);
         float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
             + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)
-            + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY)) / total;
-        if (sand + salt + gunpowder > water + oil + lava + acid + honey)
+            + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY) + petrol * materialColor(PETROL)) / total;
+        if (sand + salt + gunpowder > water + oil + lava + acid + honey + petrol)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
