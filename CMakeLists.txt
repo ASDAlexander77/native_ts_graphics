@@ -1470,6 +1470,9 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX bodies ARGS -scene 9 -testFram
 # A level from its file (media/powder_sandbox/scenes/test_fill.json): an emitter fills a cup, the
 # level's goal.
 add_tslang_example_test(powder_sandbox_nri SUFFIX level ARGS -sceneFile test_fill -testFrames 600)
+# Acid diluted by water (and warming it); oil and petrol lit: the petrol burns away, the oil slowly.
+add_tslang_example_test(powder_sandbox_nri SUFFIX acid ARGS -scene 10 -testFrames 900)
+add_tslang_example_test(powder_sandbox_nri SUFFIX burning ARGS -scene 11 -testFrames 900)
 # Auto quality, its budget set below any GPU's step time: the grid is made smaller.
 add_tslang_example_test(powder_sandbox_nri SUFFIX quality ARGS -scene 2 -testFrames 300 -stepBudget 0.01)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.

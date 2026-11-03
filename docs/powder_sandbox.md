@@ -25,7 +25,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
-  (wind), `-scene 9` (blocks), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  (wind), `-scene 9` (blocks), `-scene 10` (acid in water), `-scene 11` (oil and petrol burning),
+  `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
 
@@ -310,6 +311,29 @@ format is unchanged (version 2): the new state lives in the particles.
   - `-gridHeight N` sets the size (no auto quality); `-quality fixed` turns it off, `calibrate`
     measures again. Tests don't measure (or read the cache) unless asked: `-stepBudget ms` measures
     against that budget without caching it.
-  - On the desktop the step is 0.2 to 0.3 ms, so the grid stays 144 high; the phone's is still to be
-    measured.
+  - On the desktop the step is 0.2 to 0.3 ms, so the grid stays 144 high. The Galaxy S23 takes
+    7.5 ms a step at 144 x 279 (viscosity, air and blocks about 0.15 ms of it), so it calibrates to
+    80 x 155.
   - **Test** `quality`: a budget of 0.01 ms: the showcase starts on a 145 x 72 grid.
+
+### 7. Chemistry (done)
+
+- **Acid in water**: acid sharing a cell with water dilutes into it at `DILUTE_RATE` 0.5 a second,
+  becoming water `DILUTE_HEAT` 80 °C warmer (a fizz). It sinks under the water and is used up from
+  where they meet; much acid in little water boils it.
+- **Oil burns**: it catches from fire in its cell or beside it, or from heat (250 °C), only where
+  it's open to the air (a side with no liquid or powder in it). Fire's heat alone lit a pool through
+  at once; and a particle lit there turns to fire `CATCH_OIL` once a second on average (its fire
+  living 3 to 5 s), so a burning slick burns down from its surface over many seconds.
+- **Petrol** (type 13, density 0.7: it floats on oil): catches from fire `CATCH_PETROL` 40 times a
+  second, and from 200 °C heat anywhere, so a pool goes up in a second or two. Lit, it burns hot
+  (1200 °C) and short, flung up, and one particle in `PETROL_WHOOSH` 8 blasts as gunpowder's grains
+  do (a whoosh that pushes the air, and a boom).
+- The probe's readback packs the counts three to an int (10 bits each), room for 18 types. The save
+  format is unchanged (version 3): the counts aren't saved.
+- **Test scene 10**: acid poured over water in one glass tub and into an empty one. After 5 s the
+  water's tub keeps about a ninth of the other's acid and is about 40 °C; with dilution off both
+  keep it all and the test fails.
+- **Test scene 11**: oil and petrol pools, both lit at their surface, and oil sealed under a glass
+  lid. After 5 s the petrol is gone, the open oil keeps about two thirds of the sealed oil's; with
+  catching off the oil doesn't burn and the test fails.
