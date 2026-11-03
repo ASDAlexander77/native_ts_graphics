@@ -60,7 +60,11 @@ namespace PowderSandboxNri {
     // gridFloat sections, and u_Alloc's free list's start.
     // (probe_cs packs the counts three to an int, 10 bits each, from u_Alloc[4], under the wind at
     // u_Alloc[10]: up to 18 types)
-    const PARTICLE_TYPES = 13;
+    const PARTICLE_TYPES = 14;
+    // The glow's sections past INT_SECTIONS (powder_sandbox.hlsl's I_GLOW, GLOW_SECTIONS, GLOW_SCALE).
+    const I_GLOW = 6 + PARTICLE_TYPES + 9;
+    const GLOW_SECTIONS = 6;
+    const GLOW_SCALE = 4096.0;
     const INT_SECTIONS = 6 + PARTICLE_TYPES + 9;
     // The step's events for sound (I_EVENTS: splash, fizz, fire, boom), read back after the probe's
     // ints.
@@ -124,6 +128,7 @@ namespace PowderSandboxNri {
     const SAND = 3;
     const FIRE = 4;
     const SMOKE = 5;
+    const EMBER = 14;
     const LAVA = 8;
     const ACID = 9;
     const SALT = 10;
@@ -173,11 +178,15 @@ namespace PowderSandboxNri {
     const AIR = 21;
     const BODIES = 22;
     const GOAL = 23;
+    const GLOW_EMIT = 24;
+    const GLOW_X = 25;
+    const GLOW_Y = 26;
     // The floats at u_Multigrid's start that hold the air's faces (powder_sandbox.hlsl's AIR_FLOATS).
     const AIR_FLOATS = 3040;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs", "goal_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs", "goal_cs",
+        "glow_emit_cs", "glow_x_cs", "glow_y_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -205,13 +214,18 @@ namespace PowderSandboxNri {
     const ACTION_LOAD = 108;
     const ACTION_LEVEL = 109;
     // The Gravity tile cycles the gravity: down, off, toward a point (GRAVITY_PLACE then the tool,
-    // a tap on the grid moving the point).
+    // a tap on the grid moving the point), or the phone's down (its gravity sensor's, across the
+    // screen; held while it lies flat, under TILT_FLAT g across it; down with no sensor, or -tilt
+    // x y's direction).
     const ACTION_GRAVITY = 110;
     const GRAVITY_DOWN = 0;
     const GRAVITY_OFF = 1;
     const GRAVITY_POINT = 2;
-    const GRAVITY_NAMES = ["down", "off", "point"];
-    const GRAVITY_LABELS = ["Gravity", "No gravity", "Attract"];
+    const GRAVITY_TILT = 3;
+    const GRAVITY_NAMES = ["down", "off", "point", "tilt"];
+    const GRAVITY_LABELS = ["Gravity", "No gravity", "Attract", "Tilt"];
+    const TILT_FLAT = 0.15;
+    const STANDARD_GRAVITY = 9.81;
     const GRAVITY_PLACE = 37;
     // Levels: their files (LEVEL_DIRECTORY<name>.json), the ones the Levels tile goes through listed
     // in LEVEL_DIRECTORY/index.json ({ "levels": [names] }). A level: { "name": "...", "goal":
@@ -312,6 +326,11 @@ namespace PowderSandboxNri {
     const GAS_PROBE = [0.5, 0.65];
     const PLUME_WIND = 10.0;
     const SMOKE_SPREAD = 0.25;
+    // (and the fire glows: red light GLOW_BESIDE cells beside the wood, over GLOW_NEAR, under GLOW_FAR
+    // at the grid's side; it throws embers)
+    const GLOW_BESIDE = 6;
+    const GLOW_NEAR = 0.05;
+    const GLOW_FAR = 0.005;
     // Scene 13: a block of water and one of sand in mid-air (BLOBS: each one's x0, y0, x1, y1).
     // With -gravity off they stay (their centers within BLOB_DRIFT cells); toward the point (the
     // grid's center), they gather round it (their mean distance from it under GATHERED of where
@@ -319,6 +338,9 @@ namespace PowderSandboxNri {
     const BLOBS = [0.3, 0.3, 0.45, 0.55, 0.55, 0.3, 0.7, 0.55];
     const BLOB_DRIFT = 3.0;
     const GATHERED = 0.75;
+    // Tilted (-tilt), they fall that way: their centers TILT_FALL cells at least along it, and over
+    // twice as far as across it.
+    const TILT_FALL = 15.0;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -383,6 +405,7 @@ namespace PowderSandboxNri {
         if (material == 11) { return "gunpowder"; }
         if (material == 12) { return "honey"; }
         if (material == 13) { return "petrol"; }
+        if (material == 14) { return "ember"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -628,6 +651,12 @@ namespace PowderSandboxNri {
         gravityMode: int = GRAVITY_DOWN;
         private gravityX: number = -1.0;
         private gravityY: number = -1.0;
+        // Tilting: the gravity's direction across the grid (a unit vector), whether -tilt set it, and
+        // the sensor's reading.
+        private tiltX: number = 0.0;
+        private tiltY: number = 1.0;
+        tiltFixed: boolean = false;
+        private sensed: number[] = [0.0, 0.0, 0.0];
         private toolBeforePlace: int = WATER;
         // handleInput's brush shape and cursor (constants[27], the gravity's mode above them).
         private shapeWord: int = 0;
@@ -837,7 +866,7 @@ namespace PowderSandboxNri {
             // coarser levels (for the longest grid, either way around).
             const multigridSize = (AIR_FLOATS + Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
                 multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG))) * 4;
-            const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
+            const sizes = [CAPACITY * PARTICLE_SIZE, (INT_SECTIONS + GLOW_SECTIONS) * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
                 GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4, multigridSize];
             const strides = [PARTICLE_SIZE, 4, 4, 4, 4, 4];
             for (const size of sizes) {
@@ -904,7 +933,7 @@ namespace PowderSandboxNri {
                 Nri_UpdateDescriptor(drawSet, i, 0, this.shaderViews[i]);
             }
             if (this.test) {
-                this.testReadback = Nri_CreateReadbackBuffer(device, INT_SECTIONS * GRID_CAPACITY * 4);
+                this.testReadback = Nri_CreateReadbackBuffer(device, (INT_SECTIONS + GLOW_SECTIONS) * GRID_CAPACITY * 4);
                 this.cellsReadback = Nri_CreateReadbackBuffer(device, GRID_CAPACITY * 4);
                 this.floatReadback = Nri_CreateReadbackBuffer(device, FLOAT_SECTIONS * GRID_CAPACITY * 4);
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
@@ -1315,8 +1344,40 @@ namespace PowderSandboxNri {
             this.setFloat(25, this.mouseGridX);
             this.setFloat(26, this.mouseGridY);
             this.setInt(27, this.shapeWord | (this.gravityMode << 8));
-            this.setFloat(30, this.gravityPointX());
-            this.setFloat(31, this.gravityPointY());
+            // (tilted: the gravity's direction instead of the point)
+            const tilted = this.gravityMode == GRAVITY_TILT;
+            if (tilted && !this.tiltFixed) {
+                this.readTilt();
+            } else {
+                Nri_GetGravity(0, Ref(this.sensed[0]));
+            }
+            this.setFloat(30, tilted ? this.tiltX : this.gravityPointX());
+            this.setFloat(31, tilted ? this.tiltY : this.gravityPointY());
+        }
+
+        // The phone's down across the screen (the grid's axes are the window's), from its gravity
+        // sensor; kept while it lies flat (under TILT_FLAT g across the screen) or there's no reading.
+        readTilt() {
+            if (Nri_GetGravity(1, Ref(this.sensed[0])) == 0) {
+                return;
+            }
+            const x = this.sensed[0];
+            const y = this.sensed[1];
+            const across = Math.sqrt(x * x + y * y);
+            if (across > TILT_FLAT * STANDARD_GRAVITY) {
+                this.tiltX = x / across;
+                this.tiltY = y / across;
+            }
+        }
+
+        // -tilt x y: the tilted gravity's direction, instead of the sensor's.
+        setTilt(x: number, y: number) {
+            const length = Math.sqrt(x * x + y * y);
+            if (length > 0.0) {
+                this.tiltX = x / length;
+                this.tiltY = y / length;
+                this.tiltFixed = true;
+            }
         }
 
         // The attraction point, in the grid (its center until one's placed).
@@ -1532,7 +1593,7 @@ namespace PowderSandboxNri {
             } else {
                 this.loadW = header[2];
                 this.loadH = header[3];
-                this.gravityMode = header[1] == 3 ? GRAVITY_DOWN : Math.min(Math.max(header[5], 0), GRAVITY_POINT);
+                this.gravityMode = header[1] == 3 ? GRAVITY_DOWN : Math.min(Math.max(header[5], 0), GRAVITY_TILT);
                 this.gravityX = header[1] == 3 ? -1.0 : header[6] / 256.0;
                 this.gravityY = header[1] == 3 ? -1.0 : header[7] / 256.0;
                 loadBuffer = Nri_CreateStorageBufferFromFile(device, this.queue, file, headerInts * 4, this.stateSize, 4,
@@ -1584,6 +1645,17 @@ namespace PowderSandboxNri {
             Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, this.computeSet);
             Nri_CmdDispatch(commandBuffer, Math.floor((count + GROUP_SIZE - 1) / GROUP_SIZE), 1, 1);
             this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
+        }
+
+        // The glow, from the frame's last step: the cells' light, blurred along x then y.
+        recordGlow(commandBuffer: NriCommandBufferHandle) {
+            if (!this.computeLayout) {
+                return;
+            }
+            const cells = this.gridW * this.gridH;
+            this.dispatch(commandBuffer, GLOW_EMIT, cells, B_GRID_INT);
+            this.dispatch(commandBuffer, GLOW_X, cells, B_GRID_INT);
+            this.dispatch(commandBuffer, GLOW_Y, cells, B_GRID_INT);
         }
 
         // steps: the simulation's fixed steps this frame (0 when the frame took less than one).
@@ -2320,6 +2392,7 @@ namespace PowderSandboxNri {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
                 }
                 this.recordSimulation(commandBuffer, brushMode, steps);
+                this.recordGlow(commandBuffer);
                 queuedFrame.steps = this.paused ? 0 : steps;
                 const timestampReadback = queuedFrame.timestampReadback;
                 if (queryPool) {
@@ -2355,7 +2428,7 @@ namespace PowderSandboxNri {
                 if (testReadback) {
                     if (frameIndex == this.testFrames - 1) {
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.Storage, NriBufferState.CopySource);
-                        Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], INT_SECTIONS * this.stride * 4);
+                        Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], (INT_SECTIONS + GLOW_SECTIONS) * this.stride * 4);
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.CopySource, NriBufferState.Storage);
                         const cellsReadback = this.cellsReadback;
                         if (cellsReadback) {
@@ -2462,7 +2535,7 @@ namespace PowderSandboxNri {
             }
             Nri_DeviceWaitIdle(device);
             const grid: int[] = [];
-            for (let i = 0; i < INT_SECTIONS * this.stride; i++) {
+            for (let i = 0; i < (INT_SECTIONS + GLOW_SECTIONS) * this.stride; i++) {
                 grid.push(0);
             }
             if (Nri_ReadBufferInts(testReadback, Ref(grid[0]), grid.length) == 0) {
@@ -2894,6 +2967,22 @@ namespace PowderSandboxNri {
             }
             const spread = right >= left ? (right - left + 1) / w : 0.0;
             console.log(`Gases: the air ${formatFixed(-windY, 1)} cells a second up above the fire; ${smoke} smoke under the ceiling, over ${formatFixed(100.0 * spread, 0)}% of the width`);
+            // The glow's red, beside the wood (a little above its top) and at the grid's side.
+            const glowY: int = Math.floor(GAS_WOOD[1] * h) + 2;
+            const nearX: int = Math.floor(GAS_WOOD[2] * w) + GLOW_BESIDE;
+            const near = grid[I_GLOW * this.stride + glowY * w + nearX] / GLOW_SCALE;
+            const far = grid[I_GLOW * this.stride + glowY * w + 1] / GLOW_SCALE;
+            let embers = 0;
+            for (let i = 0; i < w * h; i++) {
+                embers += grid[(I_COUNT + EMBER - 1) * this.stride + i];
+            }
+            console.log(`Glow: ${formatFixed(near, 3)} beside the fire, ${formatFixed(far, 4)} at the side; ${embers} embers`);
+            if (near < GLOW_NEAR || far > GLOW_FAR) {
+                return `the fire's glow: ${formatFixed(near, 3)} beside it (under ${formatFixed(GLOW_NEAR, 2)}?), ${formatFixed(far, 4)} at the side (over ${formatFixed(GLOW_FAR, 3)}?)`;
+            }
+            if (embers == 0) {
+                return "the fire threw no embers";
+            }
             if (-windY < PLUME_WIND) {
                 return `the plume didn't drive the air: ${formatFixed(-windY, 1)} cells a second up, under ${formatFixed(PLUME_WIND, 0)}`;
             }
@@ -2941,6 +3030,16 @@ namespace PowderSandboxNri {
                 }
                 if (this.gravityMode == GRAVITY_POINT && distance > GATHERED * startDistance) {
                     return `the ${materialName(material)} didn't gather round the point: ${formatFixed(distance, 1)} cells from it (it began ${formatFixed(startDistance, 1)})`;
+                }
+                if (this.gravityMode == GRAVITY_TILT) {
+                    const dx = sumX / n - startX;
+                    const dy = sumY / n - startY;
+                    const along = dx * this.tiltX + dy * this.tiltY;
+                    const across = Math.abs(dy * this.tiltX - dx * this.tiltY);
+                    console.log(`Tilted (${formatFixed(this.tiltX, 2)}, ${formatFixed(this.tiltY, 2)}): the ${materialName(material)} fell ${formatFixed(along, 1)} cells that way, ${formatFixed(across, 1)} across`);
+                    if (along < TILT_FALL || across * 2.0 > along) {
+                        return `the ${materialName(material)} didn't fall the way it's tilted: ${formatFixed(along, 1)} cells along it, ${formatFixed(across, 1)} across`;
+                    }
                 }
             }
             return "";
@@ -3410,6 +3509,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-bodies", 1);
         Nri_AddExampleOption(sample, "-mute");
         Nri_AddExampleOptionWithValues(sample, "-gravity", 1);
+        Nri_AddExampleOptionWithValues(sample, "-tilt", 2);
         Nri_AddExampleOption(sample, "-sound");
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
@@ -3460,6 +3560,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-mute") {
                 sandbox.mute = true;
+            } else if (arg == "-tilt" && i + 2 < argc) {
+                sandbox.setTilt(parseFloat(Nri_GetArg(argc, argv, i + 1)), parseFloat(Nri_GetArg(argc, argv, i + 2)));
+                i += 2;
             } else if (arg == "-gravity" && i + 1 < argc) {
                 sandbox.gravityMode = Math.max(GRAVITY_NAMES.indexOf(Nri_GetArg(argc, argv, i + 1)), 0);
                 i++;

@@ -84,8 +84,10 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define GUNPOWDER 11
 #define HONEY 12
 #define PETROL 13
+// A spark off fire or lava: carried up by the air, falling, cooling; it only shows (and glows).
+#define EMBER 14
 // Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 13
+#define PARTICLE_TYPES 14
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -202,6 +204,17 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define GAS_FULL 2.0
 // How long smoke lingers (seconds, up to twice as long): long enough to fill a room.
 #define SMOKE_LIFE 6.0
+// Embers: thrown off a fire particle EMBER_RATE times a second, off lava's surface LAVA_EMBER_RATE
+// times a second a cell; living EMBER_LIFE seconds (half to one and a half times), at EMBER_TEMP,
+// cooling at EMBER_COOLING a second, falling at EMBER_WEIGHT of the gravity, dragged toward the air
+// at EMBER_DRAG a second.
+#define EMBER_RATE 0.4
+#define LAVA_EMBER_RATE 0.15
+#define EMBER_LIFE 1.2
+#define EMBER_TEMP 900.0
+#define EMBER_COOLING 1.0
+#define EMBER_WEIGHT 0.25
+#define EMBER_DRAG 4.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -230,6 +243,17 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // a cell or water boiling, fire burning, gunpowder going off.
 #define I_EVENTS (I_TSUM + 8)
 #define INT_SECTIONS (I_TSUM + 9)
+// Past those (not cleared each step), the glow: the cells' light (fixed point, GLOW_SCALE at 1, red,
+// green and blue sections), blurred along x into I_GLOW_X, then along y back into I_GLOW, once a
+// frame (glow_emit_cs, glow_x_cs, glow_y_cs). A Gaussian of GLOW_SIGMA cells, out to GLOW_RADIUS;
+// shown GLOW_STRENGTH times over.
+#define I_GLOW INT_SECTIONS
+#define I_GLOW_X (INT_SECTIONS + 3)
+#define GLOW_SECTIONS 6
+#define GLOW_SCALE 4096.0
+#define GLOW_SIGMA 7.0
+#define GLOW_RADIUS 18
+#define GLOW_STRENGTH 3.0
 #define EVENT_SPLASH 0
 #define EVENT_FIZZ 1
 #define EVENT_FIRE 2
@@ -436,6 +460,8 @@ float3 heatColor(float t)
 #define GRAVITY_DOWN 0
 #define GRAVITY_OFF 1
 #define GRAVITY_POINT 2
+// (as strong, toward the unit direction (gravityX, gravityY): the phone's tilt)
+#define GRAVITY_TILT 3
 #define GRAVITY_CORE 2.0
 
 uint gravityMode()
@@ -541,6 +567,10 @@ float2 gravityAt(float2 pos)
         const float2 d = float2(g_C.gravityX, g_C.gravityY) - pos;
         const float len = length(d);
         return len > 1e-3 ? d / len * g_C.gravity * saturate(len / GRAVITY_CORE) : float2(0.0, 0.0);
+    }
+    if (mode == GRAVITY_TILT)
+    {
+        return float2(g_C.gravityX, g_C.gravityY) * g_C.gravity;
     }
     return float2(0.0, g_C.gravity);
 }
@@ -904,7 +934,8 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     const int cy = clamp(int(floor(p.pos.y)), 0, h - 1);
     const uint c = cellIndex(cx, cy);
     InterlockedAdd(u_GridInt[gi(I_COUNT + p.type - 1, c)], 1);
-    if (p.type != NEUTRON)
+    // (an ember's heat is only shown: it lights nothing)
+    if (p.type != NEUTRON && p.type != EMBER)
     {
         InterlockedAdd(u_GridInt[gi(I_TSUM, c)], int(round(p.temp * TEMP_SCALE)));
         InterlockedAdd(u_GridInt[gi(I_TCOUNT, c)], 1);
@@ -2594,7 +2625,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     const int cy = clamp(int(floor(p.pos.y)), 0, h - 1);
     const uint c = cellIndex(cx, cy);
 
-    if (p.type != NEUTRON)
+    if (p.type != NEUTRON && p.type != EMBER)
     {
         // The cell's change, then the particles sharing it evening out toward its mean (which the
         // change made F_TCELL, so the heat is kept): water in a cell with lava boils.
@@ -2690,6 +2721,18 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         {
             p.temp = lerp(p.temp, AMBIENT, saturate(GAS_COOLING * dt));
         }
+        moveParticle(p.pos, p.vel, p.vel * dt);
+    }
+    else if (p.type == EMBER)
+    {
+        // An ember: dragged along by the air (up a plume), falling a little, wandering, cooling; out
+        // in water, or once cool.
+        p.vel += gravityAt(p.pos) * EMBER_WEIGHT * dt;
+        p.vel = lerp(p.vel, airVelocity(p.pos), saturate(EMBER_DRAG * dt));
+        p.vel += (float2(random01(seedOf(index, 18)), random01(seedOf(index, 19))) - 0.5) * 300.0 * dt;
+        p.temp = lerp(p.temp, AMBIENT, saturate(EMBER_COOLING * dt));
+        p.life -= dt;
+        kill = kill || p.life <= 0.0 || countOf(WATER, cx, cy) > 0;
         moveParticle(p.pos, p.vel, p.vel * dt);
     }
     else
@@ -2973,6 +3016,23 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
     }
     if (m == EMPTY)
     {
+        // Embers off fire, and off lava's surface (with nothing above it, against the gravity).
+        const float dt = g_C.dt;
+        const int fires = min(countOf(FIRE, x, y), 4);
+        int2 down;
+        if (fires > 0 && random01(seedOf(c, 80)) < EMBER_RATE * float(fires) * dt)
+        {
+            spawn(EMBER, randomInCell(x, y, seedOf(c, 81)), randomDirection(seedOf(c, 83)) * 40.0, EMBER_TEMP,
+                EMBER_LIFE * (0.5 + random01(seedOf(c, 84))), 0, reserve);
+        }
+        else if (countOf(LAVA, x, y) >= 2 && gravityDown(float2(x, y) + 0.5, down) && flipCount(x - down.x, y - down.y) == 0
+            && !solidCell(x - down.x, y - down.y) && random01(seedOf(c, 85)) < LAVA_EMBER_RATE * dt)
+        {
+            spawn(EMBER, randomInCell(x - down.x, y - down.y, seedOf(c, 86)),
+                -float2(down) * 60.0 + randomDirection(seedOf(c, 88)) * 30.0, EMBER_TEMP,
+                EMBER_LIFE * (0.5 + random01(seedOf(c, 89))), 0, reserve);
+        }
+
         // Water cold enough freezes, lava cool enough sets (its particles end up inside the solid,
         // and g2p frees them).
         const float t = gf(F_TCELL, c);
@@ -3040,6 +3100,89 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
         {
             spawn(FIRE, randomInCell(x, y - 1, seedOf(c, 61)), float2(0, 0), 800.0, 0.6 + 0.6 * random01(seedOf(c, 63)), 0, reserve);
         }
+    }
+}
+
+// --- Glow ---
+
+// The light a cell gives off: what's hot enough to glow (solid, or with particles in it: not the hot
+// air), fire, embers, burning wood, uranium.
+float3 cellLight(int x, int y)
+{
+    const uint c = cellIndex(x, y);
+    const uint cell = u_Cells[c];
+    const uint m = cell & 0xFF;
+    float3 light = float3(0.0, 0.0, 0.0);
+    if (isSolidMaterial(m) || flipCount(x, y) > 0)
+    {
+        light += heatColor(gf(F_TCELL, c));
+    }
+    light += float3(1.0, 0.45, 0.1) * 0.35 * float(min(countOf(FIRE, x, y), 4));
+    light += float3(1.0, 0.55, 0.15) * 0.8 * float(min(countOf(EMBER, x, y), 2));
+    if (m == WOOD && (cell & BURNING) != 0)
+    {
+        light += float3(1.0, 0.4, 0.08) * 0.5;
+    }
+    else if (m == URANIUM)
+    {
+        light += float3(0.25, 0.8, 0.2) * 0.3;
+    }
+    return light;
+}
+
+[numthreads(256, 1, 1)]
+void glow_emit_cs(uint3 id : SV_DispatchThreadID)
+{
+    const uint c = id.x;
+    if (c >= g_C.gridW * g_C.gridH)
+    {
+        return;
+    }
+    const float3 light = cellLight(int(c % g_C.gridW), int(c / g_C.gridW));
+    u_GridInt[gi(I_GLOW, c)] = int(round(light.r * GLOW_SCALE));
+    u_GridInt[gi(I_GLOW + 1, c)] = int(round(light.g * GLOW_SCALE));
+    u_GridInt[gi(I_GLOW + 2, c)] = int(round(light.b * GLOW_SCALE));
+}
+
+// The glow's sections from, blurred along step into those at to (the grid's edge dark beyond).
+void glowBlur(uint c, int2 step, uint from, uint to)
+{
+    const int2 at = int2(int(c % g_C.gridW), int(c / g_C.gridW));
+    float3 sum = float3(0.0, 0.0, 0.0);
+    float weights = 0.0;
+    for (int i = -GLOW_RADIUS; i <= GLOW_RADIUS; i++)
+    {
+        // (the weight from i, not a table: see sideOffset)
+        const float weight = exp(-float(i * i) / (2.0 * GLOW_SIGMA * GLOW_SIGMA));
+        weights += weight;
+        const int2 s = at + step * i;
+        if (inGrid(s.x, s.y))
+        {
+            const uint n = cellIndex(s.x, s.y);
+            sum += weight * float3(float(u_GridInt[gi(from, n)]), float(u_GridInt[gi(from + 1, n)]), float(u_GridInt[gi(from + 2, n)]));
+        }
+    }
+    sum /= weights;
+    u_GridInt[gi(to, c)] = int(round(sum.r));
+    u_GridInt[gi(to + 1, c)] = int(round(sum.g));
+    u_GridInt[gi(to + 2, c)] = int(round(sum.b));
+}
+
+[numthreads(256, 1, 1)]
+void glow_x_cs(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < g_C.gridW * g_C.gridH)
+    {
+        glowBlur(id.x, int2(1, 0), I_GLOW, I_GLOW_X);
+    }
+}
+
+[numthreads(256, 1, 1)]
+void glow_y_cs(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < g_C.gridW * g_C.gridH)
+    {
+        glowBlur(id.x, int2(0, 1), I_GLOW_X, I_GLOW);
     }
 }
 
@@ -3150,6 +3293,7 @@ float3 materialColor(uint m)
     case GUNPOWDER: return float3(0.2, 0.2, 0.22);
     case HONEY: return float3(0.85, 0.55, 0.1);
     case PETROL: return float3(0.95, 0.88, 0.5);
+    case EMBER: return float3(1.0, 0.55, 0.15);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -3175,12 +3319,21 @@ float3 temperatureRamp(float t)
     return float3(saturate(x * 2.0), saturate(x * 2.0 - 0.7), saturate(x * 3.0 - 2.0));
 }
 
+#define SHIMMER 0.3
+
 float4 display_ps(float4 position : SV_Position) : SV_Target
 {
-    const float2 g = (position.xy - float2(g_C.viewX, g_C.viewY)) / g_C.cellPixels;
+    float2 g = (position.xy - float2(g_C.viewX, g_C.viewY)) / g_C.cellPixels;
     if (any(g < 0.0) || g.x >= float(g_C.gridW) || g.y >= float(g_C.gridH))
     {
         return float4(0.02, 0.02, 0.03, 1.0);
+    }
+    // Hot air shimmers: what's seen through it wavers (up to SHIMMER cells), the hotter the more.
+    {
+        const int2 a = int2(floor(g));
+        const float hot = isSolidMaterial(t_Cells[cellIndex(a.x, a.y)] & 0xFF) ? 0.0 : saturate((floatAt(F_TCELL, a.x, a.y) - 60.0) / 300.0);
+        g += SHIMMER * hot * float2(sin(g.y * 1.9 + g_C.time * 11.0), sin(g.x * 1.3 - g_C.time * 8.0 + g.y * 0.7));
+        g = clamp(g, 0.001, float2(g_C.gridW, g_C.gridH) - 0.001);
     }
     const int2 c = int2(floor(g));
     const uint cell = t_Cells[cellIndex(c.x, c.y)];
@@ -3229,6 +3382,9 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     {
         color = lerp(color, materialColor(NEUTRON), 0.85);
     }
+    // Embers: bright flickering specks, dimming as they cool.
+    const float ember = sampleCount(g, EMBER);
+    color += materialColor(EMBER) * saturate(ember * 2.0) * (0.75 + 0.25 * sin(g_C.time * 37.0 + g.x * 5.0 + g.y * 3.0));
 
     if (isSolidMaterial(m))
     {
@@ -3292,6 +3448,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     }
 
     color += heatColor(t);
+    // The glow round what's bright.
+    color += GLOW_STRENGTH * float3(sampleSection(g, I_GLOW), sampleSection(g, I_GLOW + 1), sampleSection(g, I_GLOW + 2)) / GLOW_SCALE;
 
     if (g_C.overlay == 1)
     {

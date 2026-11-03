@@ -1478,6 +1478,8 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX burning ARGS -scene 11 -testFr
 add_tslang_example_test(powder_sandbox_nri SUFFIX gases ARGS -scene 12 -testFrames 300)
 add_tslang_example_test(powder_sandbox_nri SUFFIX weightless ARGS -scene 13 -testFrames 300 -gravity off)
 add_tslang_example_test(powder_sandbox_nri SUFFIX attractor ARGS -scene 13 -testFrames 600 -gravity point)
+# Tilted to the right (the phone's gravity sensor's direction, set): they fall that way.
+add_tslang_example_test(powder_sandbox_nri SUFFIX tilted ARGS -scene 13 -testFrames 180 -gravity tilt -tilt 1 0)
 # Auto quality, its budget set below any GPU's step time: the grid is made smaller.
 add_tslang_example_test(powder_sandbox_nri SUFFIX quality ARGS -scene 2 -testFrames 300 -stepBudget 0.01)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.

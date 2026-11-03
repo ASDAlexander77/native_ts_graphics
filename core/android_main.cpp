@@ -42,6 +42,7 @@ extern "C" int main(int argc, char** argv);
 // core/nri/nri_interop.cpp
 extern "C" void Nri_SetDataDirectory(const char* directory);
 extern "C" void Nri_SetAndroidApp(struct android_app* app);
+extern "C" void Nri_SetAndroidActivity(ANativeActivity* activity);
 #else
 // core/donut_interop.cpp
 extern "C" void Donut_SetExecutablePath(const char* path);
@@ -291,6 +292,7 @@ extern "C" void android_main(struct android_app* app)
 #if TSLANG_ANDROID_NRI
         Nri_SetDataDirectory(folder.c_str());
         Nri_SetAndroidApp(app);
+        Nri_SetAndroidActivity(app->activity);
 #else
         Donut_SetExecutablePath((folder / name).c_str());
         glfwSetAndroidApp(app);
