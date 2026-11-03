@@ -518,11 +518,17 @@ The levels (step 6) as challenges: goals of more kinds, a clock and stars.
   tests); the Levels tile shows a level's best as it starts it.
 - **The challenges** (index.json's order): Light the lamp (bridge a gap in the wire), Fill the cup
   (open the dam), Grow a garden (water the seeds), Burn the logs, Feed the black hole (the sand in
-  a bin), Keep the cup dry (8 s under an emitter), Melt the ice (switch on the heaters around a
+  a bin), Keep the cup dry (10 s under a tank an emitter fills: from it, not the emitter, the water reaches the cup a few seconds in, so there is time to act; falling straight from the emitter, on the S23's grid, it was there within a second), Melt the ice (switch on the heaters around a
   tub of it), Set the lava (into the pool under its shelf: the pool moved there, as lava led to one
   beside the shelf cooled into a plug at the shelf's edge).
+- **Upright**: a level's grid is wider than tall whichever way the window is (on a phone held
+  upright, turned and drawn as a band, as the test scenes' are), since its boxes are laid out for one.
+  On the S23, held upright (a 144 x 279 grid), three challenges' solutions fell short before: the
+  lava fell twice as far and set on the way, the garden's bed was narrower, the dry cup's roof sat
+  too high above it. `-window W H` sizes the desktop's window (`-window 540 1170`: a phone's shape).
 - **Solutions**: a level's `"solution"` strokes (one way to reach its goal), painted at `-solve S`
   seconds in a test.
 - **Tests**: each challenge solved a second in earns 3 stars (`challenge_<name>`); untouched, its goal
   isn't reached (`unsolved_<name>`); Light the lamp solved at 4 s earns 2 stars, at 7 s 1. A goal
-  reached before the solution fails the test.
+  reached before the solution fails the test. `challenge_dry_upright` and `challenge_stone_upright`:
+  solved in an upright window (both fail with levels on an upright grid).
