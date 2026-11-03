@@ -29,7 +29,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   `-scene 12` (gases), `-scene 13 -gravity off|point|tilt` (no gravity, an attraction point, tilted),
   `-scene 14` (circuits), `-scene 15` .. `20` (electrolysis and neon, hydrogen and a fuse, thermite,
   nitroglycerin, C-4, coal), `-scene 21` .. `24` (clone, holes, sponge and seeds, switches),
-  `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  `-sceneFile test_fill` (a level's goal), `-sceneFile <challenge> -solve 1 -testStars 3` and
+  `-testStars 0` (each challenge solved, and untouched), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
 
@@ -499,3 +500,29 @@ After The Powder Toy's elements again (its source as the reference; none of its 
     600 °C, the other stays at 20.
   - With learning, the holes' pull, soaking, sprouting, the heater's warming and the switch's
     toggling off, all four fail.
+
+### 13. Challenges (done)
+
+The levels (step 6) as challenges: goals of more kinds, a clock and stars.
+
+- **Goals**: besides so many particles (or cells) of a material in a box, `"lit": true` counts only
+  lit cells (a lamp's: `goal_cs` reads the spark section's light), and `"atMost": true` turns the
+  count into a most, `"hold": S` asking for it to hold S seconds (a dry cup, burned logs). The goal is
+  judged from the probe of the frame it counted, at that frame's time. `goal_cs` now counts the
+  particle types from 40 up too (it took ids over 20 for solids).
+- **Clock and stars**: a level's clock starts once its strokes are painted and runs with the
+  simulation (not while paused), stopping when the goal's reached. `"stars": [T3, T2]`: 3 stars
+  within T3 seconds, 2 within T2, else 1. The HUD shows the goal, the time and the stars' times;
+  reached, the stars earned.
+- **Best stars**: kept for index.json's levels in `powder_sandbox.stars` beside the save (not by
+  tests); the Levels tile shows a level's best as it starts it.
+- **The challenges** (index.json's order): Light the lamp (bridge a gap in the wire), Fill the cup
+  (open the dam), Grow a garden (water the seeds), Burn the logs, Feed the black hole (the sand in
+  a bin), Keep the cup dry (8 s under an emitter), Melt the ice (switch on the heaters around a
+  tub of it), Set the lava (into the pool under its shelf: the pool moved there, as lava led to one
+  beside the shelf cooled into a plug at the shelf's edge).
+- **Solutions**: a level's `"solution"` strokes (one way to reach its goal), painted at `-solve S`
+  seconds in a test.
+- **Tests**: each challenge solved a second in earns 3 stars (`challenge_<name>`); untouched, its goal
+  isn't reached (`unsolved_<name>`); Light the lamp solved at 4 s earns 2 stars, at 7 s 1. A goal
+  reached before the solution fails the test.

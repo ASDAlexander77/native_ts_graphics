@@ -1,0 +1,13 @@
+{
+    "name": "Feed the black hole",
+    "goal": { "text": "sand left", "material": "sand", "box": [0.0, 0.0, 1.0, 1.0], "count": 50, "atMost": true, "hold": 1 },
+    "stars": [5, 8],
+    "strokes": [
+        { "tool": "glass", "box": [0.4, 0.75, 0.405, 1.0] },
+        { "tool": "glass", "box": [0.595, 0.75, 0.6, 1.0] },
+        { "tool": "sand", "box": [0.42, 0.85, 0.58, 1.0] }
+    ],
+    "solution": [
+        { "tool": "black hole", "box": [0.48, 0.94, 0.52, 0.99] }
+    ]
+}
