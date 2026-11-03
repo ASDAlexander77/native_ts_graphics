@@ -1,5 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { formatFixed } from "../../core/text_format";
+import { JsonReader } from "../../core/json_reader";
 
 namespace PowderSandboxNri {
     // A falling-sand sandbox in the spirit of The Powder Toy, with real fluid physics: pick a
@@ -71,6 +72,8 @@ namespace PowderSandboxNri {
     const PROBE_WIND = 13;
     // The wind at the probe's cell (x, then y: floats).
     const PROBE_AIR = 10;
+    // A level's goal's count (A_GOAL).
+    const PROBE_GOAL = 12;
 
     // Cells per second squared, down.
     const GRAVITY = 300.0;
@@ -143,11 +146,12 @@ namespace PowderSandboxNri {
     const VISCOSITY = 20;
     const AIR = 21;
     const BODIES = 22;
+    const GOAL = 23;
     // The floats at u_Multigrid's start that hold the air's faces (powder_sandbox.hlsl's AIR_FLOATS).
     const AIR_FLOATS = 3040;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs", "goal_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -173,6 +177,14 @@ namespace PowderSandboxNri {
     const ACTION_UNDO = 106;
     const ACTION_SAVE = 107;
     const ACTION_LOAD = 108;
+    const ACTION_LEVEL = 109;
+    // Levels: their files (LEVEL_DIRECTORY<name>.json), the ones the Levels tile goes through listed
+    // in LEVEL_DIRECTORY/index.json ({ "levels": [names] }). A level: { "name": "...", "goal":
+    // { "text": "...", "material": "water", "box": [x0, y0, x1, y1], "count": N }, "strokes": [{
+    // "tool": "glass", "box": [x0, y0, x1, y1], "emit": "sand" (an emitter's), "blow": "right" (a
+    // fan's), "repeat": N (strokes painted N frames) }, ...] }, boxes in fractions of the grid.
+    const LEVEL_DIRECTORY = "media/powder_sandbox/scenes/";
+    const BLOW_NAMES = ["right", "down", "left", "up"];
 
     // The simulation's state, for undo and saves: the particles, the grid's float sections (the
     // temperatures, the pressure the next step starts from, burning and melting), the cells, the free
@@ -316,6 +328,36 @@ namespace PowderSandboxNri {
         if (material == 24) { return "fan"; }
         if (material == 25) { return "block"; }
         return "air";
+    }
+
+    // A tool or material by its name in a level's file (materialName's, or the tools'), or -1.
+    function toolNamed(name: string): int {
+        for (let m = 1; m < 32; m++) {
+            if (materialName(m) == name) {
+                return m;
+            }
+        }
+        if (name == "erase") { return ERASE; }
+        if (name == "heat") { return HEAT; }
+        if (name == "cool") { return COOL; }
+        if (name == "salt water") { return SALT_WATER; }
+        return -1;
+    }
+
+    // A level read from its file: its strokes (in fractions of the grid) and its goal (goalCount
+    // particles of goalMaterial, or cells of a solid one, in goalBox; none if goalCount is 0).
+    class LevelStroke {
+        constructor(public tool: int, public box: number[], public emit: int) {
+        }
+    }
+
+    class Level {
+        name: string = "";
+        goalText: string = "";
+        goalMaterial: int = 0;
+        goalBox: number[] = [];
+        goalCount: int = 0;
+        strokes: LevelStroke[] = [];
     }
 
     // A rectangle a scene paints with a tool (in cells); emit: an emitter's material.
@@ -488,6 +530,12 @@ namespace PowderSandboxNri {
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
         // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
+        // -sceneFile name: a level from LEVEL_DIRECTORY instead (its goal must be reached in a test).
+        sceneFile: string = "";
+        private level: Level | null = null;
+        private levelNames: string[] = [];
+        private levelIndex: int = -1;
+        private goalReached: boolean = false;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
         // Time the simulation hasn't stepped through yet (under a step). It steps in fixed steps of
@@ -551,6 +599,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
+            this.tiles.push(new Tile("Levels", ACTION_LEVEL, 0.3, 0.3, 0.3));
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -577,6 +626,9 @@ namespace PowderSandboxNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
+            if (this.sceneFile != "") {
+                this.startLevel(this.readLevel(this.sceneFile));
+            }
             const device = Nri_CreateDevice(this.sample, graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
@@ -588,7 +640,8 @@ namespace PowderSandboxNri {
             this.queue = Nri_GetGraphicsQueue(device);
             this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
-            if (this.test && this.scene == 0) {
+            // (a test's default scene is the U-tube, not a level's empty one)
+            if (this.test && this.scene == 0 && !this.level) {
                 this.scene = 1;
             }
 
@@ -941,6 +994,8 @@ namespace PowderSandboxNri {
                 this.saveRequested = true;
             } else if (action == ACTION_LOAD) {
                 this.loadRequested = true;
+            } else if (action == ACTION_LEVEL) {
+                this.nextLevel();
             } else if (action == ACTION_SHAPE) {
                 this.brushShape = (this.brushShape + 1) % SHAPE_NAMES.length;
             } else {
@@ -1553,8 +1608,156 @@ namespace PowderSandboxNri {
         // The starting scene's strokes: 1 the U-tube's water (its divider is init_grid_cs's), 2 a
         // showcase of the materials, 3 lava poured into a pool with an ice block in it, and next to
         // a wood block.
+        // The next level of index.json's list (read when first wanted), the grid cleared for it.
+        nextLevel() {
+            if (this.levelNames.length == 0) {
+                const reader = this.readJson("index");
+                if (reader && reader.beginObject()) {
+                    while (reader.nextKey()) {
+                        if (reader.readString() == "levels" && reader.beginArray()) {
+                            while (reader.nextItem()) {
+                                this.levelNames.push(reader.readString());
+                            }
+                        } else {
+                            reader.skipValue();
+                        }
+                    }
+                }
+                if (this.levelNames.length == 0) {
+                    this.showMessage("No levels");
+                    return;
+                }
+            }
+            this.levelIndex = (this.levelIndex + 1) % this.levelNames.length;
+            const level = this.readLevel(this.levelNames[this.levelIndex]);
+            if (level) {
+                this.startLevel(level);
+                this.snapshotRequested = true;
+                this.needsInit = true;
+                this.showMessage(level.name);
+            }
+        }
+
+        startLevel(level: Level | null) {
+            if (level) {
+                this.level = level;
+                this.scene = 0;
+                this.sceneOnClear = true;
+                this.goalReached = false;
+            }
+        }
+
+        // A file of LEVEL_DIRECTORY (name.json) in a reader, or null (with a message).
+        readJson(name: string): JsonReader | null {
+            const file = Nri_LoadFile(`${LEVEL_DIRECTORY}${name}.json`);
+            if (!file) {
+                this.showMessage(`No level file ${name}.json`);
+                return null;
+            }
+            const reader = new JsonReader();
+            if (reader.resize(Nri_GetFileSize(file))) {
+                Nri_CopyFileBytes(file, 0, reader.bytes.length, Ref(reader.bytes[0]));
+            }
+            Nri_DestroyFile(file);
+            return reader;
+        }
+
+        // A level from its file, or null (with a message: what didn't read).
+        readLevel(name: string): Level | null {
+            const reader = this.readJson(name);
+            if (!reader) {
+                return null;
+            }
+            const level = new Level();
+            let unknown = "";
+            if (reader.beginObject()) {
+                while (reader.nextKey()) {
+                    const key = reader.readString();
+                    if (key == "name") {
+                        level.name = reader.readString();
+                    } else if (key == "goal" && reader.beginObject()) {
+                        while (reader.nextKey()) {
+                            const goalKey = reader.readString();
+                            if (goalKey == "text") {
+                                level.goalText = reader.readString();
+                            } else if (goalKey == "material") {
+                                const material = reader.readString();
+                                level.goalMaterial = toolNamed(material);
+                                if (level.goalMaterial < 0) {
+                                    unknown = material;
+                                }
+                            } else if (goalKey == "box") {
+                                level.goalBox = reader.readNumbers();
+                            } else if (goalKey == "count") {
+                                level.goalCount = Math.floor(reader.readNumber());
+                            } else {
+                                reader.skipValue();
+                            }
+                        }
+                    } else if (key == "strokes" && reader.beginArray()) {
+                        while (reader.nextItem()) {
+                            let tool = -1;
+                            let box: number[] = [];
+                            let emit = WATER;
+                            let repeat = 1;
+                            if (reader.beginObject()) {
+                                while (reader.nextKey()) {
+                                    const strokeKey = reader.readString();
+                                    if (strokeKey == "tool") {
+                                        const toolName = reader.readString();
+                                        tool = toolNamed(toolName);
+                                        if (tool < 0) {
+                                            unknown = toolName;
+                                        }
+                                    } else if (strokeKey == "box") {
+                                        box = reader.readNumbers();
+                                    } else if (strokeKey == "emit") {
+                                        const emitName = reader.readString();
+                                        emit = toolNamed(emitName);
+                                        if (emit < 0) {
+                                            unknown = emitName;
+                                        }
+                                    } else if (strokeKey == "blow") {
+                                        const blow = reader.readString();
+                                        emit = BLOW_NAMES.indexOf(blow);
+                                        if (emit < 0) {
+                                            unknown = blow;
+                                        }
+                                    } else if (strokeKey == "repeat") {
+                                        repeat = Math.max(Math.floor(reader.readNumber()), 1);
+                                    } else {
+                                        reader.skipValue();
+                                    }
+                                }
+                            }
+                            if (tool >= 0 && box.length == 4) {
+                                for (let k = 0; k < repeat; k++) {
+                                    level.strokes.push(new LevelStroke(tool, box, emit));
+                                }
+                            }
+                        }
+                    } else {
+                        reader.skipValue();
+                    }
+                }
+            }
+            if (reader.error != "" || unknown != "" || (level.goalCount > 0 && level.goalBox.length != 4)) {
+                this.showMessage(`${name}.json: ${reader.error != "" ? reader.error : (unknown != "" ? `no tool or material "${unknown}"` : "the goal needs a box")}`);
+                return null;
+            }
+            console.log(`Level ${name}: ${level.name}, ${level.strokes.length} strokes`);
+            return level;
+        }
+
         buildScene() {
             this.script = [];
+            const level = this.level;
+            if (level) {
+                for (const stroke of level.strokes) {
+                    this.addStroke(stroke.tool, stroke.box[0], stroke.box[1], stroke.box[2], stroke.box[3], stroke.emit);
+                }
+                return;
+            }
             if (this.scene == 1) {
                 this.script.push(new Stroke(WATER, 1.0, this.gridH * 0.2, this.gridW / 2 - 0.01, this.gridH - 1.0, WATER));
             } else if (this.scene == 2) {
@@ -1719,6 +1922,16 @@ namespace PowderSandboxNri {
             const wind = Math.sqrt(windX * windX + windY * windY);
             y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents,
                 wind >= 0.5 ? `wind ${formatFixed(wind, 0)}` : ""], y, labelHeight, 0.85);
+            const level = this.level;
+            if (level && level.goalCount > 0) {
+                const count = this.probe[PROBE_GOAL];
+                if (count >= level.goalCount && !this.goalReached) {
+                    this.goalReached = true;
+                    this.showMessage(`${level.name}: done!`);
+                }
+                y = this.drawWrapped([`${level.name}: ${level.goalText} ${Math.min(count, level.goalCount)} / ${level.goalCount}`,
+                    this.goalReached ? "done" : ""], y, labelHeight, 1.0);
+            }
             if (this.messageTime > 0.0) {
                 Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
             }
@@ -1840,6 +2053,17 @@ namespace PowderSandboxNri {
                     }
                 }
                 this.dispatch(commandBuffer, PROBE, 1, 0);
+                // (the brush's fields stand for the goal's material and box)
+                const level = this.level;
+                if (level && level.goalCount > 0) {
+                    this.setInt(8, level.goalMaterial);
+                    this.setFloat(10, level.goalBox[0] * this.gridW);
+                    this.setFloat(11, level.goalBox[1] * this.gridH);
+                    this.setFloat(12, level.goalBox[2] * this.gridW);
+                    this.setFloat(13, level.goalBox[3] * this.gridH);
+                    this.dispatch(commandBuffer, GOAL, 1, 0);
+                    this.setInt(8, this.tool);
+                }
                 const alloc = this.buffers[4];
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
                 Nri_CmdCopyBuffer(commandBuffer, queuedFrame.probeReadback, alloc, PROBE_INTS * 4);
@@ -2004,6 +2228,17 @@ namespace PowderSandboxNri {
                 const error = this.checkBodies(grid);
                 if (error != "") {
                     return error;
+                }
+            }
+            const level = this.level;
+            if (this.sceneFile != "" && !level) {
+                return `the level ${this.sceneFile} didn't load`;
+            }
+            if (level && level.goalCount > 0) {
+                const count = this.probe[PROBE_GOAL];
+                console.log(`Level: ${level.name}, ${level.goalText} ${count} of ${level.goalCount}`);
+                if (count < level.goalCount) {
+                    return `the level's goal wasn't reached: ${count} of ${level.goalCount}`;
                 }
             }
             if (this.regrid != 0) {
@@ -2650,6 +2885,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOption(sample, "-roundTrip");
         Nri_AddExampleOptionWithValues(sample, "-regrid", 1);
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
+        Nri_AddExampleOptionWithValues(sample, "-sceneFile", 1);
         Nri_AddExampleOptionWithValues(sample, "-view", 1);
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
         Nri_AddExampleOptionWithValues(sample, "-iterations", 1);
@@ -2675,6 +2911,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-view" && i + 1 < argc) {
                 sandbox.overlay = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0), 2);
+                i++;
+            } else if (arg == "-sceneFile" && i + 1 < argc) {
+                sandbox.sceneFile = Nri_GetArg(argc, argv, i + 1);
                 i++;
             } else if (arg == "-scene" && i + 1 < argc) {
                 sandbox.scene = parseInt(Nri_GetArg(argc, argv, i + 1));

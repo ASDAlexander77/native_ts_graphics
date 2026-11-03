@@ -260,8 +260,27 @@ format is unchanged (version 2): the new state lives in the particles.
     surface, within half its height), and a tall one standing half over a ledge tips off it
     (turned 1.57 radians, lying on the floor). Also checked through a regrid and on D3D12.
 
-### 6. Engine side
+### 6. Engine side (in progress)
 
-- **Scenes as data**: levels and challenges in JSON files instead of code.
+- **Scenes as data** (done): levels in JSON files, `media/powder_sandbox/scenes/<name>.json`
+  (copied beside the executable, and into the APK's assets: `add_tslang_nri_example` takes `MEDIA`
+  folders now, and an NRI app's APK waits for `copy_media` when it has some). Not yet run on a phone.
+  - A level: `{ "name": "...", "goal": { "text": "...", "material": "water", "box": [x0, y0, x1,
+    y1], "count": N }, "strokes": [{ "tool": "glass", "box": [...], "emit": "sand", "blow": "right",
+    "repeat": N }, ...] }`, boxes in fractions of the grid; tools and materials by their names
+    (Inspect's), plus `erase`, `heat`, `cool` and `salt water`. A file that doesn't read, or names
+    something unknown, is refused with a message saying what.
+  - The goal: so many particles of a material (cells, for a solid) in the box. `goal_cs` counts it
+    once a frame (one workgroup), read back with the HUD's probe; the HUD shows it, and "done" once
+    it's reached.
+  - The **Levels** tile goes through `index.json`'s list (`cup`: fill the cup from a pool behind a
+    wooden dam; `stone`: set the lava on a shelf), clearing the grid for each. `-sceneFile name`
+    starts on one; in a test its goal must be reached.
+  - `core/json_reader.ts`: a small reader over a file's bytes, read in order by a caller who knows
+    the shape it expects (no tree); strings are ASCII (tslang has no `String.fromCharCode`: they're
+    built from a printable-character table).
+  - The test scenes (`-scene 2` to `9`) stay in code: their checks share their geometry.
+  - **Test** `level`: `test_fill.json`, an emitter over a cup (with a fan and fire, for the format's
+    other fields): the cup gets its 400 particles of water.
 - **Sound**: splashes, fizzing, fire, driven by particle events.
 - **Auto quality**: substeps and grid size chosen from measured frame time.
