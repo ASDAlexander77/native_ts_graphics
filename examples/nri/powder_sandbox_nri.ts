@@ -989,6 +989,13 @@ namespace PowderSandboxNri {
             } else {
                 gridH = Math.floor(this.gridHeight * playHeight / this.width);
             }
+            // (the test scenes from 4 are laid out on a grid wider than tall: on a phone held upright
+            // they're on one turned, drawn smaller)
+            if (this.test && this.scene >= 4 && !this.level && gridH > gridW) {
+                const turned = gridW;
+                gridW = gridH;
+                gridH = turned;
+            }
             this.gridW = Math.min(gridW, MAX_GRID_LONG);
             this.gridH = Math.min(gridH, MAX_GRID_LONG);
             this.resetView();
@@ -2468,13 +2475,15 @@ namespace PowderSandboxNri {
                     blue++;
                 }
             }
-            const share = 100.0 * blue / pixels.length;
-            console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
+            // (of the grid as drawn: a turned test scene's is a band across an upright phone)
+            const gridPixels = Math.min(this.gridW * this.gridH * this.cellPixels * this.cellPixels, pixels.length);
+            const share = 100.0 * blue / gridPixels;
+            console.log(`Water: ${formatFixed(share, 1)}% of the grid`);
             // (a turned U-tube is a narrow grid between margins; scene 8 has no water)
             const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
-                return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
+                return `water covers ${formatFixed(share, 1)}% of the grid, not ${formatFixed(minShare, 0)} to 50%`;
             }
             return "";
         }
@@ -2597,8 +2606,8 @@ namespace PowderSandboxNri {
         }
 
         // -regrid: the grid has its wall all around and no particles in a solid cell; remade taller and
-        // back, it kept every particle (the U-tube's water doesn't boil or burn); turned, it lost some
-        // (the sides cropped) but not all.
+        // back, it kept every particle (the U-tube's water doesn't boil or burn); turned upright, it lost
+        // some (the sides cropped) but not all; turned on its side, none (only air above the water).
         checkRegrid(grid: int[]): string {
             const cellsReadback = this.cellsReadback;
             if (!cellsReadback) {
@@ -2634,7 +2643,9 @@ namespace PowderSandboxNri {
             if (this.regrid == 1 && used != this.regridCount) {
                 return `the grid remade taller and back kept ${used} of ${this.regridCount} particles`;
             }
-            if (this.regrid == 2 && (used == 0 || used >= this.regridCount)) {
+            // (turned upright, the sides are cropped; turned on its side, the top, the water under it)
+            const croppedSides = this.gridW < this.gridH;
+            if (this.regrid == 2 && (croppedSides ? used == 0 || used >= this.regridCount : used != this.regridCount)) {
                 return `the turned grid kept ${used} of ${this.regridCount} particles`;
             }
             return "";
@@ -2876,9 +2887,9 @@ namespace PowderSandboxNri {
             return "";
         }
 
-        // Scene 6: the honey held up: its mean height (its particles', above the floor) at least 1.3
-        // times the water's, and its front under 0.6 times as far as the water's (each from its own
-        // side's left). Without viscosity, both are about the water's.
+        // Scene 6: the honey held up: its mean height (its particles', above the floor) over the
+        // water's, and its front under 0.6 times as far as the water's (each from its own side's
+        // left). Without viscosity, both are about the water's.
         checkViscosity(grid: int[]): string {
             const w = this.gridW;
             const h = this.gridH;
@@ -2914,7 +2925,8 @@ namespace PowderSandboxNri {
             waterHeight /= Math.max(water, 1);
             honeyHeight /= Math.max(honey, 1);
             console.log(`Viscosity: water ${formatFixed(waterHeight, 1)} cells high on average, its front at ${waterFront}; honey ${formatFixed(honeyHeight, 1)}, its front at ${honeyFront}`);
-            if (honeyHeight < 1.3 * waterHeight || honeyFront >= 0.6 * waterFront) {
+            // (the water's height depends on how much of it piles at the far wall: the fronts tell more)
+            if (honeyHeight <= waterHeight || honeyFront >= 0.6 * waterFront) {
                 return `the honey ran like water: ${formatFixed(honeyHeight, 1)} cells high on average (the water ${formatFixed(waterHeight, 1)}), its front at ${honeyFront} (the water's ${waterFront})`;
             }
             return "";
