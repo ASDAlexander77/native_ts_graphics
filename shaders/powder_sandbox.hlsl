@@ -100,12 +100,18 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define FAN 24
 // A rigid body's cell (its body in bits 8..11; bodies_cs draws them).
 #define BLOCK 25
+// Electricity (spark_cs): a battery sparks the conductors beside it; a lamp, a conductor, shines
+// after a spark.
+#define BATTERY 26
+#define LAMP 27
 // Tools that aren't materials.
 #define ERASE 32
 #define HEAT 33
 #define COOL 34
 // Paints water as salty as it gets (WATER particles, salinity 1).
 #define SALT_WATER 36
+// Sparks the conductors under the brush.
+#define SPARK 38
 
 // A cell: material in bits 0-7, an emitter's material in 8-15, BURNING (wood); MELTED: the ice or
 // stone (bits 8-15) that was here melted this step (spawn_cs turns it into water or lava).
@@ -254,6 +260,20 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define GLOW_SIGMA 7.0
 #define GLOW_RADIUS 18
 #define GLOW_STRENGTH 3.0
+// Past the glow's, the sparks' state, in two sections spark_cs's iterations take turns reading and
+// writing (an even number a frame: the state's in I_SPARK between frames). A conductor's: in bits
+// 0..7 its phase, 0 idle, SPARK_LIVE sparked (its neighbors spark at the next iteration), then
+// resting SPARK_REST iterations (so a pulse runs one way, not back); a lamp's light in bits 8..15,
+// LAMP_HOLD iterations from its last spark. A battery is live every BATTERY_PERIOD iterations.
+// Conductors: metal, lamps, salt water (cells with 2 water particles or more, SALT_CONDUCTS salty).
+#define I_SPARK (INT_SECTIONS + GLOW_SECTIONS)
+#define SPARK_SECTIONS 2
+#define SPARK_ITERATIONS 2
+#define SPARK_LIVE 1
+#define SPARK_REST 4
+#define BATTERY_PERIOD 12
+#define LAMP_HOLD 30
+#define SALT_CONDUCTS 0.25
 #define EVENT_SPLASH 0
 #define EVENT_FIZZ 1
 #define EVENT_FIRE 2
@@ -707,6 +727,8 @@ void init_grid_cs(uint3 id : SV_DispatchThreadID)
     {
         u_GridFloat[gi(s, t)] = 0.0;
     }
+    u_GridInt[gi(I_SPARK, t)] = 0;
+    u_GridInt[gi(I_SPARK + 1, t)] = 0;
     u_GridFloat[gi(F_TPRE, t)] = AMBIENT;
     u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
     u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
@@ -791,6 +813,8 @@ void regrid_grid_cs(uint3 id : SV_DispatchThreadID)
     {
         u_GridFloat[gi(s, t)] = 0.0;
     }
+    u_GridInt[gi(I_SPARK, t)] = 0;
+    u_GridInt[gi(I_SPARK + 1, t)] = 0;
     u_GridFloat[gi(F_TPRE, t)] = AMBIENT;
     u_GridFloat[gi(F_TSRC, t)] = AMBIENT;
     u_GridFloat[gi(F_TCELL, t)] = AMBIENT;
@@ -2586,6 +2610,83 @@ bool eatable(int x, int y)
     return isSolidMaterial(m) && m != GLASS;
 }
 
+// --- Electricity ---
+
+bool conducts(int x, int y)
+{
+    const uint m = cellMaterial(x, y);
+    return m == METAL || m == LAMP
+        || (m == EMPTY && countOf(WATER, x, y) >= 2 && cellSalinity(cellIndex(x, y), x, y) >= SALT_CONDUCTS);
+}
+
+// The cell's spark phase (between frames: I_SPARK's).
+int sparkPhase(int x, int y)
+{
+    return inGrid(x, y) ? u_GridInt[gi(I_SPARK, cellIndex(x, y))] & 0xFF : 0;
+}
+
+// A spark in the cell or beside it, sparked at either of the frame's iterations (so that every cell
+// of a pulse's path is seen).
+bool sparkBeside(int x, int y)
+{
+    for (int o = 0; o < 5; o++)
+    {
+        const int2 s = int2(x, y) + (o < 4 ? sideOffset(o) : int2(0, 0));
+        const int phase = sparkPhase(s.x, s.y);
+        if (phase >= SPARK_LIVE && phase <= SPARK_LIVE + 1)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// An iteration (its parity in g_C.substep picks the sections): batteries fire on their period; an
+// idle conductor beside a live cell (or under the Spark tool's brush) goes live; the rest rest, then
+// go idle; lamps shine.
+[numthreads(256, 1, 1)]
+void spark_cs(uint3 id : SV_DispatchThreadID)
+{
+    const uint c = id.x;
+    if (c >= g_C.gridW * g_C.gridH)
+    {
+        return;
+    }
+    const int x = int(c % g_C.gridW);
+    const int y = int(c / g_C.gridW);
+    const uint from = I_SPARK + (g_C.substep & 1u);
+    const uint to = I_SPARK + 1u - (g_C.substep & 1u);
+    const uint m = cellMaterial(x, y);
+    int next = 0;
+    if (m == BATTERY)
+    {
+        next = (g_C.frame * SPARK_ITERATIONS + g_C.substep) % BATTERY_PERIOD == 0 ? SPARK_LIVE : 0;
+    }
+    else if (conducts(x, y))
+    {
+        const int state = u_GridInt[gi(from, c)];
+        const int phase = state & 0xFF;
+        int nextPhase = 0;
+        if (phase == 0)
+        {
+            bool sparked = g_C.brushMode != 0 && g_C.tool == SPARK && insideBrush(float2(x, y) + 0.5);
+            for (int o = 0; o < 4; o++)
+            {
+                const int2 s = int2(x, y) + sideOffset(o);
+                sparked = sparked || (inGrid(s.x, s.y) && (u_GridInt[gi(from, cellIndex(s.x, s.y))] & 0xFF) == SPARK_LIVE);
+            }
+            nextPhase = sparked ? SPARK_LIVE : 0;
+        }
+        else if (phase < SPARK_LIVE + SPARK_REST)
+        {
+            nextPhase = phase + 1;
+        }
+        const int light = m == LAMP ? (nextPhase == SPARK_LIVE ? LAMP_HOLD : max(((state >> 8) & 0xFF) - 1, 0)) : 0;
+        next = nextPhase | (light << 8);
+    }
+    u_GridInt[gi(to, c)] = next;
+}
+
 // An event of the step counted: the wave's at once (one atomic a wave, not a particle).
 void countEvent(uint event, bool happened)
 {
@@ -2793,6 +2894,12 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         p.life = 0.0;
         p.temp += DILUTE_HEAT;
         fizz = true;
+    }
+
+    // A spark in their cell or beside it lights gunpowder, petrol and oil (heated to where they do).
+    if ((p.type == GUNPOWDER || p.type == PETROL || p.type == OIL) && sparkBeside(cx, cy))
+    {
+        p.temp = max(p.temp, p.type == GUNPOWDER ? IGNITE_GUNPOWDER : (p.type == PETROL ? IGNITE_PETROL : IGNITE_OIL));
     }
 
     // Oil and petrol beside fire catch: heated to where they light (below). Only at their surface
@@ -3127,6 +3234,15 @@ float3 cellLight(int x, int y)
     {
         light += float3(0.25, 0.8, 0.2) * 0.3;
     }
+    else if (m == LAMP)
+    {
+        light += float3(1.0, 0.85, 0.55) * 1.2 * saturate(float((u_GridInt[gi(I_SPARK, c)] >> 8) & 0xFF) / 10.0);
+    }
+    const int phase = u_GridInt[gi(I_SPARK, c)] & 0xFF;
+    if (phase >= SPARK_LIVE && phase <= SPARK_LIVE + 1)
+    {
+        light += float3(0.55, 0.75, 1.0) * 0.6;
+    }
     return light;
 }
 
@@ -3304,6 +3420,8 @@ float3 materialColor(uint m)
     case METAL: return float3(0.6, 0.64, 0.7);
     case FAN: return float3(0.3, 0.5, 0.58);
     case BLOCK: return float3(0.72, 0.52, 0.3);
+    case BATTERY: return float3(0.22, 0.22, 0.26);
+    case LAMP: return float3(0.4, 0.37, 0.28);
     }
     return float3(0.0, 0.0, 0.0);
 }
@@ -3436,6 +3554,17 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
                 // A shade a body, planks across it.
                 solid *= 0.85 + 0.05 * float((cell >> 8) & 3u) + 0.08 * step(0.5, frac(g.y * 0.34));
             }
+            else if (m == BATTERY)
+            {
+                // A cell, its top a copper band.
+                solid = frac(g.y * 0.25) < 0.3 ? float3(0.75, 0.45, 0.2) : solid;
+            }
+            else if (m == LAMP)
+            {
+                // Lit: warm white, brighter at the cells' middles.
+                const float lit = saturate(float((int(sectionAt(I_SPARK, c.x, c.y)) >> 8) & 0xFF) / 10.0);
+                solid = lerp(solid, float3(1.0, 0.92, 0.7) * (0.9 + 0.2 * (1.0 - 2.0 * edge)), lit);
+            }
             else if (m == FAN)
             {
                 // Stripes moving the way it blows.
@@ -3448,6 +3577,14 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     }
 
     color += heatColor(t);
+    // A spark running through a conductor: blue-white, fading as it rests.
+    {
+        const int phase = int(sectionAt(I_SPARK, c.x, c.y)) & 0xFF;
+        if (phase >= SPARK_LIVE)
+        {
+            color = lerp(color, float3(0.8, 0.92, 1.0), phase <= SPARK_LIVE + 1 ? 0.9 : 0.6 * float(SPARK_LIVE + SPARK_REST + 1 - phase) / float(SPARK_REST));
+        }
+    }
     // The glow round what's bright.
     color += GLOW_STRENGTH * float3(sampleSection(g, I_GLOW), sampleSection(g, I_GLOW + 1), sampleSection(g, I_GLOW + 2)) / GLOW_SCALE;
 
