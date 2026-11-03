@@ -23,7 +23,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   brushes with an outline cursor; mouse or touch.
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
   the window turns (a phone turned), keeping what it holds.
-- **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-roundTrip` (undo,
+- **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
+  acid, salt), `-scene 5` (gunpowder), `-roundTrip` (undo,
   save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
   emulator and on a phone.
 
@@ -149,14 +150,37 @@ Still to do:
 - Rotation on a phone.
 - The step's time on a slower phone (the HUD shows it).
 
-### 4. More materials
+### 4. More materials (done)
 
-Each is mostly a rule in the shader:
+Each is mostly a rule in the shader. Particle types are now 1 .. 11 (each with a count section);
+the probe's readback puts the counts below the salinity, so 11 is as many as it holds. The save
+format is unchanged (version 2): the new state lives in the particles.
 
-- **Salt / salt water**: salt dissolves; salt water is denser, so it sinks below fresh water.
-- **Acid**: eats solids except glass.
-- **Gunpowder / explosives**: a burst of heat and of pressure, carried by the pressure solve.
-- **Metal**: conducts heat (later electricity, for wires, heaters and switches).
+- **Metal**: a solid cell that conducts heat at 1.0, as fast as the explicit diffusion allows
+  (stone 0.3, glass 0.5). Later, electricity: wires, heaters and switches.
+- **Acid**: a FLIP liquid (type 9, density 1.3). Each step an acid particle tries the face it's
+  moving through; a solid behind it (not glass, nor the wall around the grid) is eaten at
+  `ACID_RATE` 2 a second, using the particle up. The cell is claimed with a compare-exchange, so
+  one particle eats it.
+- **Salt / salt water**: salt is a powder (type 10, density 2.2, piles like sand). A WATER
+  particle's `life` is its salinity, 0 to 1, and makes it up to 25% denser, so salt water sinks
+  under fresh. Salt in a cell whose water is under 90% salinity dissolves at 1 a second, into a
+  water particle at salinity 1. The water in a cell evens its salinity out (`SALT_MIX` 0.3 a
+  second). Salty water that boils leaves salt as often as it is salty. The Salt water tile paints
+  water at salinity 1; the display tints salty water greener; Inspect shows a cell's salinity.
+- **Gunpowder**: a powder (type 11, density 1.7) that goes off at 250 °C. Particle-to-grid counts
+  the cell's grains going off (`I_BLAST`), the divergence takes `BLAST_VOLUME` 1.5 cells of gas
+  per grain, and the pressure solve pushes the material around away. Each grain becomes fire at
+  1500 °C, flung outward. It's in its own scene: next to the others, its fire lit the acid tub's
+  wood and boiled the salt tank.
+- **Heat and Cool fix**: the brushes painted their tool ids (33, 34) into the cells, making
+  unknown solids under the stroke. They heat and cool now.
+- **Test scene 4**: a metal and a stone bar heated at one end (the metal 100 °C at the probe, the
+  stone 50 °C), acid over wood in a glass tub (all the wood eaten, the glass kept), salt poured
+  into a tank of fresh water (all dissolved; the bottom third about 10% salt, the top under 1%).
+- **Test scene 5**: gunpowder under a layer of sand, against a glass wall with a pool behind it,
+  lit from its side. It all goes off, the blast throws at least a fifth of the sand clear of the
+  pile, the wall holds, and no particle ends up inside a solid.
 
 ### 5. Physics
 

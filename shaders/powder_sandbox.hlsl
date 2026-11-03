@@ -80,8 +80,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define LAVA 8
 #define ACID 9
 #define SALT 10
+#define GUNPOWDER 11
 // Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 10
+#define PARTICLE_TYPES 11
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -123,6 +124,13 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define DISSOLVE_RATE 1.0
 #define SATURATED 0.9
 #define SALT_MIX 0.3
+// Gunpowder goes off at IGNITE_GUNPOWDER: its grain becomes hot fire flung outward, and its gas
+// pushes what's around it away, as BLAST_VOLUME cells of volume a grain (a divergence the pressure
+// solve carries to the liquids and powders around).
+#define IGNITE_GUNPOWDER 250.0
+#define BLAST_VOLUME 1.5
+#define BLAST_TEMP 1500.0
+#define BLAST_SPEED 150.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -138,7 +146,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_FISSION (I_TSUM + 2)
 // The cell's water's salinity, summed (SALT_SCALE a particle at 1).
 #define I_SALT (I_TSUM + 3)
-#define INT_SECTIONS (I_TSUM + 4)
+// The cell's gunpowder going off this step.
+#define I_BLAST (I_TSUM + 4)
+#define INT_SECTIONS (I_TSUM + 5)
 
 // gridFloat sections.
 #define F_U 0
@@ -193,6 +203,12 @@ float random01(uint seed)
     return float(hash(seed) >> 8) * (1.0 / 16777216.0);
 }
 
+float2 randomDirection(uint seed)
+{
+    const float a = 6.2831853 * random01(seed);
+    return float2(cos(a), sin(a));
+}
+
 bool isSolidMaterial(uint m)
 {
     return m >= WALL;
@@ -200,13 +216,13 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || m == ACID || m == SALT;
+    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= GUNPOWDER);
 }
 
 // Powders pile (static friction) instead of flowing level.
 bool isPowder(uint m)
 {
-    return m == SAND || m == SALT;
+    return m == SAND || m == SALT || m == GUNPOWDER;
 }
 
 bool isGasMaterial(uint m)
@@ -216,7 +232,7 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : 1.0))));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : 1.0)))));
 }
 
 // A particle's density: its material's, salt water's by its salinity.
@@ -368,7 +384,7 @@ int countOf(uint material, int x, int y)
 int flipCount(int x, int y)
 {
     return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
-        + countOf(SALT, x, y);
+        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y);
 }
 
 bool fluidCell(int x, int y)
@@ -630,6 +646,10 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     if (p.type == WATER && p.life > 0.0)
     {
         InterlockedAdd(u_GridInt[gi(I_SALT, c)], int(round(p.life * SALT_SCALE)));
+    }
+    if (p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER)
+    {
+        InterlockedAdd(u_GridInt[gi(I_BLAST, c)], 1);
     }
     if (!isFlipMaterial(p.type))
     {
@@ -912,6 +932,8 @@ void divergence_cs(uint3 id : SV_DispatchThreadID)
         excess = max(excess, 0.0);
     }
     div -= excess / (16.0 * g_C.dt);
+    // Gunpowder going off: its gas expands, pushing the cell's neighbors away.
+    div -= float(u_GridInt[gi(I_BLAST, c)]) * BLAST_VOLUME / g_C.dt;
     u_GridFloat[gi(F_DIV, c)] = div;
 }
 
@@ -1442,7 +1464,7 @@ void moveParticle(inout float2 pos, inout float2 vel, float2 move)
 
 bool sandBlocked(int x, int y, int packed)
 {
-    return solidCell(x, y) || countOf(SAND, x, y) + countOf(SALT, x, y) >= packed;
+    return solidCell(x, y) || countOf(SAND, x, y) + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) >= packed;
 }
 
 // The mean salinity of a cell's water (0 with none).
@@ -1483,6 +1505,8 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     const int h = int(g_C.gridH);
     const float dt = g_C.dt;
     bool kill = g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(p.pos);
+    // (from the temperature p2g_cs saw, so each grain that went off there blasts once)
+    const bool goesOff = p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER;
     const int cx = clamp(int(floor(p.pos.x)), 0, w - 1);
     const int cy = clamp(int(floor(p.pos.y)), 0, h - 1);
     const uint c = cellIndex(cx, cy);
@@ -1611,8 +1635,16 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         p.life = 1.0;
     }
 
-    // What the temperature does. Salt water boiling leaves its salt (as often as it's salty).
-    if (p.type == WATER && p.temp >= 100.0)
+    // What the temperature does. Gunpowder goes off; salt water boiling leaves its salt (as often
+    // as it's salty).
+    if (goesOff)
+    {
+        p.type = FIRE;
+        p.temp = BLAST_TEMP;
+        p.life = 0.4 + 0.4 * random01(seedOf(index, 12));
+        p.vel += randomDirection(seedOf(index, 13)) * BLAST_SPEED;
+    }
+    else if (p.type == WATER && p.temp >= 100.0)
     {
         p.type = random01(seedOf(index, 11)) < p.life ? SALT : STEAM;
         p.life = 0.0;
@@ -1697,12 +1729,6 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
 float2 randomInCell(int x, int y, uint seed)
 {
     return float2(x + 0.05 + 0.9 * random01(seed), y + 0.05 + 0.9 * random01(seed + 1));
-}
-
-float2 randomDirection(uint seed)
-{
-    const float a = 6.2831853 * random01(seed);
-    return float2(cos(a), sin(a));
 }
 
 // New particles: the brush (and the materials it paints into cells), emitters, uranium's neutrons,
@@ -1952,6 +1978,7 @@ float3 materialColor(uint m)
     case LAVA: return float3(0.55, 0.12, 0.03);
     case ACID: return float3(0.45, 0.92, 0.18);
     case SALT: return float3(0.92, 0.92, 0.95);
+    case GUNPOWDER: return float3(0.2, 0.2, 0.22);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -1995,15 +2022,17 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float lava = sampleCount(g, LAVA);
     const float acid = sampleCount(g, ACID);
     const float salt = sampleCount(g, SALT);
-    const float total = water + oil + sand + lava + acid + salt;
+    const float gunpowder = sampleCount(g, GUNPOWDER);
+    const float total = water + oil + sand + lava + acid + salt + gunpowder;
     if (total > 0.01)
     {
         // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
         const float salinity = saturate(2.5 * sampleSection(g, I_SALT) / SALT_SCALE / max(water, 0.5));
         const float3 waterColor = lerp(materialColor(WATER), float3(0.1, 0.55, 0.62), salinity);
         float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
-            + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)) / total;
-        if (sand + salt > water + oil + lava + acid)
+            + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)
+            + gunpowder * materialColor(GUNPOWDER)) / total;
+        if (sand + salt + gunpowder > water + oil + lava + acid)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);

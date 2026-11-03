@@ -43,8 +43,10 @@ namespace PowderSandboxNri {
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's particle types (1 .. PARTICLE_TYPES, a count section each), gridInt and
     // gridFloat sections, and u_Alloc's free list's start.
-    const PARTICLE_TYPES = 10;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 4;
+    // (probe_cs's counts end at u_Alloc[3 + PARTICLE_TYPES], under its salinity at ALLOC_LIST - 1:
+    // up to 11 types)
+    const PARTICLE_TYPES = 11;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 5;
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
     const SALT_SCALE = 256.0;
@@ -84,6 +86,7 @@ namespace PowderSandboxNri {
     const LAVA = 8;
     const ACID = 9;
     const SALT = 10;
+    const GUNPOWDER = 11;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
@@ -186,6 +189,14 @@ namespace PowderSandboxNri {
     // (how far above the water, how thick: thin, or it lands as a slab that splashes water out).
     const SALT_TANK = [0.68, 0.25, 0.95, 0.6];
     const SALT_POUR = [0.2, 0.04];
+    // Scene 5: the gunpowder pile (x0, y0, x1), on the floor under a layer of sand (SAND_LAYER thick),
+    // against a glass wall (at x1, up to GUNPOWDER_WALL) with a pool of water behind it (POOL: its
+    // right wall's x, its surface). (Its own scene: in scene 4 its fire set the acid's wood alight and boiled the
+    // salt water.)
+    const GUNPOWDER_PILE = [0.4, 0.86, 0.52];
+    const SAND_LAYER = 0.06;
+    const GUNPOWDER_WALL = 0.5;
+    const POOL = [0.8, 0.7];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -235,6 +246,7 @@ namespace PowderSandboxNri {
         if (material == 8) { return "lava"; }
         if (material == 9) { return "acid"; }
         if (material == 10) { return "salt"; }
+        if (material == 11) { return "gunpowder"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -407,7 +419,7 @@ namespace PowderSandboxNri {
         private probeFloats: f32[] = [];
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
-        // ice and stone; 4 metal, acid, salt and gunpowder);
+        // ice and stone; 4 metal, acid and salt; 5 gunpowder);
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N.
         scene: int = 0;
         private script: Stroke[] = [];
@@ -441,6 +453,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
             this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
+            this.tiles.push(new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
             this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
             this.tiles.push(new Tile("Acid", ACID, 0.45, 0.92, 0.18));
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
@@ -859,7 +872,8 @@ namespace PowderSandboxNri {
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
-                if (action == WATER || action == OIL || action == SAND || action == SALT || action == LAVA || action == ACID || action == FIRE) {
+                if (action == WATER || action == OIL || action == SAND || action == SALT || action == GUNPOWDER || action == LAVA
+                    || action == ACID || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -1462,6 +1476,18 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 5) {
+                // Gunpowder under sand, next to a pool, lit from its side.
+                const x0 = GUNPOWDER_PILE[0];
+                const x1 = GUNPOWDER_PILE[2];
+                this.addStroke(GLASS, x1, GUNPOWDER_WALL, x1 + 0.005, 1.0, WATER);
+                this.addStroke(GLASS, POOL[0], GUNPOWDER_WALL, POOL[0] + 0.005, 1.0, WATER);
+                this.addStroke(WATER, x1 + 0.005, POOL[1], POOL[0], 1.0, WATER);
+                this.addStroke(GUNPOWDER, x0, GUNPOWDER_PILE[1], x1, 1.0, WATER);
+                this.addStroke(SAND, x0, GUNPOWDER_PILE[1] - SAND_LAYER, x1, GUNPOWDER_PILE[1], WATER);
+                for (let k = 0; k < 20; k++) {
+                    this.addStroke(FIRE, x0 - 0.03, 0.92, x0, 1.0, WATER);
+                }
             } else if (this.scene == 4) {
                 // A metal bar and a stone bar, their left ends heated.
                 this.addStroke(METAL, BARS[0], BARS[1], BARS[2], BARS[1] + BARS[3], WATER);
@@ -1824,6 +1850,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 5) {
+                const error = this.checkGunpowder(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -1975,8 +2007,8 @@ namespace PowderSandboxNri {
                 return false;
             }
             let n = 0;
-            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8) and SALT (9)
-            for (const k of [0, 1, 2, 7, 8, 9]) {
+            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9) and GUNPOWDER (10)
+            for (const k of [0, 1, 2, 7, 8, 9, 10]) {
                 n += grid[(I_COUNT + k) * this.stride + c];
             }
             return n > 0;
@@ -2138,6 +2170,70 @@ namespace PowderSandboxNri {
             }
             if (bottomSalinity < 0.01 || bottomSalinity < topSalinity * 1.2) {
                 return `the salt water didn't sink: salinity ${formatFixed(100.0 * topSalinity, 2)}% at the top, ${formatFixed(100.0 * bottomSalinity, 2)}% at the bottom`;
+            }
+            return "";
+        }
+
+        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a fifth
+        // of it, at least: burning alone, the sand would only fall into the pile's place); its glass
+        // wall held, and nothing ended up in a solid cell.
+        checkGunpowder(grid: int[]): string {
+            const cellsReadback = this.cellsReadback;
+            if (!cellsReadback) {
+                return "cannot read the cells back";
+            }
+            const w = this.gridW;
+            const h = this.gridH;
+            const cells: int[] = [];
+            for (let i = 0; i < w * h; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return "cannot read the cells back";
+            }
+            let gunpowder = 0;
+            let sand = 0;
+            let thrown = 0;
+            let inSolid = 0;
+            let wall = 0;
+            let wallPainted = 0;
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const c = y * w + x;
+                    gunpowder += grid[(I_COUNT + GUNPOWDER - 1) * this.stride + c];
+                    const n = grid[(I_COUNT + SAND - 1) * this.stride + c];
+                    sand += n;
+                    const m = cells[c] & 0xFF;
+                    if (m >= WALL) {
+                        for (let k = 0; k < PARTICLE_TYPES; k++) {
+                            inSolid += grid[(I_COUNT + k) * this.stride + c];
+                        }
+                    }
+                    const cx = (x + 0.5) / w;
+                    const cy = (y + 0.5) / h;
+                    if (cx < GUNPOWDER_PILE[0] - 0.02 || cx > GUNPOWDER_PILE[2]) {
+                        thrown += n;
+                    }
+                    if (cx >= GUNPOWDER_PILE[2] && cx <= GUNPOWDER_PILE[2] + 0.005 && cy >= GUNPOWDER_WALL && y < h - 1) {
+                        wallPainted++;
+                        if (m == GLASS) {
+                            wall++;
+                        }
+                    }
+                }
+            }
+            console.log(`Gunpowder: ${gunpowder} grains left; ${thrown} of ${sand} sand grains thrown clear; its wall ${wall} of ${wallPainted} cells; ${inSolid} particles in solid cells`);
+            if (gunpowder > 0) {
+                return `${gunpowder} grains of gunpowder didn't go off`;
+            }
+            if (thrown * 5 < sand) {
+                return `the blast threw too little sand clear: ${thrown} of ${sand} grains`;
+            }
+            if (wall != wallPainted) {
+                return `the gunpowder's glass wall lost cells: ${wall} of ${wallPainted} left`;
+            }
+            if (inSolid > 0) {
+                return `${inSolid} particles in solid cells`;
             }
             return "";
         }

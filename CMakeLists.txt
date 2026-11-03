@@ -1448,8 +1448,10 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX showcase ARGS -scene 2 -testFr
 # Lava poured into a pool and next to wood: it sets to stone, and the pool's ice block melts.
 add_tslang_example_test(powder_sandbox_nri SUFFIX lava ARGS -scene 3 -testFrames 900)
 # The newer materials: heat goes further along a metal bar than a stone one; acid eats the wood in a
-# glass tub and leaves the glass.
+# glass tub and leaves the glass; salt poured into a tank dissolves, and the salt water sinks.
 add_tslang_example_test(powder_sandbox_nri SUFFIX materials ARGS -scene 4 -testFrames 900)
+# Gunpowder under sand next to a pool, lit: it goes off, throws the sand, and its glass wall holds.
+add_tslang_example_test(powder_sandbox_nri SUFFIX gunpowder ARGS -scene 5 -testFrames 600)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
 add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTrip)
 # The U-tube's grid remade halfway (a phone turned): 20 cells taller and back, losing nothing; and
