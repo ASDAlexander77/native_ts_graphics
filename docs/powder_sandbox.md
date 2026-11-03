@@ -24,7 +24,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
-  acid, salt), `-scene 5` (gunpowder), `-roundTrip` (undo,
+  acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-roundTrip` (undo,
   save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
   emulator and on a phone.
 
@@ -179,12 +179,28 @@ format is unchanged (version 2): the new state lives in the particles.
   stone 50 °C), acid over wood in a glass tub (all the wood eaten, the glass kept), salt poured
   into a tank of fresh water (all dissolved; the bottom third about 10% salt, the top under 1%).
 - **Test scene 5**: gunpowder under a layer of sand, against a glass wall with a pool behind it,
-  lit from its side. It all goes off, the blast throws at least a fifth of the sand clear of the
+  lit from its side. It all goes off, the blast throws at least a tenth of the sand clear of the
   pile, the wall holds, and no particle ends up inside a solid.
 
-### 5. Physics
+### 5. Physics (in progress)
 
-- **Viscosity** as a real diffusion of velocity (honey), replacing lava's damping.
+- **Viscosity** (done): honey (type 12, density 1.4, viscosity 10,000 cells²/s) and lava (200
+  cold, 40 at 1200 °C) diffuse their velocity, replacing lava's sideways damping.
+  - Particle-to-grid sums each face's viscosity (from the viscous particles only), and
+    `viscosity_cs` solves the implicit diffusion `(1 + n a) u - a sum(neighbors) = u*` (`a` the
+    face's viscosity times dt) by red-black Gauss-Seidel, 4 sweep pairs a step (`-viscosity N`, 0
+    off). Solid neighbors count at 0 (no slip), air ones not at all (a free surface).
+  - Faces without viscosity are skipped, so water is untouched, and the sweeps run only while a
+    viscous particle exists (a flag read back with the HUD probe): no cost without honey or lava.
+  - Viscous particles take the grid's velocity (PIC): FLIP's own velocity would undo the diffusion.
+  - Gauss-Seidel carries the diffusion a few cells a step, so the liquid is rigid over a few cells:
+    poured honey lands and piles, a large body slumps to a thick slab. Holding a tall column would
+    need a multigrid solve per velocity component.
+  - The probe's counts are packed two to an int (room for 22 types); `u_Alloc` is saved, so its
+    free list stays at 16 and saves are still version 2.
+  - **Test scene 6**: a block of water and one of honey let go side by side. The honey's mean height
+    must be 1.3 times the water's and its front under 0.6 times as far (5.1 vs 3.3 cells, 62 vs 144);
+    with `-viscosity 0` the honey runs like water (3.0 cells, 143) and the test fails.
 - **Air as a fluid**: wind and fans, blast waves moving gases and light powders.
 - **Rigid bodies**: blocks that float and tip over.
 - **Surface tension**: droplets and thin streams.

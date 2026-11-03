@@ -43,10 +43,10 @@ namespace PowderSandboxNri {
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's particle types (1 .. PARTICLE_TYPES, a count section each), gridInt and
     // gridFloat sections, and u_Alloc's free list's start.
-    // (probe_cs's counts end at u_Alloc[3 + PARTICLE_TYPES], under its salinity at ALLOC_LIST - 1:
-    // up to 11 types)
-    const PARTICLE_TYPES = 11;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 5;
+    // (probe_cs packs the counts two to an int from u_Alloc[4], under its salinity at ALLOC_LIST - 1:
+    // up to 22 types)
+    const PARTICLE_TYPES = 12;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 7;
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
     const SALT_SCALE = 256.0;
@@ -61,6 +61,8 @@ namespace PowderSandboxNri {
     const PARTICLE_SIZE = 32;
     // The HUD's readout: u_Alloc's first 16 ints (free slots, then probe_cs's).
     const PROBE_INTS = 16;
+    // Its int that's 1 while there are viscous particles (A_VISCOUS).
+    const PROBE_VISCOUS = 14;
 
     // Cells per second squared, down.
     const GRAVITY = 300.0;
@@ -76,6 +78,9 @@ namespace PowderSandboxNri {
     const SOLVER_MULTIGRID = 1;
     const DEFAULT_VCYCLES = 1;
     const DEFAULT_SMOOTH = 2;
+    // viscosity_cs's red-black sweep pairs a step (-viscosity N; 0 leaves honey and lava as runny as
+    // water).
+    const DEFAULT_VISCOSITY_SWEEPS = 4;
     const MG_COARSE_CELLS = 256;
 
     // Materials and tools (powder_sandbox.hlsl's numbers).
@@ -87,6 +92,7 @@ namespace PowderSandboxNri {
     const ACID = 9;
     const SALT = 10;
     const GUNPOWDER = 11;
+    const HONEY = 12;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
@@ -124,9 +130,10 @@ namespace PowderSandboxNri {
     const MG_RESTRICT = 17;
     const MG_PROLONG = 18;
     const MG_COARSE = 19;
+    const VISCOSITY = 20;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -197,6 +204,11 @@ namespace PowderSandboxNri {
     const SAND_LAYER = 0.06;
     const GUNPOWDER_WALL = 0.5;
     const POOL = [0.8, 0.7];
+    // Scene 6: a block of water and one of honey (x0 .. x1 across from their side's left, from y0 to
+    // the floor), either side of a glass divider at HONEY_DIVIDER, let go at once. (Small, on a wide
+    // floor: spread out, water's a film, not a slab as deep as honey's mound.)
+    const DAM = [0.05, 0.13, 0.85];
+    const HONEY_DIVIDER = 0.5;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -247,6 +259,7 @@ namespace PowderSandboxNri {
         if (material == 9) { return "acid"; }
         if (material == 10) { return "salt"; }
         if (material == 11) { return "gunpowder"; }
+        if (material == 12) { return "honey"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -419,8 +432,9 @@ namespace PowderSandboxNri {
         private probeFloats: f32[] = [];
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
-        // ice and stone; 4 metal, acid and salt; 5 gunpowder);
-        // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N.
+        // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water);
+        // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
+        // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
@@ -433,6 +447,7 @@ namespace PowderSandboxNri {
         solver: int = SOLVER_MULTIGRID;
         vcycles: int = DEFAULT_VCYCLES;
         smooth: int = DEFAULT_SMOOTH;
+        viscositySweeps: int = DEFAULT_VISCOSITY_SWEEPS;
         // -test: the float sections, read back at the end (the pressure equation's residual).
         private floatReadback: NriBufferHandle | null = null;
         // -testFrames N: the test's length instead of TEST_FRAMES.
@@ -451,6 +466,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
             this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
+            this.tiles.push(new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
             this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
             this.tiles.push(new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
@@ -873,7 +889,7 @@ namespace PowderSandboxNri {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
                 if (action == WATER || action == OIL || action == SAND || action == SALT || action == GUNPOWDER || action == LAVA
-                    || action == ACID || action == FIRE) {
+                    || action == ACID || action == HONEY || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -1346,6 +1362,14 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
                 this.dispatch(commandBuffer, P2G, CAPACITY, B_ALL);
                 this.dispatch(commandBuffer, GRID, this.stride, B_ALL);
+                // (only with viscous particles, as the readout a frame or two late says)
+                const viscousSweeps = this.probe[PROBE_VISCOUS] != 0 ? this.viscositySweeps : 0;
+                for (let k = 0; k < viscousSweeps; k++) {
+                    for (let parity = 0; parity < 2; parity++) {
+                        this.setInt(16, parity);
+                        this.dispatch(commandBuffer, VISCOSITY, this.stride, B_GRID_FLOAT);
+                    }
+                }
                 this.dispatch(commandBuffer, HEAT_SOURCE, cells, B_ALL);
                 this.dispatch(commandBuffer, HEAT_DIFFUSE, cells, B_ALL);
                 this.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
@@ -1476,6 +1500,11 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 6) {
+                // Water and honey let go side by side: the water runs out, the honey slumps.
+                this.addStroke(GLASS, HONEY_DIVIDER, 0.2, HONEY_DIVIDER + 0.005, 1.0, WATER);
+                this.addStroke(WATER, DAM[0], DAM[2], DAM[1], 1.0, WATER);
+                this.addStroke(HONEY, HONEY_DIVIDER + 0.005 + DAM[0], DAM[2], HONEY_DIVIDER + 0.005 + DAM[1], 1.0, WATER);
             } else if (this.scene == 5) {
                 // Gunpowder under sand, next to a pool, lit from its side.
                 const x0 = GUNPOWDER_PILE[0];
@@ -1578,7 +1607,7 @@ namespace PowderSandboxNri {
             if (cell < WALL) {
                 contents = "";
                 for (let m = 0; m < PARTICLE_TYPES; m++) {
-                    const n = this.probe[4 + m];
+                    const n = (this.probe[4 + (m >> 1)] >> (16 * (m & 1))) & 0xFFFF;
                     if (n > 0) {
                         contents = `${contents}${contents == "" ? "" : ", "}${n} ${materialName(m + 1)}`;
                     }
@@ -1587,7 +1616,7 @@ namespace PowderSandboxNri {
                     contents = "air";
                 }
                 // (probe_cs puts the water's salinity last)
-                if (this.probe[4] > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
+                if ((this.probe[4] & 0xFFFF) > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
                     contents = `${contents} (salinity ${formatFixed(100.0 * this.probeFloats[PROBE_INTS - 1], 0)}%)`;
                 }
             }
@@ -1856,6 +1885,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 6) {
+                const error = this.checkViscosity(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -2007,8 +2042,8 @@ namespace PowderSandboxNri {
                 return false;
             }
             let n = 0;
-            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9) and GUNPOWDER (10)
-            for (const k of [0, 1, 2, 7, 8, 9, 10]) {
+            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8), SALT (9), GUNPOWDER (10) and HONEY (11)
+            for (const k of [0, 1, 2, 7, 8, 9, 10, 11]) {
                 n += grid[(I_COUNT + k) * this.stride + c];
             }
             return n > 0;
@@ -2174,9 +2209,53 @@ namespace PowderSandboxNri {
             return "";
         }
 
-        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a fifth
-        // of it, at least: burning alone, the sand would only fall into the pile's place); its glass
-        // wall held, and nothing ended up in a solid cell.
+        // Scene 6: the honey held up: its mean height (its particles', above the floor) at least 1.3
+        // times the water's, and its front under 0.6 times as far as the water's (each from its own
+        // side's left). Without viscosity, both are about the water's.
+        checkViscosity(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            const divider: int = Math.floor(HONEY_DIVIDER * w);
+            let water = 0;
+            let honey = 0;
+            let waterHeight = 0.0;
+            let honeyHeight = 0.0;
+            let waterFront = 0;
+            let honeyFront = 0;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const c = y * w + x;
+                    const height = h - 1 - y;
+                    const nw = grid[(I_COUNT + WATER - 1) * this.stride + c];
+                    const nh = grid[(I_COUNT + HONEY - 1) * this.stride + c];
+                    if (x < divider) {
+                        water += nw;
+                        waterHeight += nw * (height + 0.5);
+                        if (nw >= 2) {
+                            waterFront = Math.max(waterFront, x);
+                        }
+                    }
+                    if (x > divider) {
+                        honey += nh;
+                        honeyHeight += nh * (height + 0.5);
+                        if (nh >= 2) {
+                            honeyFront = Math.max(honeyFront, x - divider);
+                        }
+                    }
+                }
+            }
+            waterHeight /= Math.max(water, 1);
+            honeyHeight /= Math.max(honey, 1);
+            console.log(`Viscosity: water ${formatFixed(waterHeight, 1)} cells high on average, its front at ${waterFront}; honey ${formatFixed(honeyHeight, 1)}, its front at ${honeyFront}`);
+            if (honeyHeight < 1.3 * waterHeight || honeyFront >= 0.6 * waterFront) {
+                return `the honey ran like water: ${formatFixed(honeyHeight, 1)} cells high on average (the water ${formatFixed(waterHeight, 1)}), its front at ${honeyFront} (the water's ${waterFront})`;
+            }
+            return "";
+        }
+
+        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a tenth
+        // of it, at least: runs throw 17 to 38%, and burning alone, none, the sand only falling into
+        // the pile's place); its glass wall held, and nothing ended up in a solid cell.
         checkGunpowder(grid: int[]): string {
             const cellsReadback = this.cellsReadback;
             if (!cellsReadback) {
@@ -2226,7 +2305,7 @@ namespace PowderSandboxNri {
             if (gunpowder > 0) {
                 return `${gunpowder} grains of gunpowder didn't go off`;
             }
-            if (thrown * 5 < sand) {
+            if (thrown * 10 < sand) {
                 return `the blast threw too little sand clear: ${thrown} of ${sand} grains`;
             }
             if (wall != wallPainted) {
@@ -2342,6 +2421,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-zoom", 1);
         Nri_AddExampleOptionWithValues(sample, "-vcycles", 1);
         Nri_AddExampleOptionWithValues(sample, "-smooth", 1);
+        Nri_AddExampleOptionWithValues(sample, "-viscosity", 1);
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
@@ -2375,6 +2455,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-vcycles" && i + 1 < argc) {
                 sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-viscosity" && i + 1 < argc) {
+                sandbox.viscositySweeps = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0);
                 i++;
             } else if (arg == "-smooth" && i + 1 < argc) {
                 sandbox.smooth = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0);

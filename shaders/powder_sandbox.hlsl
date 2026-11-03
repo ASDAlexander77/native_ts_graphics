@@ -81,8 +81,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define ACID 9
 #define SALT 10
 #define GUNPOWDER 11
+#define HONEY 12
 // Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 11
+#define PARTICLE_TYPES 12
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -131,6 +132,11 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define BLAST_VOLUME 1.5
 #define BLAST_TEMP 1500.0
 #define BLAST_SPEED 150.0
+// Viscosity, in cells^2 a second (its velocity diffusing that fast): honey's, and lava's from cold
+// (where it sets) to LAVA_TEMP. Water, oil and acid have none.
+#define HONEY_VISCOSITY 10000.0
+#define LAVA_VISCOSITY_COLD 200.0
+#define LAVA_VISCOSITY_HOT 40.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -148,7 +154,11 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_SALT (I_TSUM + 3)
 // The cell's gunpowder going off this step.
 #define I_BLAST (I_TSUM + 4)
-#define INT_SECTIONS (I_TSUM + 5)
+// The faces' viscosity sums (weight * viscosity, the viscous particles' only; unscaled, as the
+// WEIGHT_SCALE of I_UM would overflow at honey's).
+#define I_UVISC (I_TSUM + 5)
+#define I_VVISC (I_TSUM + 6)
+#define INT_SECTIONS (I_TSUM + 7)
 
 // gridFloat sections.
 #define F_U 0
@@ -171,6 +181,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // u_Alloc: the free particle slots' count, the HUD's probe, then the free slots.
 #define A_FREE 0
 #define A_PROBE 1
+// 1 while a frame's steps have viscous particles (p2g_cs sets it, clear_cs clears it at the frame's
+// first step); read back with the probe, so the CPU skips viscosity_cs without them.
+#define A_VISCOUS 14
 #define A_LIST 16
 
 #define VEL_SCALE 4096.0
@@ -216,7 +229,7 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= GUNPOWDER);
+    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= HONEY);
 }
 
 // Powders pile (static friction) instead of flowing level.
@@ -232,7 +245,7 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : 1.0)))));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : 1.0))))));
 }
 
 // A particle's density: its material's, salt water's by its salinity.
@@ -384,7 +397,7 @@ int countOf(uint material, int x, int y)
 int flipCount(int x, int y)
 {
     return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
-        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y);
+        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y);
 }
 
 bool fluidCell(int x, int y)
@@ -609,6 +622,10 @@ void clear_cs(uint3 id : SV_DispatchThreadID)
     {
         u_GridInt[id.x] = 0;
     }
+    if (id.x == 0 && g_C.substep == 0)
+    {
+        u_Alloc[A_VISCOUS] = 0;
+    }
 }
 
 void splat(uint sumSection, uint weightSection, uint massSection, uint index, float w, float vel, float rho)
@@ -616,6 +633,25 @@ void splat(uint sumSection, uint weightSection, uint massSection, uint index, fl
     InterlockedAdd(u_GridInt[gi(sumSection, index)], int(round(w * vel * VEL_SCALE)));
     InterlockedAdd(u_GridInt[gi(weightSection, index)], int(round(w * WEIGHT_SCALE)));
     InterlockedAdd(u_GridInt[gi(massSection, index)], int(round(w * rho * WEIGHT_SCALE)));
+}
+
+// A particle's viscosity (lava's falls as it heats up).
+float viscosity(Particle p)
+{
+    if (p.type == HONEY)
+    {
+        return HONEY_VISCOSITY;
+    }
+    if (p.type == LAVA)
+    {
+        return lerp(LAVA_VISCOSITY_COLD, LAVA_VISCOSITY_HOT, saturate((p.temp - SOLIDIFY_LAVA) / (LAVA_TEMP - SOLIDIFY_LAVA)));
+    }
+    return 0.0;
+}
+
+void splatViscosity(uint section, uint index, float w, float nu)
+{
+    InterlockedAdd(u_GridInt[gi(section, index)], int(round(w * nu)));
 }
 
 // Particles to grid: the counts and temperatures of the cells; the liquids' and powders' momentum
@@ -656,6 +692,11 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         return;
     }
     const float rho = particleDensity(p);
+    const float nu = viscosity(p);
+    if (nu > 0.0 && u_Alloc[A_VISCOUS] == 0)
+    {
+        InterlockedOr(u_Alloc[A_VISCOUS], 1);
+    }
 
     // u faces at (i, j + 0.5)
     {
@@ -669,6 +710,13 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         splat(I_USUM, I_UW, I_UM, uIndex(i0 + 1, j0), tx * (1 - ty), p.vel.x, rho);
         splat(I_USUM, I_UW, I_UM, uIndex(i0, j0 + 1), (1 - tx) * ty, p.vel.x, rho);
         splat(I_USUM, I_UW, I_UM, uIndex(i0 + 1, j0 + 1), tx * ty, p.vel.x, rho);
+        if (nu > 0.0)
+        {
+            splatViscosity(I_UVISC, uIndex(i0, j0), (1 - tx) * (1 - ty), nu);
+            splatViscosity(I_UVISC, uIndex(i0 + 1, j0), tx * (1 - ty), nu);
+            splatViscosity(I_UVISC, uIndex(i0, j0 + 1), (1 - tx) * ty, nu);
+            splatViscosity(I_UVISC, uIndex(i0 + 1, j0 + 1), tx * ty, nu);
+        }
     }
     // v faces at (i + 0.5, j)
     {
@@ -682,6 +730,13 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         splat(I_VSUM, I_VW, I_VM, vIndex(i0 + 1, j0), tx * (1 - ty), p.vel.y, rho);
         splat(I_VSUM, I_VW, I_VM, vIndex(i0, j0 + 1), (1 - tx) * ty, p.vel.y, rho);
         splat(I_VSUM, I_VW, I_VM, vIndex(i0 + 1, j0 + 1), tx * ty, p.vel.y, rho);
+        if (nu > 0.0)
+        {
+            splatViscosity(I_VVISC, vIndex(i0, j0), (1 - tx) * (1 - ty), nu);
+            splatViscosity(I_VVISC, vIndex(i0 + 1, j0), tx * (1 - ty), nu);
+            splatViscosity(I_VVISC, vIndex(i0, j0 + 1), (1 - tx) * ty, nu);
+            splatViscosity(I_VVISC, vIndex(i0 + 1, j0 + 1), tx * ty, nu);
+        }
     }
 }
 
@@ -733,6 +788,86 @@ void grid_cs(uint3 id : SV_DispatchThreadID)
         }
         u_GridFloat[gi(F_V, t)] = solid ? 0.0 : vel;
         u_GridFloat[gi(F_VA, t)] = 1.0 / max(rho, 0.1);
+    }
+}
+
+// Viscosity: the faces' velocities diffused where the fluid is viscous, implicitly (stable at any
+// viscosity), by red-black Gauss-Seidel sweeps of (1 + n a) u - a sum(u's neighbors) = u*, a = the
+// face's viscosity * dt, u* the velocity grid_cs left (F_UOLD, plus gravity for v). Solid neighbors
+// count at 0 (no slip), air ones not at all (no stress at the surface). Faces without viscosity are
+// left as they are, so water is untouched. parity: the faces updated ((i + j) & 1).
+float faceViscosity(uint viscSection, uint weightSection, uint t)
+{
+    const int weight = u_GridInt[gi(weightSection, t)];
+    return weight > 0 ? float(u_GridInt[gi(viscSection, t)]) / (float(weight) / WEIGHT_SCALE) : 0.0;
+}
+
+void viscousNeighbor(bool isU, int i, int j, inout float sum, inout float n)
+{
+    const int w = int(g_C.gridW);
+    const int h = int(g_C.gridH);
+    bool solid;
+    uint t;
+    if (isU)
+    {
+        solid = i < 0 || i > w || j < 0 || j >= h || solidCell(i - 1, j) || solidCell(i, j);
+        t = solid ? 0u : uIndex(i, j);
+    }
+    else
+    {
+        solid = i < 0 || i >= w || j < 0 || j > h || solidCell(i, j - 1) || solidCell(i, j);
+        t = solid ? 0u : vIndex(i, j);
+    }
+    if (solid)
+    {
+        n += 1.0;
+    }
+    else if (u_GridInt[gi(isU ? I_UW : I_VW, t)] > 0)
+    {
+        sum += gf(isU ? F_U : F_V, t);
+        n += 1.0;
+    }
+}
+
+[numthreads(256, 1, 1)]
+void viscosity_cs(uint3 id : SV_DispatchThreadID)
+{
+    const uint t = id.x;
+    const int w = int(g_C.gridW);
+    const int h = int(g_C.gridH);
+    if (t < uint((w + 1) * h))
+    {
+        const int i = int(t % uint(w + 1));
+        const int j = int(t / uint(w + 1));
+        const float nu = faceViscosity(I_UVISC, I_UW, t);
+        if (uint((i + j) & 1) == (g_C.parity & 1) && nu > 0.0 && !solidCell(i - 1, j) && !solidCell(i, j))
+        {
+            const float a = nu * g_C.dt;
+            float sum = 0.0;
+            float n = 0.0;
+            viscousNeighbor(true, i - 1, j, sum, n);
+            viscousNeighbor(true, i + 1, j, sum, n);
+            viscousNeighbor(true, i, j - 1, sum, n);
+            viscousNeighbor(true, i, j + 1, sum, n);
+            u_GridFloat[gi(F_U, t)] = (gf(F_UOLD, t) + a * sum) / (1.0 + a * n);
+        }
+    }
+    if (t < uint(w * (h + 1)))
+    {
+        const int i = int(t % uint(w));
+        const int j = int(t / uint(w));
+        const float nu = faceViscosity(I_VVISC, I_VW, t);
+        if (uint((i + j) & 1) == (g_C.parity & 1) && nu > 0.0 && !solidCell(i, j - 1) && !solidCell(i, j))
+        {
+            const float a = nu * g_C.dt;
+            float sum = 0.0;
+            float n = 0.0;
+            viscousNeighbor(false, i - 1, j, sum, n);
+            viscousNeighbor(false, i + 1, j, sum, n);
+            viscousNeighbor(false, i, j - 1, sum, n);
+            viscousNeighbor(false, i, j + 1, sum, n);
+            u_GridFloat[gi(F_V, t)] = (gf(F_VOLD, t) + g_C.gravity * g_C.dt + a * sum) / (1.0 + a * n);
+        }
     }
 }
 
@@ -1556,13 +1691,8 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         else
         {
             const float2 old = sampleVelocity(p.pos, true);
-            p.vel = lerp(grid, p.vel + (grid - old), g_C.flip);
-            if (p.type == LAVA)
-            {
-                // Thick: its sideways flow damped, less the hotter it is (it still falls freely).
-                const float rate = lerp(12.0, 3.0, saturate((p.temp - SOLIDIFY_LAVA) / 500.0));
-                p.vel.x *= saturate(1.0 - rate * dt);
-            }
+            // (viscous liquids take the grid's velocity, PIC: their own would undo the diffusion)
+            p.vel = lerp(grid, p.vel + (grid - old), viscosity(p) > 0.0 ? 0.0 : g_C.flip);
             // RK2 through the grid's velocity, plus the drift of a lighter or heavier particle
             // through the mixture around it (oil rising out of water): its buoyancy over a relaxation
             // time.
@@ -1896,10 +2026,13 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     u_Alloc[A_PROBE + 0] = asint(gf(F_TCELL, c));
     u_Alloc[A_PROBE + 1] = asint(gf(F_P, c) / (g_C.dt * g_C.gravity));
     u_Alloc[A_PROBE + 2] = int(u_Cells[c]);
-    // (A_PROBE + 2 + PARTICLE_TYPES must stay under A_LIST: up to 13 types)
-    for (uint m = WATER; m <= PARTICLE_TYPES; m++)
+    // The counts two to an int (16 bits each, the odd types' low), from A_PROBE + 3 up to under the
+    // salinity at A_LIST - 1: up to 22 types. (u_Alloc is saved, so A_LIST stays put.)
+    for (uint k = 0; k < (PARTICLE_TYPES + 1) / 2; k++)
     {
-        u_Alloc[A_PROBE + 2 + m] = countOf(m, x, y);
+        const uint m = WATER + 2 * k;
+        const uint high = m + 1 <= PARTICLE_TYPES ? min(uint(countOf(m + 1, x, y)), 0xFFFFu) : 0u;
+        u_Alloc[A_PROBE + 3 + k] = int(min(uint(countOf(m, x, y)), 0xFFFFu) | (high << 16));
     }
     u_Alloc[A_LIST - 1] = asint(cellSalinity(c, x, y));
 }
@@ -1979,6 +2112,7 @@ float3 materialColor(uint m)
     case ACID: return float3(0.45, 0.92, 0.18);
     case SALT: return float3(0.92, 0.92, 0.95);
     case GUNPOWDER: return float3(0.2, 0.2, 0.22);
+    case HONEY: return float3(0.85, 0.55, 0.1);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -2023,7 +2157,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float acid = sampleCount(g, ACID);
     const float salt = sampleCount(g, SALT);
     const float gunpowder = sampleCount(g, GUNPOWDER);
-    const float total = water + oil + sand + lava + acid + salt + gunpowder;
+    const float honey = sampleCount(g, HONEY);
+    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey;
     if (total > 0.01)
     {
         // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
@@ -2031,8 +2166,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
         const float3 waterColor = lerp(materialColor(WATER), float3(0.1, 0.55, 0.62), salinity);
         float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
             + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)
-            + gunpowder * materialColor(GUNPOWDER)) / total;
-        if (sand + salt + gunpowder > water + oil + lava + acid)
+            + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY)) / total;
+        if (sand + salt + gunpowder > water + oil + lava + acid + honey)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
