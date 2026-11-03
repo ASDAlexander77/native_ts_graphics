@@ -27,7 +27,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
   (wind), `-scene 9` (blocks), `-scene 10` (acid in water), `-scene 11` (oil and petrol burning),
   `-scene 12` (gases), `-scene 13 -gravity off|point|tilt` (no gravity, an attraction point, tilted),
-  `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  `-scene 14` (circuits), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
 
@@ -370,7 +370,7 @@ format is unchanged (version 2): the new state lives in the particles.
   about 22 cells (the water round the sand, the sand in a mound); with gravity down they fall 70 to
   80 cells, failing both.
 
-### 9. Look and feel (in progress)
+### 9. Look and feel (done)
 
 - **Glow**: what's bright lights its surroundings. Each frame, after the last step, `glow_emit_cs`
   puts each cell's light in three fixed-point sections past the int grid's (the int buffer isn't
@@ -398,3 +398,23 @@ format is unchanged (version 2): the new state lives in the particles.
 - **Test** `tilted`: scene 13 with `-gravity tilt -tilt 1 0`. In 3 s the water's center moves about
   145 cells right and the sand's 91, under 5 across; with the shader's tilt ignored (gravity down)
   the water moves -44 along it and 73 across, and the test fails.
+
+### 10. Electricity (done)
+
+- **Conductors**: metal (the wire), lamps, and salt water (a cell with 2 water particles or more, a
+  quarter as salty as it gets or more); fresh water doesn't conduct.
+- **Sparks** run along conductors a cell an iteration, `spark_cs` twice a frame after the steps
+  (120 cells a second). A sparked cell rests 4 iterations after, so a pulse runs on, not back. The
+  state is in two int sections past the glow's, taking turns (not saved state; zeroed at the grid's
+  init and when it's remade): a conductor's phase in bits 0..7, a lamp's light in 8..15.
+- **Battery** (a solid): it sparks the conductors beside it every 12 iterations (5 pulses a second).
+- **Lamp** (a solid, a conductor): shines (and glows) for 30 iterations after a spark, so a battery's
+  pulses keep it lit.
+- **Spark** (a tool): sparks the conductors under the brush.
+- **What a spark does**: it lights gunpowder, petrol and oil in its cell or beside it (heated to
+  where they catch). Sparks show blue-white along the wire, fading as they rest, and glow.
+- **Test scene 14**: three circuits (a battery, a wire, a lamp: bare, through a tub of salt water,
+  through one of fresh water) and gunpowder dropped on a live wire, beside a pile on a wall ledge.
+  After 5 s the first two lamps shine and the third doesn't; none of the wire's gunpowder is left,
+  the ledge's all is. With the batteries never firing no lamp shines and the gunpowder stays; with
+  salt water not conducting its lamp is dark: both fail.

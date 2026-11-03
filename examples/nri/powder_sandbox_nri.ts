@@ -65,6 +65,12 @@ namespace PowderSandboxNri {
     const I_GLOW = 6 + PARTICLE_TYPES + 9;
     const GLOW_SECTIONS = 6;
     const GLOW_SCALE = 4096.0;
+    // The sparks' state after the glow's (I_SPARK, SPARK_SECTIONS), spark_cs's iterations a frame.
+    const I_SPARK = I_GLOW + GLOW_SECTIONS;
+    const SPARK_SECTIONS = 2;
+    const SPARK_ITERATIONS = 2;
+    // The int buffer: the step's sections, then those.
+    const ALL_INT_SECTIONS = 6 + PARTICLE_TYPES + 9 + GLOW_SECTIONS + SPARK_SECTIONS;
     const INT_SECTIONS = 6 + PARTICLE_TYPES + 9;
     // The step's events for sound (I_EVENTS: splash, fizz, fire, boom), read back after the probe's
     // ints.
@@ -145,10 +151,13 @@ namespace PowderSandboxNri {
     const METAL = 23;
     const FAN = 24;
     const BLOCK = 25;
+    const BATTERY = 26;
+    const LAMP = 27;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
     const SALT_WATER = 36;
+    const SPARK = 38;
     // Not the shader's: a tool that paints nothing, its cursor the cell under the pointer (touch has
     // no hover to read a cell with).
     const INSPECT = 35;
@@ -181,12 +190,13 @@ namespace PowderSandboxNri {
     const GLOW_EMIT = 24;
     const GLOW_X = 25;
     const GLOW_Y = 26;
+    const SPARKS = 27;
     // The floats at u_Multigrid's start that hold the air's faces (powder_sandbox.hlsl's AIR_FLOATS).
     const AIR_FLOATS = 3040;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
         "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs", "bodies_cs", "goal_cs",
-        "glow_emit_cs", "glow_x_cs", "glow_y_cs"];
+        "glow_emit_cs", "glow_x_cs", "glow_y_cs", "spark_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -341,6 +351,17 @@ namespace PowderSandboxNri {
     // Tilted (-tilt), they fall that way: their centers TILT_FALL cells at least along it, and over
     // twice as far as across it.
     const TILT_FALL = 15.0;
+    // Scene 14: circuits (CIRCUITS: each one's battery x, lamp x, y; a tub (x0, x1) in the wire, or
+    // none at -1), a battery, a metal wire, a lamp: bare, through salt water, through fresh water.
+    // The first two lamps shine, the third doesn't. Gunpowder dropped on a live wire (SPARK_POWDER:
+    // x0, y0, x1, y1; the wire's battery, its end, its y in SPARK_WIRE) goes off, a pile on a wall
+    // ledge (CONTROL_POWDER, its ledge's y) doesn't: under POWDER_LEFT of its gunpowder is left.
+    const CIRCUITS = [0.05, 0.45, 0.2, -1.0, -1.0, 0.05, 0.6, 0.62, 0.2, 0.4, 0.05, 0.6, 0.85, 0.2, 0.4];
+    const WIRE = 0.03;
+    const SPARK_WIRE = [0.55, 0.85, 0.2];
+    const SPARK_POWDER = [0.68, 0.12, 0.78, 0.19];
+    const CONTROL_POWDER = [0.07, 0.38, 0.17, 0.44, 0.45];
+    const POWDER_LEFT = 0.2;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -416,6 +437,8 @@ namespace PowderSandboxNri {
         if (material == 23) { return "metal"; }
         if (material == 24) { return "fan"; }
         if (material == 25) { return "block"; }
+        if (material == 26) { return "battery"; }
+        if (material == 27) { return "lamp"; }
         return "air";
     }
 
@@ -431,6 +454,7 @@ namespace PowderSandboxNri {
         if (name == "heat") { return HEAT; }
         if (name == "cool") { return COOL; }
         if (name == "salt water") { return SALT_WATER; }
+        if (name == "spark") { return SPARK; }
         return -1;
     }
 
@@ -713,6 +737,8 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.tiles.push(new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
+            this.tiles.push(new Tile("Lamp", LAMP, 0.95, 0.85, 0.55));
             this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
             this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
@@ -722,6 +748,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
             this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
             this.tiles.push(new Tile("Cool", COOL, 0.3, 0.6, 1.0));
+            this.tiles.push(new Tile("Spark", SPARK, 0.7, 0.85, 1.0));
             this.tiles.push(new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
             this.tiles.push(new Tile("Inspect", INSPECT, 0.55, 0.55, 0.6));
             this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
@@ -866,7 +893,7 @@ namespace PowderSandboxNri {
             // coarser levels (for the longest grid, either way around).
             const multigridSize = (AIR_FLOATS + Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
                 multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG))) * 4;
-            const sizes = [CAPACITY * PARTICLE_SIZE, (INT_SECTIONS + GLOW_SECTIONS) * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
+            const sizes = [CAPACITY * PARTICLE_SIZE, ALL_INT_SECTIONS * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
                 GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4, multigridSize];
             const strides = [PARTICLE_SIZE, 4, 4, 4, 4, 4];
             for (const size of sizes) {
@@ -933,7 +960,7 @@ namespace PowderSandboxNri {
                 Nri_UpdateDescriptor(drawSet, i, 0, this.shaderViews[i]);
             }
             if (this.test) {
-                this.testReadback = Nri_CreateReadbackBuffer(device, (INT_SECTIONS + GLOW_SECTIONS) * GRID_CAPACITY * 4);
+                this.testReadback = Nri_CreateReadbackBuffer(device, ALL_INT_SECTIONS * GRID_CAPACITY * 4);
                 this.cellsReadback = Nri_CreateReadbackBuffer(device, GRID_CAPACITY * 4);
                 this.floatReadback = Nri_CreateReadbackBuffer(device, FLOAT_SECTIONS * GRID_CAPACITY * 4);
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
@@ -1647,6 +1674,21 @@ namespace PowderSandboxNri {
             this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
         }
 
+        // Electricity, while running: spark_cs's iterations (each one's parity in the substep), with the
+        // brush (the Spark tool's).
+        recordSparks(commandBuffer: NriCommandBufferHandle, brushMode: int) {
+            if (!this.computeLayout || this.paused) {
+                return;
+            }
+            const cells = this.gridW * this.gridH;
+            this.setInt(9, brushMode);
+            for (let k = 0; k < SPARK_ITERATIONS; k++) {
+                this.setInt(7, k);
+                this.dispatch(commandBuffer, SPARKS, cells, B_GRID_INT);
+            }
+            this.setInt(9, 0);
+        }
+
         // The glow, from the frame's last step: the cells' light, blurred along x then y.
         recordGlow(commandBuffer: NriCommandBufferHandle) {
             if (!this.computeLayout) {
@@ -2081,6 +2123,17 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 14) {
+                // Circuits; gunpowder on a live wire and on a ledge.
+                for (let k = 0; k < 3; k++) {
+                    this.addCircuit(CIRCUITS[5 * k], CIRCUITS[5 * k + 1], CIRCUITS[5 * k + 2], CIRCUITS[5 * k + 3],
+                        CIRCUITS[5 * k + 4], k == 1 ? SALT_WATER : WATER);
+                }
+                this.addStroke(BATTERY, SPARK_WIRE[0], SPARK_WIRE[2], SPARK_WIRE[0] + 0.04, SPARK_WIRE[2] + WIRE, WATER);
+                this.addStroke(METAL, SPARK_WIRE[0] + 0.04, SPARK_WIRE[2], SPARK_WIRE[1], SPARK_WIRE[2] + WIRE, WATER);
+                this.addStroke(GUNPOWDER, SPARK_POWDER[0], SPARK_POWDER[1], SPARK_POWDER[2], SPARK_POWDER[3], WATER);
+                this.addStroke(WALL, CONTROL_POWDER[0] - 0.02, CONTROL_POWDER[4], CONTROL_POWDER[2] + 0.02, CONTROL_POWDER[4] + WIRE, WATER);
+                this.addStroke(GUNPOWDER, CONTROL_POWDER[0], CONTROL_POWDER[1], CONTROL_POWDER[2], CONTROL_POWDER[3], WATER);
             } else if (this.scene == 13) {
                 // Water and sand in mid-air.
                 this.addStroke(WATER, BLOBS[0], BLOBS[1], BLOBS[2], BLOBS[3], WATER);
@@ -2392,6 +2445,7 @@ namespace PowderSandboxNri {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
                 }
                 this.recordSimulation(commandBuffer, brushMode, steps);
+                this.recordSparks(commandBuffer, brushMode);
                 this.recordGlow(commandBuffer);
                 queuedFrame.steps = this.paused ? 0 : steps;
                 const timestampReadback = queuedFrame.timestampReadback;
@@ -2428,7 +2482,7 @@ namespace PowderSandboxNri {
                 if (testReadback) {
                     if (frameIndex == this.testFrames - 1) {
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.Storage, NriBufferState.CopySource);
-                        Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], (INT_SECTIONS + GLOW_SECTIONS) * this.stride * 4);
+                        Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], ALL_INT_SECTIONS * this.stride * 4);
                         Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.CopySource, NriBufferState.Storage);
                         const cellsReadback = this.cellsReadback;
                         if (cellsReadback) {
@@ -2535,7 +2589,7 @@ namespace PowderSandboxNri {
             }
             Nri_DeviceWaitIdle(device);
             const grid: int[] = [];
-            for (let i = 0; i < (INT_SECTIONS + GLOW_SECTIONS) * this.stride; i++) {
+            for (let i = 0; i < ALL_INT_SECTIONS * this.stride; i++) {
                 grid.push(0);
             }
             if (Nri_ReadBufferInts(testReadback, Ref(grid[0]), grid.length) == 0) {
@@ -2628,6 +2682,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 14) {
+                const error = this.checkCircuits(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
                 return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
             }
@@ -2654,6 +2714,8 @@ namespace PowderSandboxNri {
                 expected.push(3);
             } else if (this.scene == 12) {
                 expected.push(2);
+            } else if (this.scene == 14) {
+                expected.push(3);
             }
             for (const k of expected) {
                 if (this.eventTotals[k] == 0) {
@@ -2990,6 +3052,68 @@ namespace PowderSandboxNri {
                 return `the smoke didn't spread under the ceiling: over ${formatFixed(100.0 * spread, 0)}% of the width`;
             }
             return "";
+        }
+
+        // A battery at x0 (WIRE high, from y), a metal wire to a lamp at x1; a glass tub of liquid
+        // between tubX0 and tubX1 (none if under 0), the wire into it on each side.
+        addCircuit(x0: number, x1: number, y: number, tubX0: number, tubX1: number, liquid: int) {
+            this.addStroke(BATTERY, x0, y, x0 + 0.04, y + WIRE, WATER);
+            this.addStroke(LAMP, x1, y, x1 + 0.04, y + WIRE, WATER);
+            if (tubX0 < 0.0) {
+                this.addStroke(METAL, x0 + 0.04, y, x1, y + WIRE, WATER);
+                return;
+            }
+            this.addStroke(GLASS, tubX0 - 0.005, y - 0.08, tubX0, y + 0.085, WATER);
+            this.addStroke(GLASS, tubX1, y - 0.08, tubX1 + 0.005, y + 0.085, WATER);
+            this.addStroke(GLASS, tubX0 - 0.005, y + 0.08, tubX1 + 0.005, y + 0.085, WATER);
+            this.addStroke(METAL, x0 + 0.04, y, tubX0 + 0.005, y + WIRE, WATER);
+            this.addStroke(METAL, tubX1 - 0.005, y, x1, y + WIRE, WATER);
+            this.addStroke(liquid, tubX0, y - 0.07, tubX1, y + 0.08, WATER);
+        }
+
+        // Scene 14: the lamps the battery reached shone (the bare wire's, the salt water's), the
+        // fresh water's didn't; the gunpowder on the live wire went off, the ledge's didn't.
+        checkCircuits(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            const lit: int[] = [];
+            for (let k = 0; k < 3; k++) {
+                const x0: int = Math.floor(CIRCUITS[5 * k + 1] * w);
+                const y0: int = Math.floor(CIRCUITS[5 * k + 2] * h);
+                let light = 0;
+                for (let y = y0; y < y0 + Math.floor(WIRE * h); y++) {
+                    for (let x = x0; x < x0 + Math.floor(0.04 * w); x++) {
+                        light = Math.max(light, (grid[I_SPARK * this.stride + y * w + x] >> 8) & 0xFF);
+                    }
+                }
+                lit.push(light);
+            }
+            const wired = this.countIn(grid, GUNPOWDER, SPARK_POWDER[0] - 0.05, 0.0, SPARK_POWDER[2] + 0.05, SPARK_WIRE[2] + WIRE);
+            const control = this.countIn(grid, GUNPOWDER, CONTROL_POWDER[0] - 0.03, 0.0, CONTROL_POWDER[2] + 0.03, CONTROL_POWDER[4] + WIRE);
+            console.log(`Circuits: the lamps' light ${lit[0]}, ${lit[1]} (salt water), ${lit[2]} (fresh water); gunpowder on the live wire ${wired}, on the ledge ${control}`);
+            if (lit[0] == 0 || lit[1] == 0) {
+                return `a lamp the battery reaches didn't shine: ${lit[0]} (the bare wire), ${lit[1]} (through salt water)`;
+            }
+            if (lit[2] != 0) {
+                return "the lamp beyond fresh water shone";
+            }
+            if (control == 0 || wired > POWDER_LEFT * control) {
+                return `the gunpowder on the live wire didn't go off: ${wired} left (the ledge's ${control})`;
+            }
+            return "";
+        }
+
+        // A material's particles in the box (in fractions of the grid).
+        countIn(grid: int[], material: int, x0: number, y0: number, x1: number, y1: number): int {
+            const w = this.gridW;
+            const h = this.gridH;
+            let n = 0;
+            for (let y = Math.max(Math.floor(y0 * h), 0); y < Math.min(Math.ceil(y1 * h), h); y++) {
+                for (let x = Math.max(Math.floor(x0 * w), 0); x < Math.min(Math.ceil(x1 * w), w); x++) {
+                    n += grid[(I_COUNT + material - 1) * this.stride + y * w + x];
+                }
+            }
+            return n;
         }
 
         // Scene 13: with no gravity the blobs stayed put; toward the point they gathered round it.
