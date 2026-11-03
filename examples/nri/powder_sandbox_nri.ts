@@ -712,11 +712,14 @@ namespace PowderSandboxNri {
             return Math.floor((this.gridW - oldW) / 2);
         }
 
+        // (an undo or a load keeping the grid's size keeps the view)
         setGrid(gridW: int, gridH: int) {
-            this.gridW = gridW;
-            this.gridH = gridH;
-            this.stride = (gridW + 1) * (gridH + 1);
-            this.resetView();
+            if (gridW != this.gridW || gridH != this.gridH) {
+                this.gridW = gridW;
+                this.gridH = gridH;
+                this.stride = (gridW + 1) * (gridH + 1);
+                this.resetView();
+            }
             this.layout();
         }
 
