@@ -212,6 +212,22 @@ else()
     target_compile_options(nri_interop PRIVATE $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU>>:-Wno-template-body>)
 endif()
 target_link_libraries(nri_interop PRIVATE NRIFramework)
+# miniaudio (one header, public domain or MIT-0): sound (nri_audio.cpp: a playback device, WASAPI on
+# Windows, AAudio or OpenSL ES on Android, loaded at run time, and its synthesized sounds). Its own
+# CMake project isn't used (SOURCE_SUBDIR names no folder of it).
+FetchContent_Declare(miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG 0.11.21
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR header-only)
+FetchContent_MakeAvailable(miniaudio)
+target_sources(nri_interop PRIVATE nri_audio.cpp)
+target_include_directories(nri_interop PRIVATE "${miniaudio_SOURCE_DIR}")
+if (MSVC)
+    set_source_files_properties(nri_audio.cpp PROPERTIES COMPILE_OPTIONS /W0)
+else()
+    set_source_files_properties(nri_audio.cpp PROPERTIES COMPILE_OPTIONS -w)
+endif()
 # Donut's header-only math and its shaders' constant structs (nri_donut_constants.cpp,
 # nri_donut_scene.cpp), for the ports of the Donut examples that draw with Donut's passes or scenes.
 target_include_directories(nri_interop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../external/Donut/include")

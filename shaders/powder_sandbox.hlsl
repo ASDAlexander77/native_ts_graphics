@@ -193,7 +193,17 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_VVISC (I_TSUM + 6)
 // The cell's liquid particles (the FLIP ones but the powders), for surface tension.
 #define I_LIQUID (I_TSUM + 7)
-#define INT_SECTIONS (I_TSUM + 8)
+// The step's events for sound, in its first EVENT_COUNT elements (g2p_cs's; read back with the
+// probe): liquid hitting something (its velocity changed by over SPLASH_SPEED in a step), acid eating
+// a cell or water boiling, fire burning, gunpowder going off.
+#define I_EVENTS (I_TSUM + 8)
+#define INT_SECTIONS (I_TSUM + 9)
+#define EVENT_SPLASH 0
+#define EVENT_FIZZ 1
+#define EVENT_FIRE 2
+#define EVENT_BOOM 3
+#define EVENT_COUNT 4
+#define SPLASH_SPEED 50.0
 
 // gridFloat sections.
 #define F_U 0
@@ -2393,6 +2403,16 @@ bool eatable(int x, int y)
     return isSolidMaterial(m) && m != GLASS;
 }
 
+// An event of the step counted: the wave's at once (one atomic a wave, not a particle).
+void countEvent(uint event, bool happened)
+{
+    const uint n = WaveActiveCountBits(happened);
+    if (n > 0 && WaveIsFirstLane())
+    {
+        InterlockedAdd(u_GridInt[gi(I_EVENTS, event)], int(n));
+    }
+}
+
 // Grid to particles: the liquids' and powders' new velocities (FLIP: the grid's change added to
 // their own; sand takes the grid's, with friction where it rests), their moves; the gases' buoyancy;
 // the neutrons' flight; temperatures and the changes they cause.
@@ -2415,6 +2435,8 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     bool kill = g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(p.pos);
     // (from the temperature p2g_cs saw, so each grain that went off there blasts once)
     const bool goesOff = p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER;
+    bool splash = false;
+    bool fizz = false;
     const int cx = clamp(int(floor(p.pos.x)), 0, w - 1);
     const int cy = clamp(int(floor(p.pos.y)), 0, h - 1);
     const uint c = cellIndex(cx, cy);
@@ -2469,6 +2491,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         else
         {
             const float2 old = sampleVelocity(p.pos, true);
+            splash = length(grid - old) > SPLASH_SPEED;
             // (viscous liquids take the grid's velocity, PIC: their own would undo the diffusion)
             p.vel = lerp(grid, p.vel + (grid - old), viscosity(p) > 0.0 ? 0.0 : g_C.flip);
             // RK2 through the grid's velocity, plus the drift of a lighter or heavier particle
@@ -2558,6 +2581,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     else if (p.type == WATER && p.temp >= 100.0)
     {
         p.type = random01(seedOf(index, 11)) < p.life ? SALT : STEAM;
+        fizz = true;
         p.life = 0.0;
         if (p.type == STEAM)
         {
@@ -2618,6 +2642,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             uint original;
             InterlockedCompareExchange(u_Cells[c], before, EMPTY, original);
             kill = original == before;
+            fizz = kill;
         }
     }
 
@@ -2645,6 +2670,10 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         kill = true;
     }
+    countEvent(EVENT_SPLASH, splash);
+    countEvent(EVENT_FIZZ, fizz);
+    countEvent(EVENT_FIRE, p.type == FIRE && !kill);
+    countEvent(EVENT_BOOM, goesOff);
     if (kill)
     {
         p.type = EMPTY;

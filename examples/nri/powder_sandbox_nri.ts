@@ -61,7 +61,17 @@ namespace PowderSandboxNri {
     // (probe_cs packs the counts two to an int from u_Alloc[4], under its salinity at ALLOC_LIST - 1:
     // up to 22 types)
     const PARTICLE_TYPES = 12;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 8;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 9;
+    // The step's events for sound (I_EVENTS: splash, fizz, fire, boom), read back after the probe's
+    // ints.
+    const I_EVENTS = 6 + PARTICLE_TYPES + 8;
+    const EVENT_COUNT = 4;
+    const EVENT_NAMES = ["splash", "fizz", "fire", "boom"];
+    // Nri_PlaySound's sounds for them, the fewest events a sound needs, the time before it plays again
+    // (seconds), and its loudness at EVENTS_LOUD events.
+    const EVENT_MIN = [8, 1, 30, 1];
+    const EVENT_COOLDOWN = [0.12, 0.25, 0.07, 0.35];
+    const EVENTS_LOUD = [400, 60, 3000, 300];
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
     const SALT_SCALE = 256.0;
@@ -388,6 +398,8 @@ namespace PowderSandboxNri {
     // timestamps around its simulation (and how many steps it took), read when its turn comes again.
     class QueuedFrame {
         public timedSteps: int = -1;
+        // The steps it simulated (whether or not timed), for its events.
+        public steps: int = 0;
         constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
             public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
         }
@@ -566,6 +578,14 @@ namespace PowderSandboxNri {
         air: boolean = true;
         // -bodies 0: no bodies_cs (no blocks made, none moving).
         bodies: boolean = true;
+        // Sound (none with -mute, nor in tests but for -sound: the device opened, playing nothing): the
+        // playback device, the events counted so far (each
+        // frame's last step's, times its steps), each sound's time till it may play again.
+        mute: boolean = false;
+        soundCheck: boolean = false;
+        private audio: NriAudioHandle | null = null;
+        private eventTotals: int[] = [];
+        private soundCooldowns: number[] = [];
         // The grid's cells along its shorter side (-gridHeight N, MIN_GRID_HEIGHT .. DEFAULT_GRID_HEIGHT:
         // no auto quality then), and auto quality (-quality auto: the cached size, or measured; fixed:
         // off; calibrate: measured again. Unset, auto, but in a test fixed, or measured without
@@ -590,9 +610,13 @@ namespace PowderSandboxNri {
             for (let i = 0; i < CONSTANTS_FLOATS; i++) {
                 this.constants.push(0.0);
             }
-            for (let i = 0; i < PROBE_INTS; i++) {
+            for (let i = 0; i < PROBE_INTS + EVENT_COUNT; i++) {
                 this.probe.push(0);
                 this.probeFloats.push(0.0);
+            }
+            for (let k = 0; k < EVENT_COUNT; k++) {
+                this.eventTotals.push(0);
+                this.soundCooldowns.push(0.0);
             }
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
             this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
@@ -672,6 +696,10 @@ namespace PowderSandboxNri {
                 this.scene = 1;
             }
             this.startQuality();
+            if ((!this.test || this.soundCheck) && !this.mute) {
+                this.audio = Nri_CreateAudio();
+                console.log(this.audio ? "Sound: the audio output started" : "No sound: no audio output");
+            }
 
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
             this.createSwapChain(device);
@@ -690,7 +718,7 @@ namespace PowderSandboxNri {
             }
             for (let i = 0; i < queuedFrameNum; i++) {
                 const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-                const probeReadback = Nri_CreateReadbackBuffer(device, PROBE_INTS * 4);
+                const probeReadback = Nri_CreateReadbackBuffer(device, (PROBE_INTS + EVENT_COUNT) * 4);
                 if (!probeReadback) {
                     console.log("Cannot create the readback buffers");
                     return 0;
@@ -2101,8 +2129,9 @@ namespace PowderSandboxNri {
 
             // The readout this slot's last frame wrote, and its simulation's time.
             if (frameIndex >= this.queuedFrames.length) {
-                Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS);
+                Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS + EVENT_COUNT);
                 Nri_ReadBufferFloats(queuedFrame.probeReadback, Ref(this.probeFloats[0]), PROBE_INTS);
+                this.playSounds(queuedFrame.steps, frameTime);
             } else {
                 this.probe[0] = CAPACITY;
             }
@@ -2155,6 +2184,7 @@ namespace PowderSandboxNri {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
                 }
                 this.recordSimulation(commandBuffer, brushMode, steps);
+                queuedFrame.steps = this.paused ? 0 : steps;
                 const timestampReadback = queuedFrame.timestampReadback;
                 if (queryPool) {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase + 1);
@@ -2179,6 +2209,12 @@ namespace PowderSandboxNri {
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
                 Nri_CmdCopyBuffer(commandBuffer, queuedFrame.probeReadback, alloc, PROBE_INTS * 4);
                 Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.CopySource, NriBufferState.Storage);
+                // (then the last step's events)
+                const gridInt = this.buffers[1];
+                Nri_CmdBufferBarrier(commandBuffer, gridInt, NriBufferState.Storage, NriBufferState.CopySource);
+                Nri_CmdCopyBufferRegion(commandBuffer, queuedFrame.probeReadback, PROBE_INTS * 4, gridInt, I_EVENTS * this.stride * 4,
+                    EVENT_COUNT * 4);
+                Nri_CmdBufferBarrier(commandBuffer, gridInt, NriBufferState.CopySource, NriBufferState.Storage);
                 const testReadback = this.testReadback;
                 if (testReadback) {
                     if (frameIndex == this.testFrames - 1) {
@@ -2236,6 +2272,30 @@ namespace PowderSandboxNri {
             // Signaled after the present, as NRISamples do
             Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
             this.finishStateRequests();
+        }
+
+        // Sounds for the events the probe's readout carries (its frame's last step's, of steps): each
+        // when there are enough, louder the more, then not again for its cooldown.
+        playSounds(steps: int, frameTime: number) {
+            if (steps <= 0) {
+                return;
+            }
+            for (let k = 0; k < EVENT_COUNT; k++) {
+                const events = this.probe[PROBE_INTS + k] * steps;
+                this.eventTotals[k] += events;
+                this.soundCooldowns[k] -= frameTime;
+                // (nested: tslang's && can't take a @cpp handle, issue #23)
+                const audio = this.audio;
+                if (audio) {
+                    if (!this.test && events >= EVENT_MIN[k] && this.soundCooldowns[k] <= 0.0) {
+                        const loudness = Math.min(0.25 + 0.75 * Math.log(1.0 + events) / Math.log(1.0 + EVENTS_LOUD[k]), 1.0);
+                        // (bigger booms lower)
+                        const pitch = k == 3 ? 1.2 - 0.5 * Math.min(events / EVENTS_LOUD[k], 1.0) : 0.85 + 0.3 * Math.random();
+                        Nri_PlaySound(audio, k, loudness, pitch);
+                        this.soundCooldowns[k] = EVENT_COOLDOWN[k] * (0.8 + 0.4 * Math.random());
+                    }
+                }
+            }
         }
 
         // The simulation's GPU time per step, from the frame this slot last recorded (finished: latencySleep
@@ -2343,6 +2403,28 @@ namespace PowderSandboxNri {
             }
             if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
                 return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
+            }
+            let eventLog = "";
+            for (let k = 0; k < EVENT_COUNT; k++) {
+                eventLog = `${eventLog}${k > 0 ? ", " : ""}${EVENT_NAMES[k]} ${this.eventTotals[k]}`;
+            }
+            console.log(`Sound events: ${eventLog}`);
+            // (the showcase's falling water and burning wood; the acid eating wood; the gunpowder.
+            // Pushed, not a ternary of array literals: that crashed tslang's code at run time)
+            const expected: int[] = [];
+            if (this.scene == 2) {
+                expected.push(0);
+                expected.push(2);
+            } else if (this.scene == 4) {
+                expected.push(1);
+            } else if (this.scene == 5) {
+                expected.push(2);
+                expected.push(3);
+            }
+            for (const k of expected) {
+                if (this.eventTotals[k] == 0) {
+                    return `no ${EVENT_NAMES[k]} events`;
+                }
             }
             const level = this.level;
             if (this.sceneFile != "" && !level) {
@@ -2920,6 +3002,11 @@ namespace PowderSandboxNri {
         }
 
         destroy() {
+            const audio = this.audio;
+            if (audio) {
+                Nri_DestroyAudio(audio);
+                this.audio = null;
+            }
             const device = this.device;
             if (device) {
                 Nri_DeviceWaitIdle(device);
@@ -3013,6 +3100,8 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-viscosity", 1);
         Nri_AddExampleOptionWithValues(sample, "-air", 1);
         Nri_AddExampleOptionWithValues(sample, "-bodies", 1);
+        Nri_AddExampleOption(sample, "-mute");
+        Nri_AddExampleOption(sample, "-sound");
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
@@ -3060,6 +3149,10 @@ namespace PowderSandboxNri {
             } else if (arg == "-vcycles" && i + 1 < argc) {
                 sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
                 i++;
+            } else if (arg == "-mute") {
+                sandbox.mute = true;
+            } else if (arg == "-sound") {
+                sandbox.soundCheck = true;
             } else if (arg == "-bodies" && i + 1 < argc) {
                 sandbox.bodies = parseInt(Nri_GetArg(argc, argv, i + 1)) != 0;
                 i++;

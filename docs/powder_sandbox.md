@@ -282,7 +282,23 @@ format is unchanged (version 2): the new state lives in the particles.
   - The test scenes (`-scene 2` to `9`) stay in code: their checks share their geometry.
   - **Test** `level`: `test_fill.json`, an emitter over a cup (with a fan and fire, for the format's
     other fields): the cup gets its 400 particles of water.
-- **Sound**: splashes, fizzing, fire, driven by particle events.
+- **Sound** (done; not yet listened to on a phone): splashes, fizzing, fire and booms, from the
+  simulation's events.
+  - `core/nri/nri_audio.cpp`: a playback device on the default output (miniaudio 0.11.21, one header,
+    public domain or MIT-0, fetched by core/nri's CMake: WASAPI on Windows, AAudio or OpenSL ES on
+    Android, loaded at run time) and four sounds synthesized from noise and a sine, no audio files:
+    a splash (noise low-passed, its cutoff falling), a fizz (noise high-passed, flickering),
+    crackle (sparse clicks), a boom (a falling low sine under rumble). Up to 24 voices, soft-clipped;
+    `Nri_PlaySound` hands a voice to the callback, which only tries the lock.
+  - Events: g2p counts each step's liquid impacts (a particle's velocity changed by over 50 cells a
+    second in a step), acid eating a cell or water boiling, fire particles, and gunpowder going off,
+    in an int section, one atomic a wave (`WaveActiveCountBits`); the frame's last step's are read
+    back with the probe, times its steps.
+  - Each sound plays when its event count is over its least (8 impacts, 30 fire particles, one of
+    the others), louder by the count's log, then waits its cooldown (0.07 to 0.35 s); booms lower
+    the bigger they are.
+  - None in tests (`-sound` opens the device, playing nothing) nor with `-mute`. Tests log the event
+    totals, and the showcase (splash, fire), scene 4 (fizz) and scene 5 (fire, boom) need theirs.
 - **Auto quality** (done): the grid's size chosen from the GPU's measured step time.
   - Once, at the first start: the U-tube's water for 90 frames (an empty grid's step says little of
     a painted one's), its mean step time from frame 30 on; over the budget (2 ms a step: 6 ms of a
