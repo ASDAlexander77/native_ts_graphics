@@ -66,6 +66,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # Its D3D12 shading rate attachment views have no heap descriptor, yet destroying one gives an empty
 # handle (the first heap's first slot) back to the CBV/SRV/UAV free list, so a later view lands in
 # another heap: patched to give back only allocated handles, for resizing fragment_shading_rate_dynamic_nri.
+# It doesn't enable VK_NV_ray_tracing_invocation_reorder: patched to, where the device has it, for
+# ray_tracing_invocation_reorder_nri's hit objects (Shader Execution Reordering).
 # NRIFramework's debug allocator (Debug builds' host memory, the Vulkan driver's too) reallocates with
 # realloc, which keeps the bytes at the old block's alignment offset while the returned pointer takes
 # the new block's, which differ when the alignment is above malloc's: the data comes back shifted. And
@@ -126,6 +128,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-d3d12-shading-rate-descriptor-free.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-vk-ray-tracing-invocation-reorder.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

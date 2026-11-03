@@ -1,0 +1,18 @@
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -310,6 +310,7 @@
+     APPEND_EXT(true, VK_NVX_BINARY_IMPORT_EXTENSION_NAME);
+     APPEND_EXT(true, VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME);
+     APPEND_EXT(true, VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
++    APPEND_EXT(true, VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
+ }
+ 
+ DeviceVK::DeviceVK(const CallbackInterface& callbacks, const AllocationCallbacks& allocationCallbacks)
+@@ -594,6 +595,7 @@
+     APPEND_FEATURES(true, EXT, SwapchainMaintenance1, SWAPCHAIN_MAINTENANCE_1);
+     APPEND_FEATURES(true, EXT, ZeroInitializeDeviceMemory, ZERO_INITIALIZE_DEVICE_MEMORY);
+     APPEND_FEATURES(true, EXT, MutableDescriptorType, MUTABLE_DESCRIPTOR_TYPE);
++    APPEND_FEATURES(true, NV, RayTracingInvocationReorder, RAY_TRACING_INVOCATION_REORDER);
+ 
+ #ifdef __APPLE__
+     APPEND_FEATURES(true, KHR, PortabilitySubset, PORTABILITY_SUBSET);

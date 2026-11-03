@@ -1283,6 +1283,8 @@ extern "C"
         // VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR: one VkBool32 each.
         uint32_t quadControl = 0;
         uint32_t maximalReconvergence = 0;
+        // VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV: one VkBool32.
+        uint32_t invocationReorder = 0;
         switch (feature)
         {
         case 0:
@@ -1339,6 +1341,16 @@ extern "C"
             // Feature::RayTracingPositionFetch. D3D12 has it through NVAPI only, which the examples'
             // shaders don't use.
             return desc.graphicsAPI == nri::GraphicsAPI::VK && desc.features.rayTracing && desc.shaderFeatures.rayTracingPositionFetch ? 1 : 0;
+        case 27:
+            // Hit objects and thread reordering in ray generation shaders: D3D12's shader model 6.9
+            // with DXR tier 1.2 (without the Agility SDK, the runtime's highest may be 6.8), Vulkan's
+            // VK_NV_ray_tracing_invocation_reorder (VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV,
+            // which NRI is patched to enable where the device has it)
+            if (!desc.features.rayTracing)
+                return 0;
+            if (d3d12)
+                return desc.shaderModel >= 69 && desc.tiers.rayTracing >= 3 ? 1 : 0;
+            return QueryVulkanFeatures(device, 1000490000, &invocationReorder, 1) && invocationReorder ? 1 : 0;
         case 24:
             // Ray tracing pipelines and acceleration structures (D3D12's DXR tier 1.0, Vulkan's
             // VK_KHR_ray_tracing_pipeline): NVRHI's Feature::RayTracingPipeline
