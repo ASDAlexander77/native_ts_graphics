@@ -52,6 +52,15 @@ namespace PowderSandboxNri {
     const SOR_OMEGA = 1.6;
     const DEFAULT_SUBSTEPS = 3;
     const DEFAULT_ITERATIONS = 40;
+    // The pressure solvers: SOR (-iterations red-black sweeps over the grid), or multigrid
+    // (-vcycles V-cycles, -smooth sweeps on each level going down and again coming up; its
+    // smoothing isn't over-relaxed). Its coarsest level is the first of at most MG_COARSE_CELLS cells
+    // (powder_sandbox.hlsl's).
+    const SOLVER_SOR = 0;
+    const SOLVER_MULTIGRID = 1;
+    const DEFAULT_VCYCLES = 1;
+    const DEFAULT_SMOOTH = 2;
+    const MG_COARSE_CELLS = 256;
 
     // Materials and tools (powder_sandbox.hlsl's numbers).
     const WATER = 1;
@@ -86,9 +95,14 @@ namespace PowderSandboxNri {
     const PROBE = 12;
     const REGRID_GRID = 13;
     const REGRID_PARTICLES = 14;
+    const MG_SETUP = 15;
+    const MG_SMOOTH = 16;
+    const MG_RESTRICT = 17;
+    const MG_PROLONG = 18;
+    const MG_COARSE = 19;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -96,7 +110,9 @@ namespace PowderSandboxNri {
     const B_GRID_FLOAT = 4;
     const B_CELLS = 8;
     const B_ALLOC = 16;
-    const B_ALL = 31;
+    const B_MG = 32;
+    const B_ALL = 63;
+    const BUFFERS = 6;
 
     // The toolbar: a tile per tool, then the actions.
     class Tile {
@@ -143,6 +159,36 @@ namespace PowderSandboxNri {
     const SHAPE_LINE = 2;
     const SHAPE_BOX = 3;
     const SHAPE_NAMES = ["Circle", "Square", "Line", "Box"];
+
+    // A multigrid level's width or height (level 0's is the grid's), each half the last's (rounded up).
+    function levelSize(size: int, level: int): int {
+        let s = size;
+        for (let l = 0; l < level; l++) {
+            s = Math.floor((s + 1) / 2);
+        }
+        return s;
+    }
+
+    // The levels a gridW x gridH grid's multigrid has: down to the first of at most MG_COARSE_CELLS.
+    function levelCount(gridW: int, gridH: int): int {
+        let levels = 1;
+        while (levelSize(gridW, levels - 1) * levelSize(gridH, levels - 1) > MG_COARSE_CELLS) {
+            levels++;
+        }
+        return levels;
+    }
+
+    // The floats u_Multigrid's levels 1 and up take (powder_sandbox.hlsl's mgLevel).
+    function multigridFloats(gridW: int, gridH: int): int {
+        let floats = 0;
+        const levels = levelCount(gridW, gridH);
+        for (let l = 1; l < levels; l++) {
+            const w = levelSize(gridW, l);
+            const h = levelSize(gridH, l);
+            floats += 3 * w * h + (w + 1) * h + w * (h + 1);
+        }
+        return floats;
+    }
 
     function materialName(material: int): string {
         if (material == 1) { return "water"; }
@@ -313,7 +359,7 @@ namespace PowderSandboxNri {
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
         // ice and stone);
-        // -substeps N, -iterations N (pressure sweeps).
+        // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N.
         scene: int = 0;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
@@ -323,6 +369,11 @@ namespace PowderSandboxNri {
         // alternate 0.5 / 13 ms) kicks the water apart.
         private pendingTime: number = 0.0;
         iterations: int = DEFAULT_ITERATIONS;
+        solver: int = SOLVER_MULTIGRID;
+        vcycles: int = DEFAULT_VCYCLES;
+        smooth: int = DEFAULT_SMOOTH;
+        // -test: the float sections, read back at the end (the pressure equation's residual).
+        private floatReadback: NriBufferHandle | null = null;
         // -testFrames N: the test's length instead of TEST_FRAMES.
         testFrames: int = TEST_FRAMES;
         private test: boolean = false;
@@ -426,12 +477,12 @@ namespace PowderSandboxNri {
                     timestampReadback));
             }
 
-            // The layouts: the constants (b0) and five storage buffers (u0 .. u4) for the
+            // The layouts: the constants (b0) and six storage buffers (u0 .. u5) for the
             // simulation; the constants and three of the buffers read (t0 .. t2) for the display.
             // All root descriptors.
             const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
             Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, CONSTANTS_SIZE, NriStage.Compute);
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < BUFFERS; i++) {
                 Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, i, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
             }
             this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
@@ -476,10 +527,13 @@ namespace PowderSandboxNri {
                 return 0;
             }
 
-            // The particles, the grid's int and float sections, the cells, the free list.
+            // The particles, the grid's int and float sections, the cells, the free list, the multigrid's
+            // coarser levels (for the longest grid, either way around).
+            const multigridSize = Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
+                multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG)) * 4;
             const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
-                GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4];
-            const strides = [PARTICLE_SIZE, 4, 4, 4, 4];
+                GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4, multigridSize];
+            const strides = [PARTICLE_SIZE, 4, 4, 4, 4, 4];
             for (const size of sizes) {
                 this.bufferSizes.push(size);
             }
@@ -496,7 +550,7 @@ namespace PowderSandboxNri {
                 this.undoW.push(0);
                 this.undoH.push(0);
             }
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < BUFFERS; i++) {
                 const buffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, sizes[i], strides[i], NriBufferState.Storage);
                 if (!buffer) {
                     console.log("Cannot create the simulation's buffers");
@@ -518,8 +572,8 @@ namespace PowderSandboxNri {
                     this.shaderViews.push(shaderView);
                 }
             }
-            // The simulation's set (the five storage buffers) and the display's (three of them read).
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 2, 0, 0, 0, 0, 3, 5, 0);
+            // The simulation's set (the six storage buffers) and the display's (three of them read).
+            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 2, 0, 0, 0, 0, 3, BUFFERS, 0);
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");
                 return 0;
@@ -537,7 +591,7 @@ namespace PowderSandboxNri {
             }
             this.computeSet = computeSet;
             this.drawSet = drawSet;
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < BUFFERS; i++) {
                 Nri_UpdateDescriptor(computeSet, i, 0, this.storageViews[i]);
             }
             for (let i = 0; i < 3; i++) {
@@ -546,6 +600,7 @@ namespace PowderSandboxNri {
             if (this.test) {
                 this.testReadback = Nri_CreateReadbackBuffer(device, INT_SECTIONS * GRID_CAPACITY * 4);
                 this.cellsReadback = Nri_CreateReadbackBuffer(device, GRID_CAPACITY * 4);
+                this.floatReadback = Nri_CreateReadbackBuffer(device, FLOAT_SECTIONS * GRID_CAPACITY * 4);
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
                 this.frameReadback = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
@@ -853,13 +908,14 @@ namespace PowderSandboxNri {
             this.setFloat(21, this.viewY);
             this.setFloat(22, this.cellPixels);
             this.setInt(23, this.scene);
-            this.setFloat(24, SOR_OMEGA);
+            // (multigrid smooths level 0 with pressure_cs too, not over-relaxed)
+            this.setFloat(24, this.solver == SOLVER_SOR ? SOR_OMEGA : 1.0);
             this.setFloat(25, this.mouseGridX);
             this.setFloat(26, this.mouseGridY);
         }
 
         barriers(commandBuffer: NriCommandBufferHandle, mask: int, before: NriBufferState, after: NriBufferState) {
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < BUFFERS; i++) {
                 if ((mask & (1 << i)) != 0) {
                     Nri_CmdBufferBarrier(commandBuffer, this.buffers[i], before, after);
                 }
@@ -1158,15 +1214,62 @@ namespace PowderSandboxNri {
                 this.dispatch(commandBuffer, HEAT_SOURCE, cells, B_ALL);
                 this.dispatch(commandBuffer, HEAT_DIFFUSE, cells, B_ALL);
                 this.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
+                this.recordPressure(commandBuffer);
+                this.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
+                this.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
+                this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
+            }
+        }
+
+        // The pressure equation solved (F_P, from the last step's): SOR's sweeps, or multigrid's
+        // V-cycles (its levels' types and faces set up from level 0's first).
+        recordPressure(commandBuffer: NriCommandBufferHandle) {
+            const cells = this.gridW * this.gridH;
+            if (this.solver == SOLVER_SOR) {
                 for (let i = 0; i < this.iterations; i++) {
                     this.setInt(16, 0);
                     this.dispatch(commandBuffer, PRESSURE, cells, B_GRID_FLOAT);
                     this.setInt(16, 1);
                     this.dispatch(commandBuffer, PRESSURE, cells, B_GRID_FLOAT);
                 }
-                this.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
-                this.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
-                this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
+                return;
+            }
+            const levels = levelCount(this.gridW, this.gridH);
+            for (let l = 1; l < levels; l++) {
+                const w = levelSize(this.gridW, l);
+                const h = levelSize(this.gridH, l);
+                this.setInt(16, l << 8);
+                this.dispatch(commandBuffer, MG_SETUP, (w + 1) * (h + 1), B_MG);
+            }
+            for (let v = 0; v < this.vcycles; v++) {
+                for (let l = 0; l < levels - 1; l++) {
+                    this.recordSmooth(commandBuffer, l);
+                    this.setInt(16, l << 8);
+                    this.dispatch(commandBuffer, MG_RESTRICT, levelSize(this.gridW, l + 1) * levelSize(this.gridH, l + 1), B_MG);
+                }
+                this.setInt(16, (levels - 1) << 8);
+                this.dispatch(commandBuffer, MG_COARSE, 1, B_MG);
+                for (let l = levels - 2; l >= 0; l--) {
+                    this.setInt(16, l << 8);
+                    this.dispatch(commandBuffer, MG_PROLONG, levelSize(this.gridW, l) * levelSize(this.gridH, l),
+                        l == 0 ? B_GRID_FLOAT : B_MG);
+                    this.recordSmooth(commandBuffer, l);
+                }
+            }
+        }
+
+        // -smooth red-black sweeps of a multigrid level (level 0's by pressure_cs).
+        recordSmooth(commandBuffer: NriCommandBufferHandle, level: int) {
+            const count = levelSize(this.gridW, level) * levelSize(this.gridH, level);
+            for (let i = 0; i < this.smooth; i++) {
+                for (let parity = 0; parity < 2; parity++) {
+                    this.setInt(16, parity | (level << 8));
+                    if (level == 0) {
+                        this.dispatch(commandBuffer, PRESSURE, count, B_GRID_FLOAT);
+                    } else {
+                        this.dispatch(commandBuffer, MG_SMOOTH, count, B_MG);
+                    }
+                }
             }
         }
 
@@ -1459,6 +1562,12 @@ namespace PowderSandboxNri {
                             Nri_CmdCopyBuffer(commandBuffer, cellsReadback, this.buffers[3], this.stride * 4);
                             Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.CopySource, NriBufferState.Storage);
                         }
+                        const floatReadback = this.floatReadback;
+                        if (floatReadback) {
+                            Nri_CmdBufferBarrier(commandBuffer, this.buffers[2], NriBufferState.Storage, NriBufferState.CopySource);
+                            Nri_CmdCopyBuffer(commandBuffer, floatReadback, this.buffers[2], FLOAT_SECTIONS * this.stride * 4);
+                            Nri_CmdBufferBarrier(commandBuffer, this.buffers[2], NriBufferState.CopySource, NriBufferState.Storage);
+                        }
                     }
                 }
                 const shown = B_GRID_INT | B_GRID_FLOAT | B_CELLS;
@@ -1534,6 +1643,7 @@ namespace PowderSandboxNri {
             if (Nri_ReadBufferInts(testReadback, Ref(grid[0]), grid.length) == 0) {
                 return "cannot read the grid back";
             }
+            this.logResidual(grid);
             const divider: int = Math.floor(this.gridW / 2);
             let left = 0;
             let right = 0;
@@ -1650,6 +1760,77 @@ namespace PowderSandboxNri {
             return "";
         }
 
+        // -test: how far the last step's pressure is from solving its equation (pressure_cs's), over
+        // the fluid cells: the largest and the mean residual, against the largest divergence.
+        logResidual(grid: int[]) {
+            const floatReadback = this.floatReadback;
+            const cellsReadback = this.cellsReadback;
+            if (!floatReadback || !cellsReadback) {
+                return;
+            }
+            const floats: f32[] = [];
+            for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
+                floats.push(0.0);
+            }
+            const cells: int[] = [];
+            for (let i = 0; i < this.gridW * this.gridH; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0
+                || Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return;
+            }
+            const w = this.gridW;
+            const h = this.gridH;
+            const s = this.stride;
+            let maxResidual = 0.0;
+            let sumResidual = 0.0;
+            let maxDiv = 0.0;
+            let fluidCells = 0;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    if (!this.fluidAt(grid, cells, x, y)) {
+                        continue;
+                    }
+                    let diag = 0.0;
+                    let sum = 0.0;
+                    // (u faces' pitch w + 1, v faces' w; F_UA is section 4, F_VA 5, F_P 6, F_DIV 7)
+                    const nx = [x + 1, x - 1, x, x];
+                    const ny = [y, y, y + 1, y - 1];
+                    const faces = [4 * s + y * (w + 1) + x + 1, 4 * s + y * (w + 1) + x, 5 * s + (y + 1) * w + x, 5 * s + y * w + x];
+                    for (let k = 0; k < 4; k++) {
+                        if ((cells[ny[k] * w + nx[k]] & 0xFF) >= WALL) {
+                            continue;
+                        }
+                        const a = floats[faces[k]];
+                        diag += a;
+                        sum += a * floats[6 * s + ny[k] * w + nx[k]];
+                    }
+                    const div = floats[7 * s + y * w + x];
+                    const residual = Math.abs(diag * floats[6 * s + y * w + x] - sum + div);
+                    maxResidual = Math.max(maxResidual, residual);
+                    sumResidual += residual;
+                    maxDiv = Math.max(maxDiv, Math.abs(div));
+                    fluidCells++;
+                }
+            }
+            console.log(`Pressure residual: max ${formatFixed(maxResidual, 5)}, mean ${formatFixed(sumResidual / Math.max(fluidCells, 1), 6)} (largest divergence ${formatFixed(maxDiv, 3)}, ${fluidCells} fluid cells)`);
+        }
+
+        // A fluid cell as divergence_cs saw it: not solid, with FLIP particles in it.
+        fluidAt(grid: int[], cells: int[], x: int, y: int): boolean {
+            const c = y * this.gridW + x;
+            if ((cells[c] & 0xFF) >= WALL) {
+                return false;
+            }
+            let n = 0;
+            // WATER, OIL, SAND (counts 0 .. 2) and LAVA (7)
+            for (const k of [0, 1, 2, 7]) {
+                n += grid[(I_COUNT + k) * this.stride + c];
+            }
+            return n > 0;
+        }
+
         // -regrid: the grid has its wall all around and no particles in a solid cell; remade taller and
         // back, it kept every particle (the U-tube's water doesn't boil or burn); turned, it lost some
         // (the sides cropped) but not all.
@@ -1750,6 +1931,10 @@ namespace PowderSandboxNri {
                 if (cellsReadback) {
                     Nri_DestroyBuffer(cellsReadback);
                 }
+                const floatReadback = this.floatReadback;
+                if (floatReadback) {
+                    Nri_DestroyBuffer(floatReadback);
+                }
                 const frameReadback = this.frameReadback;
                 if (frameReadback) {
                     Nri_DestroyBuffer(frameReadback);
@@ -1790,6 +1975,9 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-view", 1);
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
         Nri_AddExampleOptionWithValues(sample, "-iterations", 1);
+        Nri_AddExampleOptionWithValues(sample, "-solver", 1);
+        Nri_AddExampleOptionWithValues(sample, "-vcycles", 1);
+        Nri_AddExampleOptionWithValues(sample, "-smooth", 1);
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
@@ -1814,6 +2002,15 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-iterations" && i + 1 < argc) {
                 sandbox.iterations = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-solver" && i + 1 < argc) {
+                sandbox.solver = Nri_GetArg(argc, argv, i + 1) == "sor" ? SOLVER_SOR : SOLVER_MULTIGRID;
+                i++;
+            } else if (arg == "-vcycles" && i + 1 < argc) {
+                sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-smooth" && i + 1 < argc) {
+                sandbox.smooth = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0);
                 i++;
             }
         }

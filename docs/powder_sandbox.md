@@ -11,7 +11,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 ## Where it stands
 
 - **Simulation:** water, oil, sand (and, from this roadmap, lava) are FLIP particles on a MAC grid.
-  A variable-density pressure solve (red-black SOR, warm-started from the last step) plus a
+  A variable-density pressure solve (multigrid, warm-started from the last step) plus a
   particle-density correction keeps their volume. Sand takes the grid's velocity and holds a pile
   by static friction. Fire, smoke and steam rise by buoyancy; neutrons fly straight.
 - **Fixed time step:** 1 / (60 substeps) s per step, from accumulated frame time. The warm-started
@@ -112,11 +112,30 @@ Run so far on two phones:
     the grid and that no particle is in a solid cell.
   - Not yet tried by turning a phone (none was connected).
 
+- **The GPU's time per step** is measured (two timestamps around the simulation) and shown in
+  the HUD: about 0.2 ms on a desktop GPU.
+- **A faster pressure solve, for slower phones.** The 40 red-black SOR sweeps were two thirds of a
+  step. Fewer sweeps (tried as an automatic quality setting) leave the U-tube sloshing, up to
+  2.5 cells apart: a sweep only evens the pressure out between neighbors, so the pressure across
+  a whole vessel takes many. Fewer steps would change the heat, which moves per step (at one step
+  a frame the ice no longer melts). So the solve is now multigrid: one V-cycle a step, 2 red-black
+  sweeps on each level going down and again coming up, the coarsest level (at most 256 cells)
+  solved in one workgroup. Level 0 is the grid itself (`pressure_cs` smooths it, not
+  over-relaxed); the coarser levels live in a sixth buffer (not part of the state) and are set up
+  each step from the finer ones (a coarse cell is air if any of its four is, solid if all are; a
+  coarse face is the mean of its two finer ones). 45 dispatches a step instead of 80.
+  - Measured on a desktop GPU (Vulkan, D3D12): 10 to 30% less GPU time a step, the pressure
+    equation's mean residual 3 to 10 times smaller (`-test` logs it), and the U-tube's sides
+    within 0.06 cells of each other from 40 s on (SOR: 0.27 at 60 s). On a phone the saving
+    should be larger (it's the dispatches and barriers that cost there), but that's not measured
+    yet.
+  - `-solver sor` (with `-iterations N`) keeps the old solve; `-vcycles N` and `-smooth N` tune the
+    new one.
+
 Still to do:
 
 - Rotation on a phone.
-- Frame rate on a slower phone, and an automatic substep reduction if it can't keep up (a 30 fps
-  phone runs 6 steps a frame).
+- The step's time on a slower phone (the HUD shows it).
 - Tap-and-hold to read a cell (touch has no hover); pinch to zoom and two-finger pan.
 
 ### 4. More materials
