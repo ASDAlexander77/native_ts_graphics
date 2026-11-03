@@ -132,11 +132,22 @@ Run so far on two phones:
   - `-solver sor` (with `-iterations N`) keeps the old solve; `-vcycles N` and `-smooth N` tune the
     new one.
 
+- **Zoom and pan.** Two fingers pinch to zoom (around their midpoint, up to 8x) and drag to pan;
+  on a desktop, Ctrl+wheel zooms and the middle button drags (the plain wheel still sizes the
+  brush). The Android window already reports two fingers that way: the middle button held, the
+  cursor between them, the pinch as wheel notches. A second finger down within 0.3 s of the first
+  takes back what the first had begun painting (it was a pinch, not a stroke). The view keeps the
+  grid filling the screen where it can; a regrid shows the whole grid again. `-zoom Z` starts
+  zoomed (for a test's frame).
+- **Inspect**, a tile: touching paints nothing, a crosshair marks the cell under the finger and the
+  HUD reads it (temperature, pressure, contents). A long press couldn't do it: holding still is
+  how you pour.
+
 Still to do:
 
+- Zoom, pan and Inspect by hand on a phone (built and checked headless only).
 - Rotation on a phone.
 - The step's time on a slower phone (the HUD shows it).
-- Tap-and-hold to read a cell (touch has no hover); pinch to zoom and two-finger pan.
 
 ### 4. More materials
 
