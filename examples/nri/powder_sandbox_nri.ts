@@ -43,8 +43,11 @@ namespace PowderSandboxNri {
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
     // powder_sandbox.hlsl's particle types (1 .. PARTICLE_TYPES, a count section each), gridInt and
     // gridFloat sections, and u_Alloc's free list's start.
-    const PARTICLE_TYPES = 9;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 3;
+    const PARTICLE_TYPES = 10;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 4;
+    // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
+    const I_SALT = 6 + PARTICLE_TYPES + 3;
+    const SALT_SCALE = 256.0;
     const FLOAT_SECTIONS = 12;
     const ALLOC_LIST = 16;
     const I_COUNT = 6;
@@ -80,6 +83,7 @@ namespace PowderSandboxNri {
     const FIRE = 4;
     const LAVA = 8;
     const ACID = 9;
+    const SALT = 10;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
@@ -91,6 +95,7 @@ namespace PowderSandboxNri {
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
+    const SALT_WATER = 36;
     // Not the shader's: a tool that paints nothing, its cursor the cell under the pointer (touch has
     // no hover to read a cell with).
     const INSPECT = 35;
@@ -177,6 +182,10 @@ namespace PowderSandboxNri {
     // hotter)
     const BAR_PROBE = 0.17;
     const ACID_TUB = [0.4, 0.55, 0.6, 0.8];
+    // The salt's tank (x0, the top of its walls, x1, the water's surface), and the salt poured over it
+    // (how far above the water, how thick: thin, or it lands as a slab that splashes water out).
+    const SALT_TANK = [0.68, 0.25, 0.95, 0.6];
+    const SALT_POUR = [0.2, 0.04];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -225,6 +234,7 @@ namespace PowderSandboxNri {
         if (material == 7) { return "neutron"; }
         if (material == 8) { return "lava"; }
         if (material == 9) { return "acid"; }
+        if (material == 10) { return "salt"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -427,8 +437,10 @@ namespace PowderSandboxNri {
                 this.probeFloats.push(0.0);
             }
             this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
+            this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
+            this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
             this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
             this.tiles.push(new Tile("Acid", ACID, 0.45, 0.92, 0.18));
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
@@ -847,7 +859,7 @@ namespace PowderSandboxNri {
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
-                if (action == WATER || action == OIL || action == SAND || action == LAVA || action == ACID || action == FIRE) {
+                if (action == WATER || action == OIL || action == SAND || action == SALT || action == LAVA || action == ACID || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -1459,6 +1471,11 @@ namespace PowderSandboxNri {
                 this.addStroke(GLASS, ACID_TUB[2], ACID_TUB[1], ACID_TUB[2] + 0.005, 1.0, WATER);
                 this.addStroke(WOOD, ACID_TUB[0], ACID_TUB[3], ACID_TUB[2], 1.0, WATER);
                 this.addStroke(ACID, ACID_TUB[0], ACID_TUB[1] + 0.03, ACID_TUB[2], ACID_TUB[3] - 0.08, WATER);
+                this.addStroke(GLASS, SALT_TANK[0] - 0.005, SALT_TANK[1], SALT_TANK[0], 1.0, WATER);
+                this.addStroke(GLASS, SALT_TANK[2], SALT_TANK[1], SALT_TANK[2] + 0.005, 1.0, WATER);
+                this.addStroke(WATER, SALT_TANK[0], SALT_TANK[3], SALT_TANK[2], 1.0, WATER);
+                this.addStroke(SALT, SALT_TANK[0] + 0.06, SALT_TANK[3] - SALT_POUR[0], SALT_TANK[2] - 0.06,
+                    SALT_TANK[3] - SALT_POUR[0] + SALT_POUR[1], WATER);
                 for (let k = 0; k < HEAT_STROKES; k++) {
                     this.addStroke(HEAT, BARS[0] - 0.01, BARS[1] - 0.02, BARS[0] + 0.015, BARS[4] + BARS[3] + 0.02, WATER);
                 }
@@ -1542,6 +1559,10 @@ namespace PowderSandboxNri {
                 }
                 if (contents == "") {
                     contents = "air";
+                }
+                // (probe_cs puts the water's salinity last)
+                if (this.probe[4] > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
+                    contents = `${contents} (salinity ${formatFixed(100.0 * this.probeFloats[PROBE_INTS - 1], 0)}%)`;
                 }
             }
             y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents],
@@ -1765,6 +1786,19 @@ namespace PowderSandboxNri {
                 return "cannot read the grid back";
             }
             this.logResidual(grid);
+            // The frame, read (and saved, with -testOutput) before any check can fail; checked last.
+            const frameReadback = this.frameReadback;
+            if (!frameReadback) {
+                return "cannot read the frame back";
+            }
+            const pixels: int[] = [];
+            for (let i = 0; i < this.width * this.height; i++) {
+                pixels.push(0);
+            }
+            if (Nri_ReadBufferRGBA8(frameReadback, this.rowPitch, this.width, this.height, this.viewFormat, Ref(pixels[0]), pixels.length) == 0) {
+                return "cannot read the frame back";
+            }
+
             const divider: int = Math.floor(this.gridW / 2);
             let left = 0;
             let right = 0;
@@ -1808,19 +1842,9 @@ namespace PowderSandboxNri {
                 }
             }
 
-            // The frame (saved with -testOutput): water drawn, blue, over about the bottom 40% of the
-            // grid in the U-tube; some in the other scenes.
-            const frameReadback = this.frameReadback;
-            if (!frameReadback) {
-                return "cannot read the frame back";
-            }
-            const pixels: int[] = [];
-            for (let i = 0; i < this.width * this.height; i++) {
-                pixels.push(0);
-            }
-            if (Nri_ReadBufferRGBA8(frameReadback, this.rowPitch, this.width, this.height, this.viewFormat, Ref(pixels[0]), pixels.length) == 0) {
-                return "cannot read the frame back";
-            }
+
+            // The frame: water drawn, blue, over about the bottom 40% of the grid in the U-tube; some
+            // in the other scenes.
             let blue = 0;
             for (let i = 0; i < pixels.length; i++) {
                 const p = pixels[i];
@@ -1833,7 +1857,7 @@ namespace PowderSandboxNri {
             const share = 100.0 * blue / pixels.length;
             console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
             // (a turned U-tube is a narrow grid between margins)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 4 ? 0.0 : 1.0);
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : 1.0;
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
@@ -1951,8 +1975,8 @@ namespace PowderSandboxNri {
                 return false;
             }
             let n = 0;
-            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7) and ACID (8)
-            for (const k of [0, 1, 2, 7, 8]) {
+            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7), ACID (8) and SALT (9)
+            for (const k of [0, 1, 2, 7, 8, 9]) {
                 n += grid[(I_COUNT + k) * this.stride + c];
             }
             return n > 0;
@@ -2003,7 +2027,8 @@ namespace PowderSandboxNri {
         }
 
         // Scene 4: heat went further along the metal bar than the stone one; the acid ate wood and
-        // left the glass.
+        // left the glass; the salt dissolved, and the salt water sank (the tank's water saltier in
+        // its bottom third than in its top third).
         checkMaterials(grid: int[]): string {
             const floatReadback = this.floatReadback;
             const cellsReadback = this.cellsReadback;
@@ -2078,6 +2103,41 @@ namespace PowderSandboxNri {
             }
             if (glass != glassPainted) {
                 return `the acid ate glass: ${glass} of ${glassPainted} cells left`;
+            }
+            let salt = 0;
+            const layers = [0.0, 0.0, 0.0, 0.0];
+            const x0: int = Math.ceil(SALT_TANK[0] * w);
+            const x1: int = Math.floor(SALT_TANK[2] * w);
+            const top: int = Math.floor(SALT_TANK[3] * h);
+            const third = (h - 1 - top) / 3.0;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = x0; x < x1; x++) {
+                    const c = y * w + x;
+                    salt += grid[(I_COUNT + SALT - 1) * this.stride + c];
+                    if (y >= top) {
+                        // (0 the top third's salt and water, 2 the bottom third's)
+                        let layer = -1;
+                        if (y < top + third) {
+                            layer = 0;
+                        } else if (y >= h - 1 - third) {
+                            layer = 2;
+                        }
+                        if (layer >= 0) {
+                            layers[layer] += grid[I_SALT * this.stride + c] / SALT_SCALE;
+                            layers[layer + 1] += grid[(I_COUNT + WATER - 1) * this.stride + c];
+                        }
+                    }
+                }
+            }
+            const topSalinity = layers[0] / Math.max(layers[1], 1.0);
+            const bottomSalinity = layers[2] / Math.max(layers[3], 1.0);
+            const poured = Math.floor(SALT_POUR[1] * h) * Math.floor((SALT_TANK[2] - SALT_TANK[0] - 0.12) * w) * 4;
+            console.log(`Salt: ${salt} grains left of about ${poured}; salinity ${formatFixed(100.0 * topSalinity, 2)}% at the top, ${formatFixed(100.0 * bottomSalinity, 2)}% at the bottom`);
+            if (salt > poured / 2) {
+                return `the salt didn't dissolve: ${salt} grains left of about ${poured}`;
+            }
+            if (bottomSalinity < 0.01 || bottomSalinity < topSalinity * 1.2) {
+                return `the salt water didn't sink: salinity ${formatFixed(100.0 * topSalinity, 2)}% at the top, ${formatFixed(100.0 * bottomSalinity, 2)}% at the bottom`;
             }
             return "";
         }

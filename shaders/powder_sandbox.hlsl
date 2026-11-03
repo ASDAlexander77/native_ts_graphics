@@ -79,8 +79,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define NEUTRON 7
 #define LAVA 8
 #define ACID 9
+#define SALT 10
 // Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 9
+#define PARTICLE_TYPES 10
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -93,6 +94,8 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define ERASE 32
 #define HEAT 33
 #define COOL 34
+// Paints water as salty as it gets (WATER particles, salinity 1).
+#define SALT_WATER 36
 
 // A cell: material in bits 0-7, an emitter's material in 8-15, BURNING (wood); MELTED: the ice or
 // stone (bits 8-15) that was here melted this step (spawn_cs turns it into water or lava).
@@ -111,6 +114,15 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define LATENT_STONE 200.0
 // How often (per second) an acid particle next to a solid eats it, through the face it tries.
 #define ACID_RATE 2.0
+// Salt water: a WATER particle's life is its salinity (0 fresh .. 1 as salty as it gets), which
+// makes it up to SALT_DENSITY denser. Salt in water dissolves at DISSOLVE_RATE a second (into a
+// particle of salinity 1) while its cell's water is under SATURATED; the water in a cell evens its
+// salinity out at SALT_MIX a second.
+#define SALT_SCALE 256.0
+#define SALT_DENSITY 0.25
+#define DISSOLVE_RATE 1.0
+#define SATURATED 0.9
+#define SALT_MIX 0.3
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -124,7 +136,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_TSUM (I_COUNT + PARTICLE_TYPES)
 #define I_TCOUNT (I_TSUM + 1)
 #define I_FISSION (I_TSUM + 2)
-#define INT_SECTIONS (I_TSUM + 3)
+// The cell's water's salinity, summed (SALT_SCALE a particle at 1).
+#define I_SALT (I_TSUM + 3)
+#define INT_SECTIONS (I_TSUM + 4)
 
 // gridFloat sections.
 #define F_U 0
@@ -186,7 +200,13 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || m == ACID;
+    return (m >= WATER && m <= SAND) || m == LAVA || m == ACID || m == SALT;
+}
+
+// Powders pile (static friction) instead of flowing level.
+bool isPowder(uint m)
+{
+    return m == SAND || m == SALT;
 }
 
 bool isGasMaterial(uint m)
@@ -196,7 +216,13 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : 1.0)));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : 1.0))));
+}
+
+// A particle's density: its material's, salt water's by its salinity.
+float particleDensity(Particle p)
+{
+    return p.type == WATER ? 1.0 + SALT_DENSITY * p.life : density(p.type);
 }
 
 uint cellIndex(int x, int y)
@@ -341,7 +367,8 @@ int countOf(uint material, int x, int y)
 
 int flipCount(int x, int y)
 {
-    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y);
+    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
+        + countOf(SALT, x, y);
 }
 
 bool fluidCell(int x, int y)
@@ -600,11 +627,15 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
         InterlockedAdd(u_GridInt[gi(I_TSUM, c)], int(round(p.temp * TEMP_SCALE)));
         InterlockedAdd(u_GridInt[gi(I_TCOUNT, c)], 1);
     }
+    if (p.type == WATER && p.life > 0.0)
+    {
+        InterlockedAdd(u_GridInt[gi(I_SALT, c)], int(round(p.life * SALT_SCALE)));
+    }
     if (!isFlipMaterial(p.type))
     {
         return;
     }
-    const float rho = density(p.type);
+    const float rho = particleDensity(p);
 
     // u faces at (i, j + 0.5)
     {
@@ -1411,7 +1442,14 @@ void moveParticle(inout float2 pos, inout float2 vel, float2 move)
 
 bool sandBlocked(int x, int y, int packed)
 {
-    return solidCell(x, y) || countOf(SAND, x, y) >= packed;
+    return solidCell(x, y) || countOf(SAND, x, y) + countOf(SALT, x, y) >= packed;
+}
+
+// The mean salinity of a cell's water (0 with none).
+float cellSalinity(uint c, int x, int y)
+{
+    const int water = countOf(WATER, x, y);
+    return water > 0 ? float(u_GridInt[gi(I_SALT, c)]) / SALT_SCALE / float(water) : 0.0;
 }
 
 // Acid eats this solid cell (not glass, nor the wall around the grid).
@@ -1464,7 +1502,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     if (isFlipMaterial(p.type))
     {
         const float2 grid = sampleVelocity(p.pos, false);
-        if (p.type == SAND)
+        if (isPowder(p.type))
         {
             p.vel = grid;
             // Resting on something: slide down a free diagonal, else hold (static friction).
@@ -1507,7 +1545,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             const float2 mid = p.pos + 0.5 * dt * grid;
             const float mixture = 4.0 / (gf(F_UA, uIndex(cx, cy)) + gf(F_UA, uIndex(cx + 1, cy)) + gf(F_VA, vIndex(cx, cy))
                 + gf(F_VA, vIndex(cx, cy + 1)));
-            const float drift = (density(p.type) - mixture) / mixture * g_C.gravity * 0.08;
+            const float drift = (particleDensity(p) - mixture) / mixture * g_C.gravity * 0.08;
             moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift)) * dt);
         }
     }
@@ -1561,11 +1599,27 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         kill = kill || p.life <= 0.0;
     }
 
-    // What the temperature does.
+    // Salt water evens out with the water around it; salt in unsaturated water dissolves.
+    if (p.type == WATER)
+    {
+        p.life = lerp(p.life, cellSalinity(c, cx, cy), saturate(SALT_MIX * dt));
+    }
+    else if (p.type == SALT && countOf(WATER, cx, cy) >= 2 && cellSalinity(c, cx, cy) < SATURATED
+        && random01(seedOf(index, 10)) < DISSOLVE_RATE * dt)
+    {
+        p.type = WATER;
+        p.life = 1.0;
+    }
+
+    // What the temperature does. Salt water boiling leaves its salt (as often as it's salty).
     if (p.type == WATER && p.temp >= 100.0)
     {
-        p.type = STEAM;
-        p.vel.y -= 20.0;
+        p.type = random01(seedOf(index, 11)) < p.life ? SALT : STEAM;
+        p.life = 0.0;
+        if (p.type == STEAM)
+        {
+            p.vel.y -= 20.0;
+        }
     }
     else if (p.type == STEAM && p.temp < 90.0)
     {
@@ -1586,6 +1640,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         {
             p.type = STEAM;
             p.temp = 105.0;
+            p.life = 0.0;
         }
         else if (p.life <= 0.0)
         {
@@ -1675,11 +1730,13 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
     if (g_C.brushMode != 0 && insideBrush(float2(x, y) + 0.5))
     {
         const uint tool = g_C.tool;
-        if (isFlipMaterial(tool))
+        if (isFlipMaterial(tool) || tool == SALT_WATER)
         {
             if (!isSolidMaterial(m))
             {
                 const float temp = tool == LAVA ? LAVA_TEMP : AMBIENT;
+                const uint type = tool == SALT_WATER ? WATER : tool;
+                const float salinity = tool == SALT_WATER ? 1.0 : 0.0;
                 // An empty cell takes its new particles' temperature now, not at the next step's
                 // heat_source_cs (before that the cell rules would see lava at the air's).
                 if (flipCount(x, y) == 0)
@@ -1688,7 +1745,7 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
                 }
                 for (int k = flipCount(x, y); k < int(REST_COUNT); k++)
                 {
-                    spawn(tool, randomInCell(x, y, seedOf(c, 10 + k * 2)), float2(0, 0), temp, 0.0, 0, 0);
+                    spawn(type, randomInCell(x, y, seedOf(c, 10 + k * 2)), float2(0, 0), temp, salinity, 0, 0);
                 }
             }
         }
@@ -1818,6 +1875,7 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     {
         u_Alloc[A_PROBE + 2 + m] = countOf(m, x, y);
     }
+    u_Alloc[A_LIST - 1] = asint(cellSalinity(c, x, y));
 }
 
 #endif // SIMULATION
@@ -1836,21 +1894,32 @@ void display_vs(uint vertexId : SV_VertexID, out float4 position : SV_Position)
     position = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
 }
 
-int countAt(uint material, int x, int y)
+float sectionAt(uint section, int x, int y)
 {
     x = clamp(x, 0, int(g_C.gridW) - 1);
     y = clamp(y, 0, int(g_C.gridH) - 1);
-    return t_GridInt[(I_COUNT + material - 1) * g_C.stride + cellIndex(x, y)];
+    return float(t_GridInt[section * g_C.stride + cellIndex(x, y)]);
+}
+
+int countAt(uint material, int x, int y)
+{
+    return int(sectionAt(I_COUNT + material - 1, x, y));
+}
+
+// An int section, bilinearly between the cell centers.
+float sampleSection(float2 g, uint section)
+{
+    const float2 q = g - 0.5;
+    const int2 i0 = int2(floor(q));
+    const float2 f = q - float2(i0);
+    return lerp(lerp(sectionAt(section, i0.x, i0.y), sectionAt(section, i0.x + 1, i0.y), f.x),
+        lerp(sectionAt(section, i0.x, i0.y + 1), sectionAt(section, i0.x + 1, i0.y + 1), f.x), f.y);
 }
 
 // A material's particle count, bilinearly between the cell centers.
 float sampleCount(float2 g, uint material)
 {
-    const float2 q = g - 0.5;
-    const int2 i0 = int2(floor(q));
-    const float2 f = q - float2(i0);
-    return lerp(lerp(countAt(material, i0.x, i0.y), countAt(material, i0.x + 1, i0.y), f.x),
-        lerp(countAt(material, i0.x, i0.y + 1), countAt(material, i0.x + 1, i0.y + 1), f.x), f.y);
+    return sampleSection(g, I_COUNT + material - 1);
 }
 
 float floatAt(uint section, int x, int y)
@@ -1882,6 +1951,7 @@ float3 materialColor(uint m)
     case NEUTRON: return float3(0.5, 1.0, 0.4);
     case LAVA: return float3(0.55, 0.12, 0.03);
     case ACID: return float3(0.45, 0.92, 0.18);
+    case SALT: return float3(0.92, 0.92, 0.95);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -1924,12 +1994,16 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float sand = sampleCount(g, SAND);
     const float lava = sampleCount(g, LAVA);
     const float acid = sampleCount(g, ACID);
-    const float total = water + oil + sand + lava + acid;
+    const float salt = sampleCount(g, SALT);
+    const float total = water + oil + sand + lava + acid + salt;
     if (total > 0.01)
     {
-        float3 liquid = (water * materialColor(WATER) + oil * materialColor(OIL) + sand * materialColor(SAND)
-            + lava * materialColor(LAVA) + acid * materialColor(ACID)) / total;
-        if (sand > water + oil + lava + acid)
+        // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
+        const float salinity = saturate(2.5 * sampleSection(g, I_SALT) / SALT_SCALE / max(water, 0.5));
+        const float3 waterColor = lerp(materialColor(WATER), float3(0.1, 0.55, 0.62), salinity);
+        float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
+            + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)) / total;
+        if (sand + salt > water + oil + lava + acid)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
