@@ -283,4 +283,17 @@ format is unchanged (version 2): the new state lives in the particles.
   - **Test** `level`: `test_fill.json`, an emitter over a cup (with a fan and fire, for the format's
     other fields): the cup gets its 400 particles of water.
 - **Sound**: splashes, fizzing, fire, driven by particle events.
-- **Auto quality**: substeps and grid size chosen from measured frame time.
+- **Auto quality** (done): the grid's size chosen from the GPU's measured step time.
+  - Once, at the first start: the U-tube's water for 90 frames (an empty grid's step says little of
+    a painted one's), its mean step time from frame 30 on; over the budget (2 ms a step: 6 ms of a
+    60 Hz frame at 3 steps) the grid is made smaller, its cells fewer by that ratio (72 cells along
+    its shorter side at the least). The session then starts at that size (a regrid would crop what's
+    there). The size is cached in `powder_sandbox.quality` beside the save, so later starts skip it.
+  - Only the grid: the substeps stay, as heat and the pressure solve are tuned per step and the
+    heat's explicit diffusion is at its stability limit (fewer, longer steps would need it implicit).
+  - `-gridHeight N` sets the size (no auto quality); `-quality fixed` turns it off, `calibrate`
+    measures again. Tests don't measure (or read the cache) unless asked: `-stepBudget ms` measures
+    against that budget without caching it.
+  - On the desktop the step is 0.2 to 0.3 ms, so the grid stays 144 high; the phone's is still to be
+    measured.
+  - **Test** `quality`: a budget of 0.01 ms: the showcase starts on a 145 x 72 grid.

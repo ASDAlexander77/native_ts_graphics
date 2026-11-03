@@ -23,6 +23,20 @@ namespace PowderSandboxNri {
     // remakes the grid in the same buffers.
     const CAPACITY = 1 << 18;
     const DEFAULT_GRID_HEIGHT = 144;
+    // Auto quality: the GPU's step time, averaged over frames QUALITY_FRAMES[0] .. [1] after the
+    // start; over STEP_BUDGET_MS (3 steps a frame: 6 of a 60 Hz frame's 16.7 ms), the grid made
+    // smaller, its cells fewer by that ratio (MIN_GRID_HEIGHT along its shorter side at the least).
+    // Measured once, on the U-tube's water (an empty grid's step says little of a painted one's),
+    // before the session starts at the size chosen (a regrid would crop what's there). The substeps
+    // stay: heat and the solve are tuned per step
+    // (and the heat's explicit diffusion is at its stability limit).
+    const QUALITY_FRAMES = [30, 90];
+    const STEP_BUDGET_MS = 2.0;
+    const MIN_GRID_HEIGHT = 72;
+    // Where the chosen height is kept (beside the save): QUALITY_MAGIC, the height.
+    const QUALITY_PATH = "powder_sandbox.quality";
+    const QUALITY_MAGIC = 0x51445750;
+    const QUALITY_HEADER_INTS = 2;
     const MAX_GRID_LONG = 432;
     const GRID_CAPACITY = (DEFAULT_GRID_HEIGHT + 1) * (MAX_GRID_LONG + 1);
     // A toolbar tile's narrowest (its label in ImGui's default font fits).
@@ -552,6 +566,19 @@ namespace PowderSandboxNri {
         air: boolean = true;
         // -bodies 0: no bodies_cs (no blocks made, none moving).
         bodies: boolean = true;
+        // The grid's cells along its shorter side (-gridHeight N, MIN_GRID_HEIGHT .. DEFAULT_GRID_HEIGHT:
+        // no auto quality then), and auto quality (-quality auto: the cached size, or measured; fixed:
+        // off; calibrate: measured again. Unset, auto, but in a test fixed, or measured without
+        // caching it for -stepBudget ms, its budget).
+        gridHeight: int = DEFAULT_GRID_HEIGHT;
+        gridHeightSet: boolean = false;
+        quality: string = "";
+        stepBudget: number = STEP_BUDGET_MS;
+        private calibrating: boolean = false;
+        private calibrationScene: int = 0;
+        private calibrationLevel: Level | null = null;
+        private qualitySum: number = 0.0;
+        private qualityCount: int = 0;
         // -test: the float sections, read back at the end (the pressure equation's residual).
         private floatReadback: NriBufferHandle | null = null;
         // -testFrames N: the test's length instead of TEST_FRAMES.
@@ -644,6 +671,7 @@ namespace PowderSandboxNri {
             if (this.test && this.scene == 0 && !this.level) {
                 this.scene = 1;
             }
+            this.startQuality();
 
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
             this.createSwapChain(device);
@@ -921,16 +949,16 @@ namespace PowderSandboxNri {
             return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
         }
 
-        // The grid's size from the shape of the window above the toolbar: DEFAULT_GRID_HEIGHT cells
-        // along its shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
+        // The grid's size from the shape of the window above the toolbar: gridHeight cells along its
+        // shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
         fitGrid() {
             const playHeight = this.height - this.toolbarTileHeight();
-            let gridW: int = DEFAULT_GRID_HEIGHT;
-            let gridH: int = DEFAULT_GRID_HEIGHT;
+            let gridW: int = this.gridHeight;
+            let gridH: int = this.gridHeight;
             if (this.width >= playHeight) {
-                gridW = Math.floor(DEFAULT_GRID_HEIGHT * this.width / playHeight);
+                gridW = Math.floor(this.gridHeight * this.width / playHeight);
             } else {
-                gridH = Math.floor(DEFAULT_GRID_HEIGHT * playHeight / this.width);
+                gridH = Math.floor(this.gridHeight * playHeight / this.width);
             }
             this.gridW = Math.min(gridW, MAX_GRID_LONG);
             this.gridH = Math.min(gridH, MAX_GRID_LONG);
@@ -1579,6 +1607,88 @@ namespace PowderSandboxNri {
             }
         }
 
+        // Auto quality, once (not in tests, but for -stepBudget): the GPU's step time measured on the
+        // U-tube's water, the grid's size chosen from it and cached in QUALITY_PATH; or the cached size.
+        startQuality() {
+            // (unset: auto, but in a test fixed, unless it gives a budget to measure against)
+            const mode = this.quality != "" ? this.quality : (this.test && this.stepBudget == STEP_BUDGET_MS ? "fixed" : "auto");
+            if (mode == "fixed" || this.gridHeightSet) {
+                return;
+            }
+            if (mode != "calibrate" && !(this.test && this.quality == "")) {
+                const cached = this.readCachedHeight();
+                if (cached > 0) {
+                    this.gridHeight = cached;
+                    console.log(`Auto quality: the grid's ${cached} cells high (${QUALITY_PATH})`);
+                    return;
+                }
+            }
+            this.calibrating = true;
+            this.calibrationScene = this.scene;
+            this.calibrationLevel = this.level;
+            this.level = null;
+            this.scene = 1;
+            this.showMessage("Measuring the GPU...");
+        }
+
+        // The grid height QUALITY_PATH holds, or 0.
+        readCachedHeight(): int {
+            const file = Nri_LoadFile(QUALITY_PATH);
+            if (!file) {
+                return 0;
+            }
+            const bytes: int[] = [];
+            for (let i = 0; i < QUALITY_HEADER_INTS * 4; i++) {
+                bytes.push(0);
+            }
+            Nri_CopyFileBytes(file, 0, bytes.length, Ref(bytes[0]));
+            Nri_DestroyFile(file);
+            const ints: int[] = [];
+            for (let i = 0; i < QUALITY_HEADER_INTS; i++) {
+                ints.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
+            }
+            if (ints[0] != QUALITY_MAGIC || ints[1] < MIN_GRID_HEIGHT || ints[1] > DEFAULT_GRID_HEIGHT) {
+                return 0;
+            }
+            return ints[1];
+        }
+
+        // While calibrating: the step time summed over QUALITY_FRAMES, then the grid's size from its mean
+        // (smaller when over the budget), cached, and the session begun at it.
+        qualityRequests(frameIndex: int) {
+            if (!this.calibrating) {
+                return;
+            }
+            if (frameIndex >= QUALITY_FRAMES[0] && this.stepMs > 0.0) {
+                this.qualitySum += this.stepMs;
+                this.qualityCount++;
+            }
+            if (frameIndex < QUALITY_FRAMES[1]) {
+                return;
+            }
+            this.calibrating = false;
+            const mean = this.qualityCount > 0 ? this.qualitySum / this.qualityCount : 0.0;
+            if (mean > this.stepBudget) {
+                this.gridHeight = Math.max(Math.min(Math.floor(this.gridHeight * Math.sqrt(this.stepBudget / mean) / 8) * 8,
+                    this.gridHeight), MIN_GRID_HEIGHT);
+            }
+            this.fitGrid();
+            this.layout();
+            console.log(`Auto quality: ${formatFixed(mean, 3)} ms a step (budget ${formatFixed(this.stepBudget, 2)}): the grid ${this.gridW} x ${this.gridH}`);
+            // (a test's kept only when it asked for auto quality)
+            if ((!this.test || this.quality != "") && this.queuedFrames.length > 0) {
+                const header: int[] = [QUALITY_MAGIC, this.gridHeight];
+                Nri_SaveBufferToFile(this.queuedFrames[0].probeReadback, 0, Ref(header[0]), QUALITY_HEADER_INTS, QUALITY_PATH);
+            }
+            // The session, begun at that size.
+            this.scene = this.calibrationScene;
+            this.level = this.calibrationLevel;
+            this.script = [];
+            this.sceneOnClear = true;
+            this.needsInit = true;
+            this.messageTime = 0.0;
+        }
+
         // -regrid 1: halfway, the grid remade 20 cells taller (on its floor, so the water stays where it
         // is), then back; 2: turned, its width and height swapped (the U-tube cropped at its sides
         // and its divider still in the middle).
@@ -2019,6 +2129,7 @@ namespace PowderSandboxNri {
             if (this.test && this.regrid != 0) {
                 this.regridRequests(frameIndex);
             }
+            this.qualityRequests(frameIndex);
             const brushMode = this.test ? 0 : this.handleInput();
             this.prepareStateRequests();
             this.fillConstants(step);
@@ -2229,6 +2340,9 @@ namespace PowderSandboxNri {
                 if (error != "") {
                     return error;
                 }
+            }
+            if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
+                return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
             }
             const level = this.level;
             if (this.sceneFile != "" && !level) {
@@ -2886,6 +3000,9 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-regrid", 1);
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
         Nri_AddExampleOptionWithValues(sample, "-sceneFile", 1);
+        Nri_AddExampleOptionWithValues(sample, "-gridHeight", 1);
+        Nri_AddExampleOptionWithValues(sample, "-quality", 1);
+        Nri_AddExampleOptionWithValues(sample, "-stepBudget", 1);
         Nri_AddExampleOptionWithValues(sample, "-view", 1);
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
         Nri_AddExampleOptionWithValues(sample, "-iterations", 1);
@@ -2911,6 +3028,16 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-view" && i + 1 < argc) {
                 sandbox.overlay = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0), 2);
+                i++;
+            } else if (arg == "-gridHeight" && i + 1 < argc) {
+                sandbox.gridHeight = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), MIN_GRID_HEIGHT), DEFAULT_GRID_HEIGHT);
+                sandbox.gridHeightSet = true;
+                i++;
+            } else if (arg == "-quality" && i + 1 < argc) {
+                sandbox.quality = Nri_GetArg(argc, argv, i + 1);
+                i++;
+            } else if (arg == "-stepBudget" && i + 1 < argc) {
+                sandbox.stepBudget = Math.max(parseFloat(Nri_GetArg(argc, argv, i + 1)), 0.001);
                 i++;
             } else if (arg == "-sceneFile" && i + 1 < argc) {
                 sandbox.sceneFile = Nri_GetArg(argc, argv, i + 1);
