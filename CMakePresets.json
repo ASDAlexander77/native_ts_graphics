@@ -42,7 +42,7 @@
       "description": "TSLANG custom language requires the Ninja generator (the Visual Studio generator ignores custom languages).",
       "inherits": "base",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build-rc",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "TSLANG_MEMORY_MODEL": "rc"
@@ -53,7 +53,7 @@
       "displayName": "Release (Ninja)",
       "description": "Ninja is a single-config generator, so Release builds use their own binary directory.",
       "inherits": "default",
-      "binaryDir": "${sourceDir}/build-release",
+      "binaryDir": "${sourceDir}/build-release-rc",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "TSLANG_MEMORY_MODEL": "rc"
@@ -187,6 +187,14 @@
     {
       "name": "release",
       "configurePreset": "release"
+    },
+    {
+      "name": "default-rc",
+      "configurePreset": "default-rc"
+    },
+    {
+      "name": "release-rc",
+      "configurePreset": "release-rc"
     },
     {
       "name": "dlss",
