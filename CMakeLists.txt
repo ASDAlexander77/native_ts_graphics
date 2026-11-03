@@ -1490,6 +1490,11 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX thermite ARGS -scene 17 -testF
 add_tslang_example_test(powder_sandbox_nri SUFFIX nitroglycerin ARGS -scene 18 -testFrames 300)
 add_tslang_example_test(powder_sandbox_nri SUFFIX c4 ARGS -scene 19 -testFrames 300)
 add_tslang_example_test(powder_sandbox_nri SUFFIX coal ARGS -scene 20 -testFrames 300)
+# A clone, black and white holes, a sponge and seeds, switches, detectors and heaters.
+add_tslang_example_test(powder_sandbox_nri SUFFIX clone ARGS -scene 21 -testFrames 300)
+add_tslang_example_test(powder_sandbox_nri SUFFIX holes ARGS -scene 22 -testFrames 300)
+add_tslang_example_test(powder_sandbox_nri SUFFIX plants ARGS -scene 23 -testFrames 300)
+add_tslang_example_test(powder_sandbox_nri SUFFIX switches ARGS -scene 24 -testFrames 300)
 # Auto quality, its budget set below any GPU's step time: the grid is made smaller.
 add_tslang_example_test(powder_sandbox_nri SUFFIX quality ARGS -scene 2 -testFrames 300 -stepBudget 0.01)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.

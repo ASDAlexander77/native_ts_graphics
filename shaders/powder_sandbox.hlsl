@@ -95,8 +95,10 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define NEON 42
 #define THERMITE 43
 #define NITRO 44
-// The particle types' count sections: 1 .. EMBER, then HYDROGEN .. NITRO.
-#define PARTICLE_TYPES 19
+// A seed: a powder sprouting into a plant where it's wet.
+#define SEED 45
+// The particle types' count sections: 1 .. EMBER, then HYDROGEN .. SEED.
+#define PARTICLE_TYPES 20
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -126,6 +128,24 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define SALT_WATER 36
 // Sparks the conductors under the brush.
 #define SPARK 38
+// Solids past the particle types' ids (isSolidMaterial: all from WALL on, the tools painting
+// nothing). A clone emits the first particle type to touch it (learned into bits 8..15); a black
+// hole pulls everything in (the hole field, see I_GLOW) and swallows what touches it, a white hole
+// pushes it away; a sponge soaks up water (held in bits 8..15) and lets it out hot; a plant drinks
+// water (its energy in bits 8..15) to grow, against the gravity; a switch conducts when on (bit 8:
+// the Spark tool's touch toggles it, bit 9 holding while it's touched); a detector sparks the
+// conductors beside it while a particle's beside it; a heater, a conductor, warms while powered.
+#define CLONE 48
+#define BLACK_HOLE 49
+#define WHITE_HOLE 50
+#define SPONGE 51
+#define PLANT 52
+#define SWITCH 53
+#define DETECTOR 54
+#define HEATER 55
+#define FIRST_SOLID_AFTER_TOOLS CLONE
+#define SWITCH_ON 0x100
+#define SWITCH_TOUCHED 0x200
 
 // A cell: material in bits 0-7, an emitter's material in 8-15, BURNING (wood); MELTED: the ice or
 // stone (bits 8-15) that was here melted this step (spawn_cs turns it into water or lava).
@@ -284,6 +304,26 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define IGNITE_FUSE 700.0
 #define FUSE_PASS 0.05
 #define FUSE_BURN 0.3
+// Group B. The holes' pull: HOLE_PULL times the hole field's gradient (a cell's worth of hole, as
+// blurred, a cell), at most HOLE_MAX gravities. A sponge's cell holds SPONGE_HOLD particles of water,
+// soaking up a touching one SOAK_RATE times a second, letting one out a step over SPONGE_SQUEEZE. A
+// seed in water's cell or beside it sprouts SPROUT_RATE times a second (the plant starting with
+// SEED_ENERGY); a plant drinks a touching water particle DRINK_RATE times a second (an energy
+// each), growing a cell (up, or 45 degrees either side) GROW_RATE times a second while it has
+// energy, the new cell taking the rest; it burns as wood does, faster (PLANT_BURN seconds). A
+// heater powered warms at HEATER_RATE degrees a second, up to HEATER_MAX.
+#define HOLE_PULL 400000.0
+#define HOLE_MAX 4.0
+#define SPONGE_HOLD 8
+#define SOAK_RATE 40.0
+#define SPONGE_SQUEEZE 60.0
+#define SPROUT_RATE 1.0
+#define SEED_ENERGY 6
+#define DRINK_RATE 2.0
+#define GROW_RATE 4.0
+#define PLANT_BURN 1.0
+#define HEATER_RATE 300.0
+#define HEATER_MAX 600.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -316,9 +356,12 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // green and blue sections), blurred along x into I_GLOW_X, then along y back into I_GLOW, once a
 // frame (glow_emit_cs, glow_x_cs, glow_y_cs). A Gaussian of GLOW_SIGMA cells, out to GLOW_RADIUS;
 // shown GLOW_STRENGTH times over.
+// A fourth section a pass, I_HOLE, blurs the same way the holes (a black hole's cell GLOW_SCALE, a
+// white hole's minus that): the hole field, whose gradient pulls (holePull).
 #define I_GLOW INT_SECTIONS
-#define I_GLOW_X (INT_SECTIONS + 3)
-#define GLOW_SECTIONS 6
+#define I_HOLE (INT_SECTIONS + 3)
+#define I_GLOW_X (INT_SECTIONS + 4)
+#define GLOW_SECTIONS 8
 #define GLOW_SCALE 4096.0
 #define GLOW_SIGMA 7.0
 #define GLOW_RADIUS 18
@@ -440,13 +483,13 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= PETROL) || m == THERMITE || m == NITRO;
+    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= PETROL) || m == THERMITE || m == NITRO || m == SEED;
 }
 
 // Powders pile (static friction) instead of flowing level.
 bool isPowder(uint m)
 {
-    return m == SAND || m == SALT || m == GUNPOWDER || m == THERMITE;
+    return m == SAND || m == SALT || m == GUNPOWDER || m == THERMITE || m == SEED;
 }
 
 bool isGasMaterial(uint m)
@@ -462,7 +505,7 @@ uint countSection(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : (m == PETROL ? 0.7 : (m == THERMITE ? 2.3 : (m == NITRO ? 1.6 : 1.0)))))))));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : (m == PETROL ? 0.7 : (m == THERMITE ? 2.3 : (m == NITRO ? 1.6 : (m == SEED ? 1.1 : 1.0))))))))));
 }
 
 // A particle's density: its material's, salt water's by its salinity.
@@ -631,7 +674,7 @@ int flipCount(int x, int y)
 {
     return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
         + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y) + countOf(PETROL, x, y)
-        + countOf(THERMITE, x, y) + countOf(NITRO, x, y);
+        + countOf(THERMITE, x, y) + countOf(NITRO, x, y) + countOf(SEED, x, y);
 }
 
 // A cell's side o's neighbor, as an offset: 0 left, 1 right, 2 up, 3 down. (Worked out, not a local
@@ -647,7 +690,7 @@ bool fluidCell(int x, int y)
     return inGrid(x, y) && !solidCell(x, y) && flipCount(x, y) > 0;
 }
 
-float2 gravityAt(float2 pos)
+float2 gravityOnly(float2 pos)
 {
     const uint mode = gravityMode();
     if (mode == GRAVITY_OFF)
@@ -665,6 +708,24 @@ float2 gravityAt(float2 pos)
         return float2(g_C.gravityX, g_C.gravityY) * g_C.gravity;
     }
     return float2(0.0, g_C.gravity);
+}
+
+// The holes' pull at pos: up the hole field's gradient (toward black holes, away from white ones).
+float2 holePull(float2 pos)
+{
+    const int x = clamp(int(floor(pos.x)), 1, int(g_C.gridW) - 2);
+    const int y = clamp(int(floor(pos.y)), 1, int(g_C.gridH) - 2);
+    const float2 gradient = 0.5 * float2(float(u_GridInt[gi(I_HOLE, cellIndex(x + 1, y))] - u_GridInt[gi(I_HOLE, cellIndex(x - 1, y))]),
+        float(u_GridInt[gi(I_HOLE, cellIndex(x, y + 1))] - u_GridInt[gi(I_HOLE, cellIndex(x, y - 1))])) / GLOW_SCALE;
+    const float2 pull = HOLE_PULL * gradient;
+    const float most = HOLE_MAX * g_C.gravity;
+    return dot(pull, pull) > most * most ? normalize(pull) * most : pull;
+}
+
+// The gravity (its mode's) and the holes' pull.
+float2 gravityAt(float2 pos)
+{
+    return gravityOnly(pos) + holePull(pos);
 }
 
 // Down at pos, as the neighbor (of the eight) the gravity points nearest; false with none (a powder
@@ -744,7 +805,8 @@ float cellSalinity(uint c, int x, int y)
 bool conducts(int x, int y)
 {
     const uint m = cellMaterial(x, y);
-    return m == METAL || m == LAMP || (m == EMPTY && (countOf(NEON, x, y) >= 1
+    return m == METAL || m == LAMP || m == HEATER || (m == SWITCH && (u_Cells[cellIndex(x, y)] & SWITCH_ON) != 0)
+        || (m == EMPTY && (countOf(NEON, x, y) >= 1
         || (countOf(WATER, x, y) >= 1 && cellSalinity(cellIndex(x, y), x, y) >= SALT_CONDUCTS)));
 }
 
@@ -852,6 +914,10 @@ void init_grid_cs(uint3 id : SV_DispatchThreadID)
     {
         u_GridFloat[gi(s, t)] = 0.0;
     }
+    for (uint g = 0; g < GLOW_SECTIONS; g++)
+    {
+        u_GridInt[gi(I_GLOW + g, t)] = 0;
+    }
     u_GridInt[gi(I_SPARK, t)] = 0;
     u_GridInt[gi(I_SPARK + 1, t)] = 0;
     u_GridFloat[gi(F_TPRE, t)] = AMBIENT;
@@ -937,6 +1003,10 @@ void regrid_grid_cs(uint3 id : SV_DispatchThreadID)
     for (uint s = 0; s < F_TPRE; s++)
     {
         u_GridFloat[gi(s, t)] = 0.0;
+    }
+    for (uint g = 0; g < GLOW_SECTIONS; g++)
+    {
+        u_GridInt[gi(I_GLOW + g, t)] = 0;
     }
     u_GridInt[gi(I_SPARK, t)] = 0;
     u_GridInt[gi(I_SPARK + 1, t)] = 0;
@@ -2068,6 +2138,10 @@ void heat_source_cs(uint3 id : SV_DispatchThreadID)
     {
         t += 20.0 * g_C.dt + 15.0 * float(u_GridInt[gi(I_FISSION, c)]);
     }
+    if (m == HEATER && ((u_GridInt[gi(I_SPARK, c)] >> 8) & 0xFF) > 0 && t < HEATER_MAX)
+    {
+        t = min(t + HEATER_RATE * g_C.dt, HEATER_MAX);
+    }
     if ((cell & BURNING) != 0)
     {
         t = max(t, 750.0);
@@ -2130,7 +2204,7 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
         // (spawn_cs turns it into gunpowder going off)
         u_Cells[c] = EMPTY | MELTED | (C4 << 8);
     }
-    if (m == WOOD || m == COAL || m == FUSE)
+    if (m == WOOD || m == COAL || m == FUSE || m == PLANT)
     {
         if ((cell & BURNING) == 0)
         {
@@ -2145,13 +2219,13 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
                 passed = passed || (inGrid(s.x, s.y) && cellMaterial(s.x, s.y) == FUSE && (u_Cells[cellIndex(s.x, s.y)] & BURNING) != 0
                     && gf(F_LIFE, cellIndex(s.x, s.y)) <= FUSE_BURN - FUSE_PASS);
             }
-            bool catches = m == WOOD ? (next > 280.0 || touched)
+            bool catches = m == WOOD || m == PLANT ? (next > (m == PLANT ? 200.0 : 280.0) || touched)
                 : (m == COAL ? (next > IGNITE_COAL || (touched && random01(seedOf(c, 2)) < CATCH_COAL * g_C.dt))
                 : (next > IGNITE_FUSE || touched || passed || sparkBeside(x, y)));
             if (catches)
             {
                 u_Cells[c] = cell | BURNING;
-                u_GridFloat[gi(F_LIFE, c)] = m == WOOD ? 3.0 + 2.0 * random01(seedOf(c, 1))
+                u_GridFloat[gi(F_LIFE, c)] = m == PLANT ? PLANT_BURN * (1.0 + 0.5 * random01(seedOf(c, 1))) : m == WOOD ? 3.0 + 2.0 * random01(seedOf(c, 1))
                     : (m == COAL ? COAL_BURN * (1.0 + 0.5 * random01(seedOf(c, 1))) : FUSE_BURN);
             }
         }
@@ -2768,9 +2842,43 @@ void spark_cs(uint3 id : SV_DispatchThreadID)
     const uint to = I_SPARK + 1u - (g_C.substep & 1u);
     const uint m = cellMaterial(x, y);
     int next = 0;
+    // (a battery's and a detector's beat)
+    const bool beat = (g_C.frame * SPARK_ITERATIONS + g_C.substep) % BATTERY_PERIOD == 0;
+    if (m == SWITCH)
+    {
+        // Touched by the Spark tool, it toggles (once a touch).
+        const uint cell = u_Cells[c];
+        const bool touched = g_C.brushMode != 0 && g_C.tool == SPARK && insideBrush(float2(x, y) + 0.5);
+        uint changed = touched ? cell | SWITCH_TOUCHED : cell & ~SWITCH_TOUCHED;
+        if (touched && (cell & SWITCH_TOUCHED) == 0)
+        {
+            changed ^= SWITCH_ON;
+        }
+        if (changed != cell)
+        {
+            u_Cells[c] = changed;
+        }
+    }
     if (m == BATTERY)
     {
-        next = (g_C.frame * SPARK_ITERATIONS + g_C.substep) % BATTERY_PERIOD == 0 ? SPARK_LIVE : 0;
+        next = beat ? SPARK_LIVE : 0;
+    }
+    else if (m == DETECTOR)
+    {
+        // A particle beside it (any kind but neutrons and embers).
+        int nearby = 0;
+        for (int o = 0; o < 4; o++)
+        {
+            const int2 s = int2(x, y) + sideOffset(o);
+            if (inGrid(s.x, s.y))
+            {
+                for (uint k = 0; k < PARTICLE_TYPES; k++)
+                {
+                    nearby += k == NEUTRON - 1 || k == EMBER - 1 ? 0 : u_GridInt[gi(I_COUNT + k, cellIndex(s.x, s.y))];
+                }
+            }
+        }
+        next = beat && nearby > 0 ? SPARK_LIVE : 0;
     }
     else if (conducts(x, y))
     {
@@ -2792,7 +2900,7 @@ void spark_cs(uint3 id : SV_DispatchThreadID)
             nextPhase = phase + 1;
         }
         // (lamps, and neon: lit)
-        const bool glows = m == LAMP || (m == EMPTY && countOf(NEON, x, y) >= 1);
+        const bool glows = m == LAMP || m == HEATER || (m == EMPTY && countOf(NEON, x, y) >= 1);
         const int light = glows ? (nextPhase == SPARK_LIVE ? LAMP_HOLD : max(((state >> 8) & 0xFF) - 1, 0)) : 0;
         next = nextPhase | (light << 8);
     }
@@ -3217,6 +3325,42 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         kill = true;
     }
+
+    // Beside a black hole: swallowed. Water beside a sponge with room: soaked up; beside a plant:
+    // drunk. A seed where it's wet: a plant (its cell, if it's empty).
+    if (!kill)
+    {
+        const int px = clamp(int(floor(p.pos.x)), 0, w - 1);
+        const int py = clamp(int(floor(p.pos.y)), 0, h - 1);
+        const int2 s = int2(px, py) + sideOffset(int(hash(seedOf(index, 30)) & 3));
+        for (int o = 0; o < 4; o++)
+        {
+            const int2 n = int2(px, py) + sideOffset(o);
+            kill = kill || (inGrid(n.x, n.y) && cellMaterial(n.x, n.y) == BLACK_HOLE);
+        }
+        if (!kill && p.type == WATER && inGrid(s.x, s.y))
+        {
+            const uint m = cellMaterial(s.x, s.y);
+            const uint sc = cellIndex(s.x, s.y);
+            const uint before = u_Cells[sc];
+            const bool soaks = m == SPONGE && ((before >> 8) & 0xFF) < SPONGE_HOLD && random01(seedOf(index, 31)) < SOAK_RATE * dt;
+            const bool drunk = m == PLANT && (before & BURNING) == 0 && ((before >> 8) & 0xFF) < 255 && random01(seedOf(index, 31)) < DRINK_RATE * dt;
+            if (soaks || drunk)
+            {
+                uint original;
+                InterlockedCompareExchange(u_Cells[sc], before, before + 0x100, original);
+                kill = original == before;
+            }
+        }
+        if (!kill && p.type == SEED && (countOf(WATER, px, py) > 0 || (inGrid(s.x, s.y) && countOf(WATER, s.x, s.y) > 0))
+            && random01(seedOf(index, 32)) < SPROUT_RATE * dt)
+        {
+            const uint pc = cellIndex(px, py);
+            uint original;
+            InterlockedCompareExchange(u_Cells[pc], EMPTY, PLANT | (SEED_ENERGY << 8), original);
+            kill = original == EMPTY;
+        }
+    }
     countEvent(EVENT_SPLASH, splash);
     countEvent(EVENT_FIZZ, fizz);
     countEvent(EVENT_FIRE, p.type == FIRE && !kill);
@@ -3296,7 +3440,7 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
                 spawn(tool, randomInCell(x, y, seedOf(c, 21)), float2(0, 0), AMBIENT, 0.0, 0, reserve);
             }
         }
-        else if (isSolidMaterial(tool) && tool < ERASE && tool != BLOCK)
+        else if (isSolidMaterial(tool) && (tool < ERASE || tool >= FIRST_SOLID_AFTER_TOOLS) && tool != BLOCK)
         {
             // (the tools from ERASE on paint no material: Heat and Cool act in heat_source_cs)
             const uint painted = tool | (tool == EMITTER || tool == FAN ? g_C.emitType << 8 : 0);
@@ -3377,7 +3521,75 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    if (m == EMITTER)
+    if (m == CLONE && ((cell >> 8) & 0xFF) == 0)
+    {
+        // Not yet learned: the first particle type beside it (but neutrons and embers).
+        uint learned = 0;
+        for (int o = 0; o < 4 && learned == 0; o++)
+        {
+            const int2 s = int2(x, y) + sideOffset(o);
+            for (uint k = 0; k < PARTICLE_TYPES && learned == 0; k++)
+            {
+                const uint t = k < EMBER ? k + 1 : k - EMBER + HYDROGEN;
+                learned = t != NEUTRON && t != EMBER && u_GridInt[gi(I_COUNT + k, cellIndex(s.x, s.y))] > 0 ? t : 0;
+            }
+        }
+        if (learned != 0)
+        {
+            u_Cells[c] = CLONE | (learned << 8);
+        }
+        return;
+    }
+    if (m == SPONGE)
+    {
+        // Its water spreads through it, a particle a step to a drier side; hot, it lets it out, a
+        // particle a step, into a side with room. (Atomic: the sides do the same at once.)
+        const uint held = (cell >> 8) & 0xFF;
+        const int2 s = int2(x, y) + sideOffset(int(hash(seedOf(c, 90)) & 3));
+        if (held > 0 && inGrid(s.x, s.y))
+        {
+            const uint side = u_Cells[cellIndex(s.x, s.y)];
+            if ((side & 0xFF) == SPONGE && ((side >> 8) & 0xFF) < held)
+            {
+                InterlockedAdd(u_Cells[cellIndex(s.x, s.y)], 0x100u);
+                InterlockedAdd(u_Cells[c], 0xFFFFFF00u);
+            }
+            else if (gf(F_TCELL, c) > SPONGE_SQUEEZE && !solidCell(s.x, s.y) && flipCount(s.x, s.y) < int(REST_COUNT))
+            {
+                spawn(WATER, randomInCell(s.x, s.y, seedOf(c, 91)), float2(0, 0), gf(F_TCELL, c), 0.0, 0, 0);
+                InterlockedAdd(u_Cells[c], 0xFFFFFF00u);
+            }
+        }
+        return;
+    }
+    if (m == PLANT)
+    {
+        // With energy, now and then a cell grows up (or 45 degrees either side of up), the new one
+        // taking the rest of it.
+        const uint energy = (cell >> 8) & 0xFF;
+        if (energy > 0 && (cell & BURNING) == 0 && random01(seedOf(c, 92)) < GROW_RATE * g_C.dt)
+        {
+            int2 down;
+            int2 up = int2(0, -1);
+            if (gravityDown(float2(x, y) + 0.5, down))
+            {
+                up = -down;
+            }
+            else
+            {
+                up = sideOffset(int(hash(seedOf(c, 95)) & 3));
+            }
+            const float pick = random01(seedOf(c, 93));
+            const int2 way = pick < 0.5 ? up : turned45(up, pick < 0.75 ? 1 : -1);
+            const int2 s = int2(x, y) + way;
+            if (inGrid(s.x, s.y) && cellMaterial(s.x, s.y) == EMPTY && flipCount(s.x, s.y) == 0)
+            {
+                u_Cells[cellIndex(s.x, s.y)] = PLANT | ((energy - 1) << 8);
+                u_Cells[c] = cell & ~0xFF00u;
+            }
+        }
+    }
+    if (m == EMITTER || (m == CLONE && ((cell >> 8) & 0xFF) != 0))
     {
         const uint emitted = (cell >> 8) & 0xFF;
         for (int i = 0; i < 4; i++)
@@ -3459,6 +3671,10 @@ float3 cellLight(int x, int y)
     {
         light += float3(1.0, 0.85, 0.55) * 1.2 * saturate(float((u_GridInt[gi(I_SPARK, c)] >> 8) & 0xFF) / 10.0);
     }
+    else if (m == WHITE_HOLE)
+    {
+        light += float3(0.7, 0.75, 0.9) * 0.4;
+    }
     else if (m == EMPTY && countOf(NEON, x, y) > 0)
     {
         light += NEON_COLOR * 1.2 * saturate(float((u_GridInt[gi(I_SPARK, c)] >> 8) & 0xFF) / 10.0);
@@ -3483,13 +3699,17 @@ void glow_emit_cs(uint3 id : SV_DispatchThreadID)
     u_GridInt[gi(I_GLOW, c)] = int(round(light.r * GLOW_SCALE));
     u_GridInt[gi(I_GLOW + 1, c)] = int(round(light.g * GLOW_SCALE));
     u_GridInt[gi(I_GLOW + 2, c)] = int(round(light.b * GLOW_SCALE));
+    const uint m = u_Cells[c] & 0xFF;
+    u_GridInt[gi(I_HOLE, c)] = m == BLACK_HOLE ? int(GLOW_SCALE) : (m == WHITE_HOLE ? -int(GLOW_SCALE) : 0);
 }
 
-// The glow's sections from, blurred along step into those at to (the grid's edge dark beyond).
+// The glow's sections from (and the hole field's after them), blurred along step into those at to
+// (the grid's edge dark beyond).
 void glowBlur(uint c, int2 step, uint from, uint to)
 {
     const int2 at = int2(int(c % g_C.gridW), int(c / g_C.gridW));
     float3 sum = float3(0.0, 0.0, 0.0);
+    float hole = 0.0;
     float weights = 0.0;
     for (int i = -GLOW_RADIUS; i <= GLOW_RADIUS; i++)
     {
@@ -3501,12 +3721,14 @@ void glowBlur(uint c, int2 step, uint from, uint to)
         {
             const uint n = cellIndex(s.x, s.y);
             sum += weight * float3(float(u_GridInt[gi(from, n)]), float(u_GridInt[gi(from + 1, n)]), float(u_GridInt[gi(from + 2, n)]));
+            hole += weight * float(u_GridInt[gi(from + 3, n)]);
         }
     }
     sum /= weights;
     u_GridInt[gi(to, c)] = int(round(sum.r));
     u_GridInt[gi(to + 1, c)] = int(round(sum.g));
     u_GridInt[gi(to + 2, c)] = int(round(sum.b));
+    u_GridInt[gi(to + 3, c)] = int(round(hole / weights));
 }
 
 [numthreads(256, 1, 1)]
@@ -3644,6 +3866,15 @@ float3 materialColor(uint m)
     case C4: return float3(0.84, 0.8, 0.68);
     case COAL: return float3(0.13, 0.12, 0.12);
     case FUSE: return float3(0.42, 0.3, 0.2);
+    case SEED: return float3(0.55, 0.45, 0.2);
+    case CLONE: return float3(0.85, 0.85, 0.3);
+    case BLACK_HOLE: return float3(0.03, 0.0, 0.05);
+    case WHITE_HOLE: return float3(0.95, 0.95, 1.0);
+    case SPONGE: return float3(0.9, 0.85, 0.45);
+    case PLANT: return float3(0.2, 0.6, 0.15);
+    case SWITCH: return float3(0.45, 0.2, 0.2);
+    case DETECTOR: return float3(0.75, 0.3, 0.6);
+    case HEATER: return float3(0.5, 0.3, 0.25);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -3705,7 +3936,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float petrol = sampleCount(g, PETROL);
     const float thermite = sampleCount(g, THERMITE);
     const float nitro = sampleCount(g, NITRO);
-    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey + petrol + thermite + nitro;
+    const float seed = sampleCount(g, SEED);
+    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey + petrol + thermite + nitro + seed;
     if (total > 0.01)
     {
         // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
@@ -3714,8 +3946,8 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
         float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
             + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)
             + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY) + petrol * materialColor(PETROL)
-            + thermite * materialColor(THERMITE) + nitro * materialColor(NITRO)) / total;
-        if (sand + salt + gunpowder + thermite > water + oil + lava + acid + honey + petrol + nitro)
+            + thermite * materialColor(THERMITE) + nitro * materialColor(NITRO) + seed * materialColor(SEED)) / total;
+        if (sand + salt + gunpowder + thermite + seed > water + oil + lava + acid + honey + petrol + nitro)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
@@ -3796,6 +4028,51 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
             {
                 // A shade a body, planks across it.
                 solid *= 0.85 + 0.05 * float((cell >> 8) & 3u) + 0.08 * step(0.5, frac(g.y * 0.34));
+            }
+            else if (m == CLONE)
+            {
+                // A frame, its learned material in the middle.
+                const uint learned = (cell >> 8) & 0xFF;
+                solid = learned != 0 && length(f - 0.5) < 0.25 ? materialColor(learned) : solid * (0.8 + 0.2 * step(0.25, edge));
+            }
+            else if (m == BLACK_HOLE || m == WHITE_HOLE)
+            {
+                // A swirl.
+                const float2 d = f - 0.5;
+                solid = lerp(solid, m == BLACK_HOLE ? float3(0.35, 0.1, 0.5) : float3(0.6, 0.7, 1.0),
+                    0.5 + 0.5 * sin(atan2(d.y, d.x) * 3.0 + length(d) * 12.0 - g_C.time * 6.0));
+            }
+            else if (m == SPONGE)
+            {
+                // Holes; wetter, darker and bluer.
+                const float wet = float((cell >> 8) & 0xFF) / float(SPONGE_HOLD);
+                solid *= 0.8 + 0.3 * step(0.3, random01(uint(g.x * 3.0) * 7919u + uint(g.y * 3.0) * 104729u));
+                solid = lerp(solid, float3(0.35, 0.45, 0.6), 0.6 * wet);
+            }
+            else if (m == PLANT)
+            {
+                // Leaves, a lighter green where it still has energy to grow; burning, orange.
+                solid *= 0.8 + 0.35 * random01(uint(c.x) * 131u + uint(c.y) * 977u);
+                solid = lerp(solid, float3(0.45, 0.85, 0.3), saturate(float((cell >> 8) & 0xFF) / 4.0) * 0.5);
+                if ((cell & BURNING) != 0)
+                {
+                    solid = lerp(solid, float3(1.0, 0.45, 0.1), 0.6 + 0.3 * sin(g_C.time * 17.0 + c.x * 3.1 + c.y * 1.9));
+                }
+            }
+            else if (m == SWITCH)
+            {
+                // Red when off, green when on.
+                solid = (cell & SWITCH_ON) != 0 ? float3(0.2, 0.6, 0.25) : solid;
+                solid *= 0.85 + 0.15 * step(0.2, edge);
+            }
+            else if (m == DETECTOR)
+            {
+                solid *= 0.8 + 0.3 * step(0.5, frac((g.x - g.y) * 0.5));
+            }
+            else if (m == HEATER)
+            {
+                // Coils.
+                solid *= 0.75 + 0.35 * step(0.5, frac(g.y * 0.5));
             }
             else if (m == C4)
             {
