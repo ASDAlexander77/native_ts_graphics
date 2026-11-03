@@ -58,7 +58,7 @@ struct SandboxConstants
     float probeY;
     // Bits 0..3: the brush's shape in mode 1 (0 round, 1 square). Bits 4..7: display_ps's cursor, the
     // outline of the area a brush in that mode (0 none) would paint from (cursorX0, cursorY0) to the
-    // pointer.
+    // pointer; 3 the cell under the pointer, inspected.
     uint brushShape;
 
     float cursorX0;
@@ -1971,7 +1971,25 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
 
     // The cursor: the edge of the area the brush paints, a white line with a dark rim either side.
     const uint cursorMode = (g_C.brushShape >> 4) & 0xF;
-    if (cursorMode != 0)
+    if (cursorMode == 3)
+    {
+        // Inspecting: the outline of the cell under the pointer, and a crosshair through it.
+        const float2 pointer = float2(g_C.probeX, g_C.probeY);
+        const float2 cell = floor(pointer);
+        const float2 fromCell = max(cell - g, g - cell - 1.0) * g_C.cellPixels;
+        const float outline = abs(max(fromCell.x, fromCell.y));
+        const float2 d = abs(g - pointer) * g_C.cellPixels;
+        const bool cross = min(d.x, d.y) < 0.75 && max(d.x, d.y) > 6.0 && max(d.x, d.y) < 18.0;
+        if (outline < 0.75 || cross)
+        {
+            color = lerp(color, float3(1.0, 1.0, 1.0), 0.9);
+        }
+        else if (outline < 2.0)
+        {
+            color *= 0.25;
+        }
+    }
+    else if (cursorMode != 0)
     {
         const float edge = abs(brushDistance(g, cursorMode, g_C.brushShape & 0xF, float2(g_C.cursorX0, g_C.cursorY0),
             float2(g_C.probeX, g_C.probeY), g_C.brushRadius)) * g_C.cellPixels;

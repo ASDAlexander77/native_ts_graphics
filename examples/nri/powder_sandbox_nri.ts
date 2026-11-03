@@ -28,6 +28,15 @@ namespace PowderSandboxNri {
     const MIN_TILE_WIDTH = 72.0;
     // How far (in pixels) a press on the toolbar moves before it scrolls it instead of tapping a tile.
     const DRAG_THRESHOLD = 8.0;
+    // Zoom: a wheel notch's factor (a pinch on Android sends a notch per 48 dp its fingers spread),
+    // and the closest (cells this many times larger than when the grid fits the window).
+    const ZOOM_STEP = 1.15;
+    const MAX_ZOOM = 8.0;
+    // A second finger down this soon (in seconds) after the first takes back what the first painted:
+    // it was a pinch, not a stroke.
+    const STROKE_CANCEL_TIME = 0.3;
+    // GLFW's middle button (Android's two-finger gesture holds it down, its cursor between the fingers).
+    const MOUSE_MIDDLE = 2;
     const GROUP_SIZE = 256;
     // SandboxConstants: 32 floats or uints.
     const CONSTANTS_FLOATS = 32;
@@ -78,6 +87,9 @@ namespace PowderSandboxNri {
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
+    // Not the shader's: a tool that paints nothing, its cursor the cell under the pointer (touch has
+    // no hover to read a cell with).
+    const INSPECT = 35;
 
     // The compute entries, in this order.
     const INIT_GRID = 0;
@@ -317,6 +329,18 @@ namespace PowderSandboxNri {
         private viewX: number = 0.0;
         private viewY: number = 0.0;
         private cellPixels: number = 1.0;
+        // The view: zoom (1 shows the whole grid) and the grid point (in cells) in the middle of the
+        // area above the toolbar. -zoom Z starts zoomed (a test's view).
+        zoom: number = 1.0;
+        startZoom: number = 1.0;
+        private centerX: number = 0.0;
+        private centerY: number = 0.0;
+        // The middle button (or two fingers) down last frame, and where the pointer was then.
+        private middleWasDown: boolean = false;
+        private panX: number = 0.0;
+        private panY: number = 0.0;
+        // When the stroke in progress began (this.time), to take it back if it turns into a pinch.
+        private pressTime: number = 0.0;
 
         private tiles: Tile[] = [];
         private tool: int = WATER;
@@ -401,6 +425,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
             this.tiles.push(new Tile("Cool", COOL, 0.3, 0.6, 1.0));
             this.tiles.push(new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
+            this.tiles.push(new Tile("Inspect", INSPECT, 0.55, 0.55, 0.6));
             this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
             this.tiles.push(new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
@@ -455,6 +480,7 @@ namespace PowderSandboxNri {
             this.createSwapChain(device);
             const format = this.viewFormat;
             this.fitGrid();
+            this.zoom = Math.min(Math.max(this.startZoom, 1.0), MAX_ZOOM);
             this.layout();
             this.stateW = this.gridW;
             this.stateH = this.gridH;
@@ -686,11 +712,39 @@ namespace PowderSandboxNri {
             return Math.floor((this.gridW - oldW) / 2);
         }
 
+        // (an undo or a load keeping the grid's size keeps the view)
         setGrid(gridW: int, gridH: int) {
-            this.gridW = gridW;
-            this.gridH = gridH;
-            this.stride = (gridW + 1) * (gridH + 1);
+            if (gridW != this.gridW || gridH != this.gridH) {
+                this.gridW = gridW;
+                this.gridH = gridH;
+                this.stride = (gridW + 1) * (gridH + 1);
+                this.resetView();
+            }
             this.layout();
+        }
+
+        // The whole grid in view.
+        resetView() {
+            this.zoom = 1.0;
+            this.centerX = this.gridW * 0.5;
+            this.centerY = this.gridH * 0.5;
+        }
+
+        // Zoomed in or out by notches (of ZOOM_STEP) around the pointer at (x, y): the grid point
+        // under it stays there.
+        zoomAt(x: number, y: number, notches: number) {
+            const gx = (x - this.viewX) / this.cellPixels;
+            const gy = (y - this.viewY) / this.cellPixels;
+            this.zoom = Math.min(Math.max(this.zoom * Math.pow(ZOOM_STEP, notches), 1.0), MAX_ZOOM);
+            const cellPixels = this.fitPixels() * this.zoom;
+            this.centerX = gx - (x - this.width * 0.5) / cellPixels;
+            this.centerY = gy - (y - (this.height - this.toolbarHeight) * 0.5) / cellPixels;
+            this.layout();
+        }
+
+        // A cell's size, in pixels, when the whole grid fits above the toolbar.
+        fitPixels(): number {
+            return Math.min(this.width / this.gridW, (this.height - this.toolbarTileHeight()) / this.gridH);
         }
 
         // The toolbar's height: a share of the window's shorter side, 56 .. 160 pixels.
@@ -711,21 +765,27 @@ namespace PowderSandboxNri {
             }
             this.gridW = Math.min(gridW, MAX_GRID_LONG);
             this.gridH = Math.min(gridH, MAX_GRID_LONG);
+            this.resetView();
             this.stride = (this.gridW + 1) * (this.gridH + 1);
             console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
         }
 
         // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
         // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); and
-        // where the grid's drawn: as large as fits above it, centered.
+        // where the grid's drawn: zoom times as large as fits above it, around its view's center
+        // (kept where the grid still fills the area across, or down; centered where it doesn't).
         layout() {
             this.tileHeight = this.toolbarTileHeight();
             this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
             this.toolbarHeight = this.tileHeight;
             const playHeight = this.height - this.toolbarHeight;
-            this.cellPixels = Math.min(this.width / this.gridW, playHeight / this.gridH);
-            this.viewX = (this.width - this.gridW * this.cellPixels) * 0.5;
-            this.viewY = (playHeight - this.gridH * this.cellPixels) * 0.5;
+            this.cellPixels = this.fitPixels() * this.zoom;
+            const halfW = this.width * 0.5 / this.cellPixels;
+            const halfH = playHeight * 0.5 / this.cellPixels;
+            this.centerX = this.gridW <= 2.0 * halfW ? this.gridW * 0.5 : Math.min(Math.max(this.centerX, halfW), this.gridW - halfW);
+            this.centerY = this.gridH <= 2.0 * halfH ? this.gridH * 0.5 : Math.min(Math.max(this.centerY, halfH), this.gridH - halfH);
+            this.viewX = this.width * 0.5 - this.centerX * this.cellPixels;
+            this.viewY = playHeight * 0.5 - this.centerY * this.cellPixels;
         }
 
         // Waits for the frame that last used this frame's command allocator.
@@ -781,27 +841,52 @@ namespace PowderSandboxNri {
         handleInput(): int {
             const mx = Nri_GetMouseX(this.sample);
             const my = Nri_GetMouseY(this.sample);
-            const down = Nri_IsButtonPressed(this.sample, 0) != 0;
-            const gx = (mx - this.viewX) / this.cellPixels;
-            const gy = (my - this.viewY) / this.cellPixels;
-            this.mouseGridX = gx;
-            this.mouseGridY = gy;
-
-            // The wheel over the toolbar scrolls it (half a tile a notch), over the grid sizes the brush.
-            const wheel = Nri_GetMouseWheel(this.sample);
+            // The middle button (two fingers on Android) pans and zooms the view; the left one
+            // doesn't paint meanwhile.
+            const middle = Nri_IsButtonPressed(this.sample, MOUSE_MIDDLE) != 0;
+            const down = Nri_IsButtonPressed(this.sample, 0) != 0 && !middle;
+            const control = Nri_IsKeyPressed(this.sample, KEY_LEFT_CONTROL) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT_CONTROL) != 0;
             const overToolbar = my >= this.height - this.toolbarHeight;
+
+            // Two fingers down (or the middle button): if the first finger has only just begun a
+            // stroke, it was the start of a pinch, so what it painted is taken back. Then the view
+            // follows the pointer (the fingers' midpoint).
+            if (middle && !this.middleWasDown) {
+                if (this.wasDown && !this.pressOnToolbar && this.tool != INSPECT && this.time - this.pressTime < STROKE_CANCEL_TIME) {
+                    this.undoRequested = true;
+                }
+                this.panX = mx;
+                this.panY = my;
+            }
+            if (middle) {
+                this.centerX -= (mx - this.panX) / this.cellPixels;
+                this.centerY -= (my - this.panY) / this.cellPixels;
+                this.panX = mx;
+                this.panY = my;
+                this.layout();
+            }
+
+            // The wheel over the toolbar scrolls it (half a tile a notch); over the grid it zooms
+            // (with Control, or the middle button down: a pinch), or sizes the brush.
+            const wheel = Nri_GetMouseWheel(this.sample);
             if (overToolbar && wheel != 0.0) {
                 this.scrollToolbar(this.toolbarScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
+            } else if (wheel != 0.0 && (middle || control)) {
+                this.zoomAt(mx, my, wheel);
             } else if (wheel > 0.0) {
                 this.brushRadius = Math.min(this.brushRadius + 1.0, 30.0);
             } else if (wheel < 0.0) {
                 this.brushRadius = Math.max(this.brushRadius - 1.0, 0.5);
             }
+            this.middleWasDown = middle;
+            const gx = (mx - this.viewX) / this.cellPixels;
+            const gy = (my - this.viewY) / this.cellPixels;
+            this.mouseGridX = gx;
+            this.mouseGridY = gy;
             if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
                 this.paused = !this.paused;
             }
             // Ctrl+Z (each press of Z while Control is down).
-            const control = Nri_IsKeyPressed(this.sample, KEY_LEFT_CONTROL) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT_CONTROL) != 0;
             const z = Nri_IsKeyPressed(this.sample, KEY_Z) != 0;
             if (control && z && !this.zWasDown) {
                 this.undoRequested = true;
@@ -809,10 +894,12 @@ namespace PowderSandboxNri {
             this.zWasDown = z;
 
             let brushMode = 0;
+            const inspecting = this.tool == INSPECT;
             if (down && !this.wasDown) {
                 this.pressOnToolbar = overToolbar;
+                this.pressTime = this.time;
                 // A stroke begins: what it changes can be undone.
-                if (!overToolbar) {
+                if (!overToolbar && !inspecting) {
                     this.snapshotRequested = true;
                 }
                 this.pressX = mx;
@@ -842,7 +929,9 @@ namespace PowderSandboxNri {
             // On the grid: circles and squares paint along the path; lines and boxes when released.
             const stretches = this.brushShape == SHAPE_LINE || this.brushShape == SHAPE_BOX;
             const pressOnGrid = this.wasDown && !this.pressOnToolbar;
-            if (down && !this.pressOnToolbar && !stretches) {
+            if (inspecting) {
+                // (nothing painted)
+            } else if (down && !this.pressOnToolbar && !stretches) {
                 brushMode = 1;
                 this.setFloat(10, this.lastGridX);
                 this.setFloat(11, this.lastGridY);
@@ -850,7 +939,7 @@ namespace PowderSandboxNri {
                 this.setFloat(13, gy);
                 this.lastGridX = gx;
                 this.lastGridY = gy;
-            } else if (!down && pressOnGrid && stretches) {
+            } else if (!down && pressOnGrid && stretches && !middle) {
                 brushMode = this.brushShape == SHAPE_BOX ? 2 : 1;
                 this.setFloat(10, this.anchorX);
                 this.setFloat(11, this.anchorY);
@@ -870,7 +959,10 @@ namespace PowderSandboxNri {
             } else if (this.brushShape == SHAPE_BOX) {
                 cursorMode = 2;
             }
-            if (overToolbar || (down && this.pressOnToolbar)) {
+            if (inspecting) {
+                cursorMode = 3;
+            }
+            if (overToolbar || (down && this.pressOnToolbar) || middle) {
                 cursorMode = 0;
             }
             const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
@@ -1407,6 +1499,7 @@ namespace PowderSandboxNri {
             let y = this.drawWrapped([`${formatFixed(this.frameRate, 0)} fps`, `step ${formatFixed(this.stepMs, 2)} ms`,
                 `particles ${used} / ${CAPACITY}`,
                 `brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}`, `view: ${VIEW_NAMES[this.overlay]}`,
+                this.zoom > 1.001 ? `zoom ${formatFixed(this.zoom, 1)}x` : "",
                 this.paused ? "PAUSED" : ""], 6.0, labelHeight, 1.0);
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
@@ -1707,8 +1800,8 @@ namespace PowderSandboxNri {
             console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
             // (a turned U-tube is a narrow grid between margins)
             const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : 1.0;
-            // (the overlays recolor it)
-            if (this.overlay == 0 && (share < minShare || share > 50.0)) {
+            // (the overlays recolor it; zoomed in, only part of the grid shows)
+            if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
             }
             return "";
@@ -1976,6 +2069,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-substeps", 1);
         Nri_AddExampleOptionWithValues(sample, "-iterations", 1);
         Nri_AddExampleOptionWithValues(sample, "-solver", 1);
+        Nri_AddExampleOptionWithValues(sample, "-zoom", 1);
         Nri_AddExampleOptionWithValues(sample, "-vcycles", 1);
         Nri_AddExampleOptionWithValues(sample, "-smooth", 1);
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
@@ -2002,6 +2096,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-iterations" && i + 1 < argc) {
                 sandbox.iterations = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-zoom" && i + 1 < argc) {
+                sandbox.startZoom = parseFloat(Nri_GetArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-solver" && i + 1 < argc) {
                 sandbox.solver = Nri_GetArg(argc, argv, i + 1) == "sor" ? SOLVER_SOR : SOLVER_MULTIGRID;
