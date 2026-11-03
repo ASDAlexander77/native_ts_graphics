@@ -24,7 +24,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
-  acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-roundTrip` (undo,
+  acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7`
+  (surface tension), `-roundTrip` (undo,
   save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
   emulator and on a phone.
 
@@ -201,9 +202,18 @@ format is unchanged (version 2): the new state lives in the particles.
   - **Test scene 6**: a block of water and one of honey let go side by side. The honey's mean height
     must be 1.3 times the water's and its front under 0.6 times as far (5.1 vs 3.3 cells, 62 vs 144);
     with `-viscosity 0` the honey runs like water (3.0 cells, 143) and the test fails.
+- **Surface tension** (done), for thin liquid only: drops, streams and films.
+  - A liquid particle drifts toward the side of its 3 x 3 cells holding more liquid (particle-to-grid
+    counts each cell's liquid particles, capped at the rest count), at up to 150 cells a second.
+  - It fades out as the 5 x 5 cells around fill up to 12 cells' worth. A body of liquid, its surface
+    too, is past that: there the pull only fought the pressure solve (the U-tube's levels sank 5
+    cells and its residual rose a hundredfold when it acted on every surface).
+  - Uncapped counts made it unstable: full cells pulled harder, packing the water into a few cells.
+  - Bulk particles (their 3 x 3 cells full) return early; it costs nothing measurable.
+  - **Test scene 7**: a film of water one cell thick on the floor pulls into beads, covering at most
+    60% of its columns (36 of 115; without surface tension it stays a film over 110).
 - **Air as a fluid**: wind and fans, blast waves moving gases and light powders.
 - **Rigid bodies**: blocks that float and tip over.
-- **Surface tension**: droplets and thin streams.
 
 ### 6. Engine side
 

@@ -137,6 +137,13 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define HONEY_VISCOSITY 10000.0
 #define LAVA_VISCOSITY_COLD 200.0
 #define LAVA_VISCOSITY_HOT 40.0
+// Surface tension, for thin liquid only (drops, streams, films): a liquid particle drifts toward
+// where its 3 x 3 cells hold more liquid (each cell's count capped at REST_COUNT), at up to
+// SURFACE_TENSION cells a second, fading out as its 5 x 5 cells fill up to TENSION_FULL cells'
+// worth. A body of liquid, its surface too (two full rows under it), is past that: there it would
+// only fight the pressure solve.
+#define SURFACE_TENSION 150.0
+#define TENSION_FULL 12.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -158,7 +165,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // WEIGHT_SCALE of I_UM would overflow at honey's).
 #define I_UVISC (I_TSUM + 5)
 #define I_VVISC (I_TSUM + 6)
-#define INT_SECTIONS (I_TSUM + 7)
+// The cell's liquid particles (the FLIP ones but the powders), for surface tension.
+#define I_LIQUID (I_TSUM + 7)
+#define INT_SECTIONS (I_TSUM + 8)
 
 // gridFloat sections.
 #define F_U 0
@@ -693,6 +702,10 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     }
     const float rho = particleDensity(p);
     const float nu = viscosity(p);
+    if (!isPowder(p.type))
+    {
+        InterlockedAdd(u_GridInt[gi(I_LIQUID, c)], 1);
+    }
     if (nu > 0.0 && u_Alloc[A_VISCOUS] == 0)
     {
         InterlockedOr(u_Alloc[A_VISCOUS], 1);
@@ -789,6 +802,48 @@ void grid_cs(uint3 id : SV_DispatchThreadID)
         u_GridFloat[gi(F_V, t)] = solid ? 0.0 : vel;
         u_GridFloat[gi(F_VA, t)] = 1.0 / max(rho, 0.1);
     }
+}
+
+// A cell's liquid particles, capped at the rest count (over-full cells pulling harder would pack the
+// liquid tighter and tighter); none in solid cells.
+float liquidCount(int x, int y)
+{
+    return inGrid(x, y) && !solidCell(x, y) ? min(float(u_GridInt[gi(I_LIQUID, cellIndex(x, y))]), REST_COUNT) : 0.0;
+}
+
+// Surface tension's drift for a liquid particle in cell (x, y): toward the side of its 3 x 3 cells
+// with more liquid, in cells a second (zero in the bulk; g2p_cs gives it the liquids, not powders).
+float2 cohesion(int x, int y)
+{
+    float2 offset = float2(0.0, 0.0);
+    float near = 0.0;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            const float n = liquidCount(x + dx, y + dy);
+            offset += n * float2(dx, dy);
+            near += n;
+        }
+    }
+    // (most particles are in the bulk, their 3 x 3 cells full: no pull, and no 5 x 5 to look at)
+    if (near >= 9.0 * REST_COUNT)
+    {
+        return float2(0.0, 0.0);
+    }
+    float around = near;
+    for (int ry = -2; ry <= 2; ry++)
+    {
+        for (int rx = -2; rx <= 2; rx++)
+        {
+            if (abs(rx) == 2 || abs(ry) == 2)
+            {
+                around += liquidCount(x + rx, y + ry);
+            }
+        }
+    }
+    const float thin = saturate(1.0 - around / (TENSION_FULL * REST_COUNT));
+    return near > 0.0 && thin > 0.0 ? thin * SURFACE_TENSION * offset / near : float2(0.0, 0.0);
 }
 
 // Viscosity: the faces' velocities diffused where the fluid is viscous, implicitly (stable at any
@@ -1700,7 +1755,7 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             const float mixture = 4.0 / (gf(F_UA, uIndex(cx, cy)) + gf(F_UA, uIndex(cx + 1, cy)) + gf(F_VA, vIndex(cx, cy))
                 + gf(F_VA, vIndex(cx, cy + 1)));
             const float drift = (particleDensity(p) - mixture) / mixture * g_C.gravity * 0.08;
-            moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift)) * dt);
+            moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift) + cohesion(cx, cy)) * dt);
         }
     }
     else if (isGasMaterial(p.type))

@@ -46,7 +46,7 @@ namespace PowderSandboxNri {
     // (probe_cs packs the counts two to an int from u_Alloc[4], under its salinity at ALLOC_LIST - 1:
     // up to 22 types)
     const PARTICLE_TYPES = 12;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 7;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 8;
     // The water's salinity summed (I_SALT; SALT_SCALE a particle at 1).
     const I_SALT = 6 + PARTICLE_TYPES + 3;
     const SALT_SCALE = 256.0;
@@ -209,6 +209,10 @@ namespace PowderSandboxNri {
     // floor: spread out, water's a film, not a slab as deep as honey's mound.)
     const DAM = [0.05, 0.13, 0.85];
     const HONEY_DIVIDER = 0.5;
+    // Scene 7: a film of water a cell thick (x0, y0, x1, to the floor) on the open floor: surface
+    // tension pulls it into beads, covering at most BEAD_SHARE of its columns.
+    const BEAD = [0.3, 0.985, 0.7];
+    const BEAD_SHARE = 0.6;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -432,7 +436,7 @@ namespace PowderSandboxNri {
         private probeFloats: f32[] = [];
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
-        // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water);
+        // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water; 7 a bead of water);
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
         // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
@@ -1500,6 +1504,9 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 7) {
+                // A film of water on the floor: it beads up.
+                this.addStroke(WATER, BEAD[0], BEAD[1], BEAD[2], 1.0, WATER);
             } else if (this.scene == 6) {
                 // Water and honey let go side by side: the water runs out, the honey slumps.
                 this.addStroke(GLASS, HONEY_DIVIDER, 0.2, HONEY_DIVIDER + 0.005, 1.0, WATER);
@@ -1891,6 +1898,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 7) {
+                const error = this.checkBead(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -2205,6 +2218,35 @@ namespace PowderSandboxNri {
             }
             if (bottomSalinity < 0.01 || bottomSalinity < topSalinity * 1.2) {
                 return `the salt water didn't sink: salinity ${formatFixed(100.0 * topSalinity, 2)}% at the top, ${formatFixed(100.0 * bottomSalinity, 2)}% at the bottom`;
+            }
+            return "";
+        }
+
+        // Scene 7: the film beaded: it covers at most BEAD_SHARE of the columns it was painted over (a
+        // column covered with 2 particles in a cell or more; without surface tension it stays a film,
+        // or spreads).
+        checkBead(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            let columns = 0;
+            let water = 0;
+            for (let x = 1; x < w - 1; x++) {
+                let covered = false;
+                for (let y = 1; y < h - 1; y++) {
+                    const n = grid[(I_COUNT + WATER - 1) * this.stride + y * w + x];
+                    water += n;
+                    if (n >= 2) {
+                        covered = true;
+                    }
+                }
+                if (covered) {
+                    columns++;
+                }
+            }
+            const painted: int = Math.floor((BEAD[2] - BEAD[0]) * w);
+            console.log(`Surface tension: ${water} water particles over ${columns} columns, the film ${painted}`);
+            if (columns > BEAD_SHARE * painted) {
+                return `the film didn't bead: over ${columns} columns of its ${painted}`;
             }
             return "";
         }
