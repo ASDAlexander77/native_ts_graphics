@@ -433,7 +433,7 @@ gravity_light_bending, hdr, meshlet_cull, mouse_cursor, msaa, multi_draw_indirec
 procedural_geometry, ray_tracing_extended, render_octomap, rt_bindless, rt_particles,
 raytracing_ao, rt_reflections, simple_hdr, simple_pbr, timestamp_queries, variable_shading (all
 `_nri`): every port. ray_tracing_invocation_reorder_nri, ported later, resizes as ray_tracing_extended_nri
-does (it isn't resize-tested yet: that needs visible windows).
+does, resize-tested the same way (on Vulkan with hit objects).
 
 NVIDIA's Vulkan driver, after raytracing_ao_nri's ray tracing pipeline has traced at a few output
 sizes, frees with the pipeline's allocation callbacks a block it didn't allocate through them.
