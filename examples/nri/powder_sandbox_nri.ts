@@ -60,10 +60,11 @@ namespace PowderSandboxNri {
     // gridFloat sections, and u_Alloc's free list's start.
     // (probe_cs packs the counts three to an int, 10 bits each, from u_Alloc[4], under the wind at
     // u_Alloc[10]: up to 18 types)
-    const PARTICLE_TYPES = 19;
+    const PARTICLE_TYPES = 20;
     // The glow's sections past INT_SECTIONS (powder_sandbox.hlsl's I_GLOW, GLOW_SECTIONS, GLOW_SCALE).
     const I_GLOW = 6 + PARTICLE_TYPES + 9;
-    const GLOW_SECTIONS = 6;
+    // (red, green, blue and the hole field, a pass)
+    const GLOW_SECTIONS = 8;
     const GLOW_SCALE = 4096.0;
     // The sparks' state after the glow's (I_SPARK, SPARK_SECTIONS), spark_cs's iterations a frame.
     const I_SPARK = I_GLOW + GLOW_SECTIONS;
@@ -168,6 +169,16 @@ namespace PowderSandboxNri {
     const NEON = 42;
     const THERMITE = 43;
     const NITRO = 44;
+    const SEED = 45;
+    // Solids past the particle types' ids (powder_sandbox.hlsl's).
+    const CLONE = 48;
+    const BLACK_HOLE = 49;
+    const WHITE_HOLE = 50;
+    const SPONGE = 51;
+    const PLANT = 52;
+    const SWITCH = 53;
+    const DETECTOR = 54;
+    const HEATER = 55;
     // Not the shader's: a tool that paints nothing, its cursor the cell under the pointer (touch has
     // no hover to read a cell with).
     const INSPECT = 35;
@@ -418,6 +429,56 @@ namespace PowderSandboxNri {
     const C4_BLOCKS = [0.2, 0.3, 0.7, 0.8];
     const C4_Y = [0.37, 0.46];
     const C4_LEFT = 0.1;
+    // Scene 21: water dropped on a clone (CLONED: its x0, x1, y0, y1; the drop CLONE_DROP above, as
+    // x0, x1, y0, y1 relative to it) and the same on a wall block CLONE_TWIN over to the right, each
+    // in a glass tub (CLONE_TUBS: x0, x1 each, from CLONE_TUB_TOP): the clone's ends with over
+    // CLONE_MORE times the wall's water.
+    const CLONED = [0.1, 0.2, 0.6, 0.64];
+    const CLONE_DROP = [0.02, -0.02, -0.2, -0.12];
+    const CLONE_TWIN = 0.6;
+    const CLONE_MORE = 2.5;
+    const CLONE_TUBS = [0.03, 0.4, 0.6, 0.97];
+    const CLONE_TUB_TOP = 0.3;
+    // Scene 22: sand dropped toward a black hole, a white hole and a wall block (HOLE_XS: each one's
+    // x0; HOLE_Y: their y0, y1; HOLE_W wide; the sand HOLE_SAND, y0, y1, over each, wider): the black
+    // hole's side keeps under SWALLOWED of the wall's sand; under REPELLED of the sand resting on
+    // the wall (the HOLE_TOUCH just above it) rests on the white hole.
+    const HOLE_XS = [0.18, 0.48, 0.78];
+    const HOLE_Y = [0.55, 0.6];
+    const HOLE_W = 0.04;
+    const HOLE_SAND = [0.25, 0.35];
+    const HOLE_TOUCH = 0.05;
+    const SWALLOWED = 0.3;
+    const REPELLED = 0.2;
+    // Scene 23: a sponge dipped in a tub of water (SPONGE_BOX: x0, x1, y0, y1), a wall block in its
+    // twin over to the right (SPONGE_TWIN), the tubs SPONGE_TUBS (x0, x1 each) from SPONGE_TUB_TOP,
+    // their water from SPONGE_WATER: the sponge's keeps under SOAKED of the other's water. Seeds
+    // dropped into a pool (SEED_POOL: x0, x1, its walls' top, its water's; SEED_WET: the seeds' x0,
+    // x1, y0, y1) grow over PLANT_CELLS plant cells, some above the water (PLANT_ABOVE); seeds on a
+    // dry ledge (SEED_LEDGE: x0, x1, its y; the seeds just above) don't.
+    const SPONGE_BOX = [0.12, 0.23, 0.65, 0.97];
+    const SPONGE_TWIN = 0.65;
+    const SPONGE_TUBS = [0.05, 0.3, 0.7, 0.95];
+    const SPONGE_TUB_TOP = 0.7;
+    const SPONGE_WATER = 0.8;
+    const SOAKED = 0.6;
+    const SEED_POOL = [0.4, 0.6, 0.85, 0.93];
+    const SEED_WET = [0.45, 0.55, 0.75, 0.8];
+    const SEED_LEDGE = [0.42, 0.58, 0.45];
+    const PLANT_CELLS = 30;
+    const PLANT_ABOVE = 5;
+    // Scene 24: circuits (SWITCH_ROWS: each one's y; a battery at x 0.05, a wire, a switch at
+    // SWITCH_X, a wire, a lamp at LAMP_X), the first switch toggled on by a Spark stroke: its lamp
+    // shines, the second's doesn't. Detectors (DETECTOR_ROWS) wired to lamps, sand dropped on the
+    // first: its lamp shines, the second's doesn't. A heater (HEATERS: x0, x1, then each one's y0,
+    // y1) wired to a battery warms over HEATED, the other stays under COLD.
+    const SWITCH_ROWS = [0.15, 0.3];
+    const SWITCH_X = 0.3;
+    const LAMP_X = 0.45;
+    const DETECTOR_ROWS = [0.5, 0.7];
+    const HEATERS = [0.75, 0.85, 0.28, 0.36, 0.68, 0.76];
+    const HEATED = 150.0;
+    const COLD = 60.0;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -513,13 +574,22 @@ namespace PowderSandboxNri {
         if (material == 42) { return "neon"; }
         if (material == 43) { return "thermite"; }
         if (material == 44) { return "nitroglycerin"; }
+        if (material == 45) { return "seed"; }
+        if (material == 48) { return "clone"; }
+        if (material == 49) { return "black hole"; }
+        if (material == 50) { return "white hole"; }
+        if (material == 51) { return "sponge"; }
+        if (material == 52) { return "plant"; }
+        if (material == 53) { return "switch"; }
+        if (material == 54) { return "detector"; }
+        if (material == 55) { return "heater"; }
         return "air";
     }
 
     // A tool or material by its name in a level's file (materialName's, or the tools'), or -1.
     function toolNamed(name: string): int {
         // ("air" is materialName's answer for the ids that name nothing)
-        for (let m = 1; m < 48; m++) {
+        for (let m = 1; m < 64; m++) {
             if (materialName(m) == name && name != "air") {
                 return m;
             }
@@ -781,6 +851,8 @@ namespace PowderSandboxNri {
         private qualityCount: int = 0;
         // -test: the float sections, read back at the end (the pressure equation's residual).
         private floatReadback: NriBufferHandle | null = null;
+        // The brush mode of the scene's stroke this frame (0: none), for spark_cs.
+        private strokeBrush: int = 0;
         // -testFrames N: the test's length instead of TEST_FRAMES.
         testFrames: int = TEST_FRAMES;
         private test: boolean = false;
@@ -818,6 +890,9 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
             this.tiles.push(new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
             this.tiles.push(new Tile("Lamp", LAMP, 0.95, 0.85, 0.55));
+            this.tiles.push(new Tile("Switch", SWITCH, 0.45, 0.2, 0.2));
+            this.tiles.push(new Tile("Detector", DETECTOR, 0.75, 0.3, 0.6));
+            this.tiles.push(new Tile("Heater", HEATER, 0.6, 0.35, 0.28));
             this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
             this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
@@ -825,6 +900,11 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Coal", COAL, 0.2, 0.19, 0.19));
             this.tiles.push(new Tile("Fuse", FUSE, 0.5, 0.36, 0.24));
             this.tiles.push(new Tile("C-4", C4, 0.84, 0.8, 0.68));
+            this.tiles.push(new Tile("Seed", SEED, 0.55, 0.45, 0.2));
+            this.tiles.push(new Tile("Sponge", SPONGE, 0.9, 0.85, 0.45));
+            this.tiles.push(new Tile("Clone", CLONE, 0.85, 0.85, 0.3));
+            this.tiles.push(new Tile("Black hole", BLACK_HOLE, 0.2, 0.08, 0.3));
+            this.tiles.push(new Tile("White hole", WHITE_HOLE, 0.9, 0.92, 1.0));
             this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
             this.tiles.push(new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
             this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
@@ -1269,7 +1349,7 @@ namespace PowderSandboxNri {
                 // Emitters emit the liquid, powder or fire picked last.
                 if (action == WATER || action == OIL || action == SAND || action == SALT || action == GUNPOWDER || action == LAVA
                     || action == ACID || action == HONEY || action == PETROL || action == FIRE || action == NITRO || action == THERMITE
-                    || action == HYDROGEN || action == OXYGEN || action == NEON) {
+                    || action == HYDROGEN || action == OXYGEN || action == NEON || action == SEED) {
                     this.emitType = action;
                 }
             }
@@ -1759,7 +1839,9 @@ namespace PowderSandboxNri {
 
         // Electricity, while running: spark_cs's iterations (each one's parity in the substep), with the
         // brush (the Spark tool's).
-        recordSparks(commandBuffer: NriCommandBufferHandle, brushMode: int) {
+        recordSparks(commandBuffer: NriCommandBufferHandle, pointerBrush: int) {
+            // (a scene's stroke this frame, or the pointer's)
+            const brushMode = Math.max(pointerBrush, this.strokeBrush);
             if (!this.computeLayout || this.paused) {
                 return;
             }
@@ -1803,10 +1885,12 @@ namespace PowderSandboxNri {
                 }
             }
             // The scene's strokes, one a frame while the pointer isn't painting.
+            this.strokeBrush = 0;
             if (brushMode == 0 && this.script.length > 0) {
                 const stroke = this.script[0];
                 this.script.splice(0, 1);
                 brushMode = 2;
+                this.strokeBrush = 2;
                 this.setInt(8, stroke.tool);
                 this.setFloat(10, stroke.x0);
                 this.setFloat(11, stroke.y0);
@@ -2206,6 +2290,60 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 24) {
+                // Switches (one toggled on), detectors (one under falling sand), heaters (one powered).
+                for (let k = 0; k < 2; k++) {
+                    const y = SWITCH_ROWS[k];
+                    this.addStroke(BATTERY, 0.05, y, 0.09, y + WIRE, WATER);
+                    this.addStroke(METAL, 0.09, y, SWITCH_X, y + WIRE, WATER);
+                    this.addStroke(SWITCH, SWITCH_X, y, SWITCH_X + 0.04, y + WIRE, WATER);
+                    this.addStroke(METAL, SWITCH_X + 0.04, y, LAMP_X, y + WIRE, WATER);
+                    this.addStroke(LAMP, LAMP_X, y, LAMP_X + 0.04, y + WIRE, WATER);
+                    const d = DETECTOR_ROWS[k];
+                    this.addStroke(DETECTOR, 0.05, d, 0.09, d + WIRE, WATER);
+                    this.addStroke(METAL, 0.09, d, LAMP_X, d + WIRE, WATER);
+                    this.addStroke(LAMP, LAMP_X, d, LAMP_X + 0.04, d + WIRE, WATER);
+                    const hy = 0.5 * (HEATERS[2 + 2 * k] + HEATERS[3 + 2 * k]) - 0.5 * WIRE;
+                    this.addStroke(k == 0 ? BATTERY : WALL, 0.6, hy, 0.64, hy + WIRE, WATER);
+                    this.addStroke(METAL, 0.64, hy, HEATERS[0], hy + WIRE, WATER);
+                    this.addStroke(HEATER, HEATERS[0], HEATERS[2 + 2 * k], HEATERS[1], HEATERS[3 + 2 * k], WATER);
+                }
+                this.addStroke(SPARK, SWITCH_X, SWITCH_ROWS[0], SWITCH_X + 0.04, SWITCH_ROWS[0] + WIRE, WATER);
+                this.addStroke(SAND, 0.05, DETECTOR_ROWS[0] - 0.1, 0.09, DETECTOR_ROWS[0] - 0.04, WATER);
+            } else if (this.scene == 23) {
+                // A sponge in a tub of water, a wall block in the other; seeds into a pool, and on a ledge.
+                for (let k = 0; k < 2; k++) {
+                    const x0 = SPONGE_TUBS[2 * k];
+                    const x1 = SPONGE_TUBS[2 * k + 1];
+                    this.addStroke(GLASS, x0 - 0.005, SPONGE_TUB_TOP, x0, 1.0, WATER);
+                    this.addStroke(GLASS, x1, SPONGE_TUB_TOP, x1 + 0.005, 1.0, WATER);
+                    this.addStroke(WATER, x0, SPONGE_WATER, x1, 1.0, WATER);
+                    const dx = k == 0 ? 0.0 : SPONGE_TWIN;
+                    this.addStroke(k == 0 ? SPONGE : WALL, SPONGE_BOX[0] + dx, SPONGE_BOX[2], SPONGE_BOX[1] + dx, SPONGE_BOX[3], WATER);
+                }
+                this.addStroke(GLASS, SEED_POOL[0] - 0.005, SEED_POOL[2], SEED_POOL[0], 1.0, WATER);
+                this.addStroke(GLASS, SEED_POOL[1], SEED_POOL[2], SEED_POOL[1] + 0.005, 1.0, WATER);
+                this.addStroke(WATER, SEED_POOL[0], SEED_POOL[3], SEED_POOL[1], 1.0, WATER);
+                this.addStroke(SEED, SEED_WET[0], SEED_WET[2], SEED_WET[1], SEED_WET[3], WATER);
+                this.addStroke(WALL, SEED_LEDGE[0], SEED_LEDGE[2], SEED_LEDGE[1], SEED_LEDGE[2] + 0.02, WATER);
+                this.addStroke(SEED, SEED_LEDGE[0] + 0.02, SEED_LEDGE[2] - 0.04, SEED_LEDGE[1] - 0.02, SEED_LEDGE[2] - 0.01, WATER);
+            } else if (this.scene == 22) {
+                // Sand dropped toward a black hole, a white hole and a wall block.
+                const holes = [BLACK_HOLE, WHITE_HOLE, WALL];
+                for (let k = 0; k < 3; k++) {
+                    this.addStroke(holes[k], HOLE_XS[k], HOLE_Y[0], HOLE_XS[k] + HOLE_W, HOLE_Y[1], WATER);
+                    this.addStroke(SAND, HOLE_XS[k] - 0.06, HOLE_SAND[0], HOLE_XS[k] + HOLE_W + 0.06, HOLE_SAND[1], WATER);
+                }
+            } else if (this.scene == 21) {
+                // Water dropped on a clone, and on a wall block, each in a tub.
+                for (let k = 0; k < 2; k++) {
+                    this.addStroke(GLASS, CLONE_TUBS[2 * k] - 0.005, CLONE_TUB_TOP, CLONE_TUBS[2 * k], 1.0, WATER);
+                    this.addStroke(GLASS, CLONE_TUBS[2 * k + 1], CLONE_TUB_TOP, CLONE_TUBS[2 * k + 1] + 0.005, 1.0, WATER);
+                    const dx = k == 0 ? 0.0 : CLONE_TWIN;
+                    this.addStroke(k == 0 ? CLONE : WALL, CLONED[0] + dx, CLONED[2], CLONED[1] + dx, CLONED[3], WATER);
+                    this.addStroke(WATER, CLONED[0] + CLONE_DROP[0] + dx, CLONED[2] + CLONE_DROP[2], CLONED[1] + CLONE_DROP[1] + dx,
+                        CLONED[2] + CLONE_DROP[3], WATER);
+                }
             } else if (this.scene == 18) {
                 // Nitroglycerin dropped into a tub, and at rest in one.
                 for (let k = 0; k < 2; k++) {
@@ -2851,6 +2989,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene >= 21 && this.scene <= 24) {
+                const error = this.checkToolsB(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
                 return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
             }
@@ -2883,6 +3027,8 @@ namespace PowderSandboxNri {
                 expected.push(1);
             } else if (this.scene == 16 || this.scene == 17 || this.scene == 20) {
                 expected.push(2);
+            } else if (this.scene == 21) {
+                expected.push(0);
             }
             for (const k of expected) {
                 if (this.eventTotals[k] == 0) {
@@ -3321,6 +3467,105 @@ namespace PowderSandboxNri {
                 }
             }
             return light;
+        }
+
+        // The cells' temperatures (floats' F_TCELL), read back (empty if they can't be).
+        readTemperatures(): f32[] {
+            const temps: f32[] = [];
+            const floatReadback = this.floatReadback;
+            if (!floatReadback) {
+                return temps;
+            }
+            const floats: f32[] = [];
+            for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
+                floats.push(0.0);
+            }
+            if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0) {
+                return temps;
+            }
+            for (let i = 0; i < this.gridW * this.gridH; i++) {
+                temps.push(floats[10 * this.stride + i]);
+            }
+            return temps;
+        }
+
+        // The hottest cell of a material in the box (in fractions of the grid); -1000 with none.
+        hottestIn(cells: int[], temps: f32[], material: int, x0: number, y0: number, x1: number, y1: number): number {
+            const w = this.gridW;
+            const h = this.gridH;
+            let hottest = -1000.0;
+            for (let y = Math.max(Math.floor(y0 * h), 0); y < Math.min(Math.ceil(y1 * h), h); y++) {
+                for (let x = Math.max(Math.floor(x0 * w), 0); x < Math.min(Math.ceil(x1 * w), w); x++) {
+                    if ((cells[y * w + x] & 0xFF) == material) {
+                        hottest = Math.max(hottest, temps[y * w + x]);
+                    }
+                }
+            }
+            return hottest;
+        }
+
+        // Scenes 21 to 24: group B's tools (see their constants).
+        checkToolsB(grid: int[]): string {
+            const cells = this.readCells();
+            if (cells.length == 0) {
+                return "cannot read the cells back";
+            }
+            if (this.scene == 21) {
+                const cloned = this.countIn(grid, WATER, 0.0, 0.0, 0.5, 1.0);
+                const plain = this.countIn(grid, WATER, 0.5, 0.0, 1.0, 1.0);
+                console.log(`Clone: water ${cloned} on the clone's side, ${plain} on the wall's`);
+                if (plain == 0 || cloned < CLONE_MORE * plain) {
+                    return `the clone didn't make more of the water: ${cloned} (the wall's side ${plain})`;
+                }
+            } else if (this.scene == 22) {
+                const swallowed = this.countIn(grid, SAND, HOLE_XS[0] - 0.15, 0.0, HOLE_XS[0] + HOLE_W + 0.15, 1.0);
+                const kept = this.countIn(grid, SAND, HOLE_XS[2] - 0.15, 0.0, HOLE_XS[2] + HOLE_W + 0.15, 1.0);
+                const onWhite = this.countIn(grid, SAND, HOLE_XS[1] - 0.005, HOLE_Y[0] - HOLE_TOUCH, HOLE_XS[1] + HOLE_W + 0.005, HOLE_Y[0]);
+                const onWall = this.countIn(grid, SAND, HOLE_XS[2] - 0.005, HOLE_Y[0] - HOLE_TOUCH, HOLE_XS[2] + HOLE_W + 0.005, HOLE_Y[0]);
+                console.log(`Holes: sand ${swallowed} by the black hole, ${kept} by the wall; resting on the white hole ${onWhite}, on the wall ${onWall}`);
+                if (kept == 0 || swallowed > SWALLOWED * kept) {
+                    return `the black hole didn't swallow the sand: ${swallowed} left (the wall's ${kept})`;
+                }
+                if (onWall == 0 || onWhite > REPELLED * onWall) {
+                    return `the white hole didn't push the sand away: ${onWhite} on it (on the wall ${onWall})`;
+                }
+            } else if (this.scene == 23) {
+                const soaked = this.countIn(grid, WATER, SPONGE_TUBS[0], 0.0, SPONGE_TUBS[1], 1.0);
+                const full = this.countIn(grid, WATER, SPONGE_TUBS[2], 0.0, SPONGE_TUBS[3], 1.0);
+                const plants = this.cellsIn(cells, PLANT, SEED_POOL[0], 0.5, SEED_POOL[1], 1.0, false);
+                const above = this.cellsIn(cells, PLANT, SEED_POOL[0], 0.5, SEED_POOL[1], SEED_POOL[3] - 0.03, false);
+                const dry = this.cellsIn(cells, PLANT, SEED_LEDGE[0], 0.0, SEED_LEDGE[1], SEED_LEDGE[2] + 0.02, false);
+                console.log(`Sponge and seeds: water ${soaked} in the sponge's tub, ${full} in the other; ${plants} plant cells from the wet seeds (${above} above the water), ${dry} from the dry`);
+                if (full == 0 || soaked > SOAKED * full) {
+                    return `the sponge didn't soak up the water: ${soaked} left (the other tub ${full})`;
+                }
+                if (plants < PLANT_CELLS || above < PLANT_ABOVE || dry != 0) {
+                    return `the seeds: ${plants} plant cells from the wet ones (${above} above the water), ${dry} from the dry`;
+                }
+            } else if (this.scene == 24) {
+                const temps = this.readTemperatures();
+                if (temps.length == 0) {
+                    return "cannot read the grid back";
+                }
+                const lamps: int[] = [];
+                for (let k = 0; k < 4; k++) {
+                    const y = k < 2 ? SWITCH_ROWS[k] : DETECTOR_ROWS[k - 2];
+                    lamps.push(this.lightIn(grid, LAMP_X, y, LAMP_X + 0.04, y + WIRE));
+                }
+                const warm = this.hottestIn(cells, temps, HEATER, HEATERS[0], HEATERS[2], HEATERS[1], HEATERS[3]);
+                const cold = this.hottestIn(cells, temps, HEATER, HEATERS[0], HEATERS[4], HEATERS[1], HEATERS[5]);
+                console.log(`Switches and detectors: lamps ${lamps[0]} (switched on), ${lamps[1]} (off), ${lamps[2]} (sand on the detector), ${lamps[3]} (none); heaters ${formatFixed(warm, 0)} C powered, ${formatFixed(cold, 0)} C not`);
+                if (lamps[0] == 0 || lamps[1] != 0) {
+                    return `the switches: lamps ${lamps[0]} (on), ${lamps[1]} (off)`;
+                }
+                if (lamps[2] == 0 || lamps[3] != 0) {
+                    return `the detectors: lamps ${lamps[2]} (sand on it), ${lamps[3]} (none)`;
+                }
+                if (warm < HEATED || cold > COLD) {
+                    return `the heaters: ${formatFixed(warm, 0)} C powered, ${formatFixed(cold, 0)} C not`;
+                }
+            }
+            return "";
         }
 
         // Scenes 15 to 20: group A's chemistry (see their constants).

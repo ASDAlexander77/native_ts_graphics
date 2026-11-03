@@ -28,7 +28,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   (wind), `-scene 9` (blocks), `-scene 10` (acid in water), `-scene 11` (oil and petrol burning),
   `-scene 12` (gases), `-scene 13 -gravity off|point|tilt` (no gravity, an attraction point, tilted),
   `-scene 14` (circuits), `-scene 15` .. `20` (electrolysis and neon, hydrogen and a fuse, thermite,
-  nitroglycerin, C-4, coal), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  nitroglycerin, C-4, coal), `-scene 21` .. `24` (clone, holes, sponge and seeds, switches),
+  `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
 
@@ -458,3 +459,43 @@ Behaviour after The Powder Toy's elements (its source as the reference; none of 
   - `coal` (scene 20): lit wood burns away in 5 s while lit coal is all there, some of it alight.
   - With electrolysis, catching, the fuse's spread, thermite's catching and the shock off, the
     first four fail.
+
+### 12. Tools, group B (done)
+
+After The Powder Toy's elements again (its source as the reference; none of its code used).
+
+- **New ids**: solids from 48 (past the particle types; only 31 was free under the tools' 32), a
+  seed particle at 45. Painting takes the solids from 48 as it does those under 32.
+- **Clone**: the first particle type to touch it (neutrons and embers aside) is learned into its
+  cell, and it emits that from then on, as an emitter does.
+- **Black and white holes**: a fourth glow channel blurs the holes (a black hole's cell +1, a white
+  hole's -1) the same way, once a frame, into the hole field; its gradient (times 400,000, at most 4
+  gravities) is added to the gravity everywhere it's used, so liquids, powders, gases and blocks fall
+  into black holes and away from white ones (and powders rest toward them). A black hole swallows
+  what touches it. The glow's sections are zeroed at the grid's init and when it's remade now, as the
+  steps read the field.
+- **Sponge**: water touching it is soaked up (40 a second, a cell holding 8), the water in it
+  spreading to its drier cells (a particle a step, across any difference: across a difference of 2
+  or more only, it stalled a few cells in); hot (over 60 °C), it lets the water out.
+- **Seeds and plants**: a seed (a powder) in water's cell or beside it sprouts into a plant cell with
+  6 energy; a plant drinks touching water (2 a second, an energy each) and, with energy, grows a cell
+  4 times a second, up or 45 degrees either side of up, the new cell taking the rest. Plants burn as
+  wood does, in about a second.
+- **Switch**: a conductor while it's on; the Spark tool's touch toggles it (once a touch: bit 9
+  holds while it's touched). The scenes' strokes reach `spark_cs` too now, so a level can toggle one.
+- **Detector**: sparks the conductors beside it on the battery's beat while a particle (but a
+  neutron or an ember) is beside it.
+- **Heater**: a conductor; powered (lit, as a lamp is), it warms 300 °C a second up to 600 °C.
+- **Tests** (each with an untouched twin as its control):
+  - `clone` (scene 21): water dropped on a clone, in a tub, becomes about 2,400 particles in 5 s;
+    that dropped on a wall block stays about 750.
+  - `holes` (scene 22): of sand dropped toward a black hole, a few grains are left (2,576 by the
+    wall); none rests on the white hole (255 on the wall).
+  - `plants` (scene 23): a sponge in a tub of water leaves about a fifth of its twin tub's water;
+    seeds dropped into a pool grow about 220 plant cells, some above the water; seeds on a dry ledge
+    none.
+  - `switches` (scene 24): a switch toggled on by a Spark stroke lights its lamp, the one left off
+    doesn't; sand on a detector lights its lamp, the bare one doesn't; a powered heater reaches
+    600 °C, the other stays at 20.
+  - With learning, the holes' pull, soaking, sprouting, the heater's warming and the switch's
+    toggling off, all four fail.
