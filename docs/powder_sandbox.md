@@ -27,7 +27,8 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7` (surface tension), `-scene 8`
   (wind), `-scene 9` (blocks), `-scene 10` (acid in water), `-scene 11` (oil and petrol burning),
   `-scene 12` (gases), `-scene 13 -gravity off|point|tilt` (no gravity, an attraction point, tilted),
-  `-scene 14` (circuits), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
+  `-scene 14` (circuits), `-scene 15` .. `20` (electrolysis and neon, hydrogen and a fuse, thermite,
+  nitroglycerin, C-4, coal), `-sceneFile test_fill` (a level's goal), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
 
@@ -418,3 +419,42 @@ format is unchanged (version 2): the new state lives in the particles.
   After 5 s the first two lamps shine and the third doesn't; none of the wire's gunpowder is left,
   the ledge's all is. With the batteries never firing no lamp shines and the gunpowder stays; with
   salt water not conducting its lamp is dark: both fail.
+
+### 11. Chemistry, group A (done)
+
+Behaviour after The Powder Toy's elements (its source as the reference; none of its code used).
+
+- **New particle ids** past the tools' (40 on: hydrogen, oxygen, neon, thermite, nitroglycerin):
+  only 15 was free under the solids' 16. Their count sections follow EMBER's (`countSection`), so
+  no existing id, and no save, changed. The probe packs the counts four to an int (8 bits).
+- **Electrolysis**: water beside a sparked metal cell (the electrode) splits, 3% a step, two in
+  three into hydrogen, the rest oxygen. Only at the electrode: with every sparked cell of a pool of
+  salt water splitting, the pool that carried the current was soon gone (and faster, the bubbles at
+  the electrode broke its contact). Salt water conducts from one particle in a cell now.
+- **Hydrogen** (a gas, 0.93 lighter than air) beside a flame, or at 500 °C, lights (40 a second;
+  not at a spark, which would light it at the electrode as it's made): it burns at 1500 °C with a whoosh (one in 4 blasts) into steam. **Oxygen** (a
+  little heavier than air) flares into fire.
+- **Neon** (a gas) conducts where a cell holds any, and glows red-orange for a while after a spark.
+- **Thermite** (a powder) catches from a flame or lava touching it, or at 1000 °C, burning into
+  molten iron (lava at 3500 °C, held there for 1.5 to 4.5 s). Molten iron over 1550 °C cuts the
+  metal it touches (the cell opened, the iron sinking into it: melted into cooler lava, it filled
+  the hole and stopped the iron). **Metal** now melts at 1500 °C too (150 degrees latent).
+- **Nitroglycerin** (a liquid, 1.6) goes off like gunpowder, twice the blast, at 200 °C, at a
+  spark or a flame, or at a shock: its velocity changed by over 150 cells/s in a step (a fall).
+- **C-4** (a solid) goes off at 400 °C, a flame or a spark beside it: its cell becomes 6 grains of
+  gunpowder going off. **Coal** (a solid) catches at 500 °C or now and then from a flame, burning 25
+  to 37 s. A **fuse** (a solid) catches at 700 °C, a flame or a spark, and from a fuse beside it
+  that's burned 0.05 s, so it burns along at about 16 cells a second.
+- **Tests** (each with an untouched twin as its control):
+  - `electrolysis` (scene 15): a wired tub of salt water makes about 110 hydrogen and 45 oxygen
+    in 5 s, the unwired one none; a wired neon tube shines, the other doesn't.
+  - `combustion` (scene 16): a lit box of hydrogen burns away into steam, the unlit one keeps all
+    of it; a lit fuse burns at about 16 cells a second, the unlit one stays.
+  - `thermite` (scene 17): lit thermite cuts its plate to about 60 of 350 cells in 10 s; the unlit one's
+    plate stays whole.
+  - `nitroglycerin` (scene 18): nitroglycerin dropped into a tub goes off; that at rest in another,
+    behind a wall, stays (without the wall, the blast's fire set it off now and then).
+  - `c4` (scene 19): C-4 wired to a battery goes off, the unwired block, behind a wall, stays.
+  - `coal` (scene 20): lit wood burns away in 5 s while lit coal is all there, some of it alight.
+  - With electrolysis, catching, the fuse's spread, thermite's catching and the shock off, the
+    first four fail.

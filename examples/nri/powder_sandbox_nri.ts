@@ -60,7 +60,7 @@ namespace PowderSandboxNri {
     // gridFloat sections, and u_Alloc's free list's start.
     // (probe_cs packs the counts three to an int, 10 bits each, from u_Alloc[4], under the wind at
     // u_Alloc[10]: up to 18 types)
-    const PARTICLE_TYPES = 14;
+    const PARTICLE_TYPES = 19;
     // The glow's sections past INT_SECTIONS (powder_sandbox.hlsl's I_GLOW, GLOW_SECTIONS, GLOW_SCALE).
     const I_GLOW = 6 + PARTICLE_TYPES + 9;
     const GLOW_SECTIONS = 6;
@@ -135,6 +135,7 @@ namespace PowderSandboxNri {
     const FIRE = 4;
     const SMOKE = 5;
     const EMBER = 14;
+    const STEAM = 6;
     const LAVA = 8;
     const ACID = 9;
     const SALT = 10;
@@ -158,6 +159,15 @@ namespace PowderSandboxNri {
     const COOL = 34;
     const SALT_WATER = 36;
     const SPARK = 38;
+    const C4 = 28;
+    const COAL = 29;
+    const FUSE = 30;
+    // Particle types past the tools' ids (powder_sandbox.hlsl's; their count sections after EMBER's).
+    const HYDROGEN = 40;
+    const OXYGEN = 41;
+    const NEON = 42;
+    const THERMITE = 43;
+    const NITRO = 44;
     // Not the shader's: a tool that paints nothing, its cursor the cell under the pointer (touch has
     // no hover to read a cell with).
     const INSPECT = 35;
@@ -362,6 +372,52 @@ namespace PowderSandboxNri {
     const SPARK_POWDER = [0.68, 0.12, 0.78, 0.19];
     const CONTROL_POWDER = [0.07, 0.38, 0.17, 0.44, 0.45];
     const POWDER_LEFT = 0.2;
+    // Scene 15: tubs of salt water (ELECTRO_TUBS: each one's x0, x1; ELECTRO_Y: their top, floor; the
+    // wire in at ELECTRO_WIRE), the first's wire from a battery, the second's from a wall: the first
+    // splits into hydrogen (HYDROGEN_MADE at least) and oxygen (OXYGEN_MADE), the second makes under
+    // GAS_LEAK of it. Glass tubes of neon (NEON_TUBES: x0, x1, then each one's y0, y1), the first
+    // wired from a battery: it shines, the second doesn't.
+    const ELECTRO_TUBS = [0.06, 0.26, 0.74, 0.94];
+    const ELECTRO_Y = [0.5, 0.75];
+    const ELECTRO_WIRE = 0.62;
+    const HYDROGEN_MADE = 40;
+    const OXYGEN_MADE = 15;
+    const GAS_LEAK = 0.2;
+    const NEON_TUBES = [0.38, 0.62, 0.18, 0.25, 0.32, 0.39];
+    // Scene 16: glass boxes of hydrogen (H2_BOXES: each one's x0, x1; H2_Y: their y0, y1), the first
+    // lit at its bottom: it burns (under HYDROGEN_LEFT of the second's hydrogen left), into steam.
+    // Fuses (FUSES: x0, x1, then each one's y), the first lit at its left end: it burns along at
+    // FUSE_SPEED cells a second (between its two values), the second doesn't. Scene 20: blocks of coal
+    // and wood (BURN_BLOCKS: coal x0, x1, wood x0, x1; from BURN_TOP to the floor), lit on top: the
+    // wood burns away (under WOOD_LEFT left), the coal burns slowly (over COAL_LEFT left, some of it
+    // alight).
+    const H2_BOXES = [0.05, 0.3, 0.7, 0.95];
+    const H2_Y = [0.08, 0.36];
+    const HYDROGEN_LEFT = 0.3;
+    const FUSES = [0.1, 0.9, 0.5, 0.6];
+    const FUSE_SPEED = [8.0, 40.0];
+    const BURN_BLOCKS = [0.3, 0.4, 0.6, 0.7];
+    const BURN_TOP = 0.8;
+    const WOOD_LEFT = 0.6;
+    const COAL_LEFT = 0.9;
+    // Scene 17: thermite on metal plates (PLATES: each one's x0, x1; PLATE_Y: its y0, y1; the
+    // thermite from THERMITE_TOP, a little narrower), the first lit: it burns a hole (its plate under
+    // PLATE_LEFT of the second's metal).
+    const PLATES = [0.08, 0.32, 0.68, 0.92];
+    const PLATE_Y = [0.55, 0.58];
+    const THERMITE_TOP = 0.49;
+    const PLATE_LEFT = 0.9;
+    // Scene 18: nitroglycerin dropped into a glass tub (NITRO_TUBS: each one's x0, x1, from NITRO_TOP
+    // to the floor; NITRO_DROP: x0, y0, x1, y1), and some painted at rest in another: the dropped goes
+    // off (under NITRO_LEFT of the other's left). Scene 19: C-4 (C4_BLOCKS: each one's x0, x1; C4_Y:
+    // y0, y1), the first wired from a battery: it goes off (under C4_LEFT of the second's cells left).
+    const NITRO_TUBS = [0.08, 0.32, 0.68, 0.92];
+    const NITRO_TOP = 0.82;
+    const NITRO_DROP = [0.15, 0.08, 0.25, 0.16];
+    const NITRO_LEFT = 0.2;
+    const C4_BLOCKS = [0.2, 0.3, 0.7, 0.8];
+    const C4_Y = [0.37, 0.46];
+    const C4_LEFT = 0.1;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -412,6 +468,16 @@ namespace PowderSandboxNri {
         return dy > 0.0 ? 1 : 3;
     }
 
+    // A particle type's count section in gridInt (powder_sandbox.hlsl's countSection), and the type
+    // of a count section's index past I_COUNT.
+    function countSection(material: int): int {
+        return I_COUNT + (material >= HYDROGEN ? material - HYDROGEN + EMBER : material - 1);
+    }
+
+    function sectionMaterial(k: int): int {
+        return k < EMBER ? k + 1 : k - EMBER + HYDROGEN;
+    }
+
     function materialName(material: int): string {
         if (material == 1) { return "water"; }
         if (material == 2) { return "oil"; }
@@ -439,13 +505,21 @@ namespace PowderSandboxNri {
         if (material == 25) { return "block"; }
         if (material == 26) { return "battery"; }
         if (material == 27) { return "lamp"; }
+        if (material == 28) { return "c-4"; }
+        if (material == 29) { return "coal"; }
+        if (material == 30) { return "fuse"; }
+        if (material == 40) { return "hydrogen"; }
+        if (material == 41) { return "oxygen"; }
+        if (material == 42) { return "neon"; }
+        if (material == 43) { return "thermite"; }
+        if (material == 44) { return "nitroglycerin"; }
         return "air";
     }
 
     // A tool or material by its name in a level's file (materialName's, or the tools'), or -1.
     function toolNamed(name: string): int {
         // ("air" is materialName's answer for the ids that name nothing)
-        for (let m = 1; m < 32; m++) {
+        for (let m = 1; m < 48; m++) {
             if (materialName(m) == name && name != "air") {
                 return m;
             }
@@ -728,13 +802,18 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
             this.tiles.push(new Tile("Petrol", PETROL, 0.95, 0.88, 0.5));
+            this.tiles.push(new Tile("Nitro", NITRO, 0.86, 0.9, 0.62));
             this.tiles.push(new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
             this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
             this.tiles.push(new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
+            this.tiles.push(new Tile("Thermite", THERMITE, 0.55, 0.35, 0.3));
             this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
             this.tiles.push(new Tile("Acid", ACID, 0.45, 0.92, 0.18));
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
+            this.tiles.push(new Tile("Hydrogen", HYDROGEN, 0.8, 0.88, 1.0));
+            this.tiles.push(new Tile("Oxygen", OXYGEN, 0.5, 0.68, 1.0));
+            this.tiles.push(new Tile("Neon", NEON, 1.0, 0.4, 0.3));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
             this.tiles.push(new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
@@ -743,6 +822,9 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
+            this.tiles.push(new Tile("Coal", COAL, 0.2, 0.19, 0.19));
+            this.tiles.push(new Tile("Fuse", FUSE, 0.5, 0.36, 0.24));
+            this.tiles.push(new Tile("C-4", C4, 0.84, 0.8, 0.68));
             this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
             this.tiles.push(new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
             this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
@@ -1186,7 +1268,8 @@ namespace PowderSandboxNri {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
                 if (action == WATER || action == OIL || action == SAND || action == SALT || action == GUNPOWDER || action == LAVA
-                    || action == ACID || action == HONEY || action == PETROL || action == FIRE) {
+                    || action == ACID || action == HONEY || action == PETROL || action == FIRE || action == NITRO || action == THERMITE
+                    || action == HYDROGEN || action == OXYGEN || action == NEON) {
                     this.emitType = action;
                 }
             }
@@ -2123,6 +2206,80 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 18) {
+                // Nitroglycerin dropped into a tub, and at rest in one.
+                for (let k = 0; k < 2; k++) {
+                    this.addStroke(GLASS, NITRO_TUBS[2 * k] - 0.005, NITRO_TOP, NITRO_TUBS[2 * k], 1.0, WATER);
+                    this.addStroke(GLASS, NITRO_TUBS[2 * k + 1], NITRO_TOP, NITRO_TUBS[2 * k + 1] + 0.005, 1.0, WATER);
+                }
+                this.addStroke(NITRO, NITRO_DROP[0], NITRO_DROP[1], NITRO_DROP[2], NITRO_DROP[3], WATER);
+                this.addStroke(NITRO, NITRO_TUBS[2], 0.92, NITRO_TUBS[3], 1.0, WATER);
+                // (a wall between, from the blast)
+                this.addStroke(WALL, 0.48, 0.25, 0.52, 1.0, WATER);
+            } else if (this.scene == 19) {
+                // C-4 wired to a battery, and not.
+                for (let k = 0; k < 2; k++) {
+                    this.addStroke(C4, C4_BLOCKS[2 * k], C4_Y[0], C4_BLOCKS[2 * k + 1], C4_Y[1], WATER);
+                }
+                this.addStroke(BATTERY, C4_BLOCKS[0] - 0.15, 0.4, C4_BLOCKS[0] - 0.11, 0.4 + WIRE, WATER);
+                this.addStroke(METAL, C4_BLOCKS[0] - 0.11, 0.4, C4_BLOCKS[0], 0.4 + WIRE, WATER);
+                // (a wall between, from the blast)
+                this.addStroke(WALL, 0.48, 0.1, 0.52, 1.0, WATER);
+            } else if (this.scene == 17) {
+                // Thermite on metal plates, one lit.
+                for (let k = 0; k < 2; k++) {
+                    this.addStroke(METAL, PLATES[2 * k], PLATE_Y[0], PLATES[2 * k + 1], PLATE_Y[1], WATER);
+                    this.addStroke(THERMITE, PLATES[2 * k] + 0.05, THERMITE_TOP, PLATES[2 * k + 1] - 0.05, PLATE_Y[0], WATER);
+                }
+                for (let k = 0; k < 5; k++) {
+                    this.addStroke(FIRE, PLATES[0] + 0.06, THERMITE_TOP - 0.02, PLATES[1] - 0.06, THERMITE_TOP + 0.02, WATER);
+                }
+            } else if (this.scene == 16) {
+                // Hydrogen in glass boxes, one lit; fuses, one lit; coal and wood lit on top.
+                for (let k = 0; k < 2; k++) {
+                    this.addBox(GLASS, H2_BOXES[2 * k], H2_Y[0], H2_BOXES[2 * k + 1], H2_Y[1]);
+                    this.addStroke(FUSE, FUSES[0], FUSES[2 + k], FUSES[1], FUSES[2 + k] + 0.02, WATER);
+                }
+                for (let k = 0; k < 6; k++) {
+                    for (let b = 0; b < 2; b++) {
+                        this.addStroke(HYDROGEN, H2_BOXES[2 * b] + 0.005, H2_Y[0] + 0.005, H2_BOXES[2 * b + 1] - 0.005, H2_Y[1] - 0.005, WATER);
+                    }
+                }
+                for (let k = 0; k < 5; k++) {
+                    this.addStroke(FIRE, H2_BOXES[0] + 0.01, H2_Y[1] - 0.04, H2_BOXES[1] - 0.01, H2_Y[1] - 0.01, WATER);
+                    this.addStroke(FIRE, FUSES[0] - 0.04, FUSES[2], FUSES[0], FUSES[2] + 0.02, WATER);
+                }
+            } else if (this.scene == 20) {
+                // Coal and wood, lit on top.
+                this.addStroke(COAL, BURN_BLOCKS[0], BURN_TOP, BURN_BLOCKS[1], 1.0, WATER);
+                this.addStroke(WOOD, BURN_BLOCKS[2], BURN_TOP, BURN_BLOCKS[3], 1.0, WATER);
+                for (let k = 0; k < 5; k++) {
+                    this.addStroke(FIRE, BURN_BLOCKS[0], BURN_TOP - 0.04, BURN_BLOCKS[1], BURN_TOP, WATER);
+                    this.addStroke(FIRE, BURN_BLOCKS[2], BURN_TOP - 0.04, BURN_BLOCKS[3], BURN_TOP, WATER);
+                }
+            } else if (this.scene == 15) {
+                // Salt water tubs, one wired to a battery; neon tubes, one wired.
+                for (let k = 0; k < 2; k++) {
+                    const x0 = ELECTRO_TUBS[2 * k];
+                    const x1 = ELECTRO_TUBS[2 * k + 1];
+                    this.addStroke(GLASS, x0 - 0.005, ELECTRO_Y[0], x0, ELECTRO_Y[1], WATER);
+                    this.addStroke(GLASS, x1, ELECTRO_Y[0], x1 + 0.005, ELECTRO_Y[1], WATER);
+                    this.addStroke(GLASS, x0 - 0.005, ELECTRO_Y[1] - 0.005, x1 + 0.005, ELECTRO_Y[1], WATER);
+                    this.addStroke(k == 0 ? BATTERY : WALL, x0 - 0.05, ELECTRO_WIRE, x0 - 0.03, ELECTRO_WIRE + WIRE, WATER);
+                    this.addStroke(METAL, x0 - 0.03, ELECTRO_WIRE, x0 + 0.005, ELECTRO_WIRE + WIRE, WATER);
+                    this.addStroke(SALT_WATER, x0, ELECTRO_Y[0] + 0.02, x1, ELECTRO_Y[1] - 0.005, WATER);
+                    const y0 = NEON_TUBES[2 + 2 * k];
+                    const y1 = NEON_TUBES[3 + 2 * k];
+                    this.addBox(GLASS, NEON_TUBES[0], y0, NEON_TUBES[1], y1);
+                    const wireY = 0.5 * (y0 + y1) - 0.5 * WIRE;
+                    this.addStroke(k == 0 ? BATTERY : WALL, NEON_TUBES[0] - 0.07, wireY, NEON_TUBES[0] - 0.04, wireY + WIRE, WATER);
+                    this.addStroke(METAL, NEON_TUBES[0] - 0.04, wireY, NEON_TUBES[0] + 0.005, wireY + WIRE, WATER);
+                }
+                for (let k = 0; k < 8; k++) {
+                    for (let b = 0; b < 2; b++) {
+                        this.addStroke(NEON, NEON_TUBES[0] + 0.005, NEON_TUBES[2 + 2 * b] + 0.005, NEON_TUBES[1] - 0.005, NEON_TUBES[3 + 2 * b] - 0.005, WATER);
+                    }
+                }
             } else if (this.scene == 14) {
                 // Circuits; gunpowder on a live wire and on a ledge.
                 for (let k = 0; k < 3; k++) {
@@ -2302,17 +2459,17 @@ namespace PowderSandboxNri {
             let contents = materialName(cell);
             if (cell < WALL) {
                 contents = "";
-                for (let m = 0; m < PARTICLE_TYPES; m++) {
-                    const n = (this.probe[4 + Math.floor(m / 3)] >> (10 * (m % 3))) & 0x3FF;
+                for (let k = 0; k < PARTICLE_TYPES; k++) {
+                    const n = (this.probe[4 + Math.floor(k / 4)] >> (8 * (k % 4))) & 0xFF;
                     if (n > 0) {
-                        contents = `${contents}${contents == "" ? "" : ", "}${n} ${materialName(m + 1)}`;
+                        contents = `${contents}${contents == "" ? "" : ", "}${n} ${materialName(sectionMaterial(k))}`;
                     }
                 }
                 if (contents == "") {
                     contents = "air";
                 }
                 // (probe_cs puts the water's salinity last)
-                if ((this.probe[4] & 0x3FF) > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
+                if ((this.probe[4] & 0xFF) > 0 && this.probeFloats[PROBE_INTS - 1] > 0.01) {
                     contents = `${contents} (salinity ${formatFixed(100.0 * this.probeFloats[PROBE_INTS - 1], 0)}%)`;
                 }
             }
@@ -2688,6 +2845,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene >= 15 && this.scene <= 20) {
+                const error = this.checkChemistryA(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
                 return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
             }
@@ -2714,8 +2877,12 @@ namespace PowderSandboxNri {
                 expected.push(3);
             } else if (this.scene == 12) {
                 expected.push(2);
-            } else if (this.scene == 14) {
+            } else if (this.scene == 14 || this.scene == 18 || this.scene == 19) {
                 expected.push(3);
+            } else if (this.scene == 15) {
+                expected.push(1);
+            } else if (this.scene == 16 || this.scene == 17 || this.scene == 20) {
+                expected.push(2);
             }
             for (const k of expected) {
                 if (this.eventTotals[k] == 0) {
@@ -2768,7 +2935,7 @@ namespace PowderSandboxNri {
             const share = 100.0 * blue / gridPixels;
             console.log(`Water: ${formatFixed(share, 1)}% of the grid`);
             // (a turned U-tube is a narrow grid between margins; scenes 8, 11 and 12 have no water)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 || this.scene == 12 ? 0.0 : 1.0);
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 || this.scene == 12 || this.scene >= 16 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the grid, not ${formatFixed(minShare, 0)} to 50%`;
@@ -2954,8 +3121,8 @@ namespace PowderSandboxNri {
             for (let y = y0; y < h - 1; y++) {
                 for (let x = x0; x < x1; x++) {
                     const c = y * w + x;
-                    n += grid[(I_COUNT + material - 1) * this.stride + c];
-                    if (grid[(I_COUNT + WATER - 1) * this.stride + c] > 0) {
+                    n += grid[countSection(material) * this.stride + c];
+                    if (grid[countSection(WATER) * this.stride + c] > 0) {
                         tempSum += floats[10 * this.stride + c];
                         liquidCells++;
                     }
@@ -3019,7 +3186,7 @@ namespace PowderSandboxNri {
             let smoke = 0;
             for (let y = y0; y < y0 + 6; y++) {
                 for (let x = 0; x < w; x++) {
-                    const n = grid[(I_COUNT + SMOKE - 1) * this.stride + y * w + x];
+                    const n = grid[countSection(SMOKE) * this.stride + y * w + x];
                     if (n > 0) {
                         smoke += n;
                         left = Math.min(left, x);
@@ -3036,7 +3203,7 @@ namespace PowderSandboxNri {
             const far = grid[I_GLOW * this.stride + glowY * w + 1] / GLOW_SCALE;
             let embers = 0;
             for (let i = 0; i < w * h; i++) {
-                embers += grid[(I_COUNT + EMBER - 1) * this.stride + i];
+                embers += grid[countSection(EMBER) * this.stride + i];
             }
             console.log(`Glow: ${formatFixed(near, 3)} beside the fire, ${formatFixed(far, 4)} at the side; ${embers} embers`);
             if (near < GLOW_NEAR || far > GLOW_FAR) {
@@ -3103,6 +3270,133 @@ namespace PowderSandboxNri {
             return "";
         }
 
+        // A box's outline (in fractions of the grid), a cell or so thick.
+        addBox(material: int, x0: number, y0: number, x1: number, y1: number) {
+            this.addStroke(material, x0, y0, x1, y0 + 0.01, WATER);
+            this.addStroke(material, x0, y1 - 0.01, x1, y1, WATER);
+            this.addStroke(material, x0, y0, x0 + 0.005, y1, WATER);
+            this.addStroke(material, x1 - 0.005, y0, x1, y1, WATER);
+        }
+
+        // The cells, read back (empty if they can't be).
+        readCells(): int[] {
+            const cells: int[] = [];
+            const cellsReadback = this.cellsReadback;
+            if (!cellsReadback) {
+                return cells;
+            }
+            for (let i = 0; i < this.gridW * this.gridH; i++) {
+                cells.push(0);
+            }
+            if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+                return [];
+            }
+            return cells;
+        }
+
+        // The cells of a material in the box (in fractions of the grid); with burning, those alight.
+        cellsIn(cells: int[], material: int, x0: number, y0: number, x1: number, y1: number, burning: boolean): int {
+            const w = this.gridW;
+            const h = this.gridH;
+            let n = 0;
+            for (let y = Math.max(Math.floor(y0 * h), 0); y < Math.min(Math.ceil(y1 * h), h); y++) {
+                for (let x = Math.max(Math.floor(x0 * w), 0); x < Math.min(Math.ceil(x1 * w), w); x++) {
+                    const cell = cells[y * w + x];
+                    if ((cell & 0xFF) == material && (!burning || (cell & 0x10000) != 0)) {
+                        n++;
+                    }
+                }
+            }
+            return n;
+        }
+
+        // The brightest light (spark_cs's) in the box (in fractions of the grid).
+        lightIn(grid: int[], x0: number, y0: number, x1: number, y1: number): int {
+            const w = this.gridW;
+            const h = this.gridH;
+            let light = 0;
+            for (let y = Math.max(Math.floor(y0 * h), 0); y < Math.min(Math.ceil(y1 * h), h); y++) {
+                for (let x = Math.max(Math.floor(x0 * w), 0); x < Math.min(Math.ceil(x1 * w), w); x++) {
+                    light = Math.max(light, (grid[I_SPARK * this.stride + y * w + x] >> 8) & 0xFF);
+                }
+            }
+            return light;
+        }
+
+        // Scenes 15 to 20: group A's chemistry (see their constants).
+        checkChemistryA(grid: int[]): string {
+            const cells = this.readCells();
+            if (cells.length == 0) {
+                return "cannot read the cells back";
+            }
+            if (this.scene == 15) {
+                const madeH = this.countIn(grid, HYDROGEN, ELECTRO_TUBS[0] - 0.05, 0.0, ELECTRO_TUBS[1] + 0.05, ELECTRO_Y[1]);
+                const madeO = this.countIn(grid, OXYGEN, ELECTRO_TUBS[0] - 0.05, 0.0, ELECTRO_TUBS[1] + 0.05, ELECTRO_Y[1]);
+                const leakH = this.countIn(grid, HYDROGEN, ELECTRO_TUBS[2] - 0.05, 0.0, ELECTRO_TUBS[3] + 0.05, ELECTRO_Y[1]);
+                const leakO = this.countIn(grid, OXYGEN, ELECTRO_TUBS[2] - 0.05, 0.0, ELECTRO_TUBS[3] + 0.05, ELECTRO_Y[1]);
+                const lit = this.lightIn(grid, NEON_TUBES[0], NEON_TUBES[2], NEON_TUBES[1], NEON_TUBES[3]);
+                const dark = this.lightIn(grid, NEON_TUBES[0], NEON_TUBES[4], NEON_TUBES[1], NEON_TUBES[5]);
+                console.log(`Electrolysis: ${madeH} hydrogen and ${madeO} oxygen from the wired tub, ${leakH} and ${leakO} by the other; neon's light ${lit} wired, ${dark} not`);
+                if (madeH < HYDROGEN_MADE || madeO < OXYGEN_MADE) {
+                    return `the current didn't split the water: ${madeH} hydrogen, ${madeO} oxygen`;
+                }
+                if (leakH + leakO > GAS_LEAK * (madeH + madeO)) {
+                    return `the unwired tub made gas too: ${leakH} hydrogen, ${leakO} oxygen`;
+                }
+                if (lit == 0 || dark != 0) {
+                    return `the neon: light ${lit} wired, ${dark} not`;
+                }
+            } else if (this.scene == 16) {
+                const burned = this.countIn(grid, HYDROGEN, H2_BOXES[0], H2_Y[0], H2_BOXES[1], H2_Y[1]);
+                const kept = this.countIn(grid, HYDROGEN, H2_BOXES[2], H2_Y[0], H2_BOXES[3], H2_Y[1]);
+                const steam = this.countIn(grid, STEAM, H2_BOXES[0], H2_Y[0], H2_BOXES[1], H2_Y[1]);
+                const fuseCells = this.cellsIn(cells, FUSE, FUSES[0], FUSES[2], FUSES[1], FUSES[2] + 0.02, false);
+                const unlitCells = this.cellsIn(cells, FUSE, FUSES[0], FUSES[3], FUSES[1], FUSES[3] + 0.02, false);
+                const rows = Math.max(Math.round(0.02 * this.gridH), 1);
+                const speed = (unlitCells - fuseCells) / rows / (this.testFrames / 60.0);
+                console.log(`Combustion: hydrogen ${burned} left lit, ${kept} not (${steam} steam); the fuse burned at ${formatFixed(speed, 1)} cells a second (${unlitCells} cells unlit, ${fuseCells} left lit)`);
+                if (kept == 0 || burned > HYDROGEN_LEFT * kept || steam == 0) {
+                    return `the hydrogen didn't burn into steam: ${burned} left (the unlit box's ${kept}), ${steam} steam`;
+                }
+                if (speed < FUSE_SPEED[0] || speed > FUSE_SPEED[1]) {
+                    return `the fuse burned at ${formatFixed(speed, 1)} cells a second, not ${formatFixed(FUSE_SPEED[0], 0)} to ${formatFixed(FUSE_SPEED[1], 0)}`;
+                }
+            } else if (this.scene == 20) {
+                const coal = this.cellsIn(cells, COAL, BURN_BLOCKS[0], BURN_TOP, BURN_BLOCKS[1], 1.0, false);
+                const coalLit = this.cellsIn(cells, COAL, BURN_BLOCKS[0], BURN_TOP, BURN_BLOCKS[1], 1.0, true);
+                const wood = this.cellsIn(cells, WOOD, BURN_BLOCKS[2], BURN_TOP, BURN_BLOCKS[3], 1.0, false);
+                // (the blocks' cells as painted: their boxes', less the grid's wall row at the floor)
+                const painted = (Math.ceil(BURN_BLOCKS[1] * this.gridW) - Math.floor(BURN_BLOCKS[0] * this.gridW))
+                    * (this.gridH - 1 - Math.floor(BURN_TOP * this.gridH));
+                console.log(`Coal and wood: coal ${coal} of ${painted} left (${coalLit} alight), wood ${wood}`);
+                if (wood > WOOD_LEFT * painted || coal < COAL_LEFT * painted || coalLit == 0) {
+                    return `coal and wood: coal ${coal} of ${painted} left (${coalLit} alight), wood ${wood}`;
+                }
+            } else if (this.scene == 17) {
+                const holed = this.cellsIn(cells, METAL, PLATES[0], PLATE_Y[0], PLATES[1], PLATE_Y[1], false);
+                const whole = this.cellsIn(cells, METAL, PLATES[2], PLATE_Y[0], PLATES[3], PLATE_Y[1], false);
+                console.log(`Thermite: the lit plate's metal ${holed}, the other's ${whole}`);
+                if (whole == 0 || holed > PLATE_LEFT * whole) {
+                    return `the thermite didn't burn through its plate: ${holed} cells of metal left (the other's ${whole})`;
+                }
+            } else if (this.scene == 18) {
+                const dropped = this.countIn(grid, NITRO, NITRO_TUBS[0] - 0.05, 0.0, NITRO_TUBS[1] + 0.05, 1.0);
+                const resting = this.countIn(grid, NITRO, NITRO_TUBS[2], NITRO_TOP, NITRO_TUBS[3], 1.0);
+                console.log(`Nitroglycerin: ${dropped} left of the dropped, ${resting} at rest`);
+                if (resting == 0 || dropped > NITRO_LEFT * resting) {
+                    return `the dropped nitroglycerin didn't go off: ${dropped} left (${resting} at rest)`;
+                }
+            } else if (this.scene == 19) {
+                const wired = this.cellsIn(cells, C4, C4_BLOCKS[0], C4_Y[0], C4_BLOCKS[1], C4_Y[1], false);
+                const unwired = this.cellsIn(cells, C4, C4_BLOCKS[2], C4_Y[0], C4_BLOCKS[3], C4_Y[1], false);
+                console.log(`C-4: ${wired} cells left wired, ${unwired} not`);
+                if (unwired == 0 || wired > C4_LEFT * unwired) {
+                    return `the wired C-4 didn't go off: ${wired} cells left (${unwired} not wired)`;
+                }
+            }
+            return "";
+        }
+
         // A material's particles in the box (in fractions of the grid).
         countIn(grid: int[], material: int, x0: number, y0: number, x1: number, y1: number): int {
             const w = this.gridW;
@@ -3110,7 +3404,7 @@ namespace PowderSandboxNri {
             let n = 0;
             for (let y = Math.max(Math.floor(y0 * h), 0); y < Math.min(Math.ceil(y1 * h), h); y++) {
                 for (let x = Math.max(Math.floor(x0 * w), 0); x < Math.min(Math.ceil(x1 * w), w); x++) {
-                    n += grid[(I_COUNT + material - 1) * this.stride + y * w + x];
+                    n += grid[countSection(material) * this.stride + y * w + x];
                 }
             }
             return n;
@@ -3132,7 +3426,7 @@ namespace PowderSandboxNri {
                 let sumDistance = 0.0;
                 for (let y = 0; y < h; y++) {
                     for (let x = 0; x < w; x++) {
-                        const count = grid[(I_COUNT + material - 1) * this.stride + y * w + x];
+                        const count = grid[countSection(material) * this.stride + y * w + x];
                         if (count > 0) {
                             n += count;
                             sumX += count * (x + 0.5);
@@ -3256,7 +3550,7 @@ namespace PowderSandboxNri {
             for (let y = 1; y < h - 1; y++) {
                 for (let x = x0; x < x1; x++) {
                     const c = y * w + x;
-                    salt += grid[(I_COUNT + SALT - 1) * this.stride + c];
+                    salt += grid[countSection(SALT) * this.stride + c];
                     if (y >= top) {
                         // (0 the top third's salt and water, 2 the bottom third's)
                         let layer = -1;
@@ -3267,7 +3561,7 @@ namespace PowderSandboxNri {
                         }
                         if (layer >= 0) {
                             layers[layer] += grid[I_SALT * this.stride + c] / SALT_SCALE;
-                            layers[layer + 1] += grid[(I_COUNT + WATER - 1) * this.stride + c];
+                            layers[layer + 1] += grid[countSection(WATER) * this.stride + c];
                         }
                     }
                 }
@@ -3359,7 +3653,7 @@ namespace PowderSandboxNri {
             for (let y = 1; y < h - 1; y++) {
                 for (let x = 1; x < w - 1; x++) {
                     const c = y * w + x;
-                    const n = grid[(I_COUNT + SAND - 1) * this.stride + c];
+                    const n = grid[countSection(SAND) * this.stride + c];
                     sand += n;
                     sumX += n * (x + 0.5);
                 }
@@ -3387,7 +3681,7 @@ namespace PowderSandboxNri {
             for (let x = 1; x < w - 1; x++) {
                 let covered = false;
                 for (let y = 1; y < h - 1; y++) {
-                    const n = grid[(I_COUNT + WATER - 1) * this.stride + y * w + x];
+                    const n = grid[countSection(WATER) * this.stride + y * w + x];
                     water += n;
                     if (n >= 2) {
                         covered = true;
@@ -3422,8 +3716,8 @@ namespace PowderSandboxNri {
                 for (let x = 1; x < w - 1; x++) {
                     const c = y * w + x;
                     const height = h - 1 - y;
-                    const nw = grid[(I_COUNT + WATER - 1) * this.stride + c];
-                    const nh = grid[(I_COUNT + HONEY - 1) * this.stride + c];
+                    const nw = grid[countSection(WATER) * this.stride + c];
+                    const nh = grid[countSection(HONEY) * this.stride + c];
                     if (x < divider) {
                         water += nw;
                         waterHeight += nw * (height + 0.5);
@@ -3477,8 +3771,8 @@ namespace PowderSandboxNri {
             for (let y = 0; y < h; y++) {
                 for (let x = 0; x < w; x++) {
                     const c = y * w + x;
-                    gunpowder += grid[(I_COUNT + GUNPOWDER - 1) * this.stride + c];
-                    const n = grid[(I_COUNT + SAND - 1) * this.stride + c];
+                    gunpowder += grid[countSection(GUNPOWDER) * this.stride + c];
+                    const n = grid[countSection(SAND) * this.stride + c];
                     sand += n;
                     const m = cells[c] & 0xFF;
                     if (m >= WALL) {

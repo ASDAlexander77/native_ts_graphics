@@ -86,8 +86,17 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define PETROL 13
 // A spark off fire or lava: carried up by the air, falling, cooling; it only shows (and glows).
 #define EMBER 14
-// Particle types are 1 .. PARTICLE_TYPES, each with a count section.
-#define PARTICLE_TYPES 14
+// Particle types past the cells' and the tools' ids (their count sections after EMBER's, see
+// countSection): hydrogen and oxygen (from water a current runs through: hydrogen burns into steam,
+// oxygen flares), neon (it conducts, glowing), thermite (a powder burning into molten metal),
+// nitroglycerin (a liquid going off at a shock, at a spark or a flame, or hot).
+#define HYDROGEN 40
+#define OXYGEN 41
+#define NEON 42
+#define THERMITE 43
+#define NITRO 44
+// The particle types' count sections: 1 .. EMBER, then HYDROGEN .. NITRO.
+#define PARTICLE_TYPES 19
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -104,6 +113,11 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // after a spark.
 #define BATTERY 26
 #define LAMP 27
+// C-4 goes off (into gunpowder going off) hot, at a flame or a spark; coal burns slowly; a fuse
+// burns along itself at a steady speed.
+#define C4 28
+#define COAL 29
+#define FUSE 30
 // Tools that aren't materials.
 #define ERASE 32
 #define HEAT 33
@@ -221,6 +235,55 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define EMBER_COOLING 1.0
 #define EMBER_WEIGHT 0.25
 #define EMBER_DRAG 4.0
+// Group A's chemistry. Gases' lightness over the air's (by molar mass: hydrogen 2, neon 20, oxygen
+// 32 to the air's 29). A current into water (a sparked metal cell beside it: the electrode) splits a
+// particle ELECTROLYSIS_RATE a step, two in three into hydrogen. Hydrogen and oxygen beside fire, or
+// at IGNITE_GAS, catch CATCH_GAS times a second: hydrogen burns (at HYDROGEN_FIRE_TEMP, a
+// whoosh from one in HYDROGEN_WHOOSH) into steam, oxygen flares (at OXYGEN_FIRE_TEMP).
+#define HYDROGEN_LIGHTNESS 0.93
+#define NEON_LIGHTNESS 0.31
+#define OXYGEN_LIGHTNESS -0.1
+#define ELECTROLYSIS_RATE 0.03
+#define IGNITE_GAS 500.0
+#define CATCH_GAS 40.0
+#define HYDROGEN_FIRE_TEMP 1500.0
+#define HYDROGEN_WHOOSH 4
+#define OXYGEN_FIRE_TEMP 1300.0
+// Thermite beside fire, in lava's cell, or at IGNITE_THERMITE catches CATCH_THERMITE times a second,
+// into lava at THERMITE_TEMP (molten iron; it sets into stone). Metal melts at MELT_METAL, taking
+// LATENT_METAL degrees.
+#define IGNITE_THERMITE 1000.0
+#define CATCH_THERMITE 30.0
+#define THERMITE_TEMP 3500.0
+// (molten thermite keeps burning, at THERMITE_TEMP, THERMITE_BURN seconds: half to one and a half
+// times; its lava's life)
+#define THERMITE_BURN 3.0
+#define MELT_METAL 1500.0
+#define LATENT_METAL 150.0
+// Molten iron (lava hotter than THERMITE_CUT: thermite's) cuts through the metal it touches (the
+// cell opened), CUT_RATE times a second (through the side it tries), giving up CUT_HEAT degrees.
+#define THERMITE_CUT 1550.0
+#define CUT_RATE 8.0
+#define CUT_HEAT 150.0
+// Nitroglycerin goes off as gunpowder does (NITRO_BLAST times its blast) at IGNITE_NITRO, heated
+// there by a flame, a spark, or a shock (its velocity changed by over NITRO_SHOCK cells a second in
+// a step: a fall, a blast).
+#define IGNITE_NITRO 200.0
+#define NITRO_SHOCK 150.0
+#define NITRO_BLAST 2
+// C-4 goes off at IGNITE_C4 (or a flame or a spark beside it): its cell into C4_GRAINS grains of
+// gunpowder going off. Coal catches at IGNITE_COAL (a flame: CATCH_COAL times a second), burning
+// COAL_BURN seconds (up to half again). A fuse catches at IGNITE_FUSE, a flame or a spark, or from
+// a fuse beside it burning FUSE_PASS seconds (so it burns along at 1 / FUSE_PASS cells a second),
+// burning FUSE_BURN seconds.
+#define IGNITE_C4 400.0
+#define C4_GRAINS 6
+#define IGNITE_COAL 500.0
+#define CATCH_COAL 0.5
+#define COAL_BURN 25.0
+#define IGNITE_FUSE 700.0
+#define FUSE_PASS 0.05
+#define FUSE_BURN 0.3
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -265,7 +328,7 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // 0..7 its phase, 0 idle, SPARK_LIVE sparked (its neighbors spark at the next iteration), then
 // resting SPARK_REST iterations (so a pulse runs one way, not back); a lamp's light in bits 8..15,
 // LAMP_HOLD iterations from its last spark. A battery is live every BATTERY_PERIOD iterations.
-// Conductors: metal, lamps, salt water (cells with 2 water particles or more, SALT_CONDUCTS salty).
+// Conductors: metal, lamps, salt water (cells with a water particle or more, SALT_CONDUCTS salty), neon.
 #define I_SPARK (INT_SECTIONS + GLOW_SECTIONS)
 #define SPARK_SECTIONS 2
 #define SPARK_ITERATIONS 2
@@ -274,6 +337,8 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define BATTERY_PERIOD 12
 #define LAMP_HOLD 30
 #define SALT_CONDUCTS 0.25
+// Lit neon's color (its glow's too).
+#define NEON_COLOR float3(1.0, 0.32, 0.22)
 #define EVENT_SPLASH 0
 #define EVENT_FIZZ 1
 #define EVENT_FIRE 2
@@ -375,23 +440,29 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= PETROL);
+    return (m >= WATER && m <= SAND) || m == LAVA || (m >= ACID && m <= PETROL) || m == THERMITE || m == NITRO;
 }
 
 // Powders pile (static friction) instead of flowing level.
 bool isPowder(uint m)
 {
-    return m == SAND || m == SALT || m == GUNPOWDER;
+    return m == SAND || m == SALT || m == GUNPOWDER || m == THERMITE;
 }
 
 bool isGasMaterial(uint m)
 {
-    return m >= FIRE && m <= STEAM;
+    return (m >= FIRE && m <= STEAM) || (m >= HYDROGEN && m <= NEON);
+}
+
+// A particle type's count section (gridInt's I_COUNT on).
+uint countSection(uint m)
+{
+    return I_COUNT + (m >= HYDROGEN ? m - HYDROGEN + EMBER : m - 1);
 }
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : (m == PETROL ? 0.7 : 1.0)))))));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : (m == SALT ? 2.2 : (m == GUNPOWDER ? 1.7 : (m == HONEY ? 1.4 : (m == PETROL ? 0.7 : (m == THERMITE ? 2.3 : (m == NITRO ? 1.6 : 1.0)))))))));
 }
 
 // A particle's density: its material's, salt water's by its salinity.
@@ -553,13 +624,14 @@ int countOf(uint material, int x, int y)
     {
         return 0;
     }
-    return u_GridInt[gi(I_COUNT + material - 1, cellIndex(x, y))];
+    return u_GridInt[gi(countSection(material), cellIndex(x, y))];
 }
 
 int flipCount(int x, int y)
 {
     return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
-        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y) + countOf(PETROL, x, y);
+        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y) + countOf(PETROL, x, y)
+        + countOf(THERMITE, x, y) + countOf(NITRO, x, y);
 }
 
 // A cell's side o's neighbor, as an offset: 0 left, 1 right, 2 up, 3 down. (Worked out, not a local
@@ -620,12 +692,14 @@ int2 turned45(int2 d, int way)
 // A gas's lift, as a fraction of gravity: its heat over the air's, steam lighter still.
 float gasLift(uint type, float temp)
 {
-    return max(temp - AMBIENT, 0.0) / (max(temp, AMBIENT) + 273.15) + (type == STEAM ? STEAM_LIGHTNESS : 0.0);
+    return max(temp - AMBIENT, 0.0) / (max(temp, AMBIENT) + 273.15) + (type == STEAM ? STEAM_LIGHTNESS
+        : (type == HYDROGEN ? HYDROGEN_LIGHTNESS : (type == NEON ? NEON_LIGHTNESS : (type == OXYGEN ? OXYGEN_LIGHTNESS : 0.0))));
 }
 
 int gasCount(int x, int y)
 {
-    return countOf(FIRE, x, y) + countOf(SMOKE, x, y) + countOf(STEAM, x, y);
+    return countOf(FIRE, x, y) + countOf(SMOKE, x, y) + countOf(STEAM, x, y) + countOf(HYDROGEN, x, y)
+        + countOf(OXYGEN, x, y) + countOf(NEON, x, y);
 }
 
 // A side open to the air (in the grid, not solid, no liquid or powder in it): where oil can burn.
@@ -653,6 +727,57 @@ bool fireBeside(int x, int y)
     {
         const int2 n = int2(x, y) + sideOffset(o);
         if (inGrid(n.x, n.y) && countOf(FIRE, n.x, n.y) > 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+float cellSalinity(uint c, int x, int y)
+{
+    const int water = countOf(WATER, x, y);
+    return water > 0 ? float(u_GridInt[gi(I_SALT, c)]) / SALT_SCALE / float(water) : 0.0;
+}
+
+// Electricity's conductors: metal, lamps, salt water, neon.
+bool conducts(int x, int y)
+{
+    const uint m = cellMaterial(x, y);
+    return m == METAL || m == LAMP || (m == EMPTY && (countOf(NEON, x, y) >= 1
+        || (countOf(WATER, x, y) >= 1 && cellSalinity(cellIndex(x, y), x, y) >= SALT_CONDUCTS)));
+}
+
+// The cell's spark phase (between frames: I_SPARK's).
+int sparkPhase(int x, int y)
+{
+    return inGrid(x, y) ? u_GridInt[gi(I_SPARK, cellIndex(x, y))] & 0xFF : 0;
+}
+
+// A spark in the cell or beside it, sparked at either of the frame's iterations (so that every cell
+// of a pulse's path is seen).
+bool sparkBeside(int x, int y)
+{
+    for (int o = 0; o < 5; o++)
+    {
+        const int2 s = int2(x, y) + (o < 4 ? sideOffset(o) : int2(0, 0));
+        const int phase = sparkPhase(s.x, s.y);
+        if (phase >= SPARK_LIVE && phase <= SPARK_LIVE + 1)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// A sparked metal cell beside it (either of the frame's iterations): an electrode, for electrolysis.
+bool electrodeBeside(int x, int y)
+{
+    for (int o = 0; o < 4; o++)
+    {
+        const int2 s = int2(x, y) + sideOffset(o);
+        const int phase = sparkPhase(s.x, s.y);
+        if (phase >= SPARK_LIVE && phase <= SPARK_LIVE + 1 && cellMaterial(s.x, s.y) == METAL)
         {
             return true;
         }
@@ -957,7 +1082,7 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     const int cx = clamp(int(floor(p.pos.x)), 0, w - 1);
     const int cy = clamp(int(floor(p.pos.y)), 0, h - 1);
     const uint c = cellIndex(cx, cy);
-    InterlockedAdd(u_GridInt[gi(I_COUNT + p.type - 1, c)], 1);
+    InterlockedAdd(u_GridInt[gi(countSection(p.type), c)], 1);
     // (an ember's heat is only shown: it lights nothing)
     if (p.type != NEUTRON && p.type != EMBER)
     {
@@ -968,9 +1093,13 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     {
         InterlockedAdd(u_GridInt[gi(I_SALT, c)], int(round(p.life * SALT_SCALE)));
     }
-    if ((p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER) || (p.type == PETROL && p.temp >= IGNITE_PETROL && id.x % PETROL_WHOOSH == 0))
+    // (gunpowder and nitroglycerin going off, petrol and hydrogen lit: some grains' whoosh)
+    const int blast = (p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER) ? 1 : ((p.type == NITRO && p.temp >= IGNITE_NITRO) ? NITRO_BLAST
+        : (((p.type == PETROL && p.temp >= IGNITE_PETROL && id.x % PETROL_WHOOSH == 0)
+        || (p.type == HYDROGEN && p.temp >= IGNITE_GAS && id.x % HYDROGEN_WHOOSH == 0)) ? 1 : 0));
+    if (blast > 0)
     {
-        InterlockedAdd(u_GridInt[gi(I_BLAST, c)], 1);
+        InterlockedAdd(u_GridInt[gi(I_BLAST, c)], blast);
     }
     if (!isFlipMaterial(p.type))
     {
@@ -1980,15 +2109,15 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
 
     // Ice and stone hold at their melting point while the heat above it melts them.
     const uint m = cell & 0xFF;
-    if (m == ICE || m == STONE)
+    if (m == ICE || m == STONE || m == METAL)
     {
-        const float meltAt = m == ICE ? 0.0 : MELT_STONE;
+        const float meltAt = m == ICE ? 0.0 : (m == STONE ? MELT_STONE : MELT_METAL);
         if (next > meltAt)
         {
             const float taken = gf(F_LIFE, c) + (next - meltAt);
             next = meltAt;
             u_GridFloat[gi(F_LIFE, c)] = taken;
-            if (taken >= (m == ICE ? LATENT_ICE : LATENT_STONE))
+            if (taken >= (m == ICE ? LATENT_ICE : (m == STONE ? LATENT_STONE : LATENT_METAL)))
             {
                 u_Cells[c] = EMPTY | MELTED | (m << 8);
             }
@@ -1996,20 +2125,34 @@ void heat_diffuse_cs(uint3 id : SV_DispatchThreadID)
     }
     u_GridFloat[gi(F_TCELL, c)] = next;
 
-    if (m == WOOD)
+    if (m == C4 && (next > IGNITE_C4 || fireBeside(x, y) || sparkBeside(x, y)))
+    {
+        // (spawn_cs turns it into gunpowder going off)
+        u_Cells[c] = EMPTY | MELTED | (C4 << 8);
+    }
+    if (m == WOOD || m == COAL || m == FUSE)
     {
         if ((cell & BURNING) == 0)
         {
-            // Hot enough, or a flame touching it.
+            // Hot enough, or a flame touching it (coal now and then); a fuse at a spark too, or from a
+            // fuse beside it that's burned FUSE_PASS.
             bool touched = false;
+            bool passed = false;
             for (int k = 0; k < 4; k++)
             {
-                touched = touched || countOf(FIRE, x + sideOffset(k).x, y + sideOffset(k).y) > 0;
+                const int2 s = int2(x, y) + sideOffset(k);
+                touched = touched || countOf(FIRE, s.x, s.y) > 0;
+                passed = passed || (inGrid(s.x, s.y) && cellMaterial(s.x, s.y) == FUSE && (u_Cells[cellIndex(s.x, s.y)] & BURNING) != 0
+                    && gf(F_LIFE, cellIndex(s.x, s.y)) <= FUSE_BURN - FUSE_PASS);
             }
-            if (next > 280.0 || touched)
+            bool catches = m == WOOD ? (next > 280.0 || touched)
+                : (m == COAL ? (next > IGNITE_COAL || (touched && random01(seedOf(c, 2)) < CATCH_COAL * g_C.dt))
+                : (next > IGNITE_FUSE || touched || passed || sparkBeside(x, y)));
+            if (catches)
             {
                 u_Cells[c] = cell | BURNING;
-                u_GridFloat[gi(F_LIFE, c)] = 3.0 + 2.0 * random01(seedOf(c, 1));
+                u_GridFloat[gi(F_LIFE, c)] = m == WOOD ? 3.0 + 2.0 * random01(seedOf(c, 1))
+                    : (m == COAL ? COAL_BURN * (1.0 + 0.5 * random01(seedOf(c, 1))) : FUSE_BURN);
             }
         }
         else
@@ -2593,11 +2736,6 @@ bool sandBlocked(int x, int y, int packed)
 }
 
 // The mean salinity of a cell's water (0 with none).
-float cellSalinity(uint c, int x, int y)
-{
-    const int water = countOf(WATER, x, y);
-    return water > 0 ? float(u_GridInt[gi(I_SALT, c)]) / SALT_SCALE / float(water) : 0.0;
-}
 
 // Acid eats this solid cell (not glass, nor the wall around the grid).
 bool eatable(int x, int y)
@@ -2612,34 +2750,6 @@ bool eatable(int x, int y)
 
 // --- Electricity ---
 
-bool conducts(int x, int y)
-{
-    const uint m = cellMaterial(x, y);
-    return m == METAL || m == LAMP
-        || (m == EMPTY && countOf(WATER, x, y) >= 2 && cellSalinity(cellIndex(x, y), x, y) >= SALT_CONDUCTS);
-}
-
-// The cell's spark phase (between frames: I_SPARK's).
-int sparkPhase(int x, int y)
-{
-    return inGrid(x, y) ? u_GridInt[gi(I_SPARK, cellIndex(x, y))] & 0xFF : 0;
-}
-
-// A spark in the cell or beside it, sparked at either of the frame's iterations (so that every cell
-// of a pulse's path is seen).
-bool sparkBeside(int x, int y)
-{
-    for (int o = 0; o < 5; o++)
-    {
-        const int2 s = int2(x, y) + (o < 4 ? sideOffset(o) : int2(0, 0));
-        const int phase = sparkPhase(s.x, s.y);
-        if (phase >= SPARK_LIVE && phase <= SPARK_LIVE + 1)
-        {
-            return true;
-        }
-    }
-    return false;
-}
 
 // An iteration (its parity in g_C.substep picks the sections): batteries fire on their period; an
 // idle conductor beside a live cell (or under the Spark tool's brush) goes live; the rest rest, then
@@ -2681,7 +2791,9 @@ void spark_cs(uint3 id : SV_DispatchThreadID)
         {
             nextPhase = phase + 1;
         }
-        const int light = m == LAMP ? (nextPhase == SPARK_LIVE ? LAMP_HOLD : max(((state >> 8) & 0xFF) - 1, 0)) : 0;
+        // (lamps, and neon: lit)
+        const bool glows = m == LAMP || (m == EMPTY && countOf(NEON, x, y) >= 1);
+        const int light = glows ? (nextPhase == SPARK_LIVE ? LAMP_HOLD : max(((state >> 8) & 0xFF) - 1, 0)) : 0;
         next = nextPhase | (light << 8);
     }
     u_GridInt[gi(to, c)] = next;
@@ -2718,8 +2830,9 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     const float dt = g_C.dt;
     bool kill = g_C.brushMode != 0 && g_C.tool == ERASE && insideBrush(p.pos);
     // (from the temperature p2g_cs saw, so each grain that went off there blasts once)
-    const bool goesOff = p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER;
+    const bool goesOff = (p.type == GUNPOWDER && p.temp >= IGNITE_GUNPOWDER) || (p.type == NITRO && p.temp >= IGNITE_NITRO);
     const bool petrolLit = p.type == PETROL && p.temp >= IGNITE_PETROL;
+    const bool hydrogenLit = p.type == HYDROGEN && p.temp >= IGNITE_GAS;
     bool splash = false;
     bool fizz = false;
     const int cx = clamp(int(floor(p.pos.x)), 0, w - 1);
@@ -2784,6 +2897,11 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         {
             const float2 old = sampleVelocity(p.pos, true);
             splash = length(grid - old) > SPLASH_SPEED;
+            // (nitroglycerin jolted: heated to where it goes off, at the next step)
+            if (p.type == NITRO && length(grid - old) > NITRO_SHOCK)
+            {
+                p.temp = max(p.temp, IGNITE_NITRO);
+            }
             // (viscous liquids take the grid's velocity, PIC: their own would undo the diffusion)
             p.vel = lerp(grid, p.vel + (grid - old), viscosity(p) > 0.0 ? 0.0 : g_C.flip);
             // RK2 through the grid's velocity, plus the drift of a lighter or heavier particle
@@ -2896,10 +3014,40 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         fizz = true;
     }
 
-    // A spark in their cell or beside it lights gunpowder, petrol and oil (heated to where they do).
-    if ((p.type == GUNPOWDER || p.type == PETROL || p.type == OIL) && sparkBeside(cx, cy))
+    // A spark in their cell or beside it lights gunpowder, petrol, oil and nitroglycerin (heated to
+    // where they do), a flame nitroglycerin too.
+    if ((p.type == GUNPOWDER || p.type == PETROL || p.type == OIL || p.type == NITRO) && sparkBeside(cx, cy))
     {
-        p.temp = max(p.temp, p.type == GUNPOWDER ? IGNITE_GUNPOWDER : (p.type == PETROL ? IGNITE_PETROL : IGNITE_OIL));
+        p.temp = max(p.temp, p.type == GUNPOWDER ? IGNITE_GUNPOWDER : (p.type == PETROL ? IGNITE_PETROL : (p.type == OIL ? IGNITE_OIL : IGNITE_NITRO)));
+    }
+    if (p.type == NITRO && fireBeside(cx, cy))
+    {
+        p.temp = max(p.temp, IGNITE_NITRO);
+    }
+    // Hydrogen and oxygen beside a flame, or hot, catch (not at a spark: the electrode making them
+    // would light them as they're made): hydrogen heated to where it lights (it burns at the next
+    // step, its whoosh in that step's pressure), oxygen flaring at once.
+    if ((p.type == HYDROGEN || p.type == OXYGEN) && !hydrogenLit && (p.temp >= IGNITE_GAS || fireBeside(cx, cy))
+        && random01(seedOf(index, 20)) < CATCH_GAS * dt)
+    {
+        if (p.type == HYDROGEN)
+        {
+            p.temp = IGNITE_GAS;
+        }
+        else
+        {
+            p.type = FIRE;
+            p.temp = OXYGEN_FIRE_TEMP;
+            p.life = 0.3 + 0.3 * random01(seedOf(index, 23));
+        }
+    }
+    // A current into water splits it now and then, at the electrode (a sparked metal cell beside it):
+    // two parts hydrogen to one oxygen.
+    if (p.type == WATER && electrodeBeside(cx, cy) && random01(seedOf(index, 21)) < ELECTROLYSIS_RATE)
+    {
+        p.type = random01(seedOf(index, 22)) < 0.667 ? HYDROGEN : OXYGEN;
+        p.life = 0.0;
+        fizz = true;
     }
 
     // Oil and petrol beside fire catch: heated to where they light (below). Only at their surface
@@ -2939,6 +3087,24 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         p.type = FIRE;
         p.life = OIL_BURN + 2.0 * random01(seedOf(index, 5));
     }
+    else if (hydrogenLit)
+    {
+        // (lit last step; it burns into water, as steam: see FIRE)
+        p.type = FIRE;
+        p.temp = HYDROGEN_FIRE_TEMP;
+        p.life = 0.2 + 0.2 * random01(seedOf(index, 24));
+        p.origin = HYDROGEN;
+        p.vel += randomDirection(seedOf(index, 25)) * 30.0;
+    }
+    else if (p.type == THERMITE && (p.temp >= IGNITE_THERMITE || fireBeside(cx, cy) || countOf(LAVA, cx, cy) > 0)
+        && random01(seedOf(index, 26)) < CATCH_THERMITE * dt)
+    {
+        // Burning into molten iron.
+        p.type = LAVA;
+        p.temp = THERMITE_TEMP;
+        p.life = THERMITE_BURN * (0.5 + random01(seedOf(index, 29)));
+        fizz = true;
+    }
     else if (petrolLit)
     {
         // (lit last step, its whoosh in that step's pressure)
@@ -2961,7 +3127,15 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
         }
         else if (p.life <= 0.0)
         {
-            if (random01(seedOf(index, 6)) < 0.35)
+            if (p.origin == HYDROGEN)
+            {
+                // Burned hydrogen: water, as steam.
+                p.type = STEAM;
+                p.temp = 300.0;
+                p.life = 0.0;
+                p.origin = 0;
+            }
+            else if (random01(seedOf(index, 6)) < 0.35)
             {
                 p.type = SMOKE;
                 p.life = SMOKE_LIFE * (1.0 + random01(seedOf(index, 7)));
@@ -2992,6 +3166,30 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             InterlockedCompareExchange(u_Cells[c], before, EMPTY, original);
             kill = original == before;
             fizz = kill;
+        }
+    }
+
+    if (p.type == LAVA && p.life > 0.0)
+    {
+        p.life -= dt;
+        p.temp = max(p.temp, THERMITE_TEMP);
+    }
+    if (p.type == LAVA && p.temp >= THERMITE_CUT && !kill)
+    {
+        const int2 n = int2(floor(p.pos)) + sideOffset(int(hash(seedOf(index, 27)) & 3));
+        if (inGrid(n.x, n.y) && cellMaterial(n.x, n.y) == METAL && random01(seedOf(index, 28)) < CUT_RATE * dt)
+        {
+            const uint c = cellIndex(n.x, n.y);
+            const uint before = u_Cells[c];
+            uint original;
+            // (an open cell, the molten iron sinking into it: melted into lava cooler than the iron, the
+            // cell would fill and stop it)
+            InterlockedCompareExchange(u_Cells[c], before, EMPTY, original);
+            if (original == before)
+            {
+                p.temp -= CUT_HEAT;
+                fizz = true;
+            }
         }
     }
 
@@ -3090,6 +3288,14 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
                 spawn(FIRE, randomInCell(x, y, seedOf(c, 21)), float2(0, 0), 800.0, 1.0 + random01(seedOf(c, 23)), 0, reserve);
             }
         }
+        else if (isGasMaterial(tool))
+        {
+            // (hydrogen, oxygen, neon: up to two a cell)
+            if (!isSolidMaterial(m) && countOf(tool, x, y) < 2 && random01(seedOf(c, 20)) < 0.5)
+            {
+                spawn(tool, randomInCell(x, y, seedOf(c, 21)), float2(0, 0), AMBIENT, 0.0, 0, reserve);
+            }
+        }
         else if (isSolidMaterial(tool) && tool < ERASE && tool != BLOCK)
         {
             // (the tools from ERASE on paint no material: Heat and Cool act in heat_source_cs)
@@ -3111,11 +3317,22 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
 
     if ((cell & MELTED) != 0)
     {
-        // Melted ice or stone: a cell full of water or lava.
-        const bool ice = ((cell >> 8) & 0xFF) == ICE;
-        for (int k = 0; k < int(REST_COUNT); k++)
+        // Melted ice, stone or metal: a cell full of water or lava. C-4 gone off: gunpowder going off.
+        const uint was = (cell >> 8) & 0xFF;
+        if (was == C4)
         {
-            spawn(ice ? WATER : LAVA, randomInCell(x, y, seedOf(c, 70 + k * 2)), float2(0, 0), ice ? 0.5 : MELT_STONE, 0.0, 0, 0);
+            for (int k = 0; k < C4_GRAINS; k++)
+            {
+                spawn(GUNPOWDER, randomInCell(x, y, seedOf(c, 70 + k * 2)), float2(0, 0), IGNITE_GUNPOWDER, 0.0, 0, 0);
+            }
+        }
+        else
+        {
+            for (int k = 0; k < int(REST_COUNT); k++)
+            {
+                spawn(was == ICE ? WATER : LAVA, randomInCell(x, y, seedOf(c, 70 + k * 2)), float2(0, 0),
+                    was == ICE ? 0.5 : (was == METAL ? MELT_METAL : MELT_STONE), 0.0, 0, 0);
+            }
         }
         u_Cells[c] = EMPTY;
         u_GridFloat[gi(F_LIFE, c)] = 0.0;
@@ -3183,6 +3400,10 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
             {
                 spawn(FIRE, randomInCell(nx, ny, seed + 1), float2(0, 0), 800.0, 1.0 + random01(seed + 2), 0, reserve);
             }
+            else if (isGasMaterial(emitted) && countOf(emitted, nx, ny) < 2 && random01(seed) < 0.25)
+            {
+                spawn(emitted, randomInCell(nx, ny, seed + 1), float2(sideOffset(i)) * 10.0, AMBIENT, 0.0, 0, reserve);
+            }
         }
     }
     else if (m == URANIUM)
@@ -3201,9 +3422,9 @@ void spawn_cs(uint3 id : SV_DispatchThreadID)
             }
         }
     }
-    else if (m == WOOD && (cell & BURNING) != 0)
+    else if ((m == WOOD || m == COAL || m == FUSE) && (cell & BURNING) != 0)
     {
-        if (!solidCell(x, y - 1) && random01(seedOf(c, 60)) < 0.2)
+        if (!solidCell(x, y - 1) && random01(seedOf(c, 60)) < (m == WOOD ? 0.2 : (m == COAL ? 0.05 : 0.5)))
         {
             spawn(FIRE, randomInCell(x, y - 1, seedOf(c, 61)), float2(0, 0), 800.0, 0.6 + 0.6 * random01(seedOf(c, 63)), 0, reserve);
         }
@@ -3226,9 +3447,9 @@ float3 cellLight(int x, int y)
     }
     light += float3(1.0, 0.45, 0.1) * 0.35 * float(min(countOf(FIRE, x, y), 4));
     light += float3(1.0, 0.55, 0.15) * 0.8 * float(min(countOf(EMBER, x, y), 2));
-    if (m == WOOD && (cell & BURNING) != 0)
+    if ((m == WOOD || m == COAL || m == FUSE) && (cell & BURNING) != 0)
     {
-        light += float3(1.0, 0.4, 0.08) * 0.5;
+        light += float3(1.0, 0.4, 0.08) * (m == FUSE ? 0.9 : 0.5);
     }
     else if (m == URANIUM)
     {
@@ -3237,6 +3458,10 @@ float3 cellLight(int x, int y)
     else if (m == LAMP)
     {
         light += float3(1.0, 0.85, 0.55) * 1.2 * saturate(float((u_GridInt[gi(I_SPARK, c)] >> 8) & 0xFF) / 10.0);
+    }
+    else if (m == EMPTY && countOf(NEON, x, y) > 0)
+    {
+        light += NEON_COLOR * 1.2 * saturate(float((u_GridInt[gi(I_SPARK, c)] >> 8) & 0xFF) / 10.0);
     }
     const int phase = u_GridInt[gi(I_SPARK, c)] & 0xFF;
     if (phase >= SPARK_LIVE && phase <= SPARK_LIVE + 1)
@@ -3313,15 +3538,16 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     u_Alloc[A_PROBE + 0] = asint(gf(F_TCELL, c));
     u_Alloc[A_PROBE + 1] = asint(gf(F_P, c) / (g_C.dt * g_C.gravity));
     u_Alloc[A_PROBE + 2] = int(u_Cells[c]);
-    // The counts three to an int (10 bits each, the first type of three lowest), from A_PROBE + 3
-    // up to under the wind at A_PROBE + 9: up to 18 types. (u_Alloc is saved, so A_LIST stays put.)
-    for (uint k = 0; k < (PARTICLE_TYPES + 2) / 3; k++)
+    // The count sections' counts four to an int (8 bits each, the first of four lowest), from
+    // A_PROBE + 3 up to under the wind at A_PROBE + 9: up to 24 types. (u_Alloc is saved, so A_LIST
+    // stays put.)
+    for (uint k = 0; k < (PARTICLE_TYPES + 3) / 4; k++)
     {
         uint packed = 0u;
-        for (uint j = 0; j < 3; j++)
+        for (uint j = 0; j < 4; j++)
         {
-            const uint m = WATER + 3 * k + j;
-            packed |= (m <= PARTICLE_TYPES ? min(uint(countOf(m, x, y)), 1023u) : 0u) << (10 * j);
+            const uint s = 4 * k + j;
+            packed |= (s < PARTICLE_TYPES ? min(uint(u_GridInt[gi(I_COUNT + s, c)]), 255u) : 0u) << (8 * j);
         }
         u_Alloc[A_PROBE + 3 + k] = int(packed);
     }
@@ -3357,7 +3583,7 @@ float sectionAt(uint section, int x, int y)
 
 int countAt(uint material, int x, int y)
 {
-    return int(sectionAt(I_COUNT + material - 1, x, y));
+    return int(sectionAt(countSection(material), x, y));
 }
 
 // An int section, bilinearly between the cell centers.
@@ -3373,7 +3599,7 @@ float sampleSection(float2 g, uint section)
 // A material's particle count, bilinearly between the cell centers.
 float sampleCount(float2 g, uint material)
 {
-    return sampleSection(g, I_COUNT + material - 1);
+    return sampleSection(g, countSection(material));
 }
 
 float floatAt(uint section, int x, int y)
@@ -3410,6 +3636,14 @@ float3 materialColor(uint m)
     case HONEY: return float3(0.85, 0.55, 0.1);
     case PETROL: return float3(0.95, 0.88, 0.5);
     case EMBER: return float3(1.0, 0.55, 0.15);
+    case HYDROGEN: return float3(0.85, 0.92, 1.0);
+    case OXYGEN: return float3(0.55, 0.72, 1.0);
+    case NEON: return float3(0.85, 0.45, 0.4);
+    case THERMITE: return float3(0.5, 0.32, 0.28);
+    case NITRO: return float3(0.86, 0.9, 0.62);
+    case C4: return float3(0.84, 0.8, 0.68);
+    case COAL: return float3(0.13, 0.12, 0.12);
+    case FUSE: return float3(0.42, 0.3, 0.2);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -3469,7 +3703,9 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float gunpowder = sampleCount(g, GUNPOWDER);
     const float honey = sampleCount(g, HONEY);
     const float petrol = sampleCount(g, PETROL);
-    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey + petrol;
+    const float thermite = sampleCount(g, THERMITE);
+    const float nitro = sampleCount(g, NITRO);
+    const float total = water + oil + sand + lava + acid + salt + gunpowder + honey + petrol + thermite + nitro;
     if (total > 0.01)
     {
         // Salt water a greener blue, the saltier the more (fully at 40%: seawater's a tenth of that).
@@ -3477,8 +3713,9 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
         const float3 waterColor = lerp(materialColor(WATER), float3(0.1, 0.55, 0.62), salinity);
         float3 liquid = (water * waterColor + oil * materialColor(OIL) + sand * materialColor(SAND)
             + lava * materialColor(LAVA) + acid * materialColor(ACID) + salt * materialColor(SALT)
-            + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY) + petrol * materialColor(PETROL)) / total;
-        if (sand + salt + gunpowder > water + oil + lava + acid + honey + petrol)
+            + gunpowder * materialColor(GUNPOWDER) + honey * materialColor(HONEY) + petrol * materialColor(PETROL)
+            + thermite * materialColor(THERMITE) + nitro * materialColor(NITRO)) / total;
+        if (sand + salt + gunpowder + thermite > water + oil + lava + acid + honey + petrol + nitro)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
@@ -3493,6 +3730,12 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float fire = sampleCount(g, FIRE);
     color = lerp(color, materialColor(SMOKE), saturate(smoke * 0.35));
     color = lerp(color, materialColor(STEAM), saturate(steam * 0.3));
+    // Hydrogen and oxygen faint; neon faint, but shining where a current runs through it.
+    color = lerp(color, materialColor(HYDROGEN), saturate(sampleCount(g, HYDROGEN) * 0.08));
+    color = lerp(color, materialColor(OXYGEN), saturate(sampleCount(g, OXYGEN) * 0.12));
+    const float neon = sampleCount(g, NEON);
+    color = lerp(color, materialColor(NEON), saturate(neon * 0.15));
+    color += NEON_COLOR * saturate(neon) * saturate(float((int(sectionAt(I_SPARK, c.x, c.y)) >> 8) & 0xFF) / 10.0);
     const float flicker = 0.8 + 0.2 * sin(g_C.time * 23.0 + g.x * 1.7 + g.y * 2.3);
     color += materialColor(FIRE) * saturate(fire * 0.6) * flicker + float3(1.0, 0.85, 0.4) * saturate(fire * 0.25 - 0.3);
 
@@ -3554,6 +3797,19 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
                 // A shade a body, planks across it.
                 solid *= 0.85 + 0.05 * float((cell >> 8) & 3u) + 0.08 * step(0.5, frac(g.y * 0.34));
             }
+            else if (m == C4)
+            {
+                solid *= 0.92 + 0.12 * random01(uint(c.x) * 53u + uint(c.y) * 401u);
+            }
+            else if (m == COAL || m == FUSE)
+            {
+                // Coal lumpy, a fuse's cord striped; burning, an orange glow flickering through.
+                solid *= m == COAL ? 0.7 + 0.6 * random01(uint(c.x) * 7u + uint(c.y) * 1031u) : 0.8 + 0.3 * step(0.5, frac((g.x + g.y) * 0.5));
+                if ((cell & BURNING) != 0)
+                {
+                    solid = lerp(solid, float3(1.0, 0.45, 0.1), (m == FUSE ? 0.85 : 0.55) + 0.3 * sin(g_C.time * 13.0 + c.x * 2.3 + c.y * 3.7));
+                }
+            }
             else if (m == BATTERY)
             {
                 // A cell, its top a copper band.
@@ -3580,7 +3836,7 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     // A spark running through a conductor: blue-white, fading as it rests.
     {
         const int phase = int(sectionAt(I_SPARK, c.x, c.y)) & 0xFF;
-        if (phase >= SPARK_LIVE)
+        if (phase >= SPARK_LIVE && countAt(NEON, c.x, c.y) == 0)
         {
             color = lerp(color, float3(0.8, 0.92, 1.0), phase <= SPARK_LIVE + 1 ? 0.9 : 0.6 * float(SPARK_LIVE + SPARK_REST + 1 - phase) / float(SPARK_REST));
         }
