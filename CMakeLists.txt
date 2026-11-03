@@ -1456,6 +1456,8 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX gunpowder ARGS -scene 5 -testF
 add_tslang_example_test(powder_sandbox_nri SUFFIX viscosity ARGS -scene 6 -testFrames 120)
 # A film of water on the floor: surface tension pulls it into beads.
 add_tslang_example_test(powder_sandbox_nri SUFFIX tension ARGS -scene 7 -testFrames 180)
+# A fan blowing across falling sand: the wind carries the grains to the right.
+add_tslang_example_test(powder_sandbox_nri SUFFIX wind ARGS -scene 8 -testFrames 180)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
 add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTrip)
 # The U-tube's grid remade halfway (a phone turned): 20 cells taller and back, losing nothing; and

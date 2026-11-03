@@ -63,6 +63,10 @@ namespace PowderSandboxNri {
     const PROBE_INTS = 16;
     // Its int that's 1 while there are viscous particles (A_VISCOUS).
     const PROBE_VISCOUS = 14;
+    // And the air's fastest face (a float, A_WIND).
+    const PROBE_WIND = 13;
+    // The wind at the probe's cell (x, then y: floats).
+    const PROBE_AIR = 10;
 
     // Cells per second squared, down.
     const GRAVITY = 300.0;
@@ -101,6 +105,7 @@ namespace PowderSandboxNri {
     const ICE = 21;
     const STONE = 22;
     const METAL = 23;
+    const FAN = 24;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
@@ -131,9 +136,12 @@ namespace PowderSandboxNri {
     const MG_PROLONG = 18;
     const MG_COARSE = 19;
     const VISCOSITY = 20;
+    const AIR = 21;
+    // The floats at u_Multigrid's start that hold the air's faces (powder_sandbox.hlsl's AIR_FLOATS).
+    const AIR_FLOATS = 3040;
     const ENTRIES = ["init_grid_cs", "init_particles_cs", "clear_cs", "p2g_cs", "grid_cs", "heat_source_cs", "heat_diffuse_cs",
         "divergence_cs", "pressure_cs", "project_cs", "g2p_cs", "spawn_cs", "probe_cs", "regrid_grid_cs",
-        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs"];
+        "regrid_particles_cs", "mg_setup_cs", "mg_smooth_cs", "mg_restrict_cs", "mg_prolong_cs", "mg_coarse_cs", "viscosity_cs", "air_cs"];
 
     // The buffers' barrier bits.
     const B_PARTICLES = 1;
@@ -213,6 +221,13 @@ namespace PowderSandboxNri {
     // tension pulls it into beads, covering at most BEAD_SHARE of its columns.
     const BEAD = [0.3, 0.985, 0.7];
     const BEAD_SHARE = 0.6;
+    // Scene 8: a fan line (x, y0 down to the floor) blowing right across a stream of sand falling from
+    // an emitter (x, y) inside its jet; the sand must land WIND_DRIFT of the grid's width right of the
+    // emitter on average. (The fan's air comes back over it: sand falling through that too, or smoke
+    // rising into it, goes both ways.)
+    const WIND_FAN = [0.06, 0.3, 1.0];
+    const WIND_SAND = [0.3, 0.4];
+    const WIND_DRIFT = 0.05;
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -251,6 +266,18 @@ namespace PowderSandboxNri {
         return floats;
     }
 
+    // A fan's direction from the pointer's move (dx, dy, in cells): its larger axis, up for under a
+    // cell.
+    function fanDirectionOf(dx: number, dy: number): int {
+        if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0) {
+            return 3;
+        }
+        if (Math.abs(dx) >= Math.abs(dy)) {
+            return dx > 0.0 ? 0 : 2;
+        }
+        return dy > 0.0 ? 1 : 3;
+    }
+
     function materialName(material: int): string {
         if (material == 1) { return "water"; }
         if (material == 2) { return "oil"; }
@@ -272,6 +299,7 @@ namespace PowderSandboxNri {
         if (material == 21) { return "ice"; }
         if (material == 22) { return "stone"; }
         if (material == 23) { return "metal"; }
+        if (material == 24) { return "fan"; }
         return "air";
     }
 
@@ -430,13 +458,17 @@ namespace PowderSandboxNri {
         // Where a press on the grid began (in cells): a line's or a box's first corner.
         private anchorX: number = 0.0;
         private anchorY: number = 0.0;
+        // The way a fan being painted blows (0 right, 1 down, 2 left, 3 up): the way the pointer
+        // went from where it was pressed, up for a tap.
+        private fanDirection: int = 3;
 
         private constants: f32[] = [];
         private probe: int[] = [];
         private probeFloats: f32[] = [];
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
-        // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water; 7 a bead of water);
+        // ice and stone; 4 metal, acid and salt; 5 gunpowder; 6 honey and water; 7 a film of water
+        // beading; 8 a fan blowing falling sand; -air 0: still air);
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
         // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
@@ -452,6 +484,8 @@ namespace PowderSandboxNri {
         vcycles: int = DEFAULT_VCYCLES;
         smooth: int = DEFAULT_SMOOTH;
         viscositySweeps: int = DEFAULT_VISCOSITY_SWEEPS;
+        // -air 0: no air_cs (still air: gases slow to rest, as before air moved).
+        air: boolean = true;
         // -test: the float sections, read back at the end (the pressure equation's residual).
         private floatReadback: NriBufferHandle | null = null;
         // -testFrames N: the test's length instead of TEST_FRAMES.
@@ -479,6 +513,7 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
             this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
             this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
@@ -617,8 +652,8 @@ namespace PowderSandboxNri {
 
             // The particles, the grid's int and float sections, the cells, the free list, the multigrid's
             // coarser levels (for the longest grid, either way around).
-            const multigridSize = Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
-                multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG)) * 4;
+            const multigridSize = (AIR_FLOATS + Math.max(multigridFloats(MAX_GRID_LONG, DEFAULT_GRID_HEIGHT),
+                multigridFloats(DEFAULT_GRID_HEIGHT, MAX_GRID_LONG))) * 4;
             const sizes = [CAPACITY * PARTICLE_SIZE, INT_SECTIONS * GRID_CAPACITY * 4, FLOAT_SECTIONS * GRID_CAPACITY * 4,
                 GRID_CAPACITY * 4, (ALLOC_LIST + CAPACITY) * 4, multigridSize];
             const strides = [PARTICLE_SIZE, 4, 4, 4, 4, 4];
@@ -996,6 +1031,7 @@ namespace PowderSandboxNri {
                 // (nothing painted)
             } else if (down && !this.pressOnToolbar && !stretches) {
                 brushMode = 1;
+                this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
                 this.setFloat(10, this.lastGridX);
                 this.setFloat(11, this.lastGridY);
                 this.setFloat(12, gx);
@@ -1004,6 +1040,7 @@ namespace PowderSandboxNri {
                 this.lastGridY = gy;
             } else if (!down && pressOnGrid && stretches && !middle) {
                 brushMode = this.brushShape == SHAPE_BOX ? 2 : 1;
+                this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
                 this.setFloat(10, this.anchorX);
                 this.setFloat(11, this.anchorY);
                 this.setFloat(12, gx);
@@ -1055,7 +1092,7 @@ namespace PowderSandboxNri {
             this.setInt(6, this.frameIndex);
             this.setInt(8, this.tool);
             this.setFloat(14, this.brushRadius);
-            this.setInt(15, this.emitType);
+            this.setInt(15, this.tool == FAN ? this.fanDirection : this.emitType);
             this.setFloat(17, FLIP_RATIO);
             this.setInt(18, this.overlay);
             this.setFloat(19, this.time);
@@ -1374,6 +1411,11 @@ namespace PowderSandboxNri {
                         this.dispatch(commandBuffer, VISCOSITY, this.stride, B_GRID_FLOAT);
                     }
                 }
+                // The air once a frame, over its steps.
+                if (this.air && s == steps - 1) {
+                    this.setInt(16, steps);
+                    this.dispatch(commandBuffer, AIR, 1, B_ALL);
+                }
                 this.dispatch(commandBuffer, HEAT_SOURCE, cells, B_ALL);
                 this.dispatch(commandBuffer, HEAT_DIFFUSE, cells, B_ALL);
                 this.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
@@ -1504,6 +1546,16 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 8) {
+                // A fan blowing across falling sand: the grains go with the wind. (The probe a little
+                // right of the fan, for the log.)
+                this.mouseGridX = WIND_SAND[0] * this.gridW;
+                this.mouseGridY = 0.55 * this.gridH;
+                this.addStroke(FAN, WIND_FAN[0], WIND_FAN[1], WIND_FAN[0] + 0.005, WIND_FAN[2], 0);
+                // (one cell: a thicker stream packs its cells, and packed sand isn't airborne)
+                const ex = (Math.floor(WIND_SAND[0] * this.gridW) + 0.05) / this.gridW;
+                const ey = (Math.floor(WIND_SAND[1] * this.gridH) + 0.05) / this.gridH;
+                this.addStroke(EMITTER, ex, ey, ex + 0.9 / this.gridW, ey + 0.9 / this.gridH, SAND);
             } else if (this.scene == 7) {
                 // A film of water on the floor: it beads up.
                 this.addStroke(WATER, BEAD[0], BEAD[1], BEAD[2], 1.0, WATER);
@@ -1627,8 +1679,11 @@ namespace PowderSandboxNri {
                     contents = `${contents} (salinity ${formatFixed(100.0 * this.probeFloats[PROBE_INTS - 1], 0)}%)`;
                 }
             }
-            y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents],
-                y, labelHeight, 0.85);
+            const windX = this.probeFloats[PROBE_AIR];
+            const windY = this.probeFloats[PROBE_AIR + 1];
+            const wind = Math.sqrt(windX * windX + windY * windY);
+            y = this.drawWrapped([`${formatFixed(this.probeFloats[1], 1)} C`, `pressure ${formatFixed(this.probeFloats[2], 2)}`, contents,
+                wind >= 0.5 ? `wind ${formatFixed(wind, 0)}` : ""], y, labelHeight, 0.85);
             if (this.messageTime > 0.0) {
                 Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
             }
@@ -1904,6 +1959,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 8) {
+                const error = this.checkWind(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -1936,8 +1997,8 @@ namespace PowderSandboxNri {
             }
             const share = 100.0 * blue / pixels.length;
             console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
-            // (a turned U-tube is a narrow grid between margins)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : 1.0;
+            // (a turned U-tube is a narrow grid between margins; scene 8 has no water)
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
@@ -2222,6 +2283,33 @@ namespace PowderSandboxNri {
             return "";
         }
 
+        // Scene 8: the wind took the sand: its mean x at least WIND_DRIFT of the grid's width right of
+        // the emitter (without air, it piles under it).
+        checkWind(grid: int[]): string {
+            const w = this.gridW;
+            const h = this.gridH;
+            let sand = 0;
+            let sumX = 0.0;
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const c = y * w + x;
+                    const n = grid[(I_COUNT + SAND - 1) * this.stride + c];
+                    sand += n;
+                    sumX += n * (x + 0.5);
+                }
+            }
+            const emitterX = WIND_SAND[0] * w;
+            const drift = sand > 0 ? sumX / sand - emitterX : 0.0;
+            console.log(`Wind: ${sand} sand grains, ${formatFixed(drift, 1)} cells right of the emitter on average; the air at up to ${formatFixed(this.probeFloats[PROBE_WIND], 1)} cells a second, (${formatFixed(this.probeFloats[PROBE_AIR], 1)}, ${formatFixed(this.probeFloats[PROBE_AIR + 1], 1)}) beside the fan`);
+            if (sand == 0) {
+                return "no sand fell";
+            }
+            if (drift < WIND_DRIFT * w) {
+                return `the wind didn't carry the sand: ${formatFixed(drift, 1)} cells right of the emitter, under ${formatFixed(WIND_DRIFT * w, 1)}`;
+            }
+            return "";
+        }
+
         // Scene 7: the film beaded: it covers at most BEAD_SHARE of the columns it was painted over (a
         // column covered with 2 particles in a cell or more; without surface tension it stays a film,
         // or spreads).
@@ -2295,9 +2383,10 @@ namespace PowderSandboxNri {
             return "";
         }
 
-        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a tenth
-        // of it, at least: runs throw 17 to 38%, and burning alone, none, the sand only falling into
-        // the pile's place); its glass wall held, and nothing ended up in a solid cell.
+        // Scene 5: the gunpowder went off, all of it; its blast threw sand clear of the pile (a
+        // twentieth of it, at least: runs throw 11 to 30%, the air slowing the grains, and burning
+        // alone, none, the sand only falling into the pile's place); its glass wall held, and nothing
+        // ended up in a solid cell.
         checkGunpowder(grid: int[]): string {
             const cellsReadback = this.cellsReadback;
             if (!cellsReadback) {
@@ -2347,7 +2436,7 @@ namespace PowderSandboxNri {
             if (gunpowder > 0) {
                 return `${gunpowder} grains of gunpowder didn't go off`;
             }
-            if (thrown * 10 < sand) {
+            if (thrown * 20 < sand) {
                 return `the blast threw too little sand clear: ${thrown} of ${sand} grains`;
             }
             if (wall != wallPainted) {
@@ -2464,6 +2553,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-vcycles", 1);
         Nri_AddExampleOptionWithValues(sample, "-smooth", 1);
         Nri_AddExampleOptionWithValues(sample, "-viscosity", 1);
+        Nri_AddExampleOptionWithValues(sample, "-air", 1);
         Nri_AddExampleOptionWithValues(sample, "-testFrames", 1);
         for (let i = 1; i < argc; i++) {
             const arg = Nri_GetArg(argc, argv, i);
@@ -2497,6 +2587,9 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-vcycles" && i + 1 < argc) {
                 sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
+                i++;
+            } else if (arg == "-air" && i + 1 < argc) {
+                sandbox.air = parseInt(Nri_GetArg(argc, argv, i + 1)) != 0;
                 i++;
             } else if (arg == "-viscosity" && i + 1 < argc) {
                 sandbox.viscositySweeps = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0);

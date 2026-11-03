@@ -25,7 +25,7 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   the window turns (a phone turned), keeping what it holds.
 - **Tests:** `-test` (U-tube levels), `-scene 2` (showcase), `-scene 3` (lava), `-scene 4` (metal,
   acid, salt), `-scene 5` (gunpowder), `-scene 6` (honey), `-scene 7`
-  (surface tension), `-roundTrip` (undo,
+  (surface tension), `-scene 8` (wind), `-roundTrip` (undo,
   save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and Vulkan, on the Android
   emulator and on a phone.
 
@@ -180,7 +180,7 @@ format is unchanged (version 2): the new state lives in the particles.
   stone 50 °C), acid over wood in a glass tub (all the wood eaten, the glass kept), salt poured
   into a tank of fresh water (all dissolved; the bottom third about 10% salt, the top under 1%).
 - **Test scene 5**: gunpowder under a layer of sand, against a glass wall with a pool behind it,
-  lit from its side. It all goes off, the blast throws at least a tenth of the sand clear of the
+  lit from its side. It all goes off, the blast throws at least a twentieth of the sand clear of the
   pile, the wall holds, and no particle ends up inside a solid.
 
 ### 5. Physics (in progress)
@@ -212,7 +212,27 @@ format is unchanged (version 2): the new state lives in the particles.
   - Bulk particles (their 3 x 3 cells full) return early; it costs nothing measurable.
   - **Test scene 7**: a film of water one cell thick on the floor pulls into beads, covering at most
     60% of its columns (36 of 115; without surface tension it stays a film over 110).
-- **Air as a fluid**: wind and fans, blast waves moving gases and light powders.
+- **Air as a fluid** (done): wind, fans, and blasts that move gases and airborne grains.
+  - A coarse grid, a cell 8 x 8 of the simulation's (37 x 18 at 290 x 144), its face velocities at
+    the start of the multigrid buffer, not saved: the wind starts calm after a load and a regrid.
+  - `air_cs` moves it once a frame, over the frame's steps, in one workgroup: an air cell is blocked
+    when as many of its cells as two lines across it are solid (fans let air through) or hold
+    liquid; fans push it, damping slows it (1 a second), it carries itself along
+    (semi-Lagrangian), and a red-black pressure solve in groupshared memory (20 sweeps, from the
+    last frame's) keeps it incompressible but for gunpowder's gas. The liquids' solve is untouched.
+  - Past the grid's edge the air is open, at pressure 0. In a closed box a fan only drove one swirl
+    round the box: the air it pushed came back over it, and sand falling through both went nowhere.
+  - Once a frame, not a step: stepped 180 times a second, the coarse grid's interpolation blurred a
+    fan's jet away before it reached anything.
+  - Gases relax toward the wind as they slowed toward rest before (3% a step), so still air changes
+    nothing; airborne grains (under the rest count in their cell) are dragged at 3 a second.
+  - **Fan**: a solid tile that blows the way the pointer moves while painting it (up for a tap); it
+    shows stripes moving that way. Inspect shows the wind at a cell.
+  - Costs 0.014 ms a step on desktop. `-air 0` turns it off.
+  - The coarse grid misses detail: air under a ceiling sits in a blocked cell, so smoke collecting
+    there isn't blown along.
+  - **Test scene 8**: a fan blowing across a stream of sand falling inside its jet: the sand lands
+    56 to 76 cells right of the emitter, at least 5% of the grid's width (1 with `-air 0`).
 - **Rigid bodies**: blocks that float and tip over.
 
 ### 6. Engine side
