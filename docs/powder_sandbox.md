@@ -204,15 +204,19 @@ format is unchanged (version 2): the new state lives in the particles.
     must be 1.3 times the water's and its front under 0.6 times as far (5.1 vs 3.3 cells, 62 vs 144);
     with `-viscosity 0` the honey runs like water (3.0 cells, 143) and the test fails.
 - **Surface tension** (done), for thin liquid only: drops, streams and films.
-  - A liquid particle drifts toward the side of its 3 x 3 cells holding more liquid (particle-to-grid
-    counts each cell's liquid particles, capped at the rest count), at up to 150 cells a second.
+  - A liquid particle is pulled toward the side of its 3 x 3 cells holding more liquid
+    (particle-to-grid counts each cell's liquid particles, capped at the rest count), at up to 4000
+    cells a second squared, on its velocity. It first moved the particle's position instead (150
+    cells a second): a drift like that carries no momentum, so it held small drops up in the air,
+    and an emitter's water never fell; pulled on their velocities, a drop's particles' pulls cancel
+    out and it falls, and the U-tube's pressure residual is as without it (0.37, against 4.8).
   - It fades out as the 5 x 5 cells around fill up to 12 cells' worth. A body of liquid, its surface
     too, is past that: there the pull only fought the pressure solve (the U-tube's levels sank 5
     cells and its residual rose a hundredfold when it acted on every surface).
   - Uncapped counts made it unstable: full cells pulled harder, packing the water into a few cells.
   - Bulk particles (their 3 x 3 cells full) return early; it costs nothing measurable.
   - **Test scene 7**: a film of water one cell thick on the floor pulls into beads, covering at most
-    60% of its columns (36 of 115; without surface tension it stays a film over 110).
+    60% of its columns (27 of 115; without surface tension it stays a film over 110).
 - **Air as a fluid** (done): wind, fans, and blasts that move gases and airborne grains.
   - A coarse grid, a cell 8 x 8 of the simulation's (37 x 18 at 290 x 144), its face velocities at
     the start of the multigrid buffer, not saved: the wind starts calm after a load and a regrid.

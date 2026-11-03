@@ -141,12 +141,12 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define HONEY_VISCOSITY 10000.0
 #define LAVA_VISCOSITY_COLD 200.0
 #define LAVA_VISCOSITY_HOT 40.0
-// Surface tension, for thin liquid only (drops, streams, films): a liquid particle drifts toward
+// Surface tension, for thin liquid only (drops, streams, films): a liquid particle is pulled toward
 // where its 3 x 3 cells hold more liquid (each cell's count capped at REST_COUNT), at up to
-// SURFACE_TENSION cells a second, fading out as its 5 x 5 cells fill up to TENSION_FULL cells'
+// SURFACE_TENSION cells a second squared, fading out as its 5 x 5 cells fill up to TENSION_FULL cells'
 // worth. A body of liquid, its surface too (two full rows under it), is past that: there it would
 // only fight the pressure solve.
-#define SURFACE_TENSION 150.0
+#define SURFACE_TENSION 4000.0
 #define TENSION_FULL 12.0
 // Air (air_cs): its coarse cells' size, the most cells and faces it has (432 x 144 cells: 54 x 18),
 // where its faces' velocities are in u_Multigrid, and how it moves: fans' push (cells a second
@@ -969,8 +969,9 @@ float liquidCount(int x, int y)
     return inGrid(x, y) && !solidCell(x, y) ? min(float(u_GridInt[gi(I_LIQUID, cellIndex(x, y))]), REST_COUNT) : 0.0;
 }
 
-// Surface tension's drift for a liquid particle in cell (x, y): toward the side of its 3 x 3 cells
-// with more liquid, in cells a second (zero in the bulk; g2p_cs gives it the liquids, not powders).
+// Surface tension's pull on a liquid particle in cell (x, y): toward the side of its 3 x 3 cells
+// with more liquid, in cells a second squared (zero in the bulk; g2p_cs gives it the liquids, not
+// powders).
 float2 cohesion(int x, int y)
 {
     float2 offset = float2(0.0, 0.0);
@@ -2438,7 +2439,10 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
             const float mixture = 4.0 / (gf(F_UA, uIndex(cx, cy)) + gf(F_UA, uIndex(cx + 1, cy)) + gf(F_VA, vIndex(cx, cy))
                 + gf(F_VA, vIndex(cx, cy + 1)));
             const float drift = (particleDensity(p) - mixture) / mixture * g_C.gravity * 0.08;
-            moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift) + cohesion(cx, cy)) * dt);
+            // Surface tension: a pull on its velocity, not its position (a positional drift carries no
+            // momentum: it held small drops up in the air, gravity never getting a fall going).
+            p.vel += cohesion(cx, cy) * dt;
+            moveParticle(p.pos, p.vel, (sampleVelocity(mid, false) + float2(0.0, drift)) * dt);
         }
     }
     else if (isGasMaterial(p.type))
