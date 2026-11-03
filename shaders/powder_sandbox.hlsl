@@ -78,6 +78,9 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define STEAM 6
 #define NEUTRON 7
 #define LAVA 8
+#define ACID 9
+// Particle types are 1 .. PARTICLE_TYPES, each with a count section.
+#define PARTICLE_TYPES 9
 #define WALL 16
 #define GLASS 17
 #define WOOD 18
@@ -85,6 +88,7 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define EMITTER 20
 #define ICE 21
 #define STONE 22
+#define METAL 23
 // Tools that aren't materials.
 #define ERASE 32
 #define HEAT 33
@@ -105,6 +109,8 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define ICE_TEMP -30.0
 #define LATENT_ICE 80.0
 #define LATENT_STONE 200.0
+// How often (per second) an acid particle next to a solid eats it, through the face it tries.
+#define ACID_RATE 2.0
 
 // gridInt sections: the P2G sums (fixed point), the particle counts per material, the temperature sums,
 // the fissions.
@@ -114,11 +120,11 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 #define I_VSUM 3
 #define I_VW 4
 #define I_VM 5
-#define I_COUNT 6 // + material - 1, for WATER .. LAVA
-#define I_TSUM 14
-#define I_TCOUNT 15
-#define I_FISSION 16
-#define INT_SECTIONS 17
+#define I_COUNT 6 // + material - 1, for the particle types (WATER .. PARTICLE_TYPES)
+#define I_TSUM (I_COUNT + PARTICLE_TYPES)
+#define I_TCOUNT (I_TSUM + 1)
+#define I_FISSION (I_TSUM + 2)
+#define INT_SECTIONS (I_TSUM + 3)
 
 // gridFloat sections.
 #define F_U 0
@@ -180,7 +186,7 @@ bool isSolidMaterial(uint m)
 
 bool isFlipMaterial(uint m)
 {
-    return (m >= WATER && m <= SAND) || m == LAVA;
+    return (m >= WATER && m <= SAND) || m == LAVA || m == ACID;
 }
 
 bool isGasMaterial(uint m)
@@ -190,7 +196,7 @@ bool isGasMaterial(uint m)
 
 float density(uint m)
 {
-    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : 1.0));
+    return m == OIL ? 0.8 : (m == SAND ? 2.0 : (m == LAVA ? 2.6 : (m == ACID ? 1.3 : 1.0)));
 }
 
 uint cellIndex(int x, int y)
@@ -335,7 +341,7 @@ int countOf(uint material, int x, int y)
 
 int flipCount(int x, int y)
 {
-    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y);
+    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y);
 }
 
 bool fluidCell(int x, int y)
@@ -703,6 +709,10 @@ float conductivity(int x, int y)
     if (m == URANIUM)
     {
         return 0.8;
+    }
+    if (m == METAL)
+    {
+        return 1.0;
     }
     if (flipCount(x, y) > 0)
     {
@@ -1404,6 +1414,17 @@ bool sandBlocked(int x, int y, int packed)
     return solidCell(x, y) || countOf(SAND, x, y) >= packed;
 }
 
+// Acid eats this solid cell (not glass, nor the wall around the grid).
+bool eatable(int x, int y)
+{
+    if (x <= 0 || y <= 0 || x >= int(g_C.gridW) - 1 || y >= int(g_C.gridH) - 1)
+    {
+        return false;
+    }
+    const uint m = cellMaterial(x, y);
+    return isSolidMaterial(m) && m != GLASS;
+}
+
 // Grid to particles: the liquids' and powders' new velocities (FLIP: the grid's change added to
 // their own; sand takes the grid's, with friction where it rests), their moves; the gases' buoyancy;
 // the neutrons' flight; temperatures and the changes they cause.
@@ -1584,6 +1605,22 @@ void g2p_cs(uint3 id : SV_DispatchThreadID)
     {
         p.life -= dt;
         kill = kill || p.life <= 0.0;
+    }
+
+    // Acid: now and then, a solid next to it eaten (an empty cell), the acid used up. The cell is
+    // claimed with a compare-exchange: of the acid around it, one takes it.
+    if (p.type == ACID && !kill)
+    {
+        const int2 offsets[4] = { int2(0, 1), int2(1, 0), int2(-1, 0), int2(0, -1) };
+        const int2 n = int2(floor(p.pos)) + offsets[hash(seedOf(index, 8)) & 3];
+        if (eatable(n.x, n.y) && random01(seedOf(index, 9)) < ACID_RATE * dt)
+        {
+            const uint c = cellIndex(n.x, n.y);
+            const uint before = u_Cells[c];
+            uint original;
+            InterlockedCompareExchange(u_Cells[c], before, EMPTY, original);
+            kill = original == before;
+        }
     }
 
     // Stuck in a solid (one painted over it): gone.
@@ -1776,7 +1813,8 @@ void probe_cs(uint3 id : SV_DispatchThreadID)
     u_Alloc[A_PROBE + 0] = asint(gf(F_TCELL, c));
     u_Alloc[A_PROBE + 1] = asint(gf(F_P, c) / (g_C.dt * g_C.gravity));
     u_Alloc[A_PROBE + 2] = int(u_Cells[c]);
-    for (uint m = WATER; m <= LAVA; m++)
+    // (A_PROBE + 2 + PARTICLE_TYPES must stay under A_LIST: up to 13 types)
+    for (uint m = WATER; m <= PARTICLE_TYPES; m++)
     {
         u_Alloc[A_PROBE + 2 + m] = countOf(m, x, y);
     }
@@ -1843,6 +1881,7 @@ float3 materialColor(uint m)
     case STEAM: return float3(0.85, 0.88, 0.92);
     case NEUTRON: return float3(0.5, 1.0, 0.4);
     case LAVA: return float3(0.55, 0.12, 0.03);
+    case ACID: return float3(0.45, 0.92, 0.18);
     case WALL: return float3(0.42, 0.42, 0.45);
     case GLASS: return float3(0.6, 0.85, 0.92);
     case WOOD: return float3(0.45, 0.28, 0.12);
@@ -1850,6 +1889,7 @@ float3 materialColor(uint m)
     case EMITTER: return float3(0.62, 0.22, 0.62);
     case ICE: return float3(0.75, 0.92, 1.0);
     case STONE: return float3(0.33, 0.3, 0.29);
+    case METAL: return float3(0.6, 0.64, 0.7);
     }
     return float3(0.0, 0.0, 0.0);
 }
@@ -1883,12 +1923,13 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
     const float oil = sampleCount(g, OIL);
     const float sand = sampleCount(g, SAND);
     const float lava = sampleCount(g, LAVA);
-    const float total = water + oil + sand + lava;
+    const float acid = sampleCount(g, ACID);
+    const float total = water + oil + sand + lava + acid;
     if (total > 0.01)
     {
         float3 liquid = (water * materialColor(WATER) + oil * materialColor(OIL) + sand * materialColor(SAND)
-            + lava * materialColor(LAVA)) / total;
-        if (sand > water + oil + lava)
+            + lava * materialColor(LAVA) + acid * materialColor(ACID)) / total;
+        if (sand > water + oil + lava + acid)
         {
             // Grains
             const uint2 grain = uint2(g * 3.0);
@@ -1942,6 +1983,11 @@ float4 display_ps(float4 position : SV_Position) : SV_Target
             else if (m == URANIUM)
             {
                 solid *= 0.8 + 0.4 * saturate((t - AMBIENT) / 300.0);
+            }
+            else if (m == METAL)
+            {
+                // Brushed: faint streaks along x.
+                solid *= 0.9 + 0.12 * random01(uint(c.y) * 7919u + uint(g.x * 0.25) * 31u);
             }
             else if (m == STONE)
             {

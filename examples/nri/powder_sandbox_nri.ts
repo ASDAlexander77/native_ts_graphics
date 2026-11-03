@@ -41,8 +41,10 @@ namespace PowderSandboxNri {
     // SandboxConstants: 32 floats or uints.
     const CONSTANTS_FLOATS = 32;
     const CONSTANTS_SIZE = CONSTANTS_FLOATS * 4;
-    // powder_sandbox.hlsl's gridInt and gridFloat sections, and u_Alloc's free list's start.
-    const INT_SECTIONS = 17;
+    // powder_sandbox.hlsl's particle types (1 .. PARTICLE_TYPES, a count section each), gridInt and
+    // gridFloat sections, and u_Alloc's free list's start.
+    const PARTICLE_TYPES = 9;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 3;
     const FLOAT_SECTIONS = 12;
     const ALLOC_LIST = 16;
     const I_COUNT = 6;
@@ -77,6 +79,7 @@ namespace PowderSandboxNri {
     const SAND = 3;
     const FIRE = 4;
     const LAVA = 8;
+    const ACID = 9;
     const WALL = 16;
     const GLASS = 17;
     const WOOD = 18;
@@ -84,6 +87,7 @@ namespace PowderSandboxNri {
     const EMITTER = 20;
     const ICE = 21;
     const STONE = 22;
+    const METAL = 23;
     const ERASE = 32;
     const HEAT = 33;
     const COOL = 34;
@@ -164,6 +168,15 @@ namespace PowderSandboxNri {
     const VIEW_NAMES = ["Materials", "Pressure", "Temperature"];
     // Scene 3's ice block, in grid fractions (x0, y0, x1, y1).
     const ICE_BLOCK = [0.12, 0.5, 0.2, 0.72];
+    // Scene 4: the bars (x0, the metal's y0, x1, their height, the stone's y0), heated at their left
+    // ends for HEAT_STROKES frames and measured at BAR_PROBE across; the acid's tub (x0, the top of
+    // its walls, x1, the top of the wood in it).
+    const BARS = [0.05, 0.3, 0.3, 0.03, 0.42];
+    const HEAT_STROKES = 500;
+    // (metal spreads the heat along the bar: its heated end is cooler than stone's, its far side
+    // hotter)
+    const BAR_PROBE = 0.17;
+    const ACID_TUB = [0.4, 0.55, 0.6, 0.8];
     // The brush's shapes: circle and square paint along the pointer's path; line and box paint, on
     // release, the line (brush-wide) or the rectangle from where the press began.
     const SHAPE_CIRCLE = 0;
@@ -211,6 +224,7 @@ namespace PowderSandboxNri {
         if (material == 6) { return "steam"; }
         if (material == 7) { return "neutron"; }
         if (material == 8) { return "lava"; }
+        if (material == 9) { return "acid"; }
         if (material == 16) { return "wall"; }
         if (material == 17) { return "glass"; }
         if (material == 18) { return "wood"; }
@@ -218,6 +232,7 @@ namespace PowderSandboxNri {
         if (material == 20) { return "emitter"; }
         if (material == 21) { return "ice"; }
         if (material == 22) { return "stone"; }
+        if (material == 23) { return "metal"; }
         return "air";
     }
 
@@ -382,7 +397,7 @@ namespace PowderSandboxNri {
         private probeFloats: f32[] = [];
 
         // Options: -scene N (1, or -utube: the test's U-tube; 2 a showcase of the materials; 3 lava,
-        // ice and stone);
+        // ice and stone; 4 metal, acid, salt and gunpowder);
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N.
         scene: int = 0;
         private script: Stroke[] = [];
@@ -415,8 +430,10 @@ namespace PowderSandboxNri {
             this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
             this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
             this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
+            this.tiles.push(new Tile("Acid", ACID, 0.45, 0.92, 0.18));
             this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
             this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
+            this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
             this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
             this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
             this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
@@ -830,7 +847,7 @@ namespace PowderSandboxNri {
             } else {
                 this.tool = action;
                 // Emitters emit the liquid, powder or fire picked last.
-                if (action == WATER || action == OIL || action == SAND || action == LAVA || action == FIRE) {
+                if (action == WATER || action == OIL || action == SAND || action == LAVA || action == ACID || action == FIRE) {
                     this.emitType = action;
                 }
             }
@@ -1433,6 +1450,18 @@ namespace PowderSandboxNri {
                 this.addStroke(WATER, 0.75, 0.75, 0.995, 1.0, WATER);
                 this.addStroke(URANIUM, 0.83, 0.86, 0.9, 1.0, WATER);
                 this.addStroke(EMITTER, 0.86, 0.1, 0.87, 0.12, WATER);
+            } else if (this.scene == 4) {
+                // A metal bar and a stone bar, their left ends heated.
+                this.addStroke(METAL, BARS[0], BARS[1], BARS[2], BARS[1] + BARS[3], WATER);
+                this.addStroke(STONE, BARS[0], BARS[4], BARS[2], BARS[4] + BARS[3], WATER);
+                // Acid poured over wood in a glass tub.
+                this.addStroke(GLASS, ACID_TUB[0] - 0.005, ACID_TUB[1], ACID_TUB[0], 1.0, WATER);
+                this.addStroke(GLASS, ACID_TUB[2], ACID_TUB[1], ACID_TUB[2] + 0.005, 1.0, WATER);
+                this.addStroke(WOOD, ACID_TUB[0], ACID_TUB[3], ACID_TUB[2], 1.0, WATER);
+                this.addStroke(ACID, ACID_TUB[0], ACID_TUB[1] + 0.03, ACID_TUB[2], ACID_TUB[3] - 0.08, WATER);
+                for (let k = 0; k < HEAT_STROKES; k++) {
+                    this.addStroke(HEAT, BARS[0] - 0.01, BARS[1] - 0.02, BARS[0] + 0.015, BARS[4] + BARS[3] + 0.02, WATER);
+                }
             } else if (this.scene == 3) {
                 this.addStroke(GLASS, 0.05, 0.5, 0.055, 1.0, WATER);
                 this.addStroke(GLASS, 0.55, 0.5, 0.555, 1.0, WATER);
@@ -1504,12 +1533,11 @@ namespace PowderSandboxNri {
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
             if (cell < WALL) {
-                const names = ["water", "oil", "sand", "fire", "smoke", "steam", "neutron", "lava"];
                 contents = "";
-                for (let m = 0; m < names.length; m++) {
+                for (let m = 0; m < PARTICLE_TYPES; m++) {
                     const n = this.probe[4 + m];
                     if (n > 0) {
-                        contents = `${contents}${contents == "" ? "" : ", "}${n} ${names[m]}`;
+                        contents = `${contents}${contents == "" ? "" : ", "}${n} ${materialName(m + 1)}`;
                     }
                 }
                 if (contents == "") {
@@ -1756,6 +1784,12 @@ namespace PowderSandboxNri {
                     return error;
                 }
             }
+            if (this.scene == 4) {
+                const error = this.checkMaterials(grid);
+                if (error != "") {
+                    return error;
+                }
+            }
             if (this.regrid != 0) {
                 const error = this.checkRegrid(grid);
                 if (error != "") {
@@ -1799,7 +1833,7 @@ namespace PowderSandboxNri {
             const share = 100.0 * blue / pixels.length;
             console.log(`Water: ${formatFixed(share, 1)}% of the frame`);
             // (a turned U-tube is a narrow grid between margins)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : 1.0;
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 4 ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the frame, not ${formatFixed(minShare, 0)} to 50%`;
@@ -1917,8 +1951,8 @@ namespace PowderSandboxNri {
                 return false;
             }
             let n = 0;
-            // WATER, OIL, SAND (counts 0 .. 2) and LAVA (7)
-            for (const k of [0, 1, 2, 7]) {
+            // WATER, OIL, SAND (counts 0 .. 2), LAVA (7) and ACID (8)
+            for (const k of [0, 1, 2, 7, 8]) {
                 n += grid[(I_COUNT + k) * this.stride + c];
             }
             return n > 0;
@@ -1948,7 +1982,7 @@ namespace PowderSandboxNri {
                         return `the cell (${x}, ${y}) on the grid's edge isn't wall but ${materialName(m)}`;
                     }
                     if (m >= WALL) {
-                        for (let k = 0; k < 8; k++) {
+                        for (let k = 0; k < PARTICLE_TYPES; k++) {
                             inSolid += grid[(I_COUNT + k) * this.stride + y * this.gridW + x];
                         }
                     }
@@ -1964,6 +1998,86 @@ namespace PowderSandboxNri {
             }
             if (this.regrid == 2 && (used == 0 || used >= this.regridCount)) {
                 return `the turned grid kept ${used} of ${this.regridCount} particles`;
+            }
+            return "";
+        }
+
+        // Scene 4: heat went further along the metal bar than the stone one; the acid ate wood and
+        // left the glass.
+        checkMaterials(grid: int[]): string {
+            const floatReadback = this.floatReadback;
+            const cellsReadback = this.cellsReadback;
+            if (!floatReadback || !cellsReadback) {
+                return "cannot read the grid back";
+            }
+            const w = this.gridW;
+            const h = this.gridH;
+            const cells: int[] = [];
+            for (let i = 0; i < w * h; i++) {
+                cells.push(0);
+            }
+            const floats: f32[] = [];
+            for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
+                floats.push(0.0);
+            }
+            if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0
+                || Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0) {
+                return "cannot read the grid back";
+            }
+            // The bars' temperature (F_TCELL, section 10) in the column BAR_PROBE across.
+            const probeX: int = Math.floor(BAR_PROBE * w);
+            let metalSum = 0.0;
+            let metalCells = 0;
+            let stoneSum = 0.0;
+            let stoneCells = 0;
+            let wood = 0;
+            let woodPainted = 0;
+            let glass = 0;
+            let glassPainted = 0;
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const m = cells[y * w + x] & 0xFF;
+                    const t = floats[10 * this.stride + y * w + x];
+                    if (x == probeX && m == METAL) {
+                        metalSum += t;
+                        metalCells++;
+                    } else if (x == probeX && m == STONE) {
+                        stoneSum += t;
+                        stoneCells++;
+                    }
+                    // (spawn_cs paints the cells whose centers are inside a stroke)
+                    const cx = (x + 0.5) / w;
+                    const cy = (y + 0.5) / h;
+                    const inTub = cx >= ACID_TUB[0] && cx <= ACID_TUB[2];
+                    if (inTub && cy >= ACID_TUB[3] && y < h - 1) {
+                        woodPainted++;
+                        if (m == WOOD) {
+                            wood++;
+                        }
+                    }
+                    const wall = (cx >= ACID_TUB[0] - 0.005 && cx <= ACID_TUB[0]) || (cx >= ACID_TUB[2] && cx <= ACID_TUB[2] + 0.005);
+                    if (wall && cy >= ACID_TUB[1] && y < h - 1) {
+                        glassPainted++;
+                        if (m == GLASS) {
+                            glass++;
+                        }
+                    }
+                }
+            }
+            const metalT = metalSum / Math.max(metalCells, 1);
+            const stoneT = stoneSum / Math.max(stoneCells, 1);
+            console.log(`Materials: metal ${formatFixed(metalT, 1)} C, stone ${formatFixed(stoneT, 1)} C at ${probeX}; wood ${wood} of ${woodPainted}, glass ${glass} of ${glassPainted}`);
+            if (metalCells == 0 || stoneCells == 0) {
+                return "the bars aren't there";
+            }
+            if (metalT < stoneT + 30.0 || metalT < 60.0) {
+                return `the metal bar (${formatFixed(metalT, 1)} C) isn't much hotter than the stone one (${formatFixed(stoneT, 1)} C)`;
+            }
+            if (wood > woodPainted * 0.9) {
+                return `the acid ate little wood: ${wood} of ${woodPainted} cells left`;
+            }
+            if (glass != glassPainted) {
+                return `the acid ate glass: ${glass} of ${glassPainted} cells left`;
             }
             return "";
         }
