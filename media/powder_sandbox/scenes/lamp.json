@@ -1,0 +1,15 @@
+{
+    "name": "Light the lamp",
+    "goal": { "text": "lamp lit", "material": "lamp", "lit": true, "box": [0.8, 0.5, 0.84, 0.53], "count": 10 },
+    "stars": [3, 6],
+    "strokes": [
+        { "tool": "wall", "box": [0.05, 0.53, 0.95, 0.56] },
+        { "tool": "battery", "box": [0.1, 0.5, 0.14, 0.53] },
+        { "tool": "metal", "box": [0.14, 0.5, 0.42, 0.53] },
+        { "tool": "metal", "box": [0.58, 0.5, 0.8, 0.53] },
+        { "tool": "lamp", "box": [0.8, 0.5, 0.84, 0.53] }
+    ],
+    "solution": [
+        { "tool": "metal", "box": [0.41, 0.5, 0.59, 0.53] }
+    ]
+}

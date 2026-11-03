@@ -1,0 +1,13 @@
+{
+    "name": "Grow a garden",
+    "goal": { "text": "plant in the bed", "material": "plant", "box": [0.105, 0.0, 0.5, 1.0], "count": 300 },
+    "stars": [9, 13],
+    "strokes": [
+        { "tool": "glass", "box": [0.1, 0.8, 0.105, 1.0] },
+        { "tool": "glass", "box": [0.5, 0.8, 0.505, 1.0] },
+        { "tool": "seed", "box": [0.15, 0.88, 0.45, 0.95] }
+    ],
+    "solution": [
+        { "tool": "water", "box": [0.15, 0.7, 0.45, 0.8] }
+    ]
+}

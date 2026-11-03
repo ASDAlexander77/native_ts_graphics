@@ -260,11 +260,20 @@ namespace PowderSandboxNri {
     const GRAVITY_PLACE = 37;
     // Levels: their files (LEVEL_DIRECTORY<name>.json), the ones the Levels tile goes through listed
     // in LEVEL_DIRECTORY/index.json ({ "levels": [names] }). A level: { "name": "...", "goal":
-    // { "text": "...", "material": "water", "box": [x0, y0, x1, y1], "count": N }, "strokes": [{
-    // "tool": "glass", "box": [x0, y0, x1, y1], "emit": "sand" (an emitter's), "blow": "right" (a
-    // fan's), "repeat": N (strokes painted N frames) }, ...] }, boxes in fractions of the grid.
+    // { "text": "...", "material": "water", "box": [x0, y0, x1, y1], "count": N, "lit": true (lit
+    // cells only: a lamp's), "atMost": true (N at most, not at least), "hold": S (for S seconds) },
+    // "stars": [T3, T2] (3 stars for the goal reached within T3 seconds, 2 within T2, else 1),
+    // "strokes": [{ "tool": "glass", "box": [x0, y0, x1, y1], "emit": "sand" (an emitter's), "blow":
+    // "right" (a fan's), "repeat": N (strokes painted N frames) }, ...], "solution": [strokes] (one
+    // way to reach the goal, for its tests) }, boxes in fractions of the grid.
     const LEVEL_DIRECTORY = "media/powder_sandbox/scenes/";
     const BLOW_NAMES = ["right", "down", "left", "up"];
+    // A goal's material's flag for lit cells only (powder_sandbox.hlsl's).
+    const GOAL_LIT = 0x100;
+    // The best stars of index.json's levels, kept beside the save: STARS_MAGIC, how many, then each
+    // one's (in index.json's order).
+    const STARS_PATH = "powder_sandbox.stars";
+    const STARS_MAGIC = 0x53524154;
 
     // The simulation's state, for undo and saves: the particles, the grid's float sections (the
     // temperatures, the pressure the next step starts from, burning and melting), the cells, the free
@@ -603,7 +612,8 @@ namespace PowderSandboxNri {
     }
 
     // A level read from its file: its strokes (in fractions of the grid) and its goal (goalCount
-    // particles of goalMaterial, or cells of a solid one, in goalBox; none if goalCount is 0).
+    // particles of goalMaterial, or cells of a solid one, in goalBox; none if goalCount is 0; at most
+    // goalCount with goalAtMost, for goalHold seconds), the times of its stars, its solution.
     class LevelStroke {
         constructor(public tool: int, public box: number[], public emit: int) {
         }
@@ -615,7 +625,21 @@ namespace PowderSandboxNri {
         goalMaterial: int = 0;
         goalBox: number[] = [];
         goalCount: int = 0;
+        goalLit: boolean = false;
+        goalAtMost: boolean = false;
+        goalHold: number = 0.0;
+        stars: number[] = [];
         strokes: LevelStroke[] = [];
+        solution: LevelStroke[] = [];
+    }
+
+    // n stars, as the HUD shows them.
+    function starText(n: int): string {
+        let text = "";
+        for (let k = 0; k < n; k++) {
+            text = `${text}*`;
+        }
+        return text;
     }
 
     // A rectangle a scene paints with a tool (in cells); emit: an emitter's material.
@@ -634,6 +658,8 @@ namespace PowderSandboxNri {
         public timedSteps: int = -1;
         // The steps it simulated (whether or not timed), for its events.
         public steps: int = 0;
+        // The level's time after it (-1 before the level's strokes were painted), for its goal.
+        public levelTime: number = -1.0;
         constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
             public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
         }
@@ -790,12 +816,25 @@ namespace PowderSandboxNri {
         // -substeps N; -solver sor|multigrid, -iterations N (SOR's sweeps), -vcycles N, -smooth N;
         // -viscosity N (viscosity_cs's sweep pairs, 0 none).
         scene: int = 0;
-        // -sceneFile name: a level from LEVEL_DIRECTORY instead (its goal must be reached in a test).
+        // -sceneFile name: a level from LEVEL_DIRECTORY instead (its goal must be reached in a test);
+        // -solve S: its solution painted S seconds in (the goal mustn't be reached before); -testStars
+        // N: the stars it must earn (0: the goal mustn't be reached).
         sceneFile: string = "";
+        solveTime: number = -1.0;
+        testStars: int = -1;
         private level: Level | null = null;
         private levelNames: string[] = [];
         private levelIndex: int = -1;
+        private bestStars: int[] = [];
         private goalReached: boolean = false;
+        // The level's time (simulated seconds since its strokes were painted; -1 till then), since
+        // when its goal has been met (-1: it isn't), when it was reached and its stars, whether the
+        // solution was painted (-solve).
+        private levelTime: number = -1.0;
+        private goalSince: number = -1.0;
+        private goalTime: number = 0.0;
+        private goalStars: int = 0;
+        private solved: boolean = false;
         private script: Stroke[] = [];
         substeps: int = DEFAULT_SUBSTEPS;
         // Time the simulation hasn't stepped through yet (under a step). It steps in fixed steps of
@@ -2141,6 +2180,7 @@ namespace PowderSandboxNri {
                     this.showMessage("No levels");
                     return;
                 }
+                this.readStars();
             }
             this.levelIndex = (this.levelIndex + 1) % this.levelNames.length;
             const level = this.readLevel(this.levelNames[this.levelIndex]);
@@ -2148,7 +2188,8 @@ namespace PowderSandboxNri {
                 this.startLevel(level);
                 this.snapshotRequested = true;
                 this.needsInit = true;
-                this.showMessage(level.name);
+                const best = this.bestStars[this.levelIndex];
+                this.showMessage(best > 0 ? `${level.name} (best ${starText(best)})` : level.name);
             }
         }
 
@@ -2158,6 +2199,108 @@ namespace PowderSandboxNri {
                 this.scene = 0;
                 this.sceneOnClear = true;
                 this.goalReached = false;
+            }
+        }
+
+        // The best stars from STARS_PATH, one for each of index.json's levels (0 for those it hasn't).
+        readStars() {
+            this.bestStars = [];
+            for (let k = 0; k < this.levelNames.length; k++) {
+                this.bestStars.push(0);
+            }
+            const file = Nri_LoadFile(STARS_PATH);
+            if (!file) {
+                return;
+            }
+            const bytes: int[] = [];
+            const size = Nri_GetFileSize(file);
+            for (let i = 0; i < size; i++) {
+                bytes.push(0);
+            }
+            if (size > 0) {
+                Nri_CopyFileBytes(file, 0, size, Ref(bytes[0]));
+            }
+            Nri_DestroyFile(file);
+            const ints: int[] = [];
+            for (let i = 0; i + 3 < size; i += 4) {
+                ints.push(bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24));
+            }
+            if (ints.length < 2 || ints[0] != STARS_MAGIC) {
+                return;
+            }
+            for (let k = 0; k < this.levelNames.length && k < ints[1] && 2 + k < ints.length; k++) {
+                this.bestStars[k] = Math.min(Math.max(ints[2 + k], 0), 3);
+            }
+        }
+
+        // The best stars, into STARS_PATH (not in tests).
+        saveStars() {
+            if (this.test || this.queuedFrames.length == 0) {
+                return;
+            }
+            const ints: int[] = [STARS_MAGIC, this.bestStars.length];
+            for (const stars of this.bestStars) {
+                ints.push(stars);
+            }
+            Nri_SaveBufferToFile(this.queuedFrames[0].probeReadback, 0, Ref(ints[0]), ints.length, STARS_PATH);
+        }
+
+        // The level's goal against the count a frame's probe read (time: the level's time after that
+        // frame, -1 before its strokes): reached once it's been met for its hold time, its stars
+        // then (by that time), the best kept.
+        checkGoal(time: number) {
+            const level = this.level;
+            if (!level || level.goalCount <= 0 || this.goalReached || time < 0.0) {
+                return;
+            }
+            const count = this.probe[PROBE_GOAL];
+            if (level.goalAtMost ? count > level.goalCount : count < level.goalCount) {
+                this.goalSince = -1.0;
+                return;
+            }
+            if (this.goalSince < 0.0) {
+                this.goalSince = time;
+            }
+            if (time - this.goalSince < level.goalHold) {
+                return;
+            }
+            this.goalReached = true;
+            this.goalTime = time;
+            this.goalStars = 0;
+            if (level.stars.length >= 2) {
+                this.goalStars = time <= level.stars[0] ? 3 : (time <= level.stars[1] ? 2 : 1);
+            }
+            let best = "";
+            if (this.levelIndex >= 0 && this.levelIndex < this.bestStars.length) {
+                if (this.goalStars > this.bestStars[this.levelIndex]) {
+                    this.bestStars[this.levelIndex] = this.goalStars;
+                    this.saveStars();
+                } else if (this.bestStars[this.levelIndex] > 0) {
+                    best = ` (best ${starText(this.bestStars[this.levelIndex])})`;
+                }
+            }
+            this.showMessage(`${level.name}: done in ${formatFixed(time, 1)} s! ${starText(this.goalStars)}${best}`);
+        }
+
+        // The level's clock, from when its strokes are painted, while it simulates (steps of step
+        // seconds), till its goal's reached; -solve's solution painted at its time.
+        advanceLevel(steps: int, step: number) {
+            const level = this.level;
+            if (!level || this.goalReached) {
+                return;
+            }
+            if (this.levelTime < 0.0) {
+                if (this.script.length == 0 && !this.needsInit) {
+                    this.levelTime = 0.0;
+                }
+            } else if (!this.paused) {
+                this.levelTime += steps * step;
+            }
+            if (this.solveTime >= 0.0 && !this.solved && this.levelTime >= this.solveTime) {
+                this.solved = true;
+                for (const stroke of level.solution) {
+                    this.addStroke(stroke.tool, stroke.box[0], stroke.box[1], stroke.box[2], stroke.box[3], stroke.emit);
+                }
             }
         }
 
@@ -2204,51 +2347,22 @@ namespace PowderSandboxNri {
                                 level.goalBox = reader.readNumbers();
                             } else if (goalKey == "count") {
                                 level.goalCount = Math.floor(reader.readNumber());
+                            } else if (goalKey == "lit") {
+                                level.goalLit = reader.readBool();
+                            } else if (goalKey == "atMost") {
+                                level.goalAtMost = reader.readBool();
+                            } else if (goalKey == "hold") {
+                                level.goalHold = Math.max(reader.readNumber(), 0.0);
                             } else {
                                 reader.skipValue();
                             }
                         }
-                    } else if (key == "strokes" && reader.beginArray()) {
-                        while (reader.nextItem()) {
-                            let tool = -1;
-                            let box: number[] = [];
-                            let emit = WATER;
-                            let repeat = 1;
-                            if (reader.beginObject()) {
-                                while (reader.nextKey()) {
-                                    const strokeKey = reader.readString();
-                                    if (strokeKey == "tool") {
-                                        const toolName = reader.readString();
-                                        tool = toolNamed(toolName);
-                                        if (tool < 0) {
-                                            unknown = toolName;
-                                        }
-                                    } else if (strokeKey == "box") {
-                                        box = reader.readNumbers();
-                                    } else if (strokeKey == "emit") {
-                                        const emitName = reader.readString();
-                                        emit = toolNamed(emitName);
-                                        if (emit < 0) {
-                                            unknown = emitName;
-                                        }
-                                    } else if (strokeKey == "blow") {
-                                        const blow = reader.readString();
-                                        emit = BLOW_NAMES.indexOf(blow);
-                                        if (emit < 0) {
-                                            unknown = blow;
-                                        }
-                                    } else if (strokeKey == "repeat") {
-                                        repeat = Math.max(Math.floor(reader.readNumber()), 1);
-                                    } else {
-                                        reader.skipValue();
-                                    }
-                                }
-                            }
-                            if (tool >= 0 && box.length == 4) {
-                                for (let k = 0; k < repeat; k++) {
-                                    level.strokes.push(new LevelStroke(tool, box, emit));
-                                }
-                            }
+                    } else if (key == "stars") {
+                        level.stars = reader.readNumbers();
+                    } else if (key == "strokes" || key == "solution") {
+                        const strokeUnknown = this.readStrokes(reader, key == "strokes" ? level.strokes : level.solution);
+                        if (strokeUnknown != "") {
+                            unknown = strokeUnknown;
                         }
                     } else {
                         reader.skipValue();
@@ -2263,10 +2377,64 @@ namespace PowderSandboxNri {
             return level;
         }
 
+        // A level's array of strokes, into strokes; the name of a tool or material it doesn't know,
+        // or "".
+        readStrokes(reader: JsonReader, strokes: LevelStroke[]): string {
+            let unknown = "";
+            if (reader.beginArray()) {
+                while (reader.nextItem()) {
+                    let tool = -1;
+                    let box: number[] = [];
+                    let emit = WATER;
+                    let repeat = 1;
+                    if (reader.beginObject()) {
+                        while (reader.nextKey()) {
+                            const strokeKey = reader.readString();
+                            if (strokeKey == "tool") {
+                                const toolName = reader.readString();
+                                tool = toolNamed(toolName);
+                                if (tool < 0) {
+                                    unknown = toolName;
+                                }
+                            } else if (strokeKey == "box") {
+                                box = reader.readNumbers();
+                            } else if (strokeKey == "emit") {
+                                const emitName = reader.readString();
+                                emit = toolNamed(emitName);
+                                if (emit < 0) {
+                                    unknown = emitName;
+                                }
+                            } else if (strokeKey == "blow") {
+                                const blow = reader.readString();
+                                emit = BLOW_NAMES.indexOf(blow);
+                                if (emit < 0) {
+                                    unknown = blow;
+                                }
+                            } else if (strokeKey == "repeat") {
+                                repeat = Math.max(Math.floor(reader.readNumber()), 1);
+                            } else {
+                                reader.skipValue();
+                            }
+                        }
+                    }
+                    if (tool >= 0 && box.length == 4) {
+                        for (let k = 0; k < repeat; k++) {
+                            strokes.push(new LevelStroke(tool, box, emit));
+                        }
+                    }
+                }
+            }
+            return unknown;
+        }
+
         buildScene() {
             this.script = [];
             const level = this.level;
             if (level) {
+                this.goalReached = false;
+                this.levelTime = -1.0;
+                this.goalSince = -1.0;
+                this.solved = false;
                 for (const stroke of level.strokes) {
                     this.addStroke(stroke.tool, stroke.box[0], stroke.box[1], stroke.box[2], stroke.box[3], stroke.emit);
                 }
@@ -2619,12 +2787,16 @@ namespace PowderSandboxNri {
             const level = this.level;
             if (level && level.goalCount > 0) {
                 const count = this.probe[PROBE_GOAL];
-                if (count >= level.goalCount && !this.goalReached) {
-                    this.goalReached = true;
-                    this.showMessage(`${level.name}: done!`);
+                const progress = level.goalAtMost ? `${count} (at most ${level.goalCount}${level.goalHold > 0.0 ? ` for ${formatFixed(level.goalHold, 0)} s` : ""})`
+                    : `${Math.min(count, level.goalCount)} / ${level.goalCount}`;
+                const time = this.goalReached ? this.goalTime : Math.max(this.levelTime, 0.0);
+                let stars = "";
+                if (this.goalReached) {
+                    stars = this.goalStars > 0 ? `done ${starText(this.goalStars)}` : "done";
+                } else if (level.stars.length >= 2) {
+                    stars = `*** in ${formatFixed(level.stars[0], 0)} s, ** in ${formatFixed(level.stars[1], 0)} s`;
                 }
-                y = this.drawWrapped([`${level.name}: ${level.goalText} ${Math.min(count, level.goalCount)} / ${level.goalCount}`,
-                    this.goalReached ? "done" : ""], y, labelHeight, 1.0);
+                y = this.drawWrapped([`${level.name}: ${level.goalText} ${progress}`, `${formatFixed(time, 1)} s`, stars], y, labelHeight, 1.0);
             }
             if (this.messageTime > 0.0) {
                 Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
@@ -2688,6 +2860,7 @@ namespace PowderSandboxNri {
                 Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS + EVENT_COUNT);
                 Nri_ReadBufferFloats(queuedFrame.probeReadback, Ref(this.probeFloats[0]), PROBE_INTS);
                 this.playSounds(queuedFrame.steps, frameTime);
+                this.checkGoal(queuedFrame.levelTime);
             } else {
                 this.probe[0] = CAPACITY;
             }
@@ -2715,6 +2888,7 @@ namespace PowderSandboxNri {
                 this.regridRequests(frameIndex);
             }
             this.qualityRequests(frameIndex);
+            this.advanceLevel(this.paused ? 0 : steps, step);
             const brushMode = this.test ? 0 : this.handleInput();
             this.prepareStateRequests();
             this.fillConstants(step);
@@ -2743,6 +2917,7 @@ namespace PowderSandboxNri {
                 this.recordSparks(commandBuffer, brushMode);
                 this.recordGlow(commandBuffer);
                 queuedFrame.steps = this.paused ? 0 : steps;
+                queuedFrame.levelTime = this.levelTime;
                 const timestampReadback = queuedFrame.timestampReadback;
                 if (queryPool) {
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase + 1);
@@ -2755,7 +2930,7 @@ namespace PowderSandboxNri {
                 // (the brush's fields stand for the goal's material and box)
                 const level = this.level;
                 if (level && level.goalCount > 0) {
-                    this.setInt(8, level.goalMaterial);
+                    this.setInt(8, level.goalMaterial | (level.goalLit ? GOAL_LIT : 0));
                     this.setFloat(10, level.goalBox[0] * this.gridW);
                     this.setFloat(11, level.goalBox[1] * this.gridH);
                     this.setFloat(12, level.goalBox[2] * this.gridW);
@@ -3041,9 +3216,22 @@ namespace PowderSandboxNri {
             }
             if (level && level.goalCount > 0) {
                 const count = this.probe[PROBE_GOAL];
-                console.log(`Level: ${level.name}, ${level.goalText} ${count} of ${level.goalCount}`);
-                if (count < level.goalCount) {
-                    return `the level's goal wasn't reached: ${count} of ${level.goalCount}`;
+                console.log(`Level: ${level.name}, ${level.goalText} ${count} of ${level.goalCount}${this.goalReached
+                    ? `, reached in ${formatFixed(this.goalTime, 2)} s (${this.goalStars} stars)` : ", not reached"}`);
+                if (this.testStars == 0) {
+                    if (this.goalReached) {
+                        return `the goal was reached unsolved, in ${formatFixed(this.goalTime, 2)} s`;
+                    }
+                } else {
+                    if (!this.goalReached) {
+                        return `the level's goal wasn't reached: ${count} of ${level.goalCount}`;
+                    }
+                    if (this.solveTime >= 0.0 && this.goalTime < this.solveTime) {
+                        return `the goal was reached before the solution, in ${formatFixed(this.goalTime, 2)} s`;
+                    }
+                    if (this.testStars > 0 && this.goalStars != this.testStars) {
+                        return `${this.goalStars} stars, not ${this.testStars}`;
+                    }
                 }
             }
             if (this.regrid != 0) {
@@ -3080,8 +3268,10 @@ namespace PowderSandboxNri {
             const gridPixels = Math.min(this.gridW * this.gridH * this.cellPixels * this.cellPixels, pixels.length);
             const share = 100.0 * blue / gridPixels;
             console.log(`Water: ${formatFixed(share, 1)}% of the grid`);
-            // (a turned U-tube is a narrow grid between margins; scenes 8, 11 and 12 have no water)
-            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 || this.scene == 12 || this.scene >= 16 ? 0.0 : 1.0);
+            // (a turned U-tube is a narrow grid between margins; scenes 8, 11 and 12 have no water, nor
+            // need a level)
+            const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 || this.scene == 12 || this.scene >= 16
+                || this.sceneFile != "" ? 0.0 : 1.0);
             // (the overlays recolor it; zoomed in, only part of the grid shows)
             if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
                 return `water covers ${formatFixed(share, 1)}% of the grid, not ${formatFixed(minShare, 0)} to 50%`;
@@ -4157,6 +4347,8 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-regrid", 1);
         Nri_AddExampleOptionWithValues(sample, "-scene", 1);
         Nri_AddExampleOptionWithValues(sample, "-sceneFile", 1);
+        Nri_AddExampleOptionWithValues(sample, "-solve", 1);
+        Nri_AddExampleOptionWithValues(sample, "-testStars", 1);
         Nri_AddExampleOptionWithValues(sample, "-gridHeight", 1);
         Nri_AddExampleOptionWithValues(sample, "-quality", 1);
         Nri_AddExampleOptionWithValues(sample, "-stepBudget", 1);
@@ -4202,6 +4394,12 @@ namespace PowderSandboxNri {
                 i++;
             } else if (arg == "-sceneFile" && i + 1 < argc) {
                 sandbox.sceneFile = Nri_GetArg(argc, argv, i + 1);
+                i++;
+            } else if (arg == "-solve" && i + 1 < argc) {
+                sandbox.solveTime = Math.max(parseFloat(Nri_GetArg(argc, argv, i + 1)), 0.0);
+                i++;
+            } else if (arg == "-testStars" && i + 1 < argc) {
+                sandbox.testStars = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0), 3);
                 i++;
             } else if (arg == "-scene" && i + 1 < argc) {
                 sandbox.scene = parseInt(Nri_GetArg(argc, argv, i + 1));

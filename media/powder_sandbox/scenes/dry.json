@@ -1,0 +1,13 @@
+{
+    "name": "Keep the cup dry",
+    "goal": { "text": "water in the cup", "material": "water", "box": [0.405, 0.7, 0.595, 1.0], "count": 10, "atMost": true, "hold": 8 },
+    "stars": [9, 12],
+    "strokes": [
+        { "tool": "glass", "box": [0.4, 0.7, 0.405, 1.0] },
+        { "tool": "glass", "box": [0.595, 0.7, 0.6, 1.0] },
+        { "tool": "emitter", "box": [0.49, 0.05, 0.51, 0.07], "emit": "water" }
+    ],
+    "solution": [
+        { "tool": "wall", "box": [0.33, 0.6, 0.67, 0.62] }
+    ]
+}
