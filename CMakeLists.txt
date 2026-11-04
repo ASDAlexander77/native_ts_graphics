@@ -1448,7 +1448,9 @@ donut_compile_shaders(
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/spirv
 )
-add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/text_format.ts core/json_reader.ts MEDIA powder_sandbox)
+add_tslang_nri_example(powder_sandbox_nri SHADERS powder_sandbox_shaders core/text_format.ts core/json_reader.ts
+    examples/nri/powder_sandbox/defs.ts examples/nri/powder_sandbox/sandbox.ts examples/nri/powder_sandbox/checks.ts
+    MEDIA powder_sandbox)
 add_tslang_example_test(powder_sandbox_nri)
 # The materials' showcase: oil on water, a sand pile, burning wood, uranium in a pool, an emitter.
 add_tslang_example_test(powder_sandbox_nri SUFFIX showcase ARGS -scene 2 -testFrames 600)

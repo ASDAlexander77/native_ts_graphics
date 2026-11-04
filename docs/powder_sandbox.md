@@ -1,9 +1,9 @@
 # Powder sandbox: state and roadmap
 
-`powder_sandbox_nri` (`examples/nri/powder_sandbox_nri.ts`, `shaders/powder_sandbox.hlsl`) is a
-falling-sand sandbox in the spirit of The Powder Toy, and the first game of a small engine built
-from this repo's NRI layer. The game is its own editor: you pick a material and paint, so there is
-no separate editor to write. Android is the main target; Windows (D3D12, Vulkan) is for testing.
+`powder_sandbox_nri` (`examples/nri/powder_sandbox_nri.ts` and `examples/nri/powder_sandbox/`,
+`shaders/powder_sandbox.hlsl`) is a falling-sand sandbox in the spirit of The Powder Toy, and the
+first game of a small engine built from this repo's NRI layer. The game is its own editor: you pick
+a material and paint, so there is no separate editor to write. Android is the main target; Windows (D3D12, Vulkan) is for testing.
 
 What sets it apart from The Powder Toy is the physics: the liquids are incompressible, so water
 levels out in connected vessels. That's the U-tube test, and every change has to keep passing it.
@@ -574,3 +574,20 @@ The levels (step 6) as challenges: goals of more kinds, a clock and stars.
   isn't reached (`unsolved_<name>`); Light the lamp solved at 4 s earns 2 stars, at 7 s 1. A goal
   reached before the solution fails the test. `challenge_dry_upright` and `challenge_stone_upright`:
   solved in an upright window (both fail with levels on an upright grid).
+
+### 14. Code split (in progress)
+
+The app was one 4,900-line file. It moves into `examples/nri/powder_sandbox/`, a group at a time,
+each a pure move with the whole suite passing on D3D12 and Vulkan; later, the parts that aren't the
+game's (the frames-in-flight and readback ring, compute dispatch and barriers, the GPU profiler, the
+toolbar, tabs, slider and radial menu, touch gestures) move into `core/nri/` as the engine.
+
+- **Test checks** (done): `checks.ts`'s `PowderSandbox` extends `sandbox.ts`'s `SandboxApp` with
+  the checks (about 1,200 lines), overriding `checkTest`; `defs.ts` holds the constants and small
+  classes both use, exported; `powder_sandbox_nri.ts` reads the command line. The app's fields are
+  `protected`. A subclass, not a module of functions: the checks call the app's own methods
+  (`addStroke`, `gravityPointX`), and a module of functions taking the app would need the app's
+  file to import it back.
+- Still to move, in order: the scenes and levels, the state (undo, save/load, regrid), the input
+  and toolbar, the simulation's recording and profiling. `powder_sandbox.hlsl` (4,200 lines) can be
+  split the same way into includes.
