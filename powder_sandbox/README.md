@@ -576,7 +576,7 @@ The levels (step 6) as challenges: goals of more kinds, a clock and stars.
   reached before the solution fails the test. `challenge_dry_upright` and `challenge_stone_upright`:
   solved in an upright window (both fail with levels on an upright grid).
 
-### 14. Code split (the app's split done)
+### 14. Code split (done; the engine's parts next)
 
 The app was one 4,900-line file in `examples/nri/`. Everything of the sandbox's is in this folder
 now (sources, shaders, media, this file, its CMake and tests); the app moves into files here, a
@@ -617,5 +617,11 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
 - The app (`sandbox.ts`, about 660 lines) is what's left: the device, pipelines and buffers, the
   swapchain, `renderFrame` and `destroy`. The chain: state, view, levels, saves, simulation, ui,
   app, checks; each file uses only what's below it.
-- Next: the reusable parts into `core/nri/` (above), and `shaders/powder_sandbox.hlsl` (4,200
-  lines) split the same way into includes.
+- **The shader** (done): `shaders/powder_sandbox.hlsl` (4,200 lines) is now its header and the
+  includes, in order: `common.hlsli` (the root constants, the materials, the sections, shared by the
+  simulation and the display), the simulation's `sim_*.hlsli` (the buffers and grid accessors,
+  setup and regrid, the transfer to the grid, viscosity, air, bodies, the goal, heat, the pressure
+  solve, the projection, sparks, g2p, spawn, glow, the probe), and `display.hlsli`. Each a run of
+  the old file's lines in its order: the compiled DXIL and SPIR-V are byte for byte the same.
+  ShaderMake rebuilds when an include changes.
+- Next: the reusable parts into `core/nri/` (above).
