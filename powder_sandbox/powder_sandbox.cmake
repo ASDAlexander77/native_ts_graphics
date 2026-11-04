@@ -17,7 +17,7 @@ add_custom_command(TARGET copy_media POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E ${MEDIA_COPY_COMMAND} "${CMAKE_CURRENT_SOURCE_DIR}/powder_sandbox/media"
         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/powder_sandbox")
 add_tslang_nri_example(powder_sandbox_nri SOURCE powder_sandbox/powder_sandbox_nri.ts SHADERS powder_sandbox_shaders
-    core/text_format.ts core/json_reader.ts powder_sandbox/defs.ts powder_sandbox/state.ts powder_sandbox/view.ts
+    core/text_format.ts core/json_reader.ts core/nri_gpu_profiler.ts powder_sandbox/defs.ts powder_sandbox/state.ts powder_sandbox/view.ts
     powder_sandbox/levels.ts powder_sandbox/saves.ts powder_sandbox/simulation.ts powder_sandbox/ui.ts
     powder_sandbox/sandbox.ts powder_sandbox/checks.ts
     MEDIA powder_sandbox)
@@ -95,6 +95,8 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX plants ARGS -scene 23 -testFra
 add_tslang_example_test(powder_sandbox_nri SUFFIX switches ARGS -scene 24 -testFrames 300)
 # Auto quality, its budget set below any GPU's step time: the grid is made smaller.
 add_tslang_example_test(powder_sandbox_nri SUFFIX quality ARGS -scene 2 -testFrames 300 -stepBudget 0.01)
+# -profile (core/nri_gpu_profiler.ts): the showcase's dispatches timed, reported at least once.
+add_tslang_example_test(powder_sandbox_nri SUFFIX profile ARGS -scene 2 -testFrames 600 -profile)
 # The U-tube, cleared and undone halfway, then saved, cleared and loaded: it must still level out.
 add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTrip)
 # The U-tube's grid remade halfway (a phone turned): 20 cells taller and back, losing nothing; and

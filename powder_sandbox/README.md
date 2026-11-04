@@ -624,4 +624,11 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
   solve, the projection, sparks, g2p, spawn, glow, the probe), and `display.hlsli`. Each a run of
   the old file's lines in its order: the compiled DXIL and SPIR-V are byte for byte the same.
   ShaderMake rebuilds when an include changes.
-- Next: the reusable parts into `core/nri/` (above).
+- **Engine parts into `core/`**, one at a time, each a class the sandbox holds (no reference back
+  to it), its behavior unchanged:
+  - **GPU profiler** (done): `core/nri_gpu_profiler.ts`'s `NriGpuProfiler` (`init` with the names
+    of what's timed, `begin`, `mark` after each piece of work, `end`, `read` once the GPU's done,
+    `report`). `dispatch` marks each entry; the report reads as before. **Test** `profile`: the
+    showcase with `-profile` must report at least once (no test ran it before).
+  - Still to do: the frames-in-flight and readback ring, dispatch and barriers, the toolbar's
+    widgets (tabs, size slider, radial menu), touch gestures.

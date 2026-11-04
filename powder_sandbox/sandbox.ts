@@ -2,16 +2,17 @@
 import { formatFixed } from "../core/text_format";
 import {
     WINDOW_TITLE, CAPACITY, DEFAULT_GRID_HEIGHT, MAX_GRID_LONG, GRID_CAPACITY, MAX_ZOOM,
-    PROFILE_QUERIES, CONSTANTS_FLOATS, CONSTANTS_SIZE, ALL_INT_SECTIONS, I_EVENTS, EVENT_COUNT,
-    FLOAT_SECTIONS, ALLOC_LIST, PARTICLE_SIZE, PROBE_INTS, WATER, OIL, SAND, FIRE, LAVA, ACID, SALT,
-    GUNPOWDER, HONEY, PETROL, WALL, GLASS, WOOD, URANIUM, EMITTER, ICE, METAL, FAN, BLOCK, BATTERY,
-    LAMP, ERASE, HEAT, COOL, SALT_WATER, SPARK, C4, COAL, FUSE, HYDROGEN, OXYGEN, NEON, THERMITE,
-    NITRO, SEED, CLONE, BLACK_HOLE, WHITE_HOLE, SPONGE, SWITCH, DETECTOR, HEATER, INSPECT, PROBE,
-    GOAL, AIR_FLOATS, ENTRIES, B_GRID_INT, B_GRID_FLOAT, B_CELLS, BUFFERS, Tile, ACTION_SMALLER,
-    ACTION_LARGER, ACTION_PAUSE, ACTION_VIEW, ACTION_CLEAR, ACTION_SHAPE, ACTION_UNDO, ACTION_SAVE,
-    ACTION_LOAD, ACTION_LEVEL, ACTION_GRAVITY, GOAL_LIT, STATE_BUFFERS, UNDO_DEPTH, multigridFloats,
-    QueuedFrame, SwapChainTexture
+    PROFILE_EVERY, PROFILE_QUERIES, PROFILE_REPORT, CONSTANTS_FLOATS, CONSTANTS_SIZE,
+    ALL_INT_SECTIONS, I_EVENTS, EVENT_COUNT, FLOAT_SECTIONS, ALLOC_LIST, PARTICLE_SIZE, PROBE_INTS,
+    WATER, OIL, SAND, FIRE, LAVA, ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, GLASS, WOOD, URANIUM,
+    EMITTER, ICE, METAL, FAN, BLOCK, BATTERY, LAMP, ERASE, HEAT, COOL, SALT_WATER, SPARK, C4, COAL,
+    FUSE, HYDROGEN, OXYGEN, NEON, THERMITE, NITRO, SEED, CLONE, BLACK_HOLE, WHITE_HOLE, SPONGE,
+    SWITCH, DETECTOR, HEATER, INSPECT, PROBE, GOAL, AIR_FLOATS, ENTRIES, B_GRID_INT, B_GRID_FLOAT,
+    B_CELLS, BUFFERS, Tile, ACTION_SMALLER, ACTION_LARGER, ACTION_PAUSE, ACTION_VIEW, ACTION_CLEAR,
+    ACTION_SHAPE, ACTION_UNDO, ACTION_SAVE, ACTION_LOAD, ACTION_LEVEL, ACTION_GRAVITY, GOAL_LIT,
+    STATE_BUFFERS, UNDO_DEPTH, multigridFloats, QueuedFrame, SwapChainTexture
 } from "./defs";
+import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 import { SandboxUI } from "./ui";
 
 // The callbacks given to C++, kept for as long as it may call them.
@@ -166,12 +167,12 @@ export class SandboxApp extends SandboxUI {
         if (queryPool) {
             this.querySize = Nri_GetQuerySize(queryPool);
         }
-        // (no && with a handle: tslang can't mix one with a boolean)
-        if (this.profile && this.querySize > 0) {
-            this.profilePool = Nri_CreateTimestampQueryPool(device, PROFILE_QUERIES);
-            this.profileReadback = Nri_CreateReadbackBuffer(device, PROFILE_QUERIES * this.querySize);
-            for (let e = 0; e < ENTRIES.length; e++) {
-                this.profileSums.push(0.0);
+        if (this.profile) {
+            const profiler = new NriGpuProfiler();
+            if (profiler.init(device, ENTRIES, PROFILE_QUERIES, PROFILE_EVERY, PROFILE_REPORT)) {
+                this.profiler = profiler;
+            } else {
+                profiler.destroy();
             }
         }
         for (let i = 0; i < queuedFrameNum; i++) {
@@ -474,11 +475,16 @@ export class SandboxApp extends SandboxUI {
                 Nri_CmdResetQueries(commandBuffer, queryPool, queryBase, 2);
                 Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
             }
-            this.beginProfile(commandBuffer);
+            const profiler = this.profiler;
+            if (profiler) {
+                profiler.begin(commandBuffer, this.frameIndex);
+            }
             this.recordSimulation(commandBuffer, brushMode, steps);
             this.recordSparks(commandBuffer, brushMode);
             this.recordGlow(commandBuffer);
-            this.endProfile(commandBuffer);
+            if (profiler) {
+                profiler.end(commandBuffer, this.frameIndex);
+            }
             queuedFrame.steps = this.paused ? 0 : steps;
             queuedFrame.levelTime = this.levelTime;
             const timestampReadback = queuedFrame.timestampReadback;
@@ -600,13 +606,9 @@ export class SandboxApp extends SandboxUI {
             if (queryPool) {
                 Nri_DestroyQueryPool(queryPool);
             }
-            const profilePool = this.profilePool;
-            if (profilePool) {
-                Nri_DestroyQueryPool(profilePool);
-            }
-            const profileReadback = this.profileReadback;
-            if (profileReadback) {
-                Nri_DestroyBuffer(profileReadback);
+            const profiler = this.profiler;
+            if (profiler) {
+                profiler.destroy();
             }
             this.destroySwapChain();
             for (const view of this.storageViews) {
