@@ -6,15 +6,15 @@ import {
     ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, EMITTER, BLOCK, HYDROGEN, OXYGEN, NEON, THERMITE,
     NITRO, SEED, INSPECT, Tile, ACTION_SMALLER, ACTION_LARGER, ACTION_PAUSE, ACTION_VIEW,
     ACTION_CLEAR, ACTION_SHAPE, ACTION_UNDO, ACTION_SAVE, ACTION_LOAD, ACTION_LEVEL, ACTION_GRAVITY,
-    GRAVITY_POINT, GRAVITY_NAMES, GRAVITY_LABELS, TILT_FLAT, STANDARD_GRAVITY, GRAVITY_PLACE, KEY_Z,
-    KEY_LEFT_CONTROL, KEY_RIGHT_CONTROL, VIEW_NAMES, SHAPE_CIRCLE, SHAPE_SQUARE, SHAPE_LINE,
-    SHAPE_BOX, SHAPE_NAMES, fanDirectionOf, sectionMaterial, materialName, starText
+    GRAVITY_POINT, GRAVITY_NAMES, GRAVITY_LABELS, GRAVITY_PLACE, KEY_Z, KEY_LEFT_CONTROL,
+    KEY_RIGHT_CONTROL, VIEW_NAMES, SHAPE_CIRCLE, SHAPE_SQUARE, SHAPE_LINE, SHAPE_BOX, SHAPE_NAMES,
+    fanDirectionOf, sectionMaterial, materialName, starText
 } from "./defs";
-import { SandboxSaves } from "./saves";
+import { SandboxSimulation } from "./simulation";
 
 // The toolbar and input: the tabs and tiles, the brush's size slider and radial menu, the readout,
-// and the mouse, touch, keys and tilt they're driven by.
-export class SandboxUI extends SandboxSaves {
+// and the mouse, touch and keys they're driven by.
+export class SandboxUI extends SandboxSimulation {
     // A tile for a group's row (and the list of every tile).
     addTile(group: int, tile: Tile) {
         tile.group = group;
@@ -361,31 +361,6 @@ export class SandboxUI extends SandboxSaves {
         this.setFloat(29, cursorY);
         this.wasDown = down;
         return brushMode;
-    }
-
-    // The phone's down across the screen (the grid's axes are the window's), from its gravity
-    // sensor; kept while it lies flat (under TILT_FLAT g across the screen) or there's no reading.
-    readTilt() {
-        if (Nri_GetGravity(1, Ref(this.sensed[0])) == 0) {
-            return;
-        }
-        const x = this.sensed[0];
-        const y = this.sensed[1];
-        const across = Math.sqrt(x * x + y * y);
-        if (across > TILT_FLAT * STANDARD_GRAVITY) {
-            this.tiltX = x / across;
-            this.tiltY = y / across;
-        }
-    }
-
-    // -tilt x y: the tilted gravity's direction, instead of the sensor's.
-    setTilt(x: number, y: number) {
-        const length = Math.sqrt(x * x + y * y);
-        if (length > 0.0) {
-            this.tiltX = x / length;
-            this.tiltY = y / length;
-            this.tiltFixed = true;
-        }
     }
 
     // The toolbar and the readout.

@@ -576,7 +576,7 @@ The levels (step 6) as challenges: goals of more kinds, a clock and stars.
   reached before the solution fails the test. `challenge_dry_upright` and `challenge_stone_upright`:
   solved in an upright window (both fail with levels on an upright grid).
 
-### 14. Code split (in progress)
+### 14. Code split (the app's split done)
 
 The app was one 4,900-line file in `examples/nri/`. Everything of the sandbox's is in this folder
 now (sources, shaders, media, this file, its CMake and tests); the app moves into files here, a
@@ -609,7 +609,13 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
 - **The toolbar and input** (done): `ui.ts`'s `SandboxUI` extends the saves with the tabs and
   tiles, the size slider, the radial menu, the readout (`buildUI`) and `handleInput` with the tilt
   (about 600 lines). It uses only what's below it (the view's `layout` and `zoomAt`, `nextLevel`,
-  `setFloat`, `showMessage`); the app extends it. The chain: state, view, levels, saves, ui, app,
-  checks.
-- Still to move: the simulation's recording and profiling (the app is about 1,050 lines now).
-  `shaders/powder_sandbox.hlsl` (4,200 lines) can be split the same way into includes.
+  `setFloat`, `showMessage`); the app extends it.
+- **The simulation's recording** (done): `simulation.ts`'s `SandboxSimulation` extends the saves
+  with `fillConstants`, the steps' dispatches (`recordSimulation`, the pressure solve and its
+  smoothing, the sparks and glow), the profiler and step timer, auto quality, the sounds, and the
+  tilt sensor (only the constants read it), about 430 lines. The UI extends it.
+- The app (`sandbox.ts`, about 660 lines) is what's left: the device, pipelines and buffers, the
+  swapchain, `renderFrame` and `destroy`. The chain: state, view, levels, saves, simulation, ui,
+  app, checks; each file uses only what's below it.
+- Next: the reusable parts into `core/nri/` (above), and `shaders/powder_sandbox.hlsl` (4,200
+  lines) split the same way into includes.
