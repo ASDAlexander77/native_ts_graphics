@@ -1,6 +1,6 @@
-/// <reference path="../../../core/nri/nri_interop.d.ts" />
-import { formatFixed } from "../../../core/text_format";
-import { JsonReader } from "../../../core/json_reader";
+/// <reference path="../core/nri/nri_interop.d.ts" />
+import { formatFixed } from "../core/text_format";
+import { JsonReader } from "../core/json_reader";
 import {
     WINDOW_TITLE, TEST_FRAMES, CAPACITY, DEFAULT_GRID_HEIGHT, QUALITY_FRAMES, STEP_BUDGET_MS,
     MIN_GRID_HEIGHT, QUALITY_PATH, QUALITY_MAGIC, QUALITY_HEADER_INTS, MAX_GRID_LONG, GRID_CAPACITY,

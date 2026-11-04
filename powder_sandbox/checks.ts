@@ -1,5 +1,5 @@
-/// <reference path="../../../core/nri/nri_interop.d.ts" />
-import { formatFixed } from "../../../core/text_format";
+/// <reference path="../core/nri/nri_interop.d.ts" />
+import { formatFixed } from "../core/text_format";
 import {
     CAPACITY, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, PARTICLE_TYPES, I_GLOW, GLOW_SCALE, I_SPARK,
     ALL_INT_SECTIONS, EVENT_COUNT, EVENT_NAMES, I_SALT, SALT_SCALE, FLOAT_SECTIONS, F_BODY,

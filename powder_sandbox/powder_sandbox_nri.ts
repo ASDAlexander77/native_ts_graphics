@@ -1,18 +1,18 @@
-/// <reference path="../../core/nri/nri_interop.d.ts" />
+/// <reference path="../core/nri/nri_interop.d.ts" />
 import {
     DEFAULT_GRID_HEIGHT, MIN_GRID_HEIGHT, SOLVER_SOR, SOLVER_MULTIGRID, GRAVITY_NAMES
-} from "./powder_sandbox/defs";
-import { PowderSandbox } from "./powder_sandbox/checks";
+} from "./defs";
+import { PowderSandbox } from "./checks";
 
 namespace PowderSandboxNri {
     // A falling-sand sandbox in the spirit of The Powder Toy, with real fluid physics: pick a
     // material from the toolbar and paint with the mouse or a finger. Liquids and sand are FLIP
     // particles with an incompressible pressure solve (water levels out in connected vessels), fire,
     // smoke and steam rise, uranium gives off neutrons and heat, and temperature is tracked
-    // everywhere. The simulation and drawing are powder_sandbox.hlsl's; powder_sandbox/ runs them
-    // with NRI and draws the toolbar with NRIFramework's ImGui (sandbox.ts: the app; checks.ts: its
-    // -test checks; defs.ts: the constants and small classes they share). This file reads the
-    // command line and starts it.
+    // everywhere. The simulation and drawing are shaders/powder_sandbox.hlsl's; this folder's
+    // files run them with NRI and draw the toolbar with NRIFramework's ImGui (sandbox.ts: the app;
+    // checks.ts: its -test checks; defs.ts: the constants and small classes they share). This file
+    // reads the command line and starts it.
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = Nri_CreateSample();

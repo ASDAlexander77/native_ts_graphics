@@ -1,4 +1,4 @@
-/// <reference path="../../../core/nri/nri_interop.d.ts" />
+/// <reference path="../core/nri/nri_interop.d.ts" />
 
 // powder_sandbox_nri's constants (the GPU sections' layout, the materials, the tools and their
 // toolbar, the HUD's probe, the sounds) and the small classes the sandbox's files share.

@@ -1,7 +1,7 @@
 # Powder sandbox: state and roadmap
 
-`powder_sandbox_nri` (`examples/nri/powder_sandbox_nri.ts` and `examples/nri/powder_sandbox/`,
-`shaders/powder_sandbox.hlsl`) is a falling-sand sandbox in the spirit of The Powder Toy, and the
+`powder_sandbox_nri` (this folder: the app's `.ts` files, `shaders/powder_sandbox.hlsl`, the levels
+in `media/`, the build and tests in `powder_sandbox.cmake`) is a falling-sand sandbox in the spirit of The Powder Toy, and the
 first game of a small engine built from this repo's NRI layer. The game is its own editor: you pick
 a material and paint, so there is no separate editor to write. Android is the main target; Windows (D3D12, Vulkan) is for testing.
 
@@ -307,9 +307,10 @@ format is unchanged (version 2): the new state lives in the particles.
 
 ### 6. Engine side (done)
 
-- **Scenes as data** (done): levels in JSON files, `media/powder_sandbox/scenes/<name>.json`
-  (copied beside the executable, and into the APK's assets: `add_tslang_nri_example` takes `MEDIA`
-  folders now, and an NRI app's APK waits for `copy_media` when it has some). Run on the S23: the
+- **Scenes as data** (done): levels in JSON files, `media/scenes/<name>.json` here (copied
+  beside the executable, to `media/powder_sandbox/scenes/`, and into the APK's assets:
+  `add_tslang_nri_example` takes `MEDIA` folders now, and an NRI app's APK waits for `copy_media`
+  when it has some). Run on the S23: the
   level and challenge tests pass there.
   - A level: `{ "name": "...", "goal": { "text": "...", "material": "water", "box": [x0, y0, x1,
     y1], "count": N }, "strokes": [{ "tool": "glass", "box": [...], "emit": "sand", "blow": "right",
@@ -577,11 +578,16 @@ The levels (step 6) as challenges: goals of more kinds, a clock and stars.
 
 ### 14. Code split (in progress)
 
-The app was one 4,900-line file. It moves into `examples/nri/powder_sandbox/`, a group at a time,
+The app was one 4,900-line file in `examples/nri/`. Everything of the sandbox's is in this folder
+now (sources, shaders, media, this file, its CMake and tests); the app moves into files here, a
+group at a time,
 each a pure move with the whole suite passing on D3D12 and Vulkan; later, the parts that aren't the
 game's (the frames-in-flight and readback ring, compute dispatch and barriers, the GPU profiler, the
 toolbar, tabs, slider and radial menu, touch gestures) move into `core/nri/` as the engine.
 
+- **Its own folder** (done): `powder_sandbox/` beside `examples/`; `add_tslang_nri_example`'s
+  `SOURCE` names the entry file, and `copy_media` copies `media/` here to the binaries'
+  `media/powder_sandbox/` (where the app reads its levels, as before).
 - **Test checks** (done): `checks.ts`'s `PowderSandbox` extends `sandbox.ts`'s `SandboxApp` with
   the checks (about 1,200 lines), overriding `checkTest`; `defs.ts` holds the constants and small
   classes both use, exported; `powder_sandbox_nri.ts` reads the command line. The app's fields are
