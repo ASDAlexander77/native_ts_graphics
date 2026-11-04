@@ -10,7 +10,7 @@ import {
     SWITCH, DETECTOR, HEATER, INSPECT, PROBE, GOAL, AIR_FLOATS, ENTRIES, B_GRID_INT, B_GRID_FLOAT,
     B_CELLS, BUFFERS, Tile, ACTION_SMALLER, ACTION_LARGER, ACTION_PAUSE, ACTION_VIEW, ACTION_CLEAR,
     ACTION_SHAPE, ACTION_UNDO, ACTION_SAVE, ACTION_LOAD, ACTION_LEVEL, ACTION_GRAVITY, GOAL_LIT,
-    STATE_BUFFERS, UNDO_DEPTH, multigridFloats, QueuedFrame, SwapChainTexture
+    STATE_BUFFERS, UNDO_DEPTH, multigridFloats, QueuedFrame
 } from "./defs";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 import { SandboxUI } from "./ui";
@@ -150,7 +150,8 @@ export class SandboxApp extends SandboxUI {
         }
 
         const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-        this.createSwapChain(device);
+        this.swapChain.init(this.sample, device, this.queue, false);
+        this.sizeToSwapChain();
         const format = this.viewFormat;
         this.fitGrid();
         this.zoom = Math.min(Math.max(this.startZoom, 1.0), MAX_ZOOM);
@@ -322,30 +323,12 @@ export class SandboxApp extends SandboxUI {
         return 1;
     }
 
-    // The swap chain at the window's size, rendered through UNORM views (the display writes its
-    // colors as they are), its textures' views and semaphores.
-    createSwapChain(device: NriDeviceHandle) {
-        this.width = Nri_GetOutputWidth(this.sample);
-        this.height = Nri_GetOutputHeight(this.sample);
-        this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-        const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-        const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-        this.viewFormat = format;
-        for (let i = 0; i < textureNum; i++) {
-            const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-            this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-        }
-    }
-
-    destroySwapChain() {
-        for (const swapChainTexture of this.swapChainTextures) {
-            Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-            Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-            Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-        }
-        this.swapChainTextures = [];
-        Nri_DestroySwapChain(this.swapChain);
+    // The swap chain's size and its views' format (rendered through UNORM views: the display
+    // writes its colors as they are).
+    sizeToSwapChain() {
+        this.width = this.swapChain.width();
+        this.height = this.swapChain.height();
+        this.viewFormat = this.swapChain.viewFormat();
     }
 
     // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once
@@ -358,12 +341,11 @@ export class SandboxApp extends SandboxUI {
         if (!device) {
             return;
         }
-        if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+        if (!this.swapChain.resized()) {
             return;
         }
-        Nri_DeviceWaitIdle(device);
-        this.destroySwapChain();
-        this.createSwapChain(device);
+        this.swapChain.recreate();
+        this.sizeToSwapChain();
         const wide = this.wantsWide() || this.width >= this.height - this.toolbarFullHeight();
         if (wide != (this.gridW >= this.gridH)) {
             const oldW = this.gridW;
@@ -454,10 +436,9 @@ export class SandboxApp extends SandboxUI {
         }
 
         // Acquire a swap chain texture
-        const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-        const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+        const index = this.swapChain.acquire(frameIndex);
         if (index >= 0) {
-            const swapChainTexture = this.swapChainTextures[index];
+            const texture = this.swapChain.texture(index);
             const commandBuffer = this.frames.commandBuffer(frameIndex);
 
             // Record: the simulation's steps, the readout, then the grid drawn and the toolbar
@@ -537,8 +518,8 @@ export class SandboxApp extends SandboxUI {
             if (this.imgui) {
                 Nri_CmdCopyImguiData(this.sample, commandBuffer);
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
             Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
             this.recordDraw(commandBuffer);
             if (this.imgui) {
@@ -550,20 +531,20 @@ export class SandboxApp extends SandboxUI {
             const frameReadback = this.frameReadback;
             if (frameReadback) {
                 if (frameIndex == this.testFrames - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, frameReadback, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                    Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(commandBuffer, frameReadback, this.rowPitch, texture, this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(commandBuffer);
 
             // Submit and present
-            Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
                 Nri_ImguiEndFrame(this.sample);
             }
-            Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+            this.swapChain.present(index);
         }
 
         // Signaled after the present, as NRISamples do
@@ -604,7 +585,7 @@ export class SandboxApp extends SandboxUI {
             if (profiler) {
                 profiler.destroy();
             }
-            this.destroySwapChain();
+            this.swapChain.destroy();
             for (const view of this.storageViews) {
                 Nri_DestroyDescriptor(view);
             }

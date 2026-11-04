@@ -672,10 +672,3 @@ export class QueuedFrame {
     constructor(public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
     }
 }
-
-// A swap chain texture, its view and the semaphores of its acquire and release.
-export class SwapChainTexture {
-    constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-        public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
-    }
-}
