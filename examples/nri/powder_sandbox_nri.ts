@@ -50,6 +50,13 @@ namespace PowderSandboxNri {
     // A second finger down this soon (in seconds) after the first takes back what the first painted:
     // it was a pinch, not a stroke.
     const STROKE_CANCEL_TIME = 0.3;
+    // A press held this long (in seconds) on the grid without moving (DRAG_THRESHOLD) opens the
+    // brushes' menu around it: the shapes in a ring, up, right, down and left; what it painted is
+    // taken back.
+    const LONG_PRESS_TIME = 0.45;
+    // The brush's radius (in cells): its smallest and largest.
+    const MIN_BRUSH = 0.5;
+    const MAX_BRUSH = 30.0;
     // GLFW's middle button (Android's two-finger gesture holds it down, its cursor between the fingers).
     const MOUSE_MIDDLE = 2;
     const GROUP_SIZE = 256;
@@ -229,8 +236,10 @@ namespace PowderSandboxNri {
     const B_ALL = 63;
     const BUFFERS = 6;
 
-    // The toolbar: a tile per tool, then the actions.
+    // The toolbar: a row of groups' tabs over a row of the chosen group's tiles (a tool or an action
+    // each).
     class Tile {
+        public group: int = 0;
         constructor(public label: string, public tool: int, public r: number, public g: number, public b: number) {
         }
     }
@@ -749,8 +758,13 @@ namespace PowderSandboxNri {
         private toolbarHeight: number = 0.0;
         private tileWidth: number = MIN_TILE_WIDTH;
         private tileHeight: number = 56.0;
-        // The toolbar's row scrolled left by this many pixels (0 .. maxScroll()).
+        // The tiles' row scrolled left by this many pixels (0 .. maxScroll()); the tabs' row, its
+        // height, and its tabs' left edges and right end (as buildUI last laid them out).
         private toolbarScroll: number = 0.0;
+        private tabScroll: number = 0.0;
+        private tabHeight: number = 32.0;
+        private tabX: number[] = [];
+        private tabEnd: number = 0.0;
         private viewX: number = 0.0;
         private viewY: number = 0.0;
         private cellPixels: number = 1.0;
@@ -768,6 +782,10 @@ namespace PowderSandboxNri {
         private pressTime: number = 0.0;
 
         private tiles: Tile[] = [];
+        // The groups' names; the group shown, and its tiles.
+        private groups: string[] = [];
+        private group: int = 0;
+        private groupTiles: Tile[] = [];
         private tool: int = WATER;
         private emitType: int = WATER;
         private brushRadius: number = 3.0;
@@ -792,6 +810,19 @@ namespace PowderSandboxNri {
         private zWasDown: boolean = false;
         private pressOnToolbar: boolean = false;
         private pressX: number = 0.0;
+        private pressY: number = 0.0;
+        // The press went to the menu or the size slider, not the grid; it opened the menu (held);
+        // the menu's open, around (menuX, menuY).
+        private pressOnUi: boolean = false;
+        private pressOnSlider: boolean = false;
+        private longPressed: boolean = false;
+        private menuOpen: boolean = false;
+        private menuX: number = 0.0;
+        private menuY: number = 0.0;
+        // The size slider's track, from sliderX0 to sliderX1 (as buildUI last laid it out), and its
+        // row's top and height.
+        private sliderX0: number = 0.0;
+        private sliderX1: number = 0.0;
         private pressScroll: number = 0.0;
         private dragging: boolean = false;
         private lastGridX: number = 0.0;
@@ -909,60 +940,71 @@ namespace PowderSandboxNri {
                 this.eventTotals.push(0);
                 this.soundCooldowns.push(0.0);
             }
-            this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
-            this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
-            this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
-            this.tiles.push(new Tile("Petrol", PETROL, 0.95, 0.88, 0.5));
-            this.tiles.push(new Tile("Nitro", NITRO, 0.86, 0.9, 0.62));
-            this.tiles.push(new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
-            this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
-            this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
-            this.tiles.push(new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
-            this.tiles.push(new Tile("Thermite", THERMITE, 0.55, 0.35, 0.3));
-            this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
-            this.tiles.push(new Tile("Acid", ACID, 0.45, 0.92, 0.18));
-            this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
-            this.tiles.push(new Tile("Hydrogen", HYDROGEN, 0.8, 0.88, 1.0));
-            this.tiles.push(new Tile("Oxygen", OXYGEN, 0.5, 0.68, 1.0));
-            this.tiles.push(new Tile("Neon", NEON, 1.0, 0.4, 0.3));
-            this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
-            this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
-            this.tiles.push(new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
-            this.tiles.push(new Tile("Lamp", LAMP, 0.95, 0.85, 0.55));
-            this.tiles.push(new Tile("Switch", SWITCH, 0.45, 0.2, 0.2));
-            this.tiles.push(new Tile("Detector", DETECTOR, 0.75, 0.3, 0.6));
-            this.tiles.push(new Tile("Heater", HEATER, 0.6, 0.35, 0.28));
-            this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
-            this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
-            this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
-            this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
-            this.tiles.push(new Tile("Coal", COAL, 0.2, 0.19, 0.19));
-            this.tiles.push(new Tile("Fuse", FUSE, 0.5, 0.36, 0.24));
-            this.tiles.push(new Tile("C-4", C4, 0.84, 0.8, 0.68));
-            this.tiles.push(new Tile("Seed", SEED, 0.55, 0.45, 0.2));
-            this.tiles.push(new Tile("Sponge", SPONGE, 0.9, 0.85, 0.45));
-            this.tiles.push(new Tile("Clone", CLONE, 0.85, 0.85, 0.3));
-            this.tiles.push(new Tile("Black hole", BLACK_HOLE, 0.2, 0.08, 0.3));
-            this.tiles.push(new Tile("White hole", WHITE_HOLE, 0.9, 0.92, 1.0));
-            this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
-            this.tiles.push(new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
-            this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
-            this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
-            this.tiles.push(new Tile("Cool", COOL, 0.3, 0.6, 1.0));
-            this.tiles.push(new Tile("Spark", SPARK, 0.7, 0.85, 1.0));
-            this.tiles.push(new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
-            this.tiles.push(new Tile("Inspect", INSPECT, 0.55, 0.55, 0.6));
-            this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Gravity", ACTION_GRAVITY, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Levels", ACTION_LEVEL, 0.3, 0.3, 0.3));
+            // The toolbar's tiles, by group (a tool may be in more than one).
+            this.groups.push("Liquid");
+            this.addTile(0, new Tile("Water", WATER, 0.12, 0.38, 0.9));
+            this.addTile(0, new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
+            this.addTile(0, new Tile("Oil", OIL, 0.72, 0.5, 0.12));
+            this.addTile(0, new Tile("Petrol", PETROL, 0.95, 0.88, 0.5));
+            this.addTile(0, new Tile("Nitro", NITRO, 0.86, 0.9, 0.62));
+            this.addTile(0, new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
+            this.addTile(0, new Tile("Acid", ACID, 0.45, 0.92, 0.18));
+            this.addTile(0, new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
+            this.groups.push("Powder");
+            this.addTile(1, new Tile("Sand", SAND, 0.86, 0.74, 0.44));
+            this.addTile(1, new Tile("Salt", SALT, 0.92, 0.92, 0.95));
+            this.addTile(1, new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
+            this.addTile(1, new Tile("Thermite", THERMITE, 0.55, 0.35, 0.3));
+            this.addTile(1, new Tile("Seed", SEED, 0.55, 0.45, 0.2));
+            this.groups.push("Gas");
+            this.addTile(2, new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
+            this.addTile(2, new Tile("Hydrogen", HYDROGEN, 0.8, 0.88, 1.0));
+            this.addTile(2, new Tile("Oxygen", OXYGEN, 0.5, 0.68, 1.0));
+            this.addTile(2, new Tile("Neon", NEON, 1.0, 0.4, 0.3));
+            this.groups.push("Solid");
+            this.addTile(3, new Tile("Wall", WALL, 0.42, 0.42, 0.45));
+            this.addTile(3, new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
+            this.addTile(3, new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
+            this.addTile(3, new Tile("Coal", COAL, 0.2, 0.19, 0.19));
+            this.addTile(3, new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.addTile(3, new Tile("Ice", ICE, 0.75, 0.92, 1.0));
+            this.addTile(3, new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
+            this.addTile(3, new Tile("Sponge", SPONGE, 0.9, 0.85, 0.45));
+            this.addTile(3, new Tile("C-4", C4, 0.84, 0.8, 0.68));
+            this.addTile(3, new Tile("Fuse", FUSE, 0.5, 0.36, 0.24));
+            this.addTile(3, new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
+            this.groups.push("Power");
+            this.addTile(4, new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
+            this.addTile(4, new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.addTile(4, new Tile("Lamp", LAMP, 0.95, 0.85, 0.55));
+            this.addTile(4, new Tile("Switch", SWITCH, 0.45, 0.2, 0.2));
+            this.addTile(4, new Tile("Detector", DETECTOR, 0.75, 0.3, 0.6));
+            this.addTile(4, new Tile("Heater", HEATER, 0.6, 0.35, 0.28));
+            this.addTile(4, new Tile("Spark", SPARK, 0.7, 0.85, 1.0));
+            this.groups.push("Special");
+            this.addTile(5, new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
+            this.addTile(5, new Tile("Clone", CLONE, 0.85, 0.85, 0.3));
+            this.addTile(5, new Tile("Fan", FAN, 0.3, 0.5, 0.58));
+            this.addTile(5, new Tile("Black hole", BLACK_HOLE, 0.2, 0.08, 0.3));
+            this.addTile(5, new Tile("White hole", WHITE_HOLE, 0.9, 0.92, 1.0));
+            this.groups.push("Tools");
+            this.addTile(6, new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
+            this.addTile(6, new Tile("Cool", COOL, 0.3, 0.6, 1.0));
+            this.addTile(6, new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
+            this.addTile(6, new Tile("Inspect", INSPECT, 0.55, 0.55, 0.6));
+            this.addTile(6, new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
+            this.addTile(6, new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
+            this.addTile(6, new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
+            this.groups.push("Game");
+            this.addTile(7, new Tile("Gravity", ACTION_GRAVITY, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Levels", ACTION_LEVEL, 0.3, 0.3, 0.3));
+            this.showGroup(0);
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -1219,7 +1261,7 @@ namespace PowderSandboxNri {
             Nri_DeviceWaitIdle(device);
             this.destroySwapChain();
             this.createSwapChain(device);
-            const wide = this.wantsWide() || this.width >= this.height - this.toolbarTileHeight();
+            const wide = this.wantsWide() || this.width >= this.height - this.toolbarFullHeight();
             if (wide != (this.gridW >= this.gridH)) {
                 const oldW = this.gridW;
                 const oldH = this.gridH;
@@ -1281,12 +1323,41 @@ namespace PowderSandboxNri {
 
         // A cell's size, in pixels, when the whole grid fits above the toolbar.
         fitPixels(): number {
-            return Math.min(this.width / this.gridW, (this.height - this.toolbarTileHeight()) / this.gridH);
+            return Math.min(this.width / this.gridW, (this.height - this.toolbarFullHeight()) / this.gridH);
         }
 
-        // The toolbar's height: a share of the window's shorter side, 56 .. 160 pixels.
+        // A tile's height: a share of the window's shorter side, 56 .. 160 pixels.
         toolbarTileHeight(): number {
             return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
+        }
+
+        // The tabs' row's height: under half a tile's, but room for a line of text.
+        toolbarTabHeight(): number {
+            return Math.floor(Math.max(this.toolbarTileHeight() * 0.42, 28.0));
+        }
+
+        // The whole toolbar's: the tabs' row and the tiles'.
+        toolbarFullHeight(): number {
+            return this.toolbarTileHeight() + this.toolbarTabHeight();
+        }
+
+        // A tile for a group's row (and the list of every tile).
+        addTile(group: int, tile: Tile) {
+            tile.group = group;
+            this.tiles.push(tile);
+        }
+
+        // The group whose tiles the toolbar shows; its row scrolled back to its start.
+        showGroup(group: int) {
+            this.group = group;
+            this.groupTiles = [];
+            for (const tile of this.tiles) {
+                if (tile.group == group) {
+                    this.groupTiles.push(tile);
+                }
+            }
+            this.toolbarScroll = 0.0;
+            this.layout();
         }
 
         // Whether the grid's wider than tall whatever the window's shape: a level's, and the test
@@ -1302,7 +1373,7 @@ namespace PowderSandboxNri {
         // The grid's size from the shape of the window above the toolbar: gridHeight cells along its
         // shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
         fitGrid() {
-            const playHeight = this.height - this.toolbarTileHeight();
+            const playHeight = this.height - this.toolbarFullHeight();
             let gridW: int = this.gridHeight;
             let gridH: int = this.gridHeight;
             if (this.width >= playHeight) {
@@ -1322,14 +1393,16 @@ namespace PowderSandboxNri {
             console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
         }
 
-        // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
-        // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); and
+        // The toolbar: the tabs' row (laid out by buildUI, by their labels), and under it the group's
+        // tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each (no narrower than tall)
+        // and scrolled sideways when they don't fit (a phone held upright); and
         // where the grid's drawn: zoom times as large as fits above it, around its view's center
         // (kept where the grid still fills the area across, or down; centered where it doesn't).
         layout() {
             this.tileHeight = this.toolbarTileHeight();
-            this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
-            this.toolbarHeight = this.tileHeight;
+            this.tabHeight = this.toolbarTabHeight();
+            this.tileWidth = Math.max(this.width / Math.max(this.groupTiles.length, 1), Math.max(MIN_TILE_WIDTH, this.tileHeight));
+            this.toolbarHeight = this.tileHeight + this.tabHeight;
             const playHeight = this.height - this.toolbarHeight;
             this.cellPixels = this.fitPixels() * this.zoom;
             const halfW = this.width * 0.5 / this.cellPixels;
@@ -1348,22 +1421,100 @@ namespace PowderSandboxNri {
             Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
         }
 
-        // How far the toolbar's row scrolls.
+        // How far the tiles' row scrolls.
         maxScroll(): number {
-            return Math.max(this.tiles.length * this.tileWidth - this.width, 0.0);
+            return Math.max(this.groupTiles.length * this.tileWidth - this.width, 0.0);
         }
 
         scrollToolbar(scroll: number) {
             this.toolbarScroll = Math.min(Math.max(scroll, 0.0), this.maxScroll());
         }
 
+        // How far the tabs' row scrolls.
+        maxTabScroll(): number {
+            return Math.max(this.tabEnd - this.width, 0.0);
+        }
+
+        scrollTabs(scroll: number) {
+            this.tabScroll = Math.min(Math.max(scroll, 0.0), this.maxTabScroll());
+        }
+
+        // Whether y is on the tabs' row (else the tiles', on the toolbar).
+        onTabRow(y: number): boolean {
+            return y < this.height - this.tileHeight;
+        }
+
+        // The size slider shows while the brush is sized by its radius (a circle or a square), along
+        // the top, sliderHeight() tall.
+        sliderShown(): boolean {
+            return this.brushShape == SHAPE_CIRCLE || this.brushShape == SHAPE_SQUARE;
+        }
+
+        sliderTop(): number {
+            return 6.0;
+        }
+
+        sliderHeight(): number {
+            return this.tabHeight;
+        }
+
+        onSlider(x: number, y: number): boolean {
+            return this.sliderShown() && y >= this.sliderTop() && y < this.sliderTop() + this.sliderHeight() && x >= this.sliderX0 - this.sliderHeight()
+                && x <= this.sliderX1 + this.sliderHeight();
+        }
+
+        // The brush's radius from x along the slider's track (whole cells, or the smallest).
+        slideBrush(x: number) {
+            const t = Math.min(Math.max((x - this.sliderX0) / Math.max(this.sliderX1 - this.sliderX0, 1.0), 0.0), 1.0);
+            const radius = Math.round(MIN_BRUSH + t * (MAX_BRUSH - MIN_BRUSH));
+            this.brushRadius = radius < 1.0 ? MIN_BRUSH : radius;
+        }
+
+        // The menu's icons: their half size, and how far their centers are from the menu's.
+        menuIconHalf(): number {
+            return Math.floor(this.tileHeight * 0.42);
+        }
+
+        menuRadius(): number {
+            return Math.floor(this.tileHeight * 1.15);
+        }
+
+        // Icon k's center: around the menu's, up, right, down, left.
+        menuIconX(k: int): number {
+            return this.menuX + (k == 1 ? this.menuRadius() : (k == 3 ? -this.menuRadius() : 0.0));
+        }
+
+        menuIconY(k: int): number {
+            return this.menuY + (k == 0 ? -this.menuRadius() : (k == 2 ? this.menuRadius() : 0.0));
+        }
+
+        // The icon at (x, y), or -1.
+        menuIconAt(x: number, y: number): int {
+            const half = this.menuIconHalf();
+            for (let k = 0; k < SHAPE_NAMES.length; k++) {
+                if (Math.abs(x - this.menuIconX(k)) <= half && Math.abs(y - this.menuIconY(k)) <= half) {
+                    return k;
+                }
+            }
+            return -1;
+        }
+
+        // The menu, opened around (x, y), kept where its icons fit above the toolbar.
+        openMenu(x: number, y: number) {
+            const reach = this.menuRadius() + this.menuIconHalf() + 4.0;
+            const playHeight = this.height - this.toolbarHeight;
+            this.menuX = Math.min(Math.max(x, reach), Math.max(this.width - reach, reach));
+            this.menuY = Math.min(Math.max(y, reach), Math.max(playHeight - reach, reach));
+            this.menuOpen = true;
+        }
+
         // A toolbar tile was tapped.
         onTile(tile: Tile) {
             const action = tile.tool;
             if (action == ACTION_SMALLER) {
-                this.brushRadius = Math.max(this.brushRadius - 1.0, 0.5);
+                this.brushRadius = Math.max(this.brushRadius - 1.0, MIN_BRUSH);
             } else if (action == ACTION_LARGER) {
-                this.brushRadius = Math.min(this.brushRadius + 1.0, 30.0);
+                this.brushRadius = Math.min(this.brushRadius + 1.0, MAX_BRUSH);
             } else if (action == ACTION_PAUSE) {
                 this.paused = !this.paused;
             } else if (action == ACTION_VIEW) {
@@ -1435,14 +1586,16 @@ namespace PowderSandboxNri {
             // The wheel over the toolbar scrolls it (half a tile a notch); over the grid it zooms
             // (with Control, or the middle button down: a pinch), or sizes the brush.
             const wheel = Nri_GetMouseWheel(this.sample);
-            if (overToolbar && wheel != 0.0) {
+            if (overToolbar && wheel != 0.0 && this.onTabRow(my)) {
+                this.scrollTabs(this.tabScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
+            } else if (overToolbar && wheel != 0.0) {
                 this.scrollToolbar(this.toolbarScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
             } else if (wheel != 0.0 && (middle || control)) {
                 this.zoomAt(mx, my, wheel);
             } else if (wheel > 0.0) {
-                this.brushRadius = Math.min(this.brushRadius + 1.0, 30.0);
+                this.brushRadius = Math.min(this.brushRadius + 1.0, MAX_BRUSH);
             } else if (wheel < 0.0) {
-                this.brushRadius = Math.max(this.brushRadius - 1.0, 0.5);
+                this.brushRadius = Math.max(this.brushRadius - 1.0, MIN_BRUSH);
             }
             this.middleWasDown = middle;
             const gx = (mx - this.viewX) / this.cellPixels;
@@ -1470,42 +1623,91 @@ namespace PowderSandboxNri {
             if (down && !this.wasDown) {
                 this.pressOnToolbar = overToolbar;
                 this.pressTime = this.time;
+                // (a press while the menu's open picks from it, or closes it; one on the slider sizes
+                // the brush)
+                this.longPressed = false;
+                this.pressOnSlider = !overToolbar && !this.menuOpen && this.onSlider(mx, my);
+                this.pressOnUi = !overToolbar && (this.menuOpen || this.pressOnSlider);
                 // A stroke begins: what it changes can be undone.
-                if (!overToolbar && !inspecting) {
+                if (!overToolbar && !this.pressOnUi && !inspecting) {
                     this.snapshotRequested = true;
                 }
                 this.pressX = mx;
-                this.pressScroll = this.toolbarScroll;
+                this.pressY = my;
+                this.pressScroll = this.onTabRow(my) ? this.tabScroll : this.toolbarScroll;
                 this.dragging = false;
                 this.lastGridX = gx;
                 this.lastGridY = gy;
                 this.anchorX = gx;
                 this.anchorY = gy;
             }
-            // On the toolbar: a drag scrolls the row, a release that didn't drag taps the tile there.
+            // On the toolbar: a drag scrolls the row pressed, a release that didn't drag taps the tab
+            // or the tile there.
             if (this.pressOnToolbar) {
+                const tabs = this.onTabRow(this.pressY);
                 if (down) {
                     if (Math.abs(mx - this.pressX) > DRAG_THRESHOLD) {
                         this.dragging = true;
                     }
-                    if (this.dragging) {
+                    if (this.dragging && tabs) {
+                        this.scrollTabs(this.pressScroll - (mx - this.pressX));
+                    } else if (this.dragging) {
                         this.scrollToolbar(this.pressScroll - (mx - this.pressX));
+                    }
+                } else if (this.wasDown && !this.dragging && tabs) {
+                    const x = this.pressX + this.tabScroll;
+                    for (let g = 0; g < this.tabX.length; g++) {
+                        if (x >= this.tabX[g] && x < (g + 1 < this.tabX.length ? this.tabX[g + 1] : this.tabEnd)) {
+                            this.showGroup(g);
+                        }
                     }
                 } else if (this.wasDown && !this.dragging) {
                     const index: int = Math.floor((this.pressX + this.toolbarScroll) / this.tileWidth);
-                    if (index >= 0 && index < this.tiles.length) {
-                        this.onTile(this.tiles[index]);
+                    if (index >= 0 && index < this.groupTiles.length) {
+                        this.onTile(this.groupTiles[index]);
                     }
                 }
             }
+            // The slider: the brush's radius follows the pointer along it.
+            if (down && this.pressOnSlider) {
+                this.slideBrush(mx);
+            }
+            // A press held still on the grid opens the menu around it (and takes back what it
+            // painted); it's then the menu's.
+            if (down && !this.pressOnToolbar && !this.pressOnUi) {
+                if (Math.abs(mx - this.pressX) > DRAG_THRESHOLD || Math.abs(my - this.pressY) > DRAG_THRESHOLD) {
+                    this.pressTime = -1.0;
+                }
+                if (this.pressTime >= 0.0 && this.time - this.pressTime >= LONG_PRESS_TIME) {
+                    if (!inspecting) {
+                        this.undoRequested = true;
+                    }
+                    this.openMenu(this.pressX, this.pressY);
+                    this.longPressed = true;
+                    this.pressOnUi = true;
+                }
+            }
+            // Released on an icon: its shape. The press that opened the menu leaves it open when
+            // released elsewhere (to tap an icon next); another closes it.
+            if (!down && this.wasDown && this.menuOpen && this.pressOnUi) {
+                const icon = this.menuIconAt(mx, my);
+                if (icon >= 0) {
+                    this.brushShape = icon;
+                    this.menuOpen = false;
+                } else if (!this.longPressed) {
+                    this.menuOpen = false;
+                }
+            }
+            const toGrid = !this.pressOnToolbar && !this.pressOnUi;
+
             // On the grid: circles and squares paint along the path; lines and boxes when released.
             // (a Block is always a box: a body of that size)
             const boxing = this.brushShape == SHAPE_BOX || this.tool == BLOCK;
             const stretches = this.brushShape == SHAPE_LINE || boxing;
-            const pressOnGrid = this.wasDown && !this.pressOnToolbar;
+            const pressOnGrid = this.wasDown && toGrid;
             if (inspecting) {
                 // (nothing painted)
-            } else if (down && !this.pressOnToolbar && !stretches) {
+            } else if (down && toGrid && !stretches) {
                 brushMode = 1;
                 this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
                 this.setFloat(10, this.lastGridX);
@@ -1528,7 +1730,7 @@ namespace PowderSandboxNri {
             let cursorMode = 1;
             let cursorX = gx;
             let cursorY = gy;
-            if (down && !this.pressOnToolbar && stretches) {
+            if (down && toGrid && stretches) {
                 cursorMode = boxing ? 2 : 1;
                 cursorX = this.anchorX;
                 cursorY = this.anchorY;
@@ -1538,7 +1740,7 @@ namespace PowderSandboxNri {
             if (inspecting) {
                 cursorMode = 3;
             }
-            if (overToolbar || (down && this.pressOnToolbar) || middle) {
+            if (overToolbar || (down && !toGrid) || middle || this.menuOpen || this.onSlider(mx, my)) {
                 cursorMode = 0;
             }
             const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
@@ -2575,7 +2777,8 @@ namespace PowderSandboxNri {
                 // Coal and wood, lit on top.
                 this.addStroke(COAL, BURN_BLOCKS[0], BURN_TOP, BURN_BLOCKS[1], 1.0, WATER);
                 this.addStroke(WOOD, BURN_BLOCKS[2], BURN_TOP, BURN_BLOCKS[3], 1.0, WATER);
-                for (let k = 0; k < 5; k++) {
+                // (fire for 10 frames: with 5, on some grids' widths no coal was still alight at the end)
+                for (let k = 0; k < 10; k++) {
                     this.addStroke(FIRE, BURN_BLOCKS[0], BURN_TOP - 0.04, BURN_BLOCKS[1], BURN_TOP, WATER);
                     this.addStroke(FIRE, BURN_BLOCKS[2], BURN_TOP - 0.04, BURN_BLOCKS[3], BURN_TOP, WATER);
                 }
@@ -2723,11 +2926,49 @@ namespace PowderSandboxNri {
             const tileWidth = this.tileWidth;
             const pad = Math.max(2.0, Math.min(tileWidth, this.tileHeight) * 0.06);
             const labelHeight = Nri_ImguiGetFontSize() + 4.0;
-            const top = this.height - this.toolbarHeight;
+            const tabTop = this.height - this.toolbarHeight;
+            const top = tabTop + this.tabHeight;
             const bottom = this.height;
+            Nri_ImguiDrawRect(0.0, tabTop, this.width, top, 0.13, 0.13, 0.16, 1.0);
             Nri_ImguiDrawRect(0.0, top, this.width, bottom, 0.08, 0.08, 0.1, 1.0);
-            for (let i = 0; i < this.tiles.length; i++) {
-                const tile = this.tiles[i];
+            // The tabs: each as wide as its label and a gap, spread over the row when they fit; the
+            // group shown lit as a selected tile is, and under a tab whose group holds the tool, a bar of the tool's color.
+            const tabGap = Nri_ImguiCalcTextWidth("  ");
+            let tabsWidth = 0.0;
+            for (const name of this.groups) {
+                tabsWidth += Nri_ImguiCalcTextWidth(name) + tabGap;
+            }
+            const spread = tabsWidth < this.width ? (this.width - tabsWidth) / this.groups.length : 0.0;
+            this.tabX = [];
+            let tabEdge = 0.0;
+            for (let g = 0; g < this.groups.length; g++) {
+                this.tabX.push(tabEdge);
+                tabEdge += Nri_ImguiCalcTextWidth(this.groups[g]) + tabGap + spread;
+            }
+            this.tabEnd = tabEdge;
+            this.scrollTabs(this.tabScroll);
+            for (let g = 0; g < this.groups.length; g++) {
+                const x0 = this.tabX[g] - this.tabScroll;
+                const x1 = (g + 1 < this.groups.length ? this.tabX[g + 1] : this.tabEnd) - this.tabScroll;
+                if (x1 <= 0.0 || x0 >= this.width) {
+                    continue;
+                }
+                const shown = g == this.group;
+                if (shown) {
+                    Nri_ImguiDrawRect(x0 + 1.0, tabTop + 1.0, x1 - 1.0, top, 0.95, 0.95, 0.95, 1.0);
+                }
+                for (const tile of this.tiles) {
+                    if (tile.group == g && tile.tool == this.tool) {
+                        Nri_ImguiDrawRect(x0 + pad, top - 4.0, x1 - pad, top - 1.0, tile.r, tile.g, tile.b, 1.0);
+                    }
+                }
+                const name = this.groups[g];
+                const gray = shown ? 0.0 : 0.65;
+                Nri_ImguiDrawText((x0 + x1 - Nri_ImguiCalcTextWidth(name)) * 0.5, tabTop + (this.tabHeight - labelHeight) * 0.5 + 2.0, name,
+                    gray, gray, gray, 1.0, 0);
+            }
+            for (let i = 0; i < this.groupTiles.length; i++) {
+                const tile = this.groupTiles[i];
                 const x0 = i * tileWidth - this.toolbarScroll;
                 if (x0 + tileWidth <= 0.0 || x0 >= this.width) {
                     continue;
@@ -2762,12 +3003,50 @@ namespace PowderSandboxNri {
                 Nri_ImguiDrawText(x0 + (tileWidth - textWidth) * 0.5, bottom - pad - labelHeight + 2.0, label,
                     selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, 1.0, 0);
             }
-            // When the row scrolls, a bar along its top: how much of it shows, and where.
+            // When a row scrolls, a bar along its top: how much of it shows, and where.
+            if (this.maxTabScroll() > 0.0) {
+                Nri_ImguiDrawRect(this.tabScroll / this.tabEnd * this.width, tabTop, (this.tabScroll + this.width) / this.tabEnd * this.width,
+                    tabTop + 3.0, 0.7, 0.7, 0.75, 1.0);
+            }
             if (this.maxScroll() > 0.0) {
-                const total = this.tiles.length * tileWidth;
+                const total = this.groupTiles.length * tileWidth;
                 const barX0 = this.toolbarScroll / total * this.width;
                 const barX1 = (this.toolbarScroll + this.width) / total * this.width;
                 Nri_ImguiDrawRect(barX0, top, barX1, top + 3.0, 0.7, 0.7, 0.75, 1.0);
+            }
+
+            // The size slider: "Size N", then its track and knob.
+            let hudTop = 6.0;
+            if (this.sliderShown()) {
+                const sliderTop = this.sliderTop();
+                const sliderHeight = this.sliderHeight();
+                const sizeLabel = `Size ${formatFixed(this.brushRadius, this.brushRadius < 1.0 ? 1 : 0)}`;
+                this.sliderX0 = 8.0 + Nri_ImguiCalcTextWidth("Size 30.0") + sliderHeight;
+                this.sliderX1 = Math.min(this.width - 8.0 - sliderHeight * 0.5, this.sliderX0 + this.width * 0.6);
+                Nri_ImguiDrawRect(0.0, sliderTop - 2.0, this.sliderX1 + sliderHeight, sliderTop + sliderHeight + 2.0, 0.08, 0.08, 0.1, 0.8);
+                Nri_ImguiDrawText(8.0, sliderTop + (sliderHeight - labelHeight) * 0.5 + 2.0, sizeLabel, 1.0, 1.0, 1.0, 1.0, 0);
+                const mid = sliderTop + sliderHeight * 0.5;
+                Nri_ImguiDrawRect(this.sliderX0, mid - 2.0, this.sliderX1, mid + 2.0, 0.45, 0.45, 0.5, 1.0);
+                const t = (this.brushRadius - MIN_BRUSH) / (MAX_BRUSH - MIN_BRUSH);
+                const knobX = this.sliderX0 + t * (this.sliderX1 - this.sliderX0);
+                const knob = sliderHeight * 0.3;
+                Nri_ImguiDrawRect(this.sliderX0, mid - 2.0, knobX, mid + 2.0, 0.95, 0.95, 0.95, 1.0);
+                Nri_ImguiDrawRect(knobX - knob, mid - knob * 1.4, knobX + knob, mid + knob * 1.4, 0.95, 0.95, 0.95, 1.0);
+                hudTop = sliderTop + sliderHeight + 6.0;
+            }
+            // The brushes' menu: an icon for each shape, the brush's lit.
+            if (this.menuOpen) {
+                const half = this.menuIconHalf();
+                for (let k = 0; k < SHAPE_NAMES.length; k++) {
+                    const cx = this.menuIconX(k);
+                    const cy = this.menuIconY(k);
+                    const lit = k == this.brushShape;
+                    Nri_ImguiDrawRect(cx - half, cy - half, cx + half, cy + half, lit ? 0.95 : 0.12, lit ? 0.95 : 0.12, lit ? 0.95 : 0.15, 0.92);
+                    this.drawShapeIcon(k, cx, cy - labelHeight * 0.35, half * 0.5, lit ? 0.1 : 0.9);
+                    const name = SHAPE_NAMES[k];
+                    const shade = lit ? 0.0 : 1.0;
+                    Nri_ImguiDrawText(cx - Nri_ImguiCalcTextWidth(name) * 0.5, cy + half - labelHeight, name, shade, shade, shade, 1.0, 0);
+                }
             }
 
             // Particles in use, the brush, the view; the cell under the pointer.
@@ -2776,7 +3055,7 @@ namespace PowderSandboxNri {
                 `particles ${used} / ${CAPACITY}`,
                 `brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}`, `view: ${VIEW_NAMES[this.overlay]}`,
                 this.zoom > 1.001 ? `zoom ${formatFixed(this.zoom, 1)}x` : "",
-                this.paused ? "PAUSED" : ""], 6.0, labelHeight, 1.0);
+                this.paused ? "PAUSED" : ""], hudTop, labelHeight, 1.0);
             const cell = this.probe[3] & 0xFF;
             let contents = materialName(cell);
             if (cell < WALL) {
@@ -2818,6 +3097,34 @@ namespace PowderSandboxNri {
                 Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
             }
             Nri_ImguiRender(this.sample);
+        }
+
+        // A shape's glyph (SHAPE_NAMES' k) at (cx, cy), r in size, in gray: a disc, a square, a
+        // diagonal line, a box's outline (rectangles: ImGui's draw list here has only those).
+        drawShapeIcon(k: int, cx: number, cy: number, r: number, gray: number) {
+            if (k == SHAPE_CIRCLE) {
+                const rows = Math.max(Math.floor(r), 4);
+                for (let i = -rows; i < rows; i++) {
+                    const y = (i + 0.5) / rows;
+                    const w = r * Math.sqrt(Math.max(1.0 - y * y, 0.0));
+                    Nri_ImguiDrawRect(cx - w, cy + i * r / rows, cx + w, cy + (i + 1) * r / rows, gray, gray, gray, 1.0);
+                }
+            } else if (k == SHAPE_SQUARE) {
+                Nri_ImguiDrawRect(cx - r * 0.85, cy - r * 0.85, cx + r * 0.85, cy + r * 0.85, gray, gray, gray, 1.0);
+            } else if (k == SHAPE_LINE) {
+                const steps = Math.max(Math.floor(r), 6);
+                const t = Math.max(r * 0.12, 2.0);
+                for (let i = 0; i <= steps; i++) {
+                    const f = -1.0 + 2.0 * i / steps;
+                    Nri_ImguiDrawRect(cx + f * r - t, cy - f * r - t, cx + f * r + t, cy - f * r + t, gray, gray, gray, 1.0);
+                }
+            } else {
+                const t = Math.max(r * 0.14, 2.0);
+                Nri_ImguiDrawRect(cx - r, cy - r, cx + r, cy - r + t, gray, gray, gray, 1.0);
+                Nri_ImguiDrawRect(cx - r, cy + r - t, cx + r, cy + r, gray, gray, gray, 1.0);
+                Nri_ImguiDrawRect(cx - r, cy - r, cx - r + t, cy + r, gray, gray, gray, 1.0);
+                Nri_ImguiDrawRect(cx + r - t, cy - r, cx + r, cy + r, gray, gray, gray, 1.0);
+            }
         }
 
         // The HUD's parts (empty ones left out) on a line from y, three spaces apart, wrapped onto

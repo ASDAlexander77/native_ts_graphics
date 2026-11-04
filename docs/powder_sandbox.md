@@ -19,7 +19,19 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   alternate 0.5 / 13 ms) tears the water apart.
 - **Temperature:** in every particle and cell, diffused across the grid. It drives boiling and
   condensing, oil igniting, wood burning, uranium heating up.
-- **Painting:** a toolbar of materials and tools (Heat, Cool, Erase); circle, square, line and box
+- **Toolbar:** two rows: tabs for the groups (Liquid, Powder, Gas, Solid, Power, Special, Tools,
+  Game), and the chosen group's tiles under them; each row scrolls sideways when it doesn't fit. The
+  tab whose group holds the tool in hand is underlined in its color. (One row of all 50-odd tiles
+  meant scrolling through six screens of it on an upright phone.) The taller toolbar made the test
+  window's grid wider (308 cells, from 290), and three tests had only passed at some widths: the cup's
+  goal is 900 now, the black hole's bin narrower, the coal scene's fire lasts 10 frames; each now
+  passes from a 277- to a 326-cell-wide grid.
+- **Brush menu:** a press held still on the grid for 0.45 s opens the brush shapes in a ring around
+  it (Circle up, Square right, Line down, Box left), the one in use lit; released on one, or a tap on
+  one next, picks it; a tap elsewhere closes it. What the held press painted is taken back (so holding
+  still to pour now opens the menu: keep the finger moving). While the brush is a circle or a square, a
+  slider along the top sizes it (0.5 to 30 cells); the HUD sits under it.
+- **Painting:** materials and tools (Heat, Cool, Erase); circle, square, line and box
   brushes with an outline cursor; mouse or touch.
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
   the window turns (a phone turned), keeping what it holds.
