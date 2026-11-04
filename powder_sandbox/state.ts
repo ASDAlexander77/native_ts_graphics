@@ -5,6 +5,7 @@ import {
     DEFAULT_VISCOSITY_SWEEPS, WATER, BUFFERS, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level,
     Stroke, QueuedFrame, SwapChainTexture
 } from "./defs";
+import { NriFrameRing } from "../core/nri_frame_ring";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
@@ -13,7 +14,7 @@ import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 export class SandboxState {
     protected device: NriDeviceHandle | null = null;
     protected queue: NriQueueHandle;
-    protected frameFence: NriFenceHandle;
+    protected frames: NriFrameRing = new NriFrameRing();
     protected swapChain: NriSwapChainHandle;
     protected viewFormat: NriFormat = NriFormat.Unknown;
     protected swapChainTextures: SwapChainTexture[] = [];

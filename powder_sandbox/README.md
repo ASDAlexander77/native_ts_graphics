@@ -630,5 +630,10 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     of what's timed, `begin`, `mark` after each piece of work, `end`, `read` once the GPU's done,
     `report`). `dispatch` marks each entry; the report reads as before. **Test** `profile`: the
     showcase with `-profile` must report at least once (no test ran it before).
-  - Still to do: the frames-in-flight and readback ring, dispatch and barriers, the toolbar's
-    widgets (tabs, size slider, radial menu), touch gestures.
+  - **Frames in flight** (done): `core/nri_frame_ring.ts`'s `NriFrameRing`, a command allocator
+    and buffer for each queued frame and the fence (`init`, `wait` for the latency sleep,
+    `commandBuffer`, `signal` after the present, `slot`, `destroy`). The sandbox's `QueuedFrame`
+    keeps only its own per-frame data (the probe's and timestamps' readbacks, the steps, the
+    level's time). The 93 other NRI examples each have the same ring written out; they could use it.
+  - Still to do: dispatch and barriers, the toolbar's widgets (tabs, size slider, radial menu),
+    touch gestures.
