@@ -2,13 +2,13 @@
 import { formatFixed } from "../core/text_format";
 import {
     CAPACITY, DEFAULT_GRID_HEIGHT, QUALITY_FRAMES, STEP_BUDGET_MS, MIN_GRID_HEIGHT, QUALITY_PATH,
-    QUALITY_MAGIC, QUALITY_HEADER_INTS, PROFILE_EVERY, PROFILE_QUERIES, PROFILE_REPORT, GROUP_SIZE,
-    SPARK_ITERATIONS, INT_SECTIONS, EVENT_COUNT, EVENT_MIN, EVENT_COOLDOWN, EVENTS_LOUD, MAX_BODIES,
-    PROBE_INTS, PROBE_VISCOUS, GRAVITY, FLIP_RATIO, SOR_OMEGA, SOLVER_SOR, FAN, INIT_GRID,
-    INIT_PARTICLES, CLEAR, P2G, GRID, HEAT_SOURCE, HEAT_DIFFUSE, DIVERGENCE, PRESSURE, PROJECT, G2P,
-    SPAWN, MG_SETUP, MG_SMOOTH, MG_RESTRICT, MG_PROLONG, MG_COARSE, VISCOSITY, AIR, BODIES,
-    GLOW_EMIT, GLOW_X, GLOW_Y, SPARKS, ENTRIES, B_GRID_INT, B_GRID_FLOAT, B_MG, B_ALL, GRAVITY_TILT,
-    TILT_FLAT, STANDARD_GRAVITY, levelSize, levelCount, QueuedFrame
+    QUALITY_MAGIC, QUALITY_HEADER_INTS, GROUP_SIZE, SPARK_ITERATIONS, INT_SECTIONS, EVENT_COUNT,
+    EVENT_MIN, EVENT_COOLDOWN, EVENTS_LOUD, MAX_BODIES, PROBE_INTS, PROBE_VISCOUS, GRAVITY,
+    FLIP_RATIO, SOR_OMEGA, SOLVER_SOR, FAN, INIT_GRID, INIT_PARTICLES, CLEAR, P2G, GRID,
+    HEAT_SOURCE, HEAT_DIFFUSE, DIVERGENCE, PRESSURE, PROJECT, G2P, SPAWN, MG_SETUP, MG_SMOOTH,
+    MG_RESTRICT, MG_PROLONG, MG_COARSE, VISCOSITY, AIR, BODIES, GLOW_EMIT, GLOW_X, GLOW_Y, SPARKS,
+    B_GRID_INT, B_GRID_FLOAT, B_MG, B_ALL, GRAVITY_TILT, TILT_FLAT, STANDARD_GRAVITY, levelSize,
+    levelCount, QueuedFrame
 } from "./defs";
 import { SandboxSaves } from "./saves";
 
@@ -49,77 +49,6 @@ export class SandboxSimulation extends SandboxSaves {
         }
         this.setFloat(30, tilted ? this.tiltX : this.gravityPointX());
         this.setFloat(31, tilted ? this.tiltY : this.gravityPointY());
-    }
-
-    // -profile: this frame's dispatches timed, if it's one to time (and the last one's were read).
-    beginProfile(commandBuffer: NriCommandBufferHandle) {
-        const profilePool = this.profilePool;
-        if (!profilePool || this.profileFrame >= 0 || this.frameIndex % PROFILE_EVERY != 0) {
-            return;
-        }
-        Nri_CmdResetQueries(commandBuffer, profilePool, 0, PROFILE_QUERIES);
-        Nri_CmdWriteTimestamp(commandBuffer, profilePool, 0);
-        this.profileEntries = [];
-        this.profiling = true;
-    }
-
-    endProfile(commandBuffer: NriCommandBufferHandle) {
-        const profilePool = this.profilePool;
-        const profileReadback = this.profileReadback;
-        if (!this.profiling || !profilePool || !profileReadback) {
-            return;
-        }
-        this.profiling = false;
-        Nri_CmdCopyQueries(commandBuffer, profilePool, 0, this.profileEntries.length + 1, profileReadback, 0);
-        this.profileFrame = this.frameIndex;
-    }
-
-    // The timed frame's intervals, once the GPU's done with it (its queued frame's slot back), into
-    // the sums; every PROFILE_REPORT frames, the report.
-    readProfile() {
-        const device = this.device;
-        const profileReadback = this.profileReadback;
-        if (!device || !profileReadback || this.profileFrame < 0 || this.frameIndex - this.profileFrame < this.queuedFrames.length) {
-            return;
-        }
-        this.profileFrame = -1;
-        for (let i = 0; i < this.profileEntries.length; i++) {
-            const ms = Nri_ReadTimestampIntervalMs(device, profileReadback, i * this.querySize, (i + 1) * this.querySize);
-            if (ms >= 0.0) {
-                this.profileSums[this.profileEntries[i]] += ms;
-            }
-        }
-        this.profileFrames++;
-        if (this.profileFrames < PROFILE_REPORT) {
-            return;
-        }
-        let total = 0.0;
-        for (const sum of this.profileSums) {
-            total += sum;
-        }
-        let report = `Profile (${this.gridW} x ${this.gridH}, ${CAPACITY - this.probe[0]} particles): ${formatFixed(total / this.profileFrames, 2)} ms a frame;`;
-        const shown: boolean[] = [];
-        for (let e = 0; e < ENTRIES.length; e++) {
-            shown.push(false);
-        }
-        for (let n = 0; n < 12; n++) {
-            let best = -1;
-            for (let e = 0; e < ENTRIES.length; e++) {
-                if (!shown[e] && (best < 0 || this.profileSums[e] > this.profileSums[best])) {
-                    best = e;
-                }
-            }
-            if (best < 0 || this.profileSums[best] <= 0.0) {
-                break;
-            }
-            shown[best] = true;
-            report = `${report} ${ENTRIES[best]} ${formatFixed(this.profileSums[best] / this.profileFrames, 2)}`;
-        }
-        console.log(report);
-        for (let e = 0; e < ENTRIES.length; e++) {
-            this.profileSums[e] = 0.0;
-        }
-        this.profileFrames = 0;
     }
 
     // Electricity, while running: spark_cs's iterations (each one's parity in the substep), with the
@@ -380,6 +309,15 @@ export class SandboxSimulation extends SandboxSaves {
                     this.soundCooldowns[k] = EVENT_COOLDOWN[k] * (0.8 + 0.4 * Math.random());
                 }
             }
+        }
+    }
+
+    // -profile's report, every PROFILE_REPORT timed frames (read once the GPU's done with them).
+    readProfile() {
+        const profiler = this.profiler;
+        if (profiler && profiler.read(this.frameIndex, this.queuedFrames.length)) {
+            console.log(`Profile (${this.gridW} x ${this.gridH}, ${CAPACITY - this.probe[0]} particles): ${profiler.report()}`);
+            this.profileReports++;
         }
     }
 

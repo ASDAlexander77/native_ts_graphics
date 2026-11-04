@@ -1,10 +1,11 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import {
-    TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, PROFILE_QUERIES, GROUP_SIZE,
-    CONSTANTS_SIZE, DEFAULT_SUBSTEPS, DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES,
-    DEFAULT_SMOOTH, DEFAULT_VISCOSITY_SWEEPS, WATER, BUFFERS, Tile, GRAVITY_DOWN, MESSAGE_TIME,
-    SHAPE_CIRCLE, Level, Stroke, QueuedFrame, SwapChainTexture
+    TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, GROUP_SIZE, CONSTANTS_SIZE,
+    DEFAULT_SUBSTEPS, DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES, DEFAULT_SMOOTH,
+    DEFAULT_VISCOSITY_SWEEPS, WATER, BUFFERS, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level,
+    Stroke, QueuedFrame, SwapChainTexture
 } from "./defs";
+import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
 // each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts,
@@ -127,17 +128,10 @@ export class SandboxState {
     // The GPU's time for the simulation (a queued frame's two timestamps), the last frame's that
     // stepped, per step.
     protected queryPool: NriQueryPoolHandle | null = null;
-    // -profile: its queries and their readback, the entries the frame being timed dispatched (one
-    // a timestamp after the first), whether one's being recorded, the frame whose are waiting to be
-    // read (-1 none), the milliseconds summed for each entry over the frames read.
+    // -profile: each entry's GPU time (dispatch marks them), reported now and then.
     profile: boolean = false;
-    protected profilePool: NriQueryPoolHandle | null = null;
-    protected profileReadback: NriBufferHandle | null = null;
-    protected profileEntries: int[] = [];
-    protected profiling: boolean = false;
-    protected profileFrame: int = -1;
-    protected profileSums: number[] = [];
-    protected profileFrames: int = 0;
+    protected profiler: NriGpuProfiler | null = null;
+    protected profileReports: int = 0;
     protected querySize: int = 8;
     protected stepMs: number = 0.0;
     protected fpsFrames: int = 0;
@@ -311,12 +305,9 @@ export class SandboxState {
         Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, this.computeSet);
         Nri_CmdDispatch(commandBuffer, Math.floor((count + GROUP_SIZE - 1) / GROUP_SIZE), 1, 1);
         this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
-        const profilePool = this.profilePool;
-        if (profilePool) {
-            if (this.profiling && this.profileEntries.length + 1 < PROFILE_QUERIES) {
-                this.profileEntries.push(entry);
-                Nri_CmdWriteTimestamp(commandBuffer, profilePool, this.profileEntries.length);
-            }
+        const profiler = this.profiler;
+        if (profiler) {
+            profiler.mark(commandBuffer, entry);
         }
     }
 }

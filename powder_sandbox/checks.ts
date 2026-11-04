@@ -143,6 +143,9 @@ export class PowderSandbox extends SandboxApp {
                 return error;
             }
         }
+        if (this.profile && this.profileReports == 0) {
+            return "-profile reported nothing";
+        }
         if (this.stepBudget != STEP_BUDGET_MS && Math.min(this.gridW, this.gridH) >= DEFAULT_GRID_HEIGHT) {
             return `the grid wasn't made smaller for a step budget of ${formatFixed(this.stepBudget, 2)} ms`;
         }
