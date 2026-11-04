@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { identity, multiply, rotate, radians, perspective } from "../../core/matrix";
 
 namespace DynamicMultisampleRasterizationNri {
@@ -148,18 +150,10 @@ namespace DynamicMultisampleRasterizationNri {
         }
     }
 
-    // What a frame in flight records into, and its descriptor set (its UBO slice, the textures and
+    // A frame in flight's own data: its descriptor set (its UBO slice, the textures and
     // the sampler).
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public uboView: NriDescriptorHandle | null, public descriptorSet: NriDescriptorSetHandle | null) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
+        constructor(public uboView: NriDescriptorHandle | null, public descriptorSet: NriDescriptorSetHandle | null) {
         }
     }
 
@@ -175,9 +169,8 @@ namespace DynamicMultisampleRasterizationNri {
     class DynamicMultisampleRasterization {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         private layout: NriPipelineLayoutHandle | null = null;
@@ -278,12 +271,12 @@ namespace DynamicMultisampleRasterizationNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const viewFormat = this.viewFormat;
 
             // The sample's prepare_supported_sample_count_list, then -samples' if supported.
@@ -373,11 +366,11 @@ namespace DynamicMultisampleRasterizationNri {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const uboView = Nri_CreateConstantBufferView(uniformBuffer, i * UBO_VIEW_SIZE, UBO_VIEW_SIZE);
                 const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), uboView, descriptorSet));
+                this.queuedFrames.push(new QueuedFrame(uboView, descriptorSet));
                 if (!uboView || !descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -404,7 +397,7 @@ namespace DynamicMultisampleRasterizationNri {
                 const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
                 this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
-                this.readbackFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
+                this.readbackFormat = this.swapChain.format();
             }
             return 1;
         }
@@ -590,28 +583,11 @@ namespace DynamicMultisampleRasterizationNri {
             return pipeline;
         }
 
-        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.viewFormat = Nri_GetSrgbFormat(Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0)));
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.viewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
@@ -622,12 +598,11 @@ namespace DynamicMultisampleRasterizationNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             this.createTargets();
         }
 
@@ -677,10 +652,7 @@ namespace DynamicMultisampleRasterizationNri {
 
         // Waits for the frame that last used this frame's command allocator (and its UBO).
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // The camera's mouse handling (the buttons unless the overlay has the mouse, then the cursor's
@@ -778,7 +750,7 @@ namespace DynamicMultisampleRasterizationNri {
 
         // The scene into the swap chain texture (left as a color attachment): drawn into it without
         // multisampling; else into the multisampled color, resolved into it.
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, swapChainTexture: SwapChainTexture) {
+        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, index: int) {
             const depthAttachment = this.depthAttachment;
             if (!depthAttachment) {
                 return;
@@ -790,8 +762,8 @@ namespace DynamicMultisampleRasterizationNri {
             const resolveSet = this.resolveSet;
             if (!msColor || !msColorAttachment || !resolveLayout || !resolvePipeline || !resolveSet) {
                 // No multisampling: the scene straight into the swap chain texture.
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRenderingWithDepth(commandBuffer, swapChainTexture.colorAttachment, depthAttachment);
+                Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
                 Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
                 Nri_CmdClearDepth(commandBuffer, 0.0);
                 this.recordDraws(commandBuffer, queuedFrame);
@@ -809,8 +781,8 @@ namespace DynamicMultisampleRasterizationNri {
             // Resolved (averaged in linear space: read and written through sRGB views) into the swap
             // chain texture by a full screen triangle.
             Nri_CmdTextureBarrier(commandBuffer, msColor, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
             Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
             Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
             Nri_CmdSetPipelineLayout(commandBuffer, resolveLayout);
@@ -835,20 +807,18 @@ namespace DynamicMultisampleRasterizationNri {
             this.writeUbo(queuedFrameIndex);
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
-                const commandBuffer = queuedFrame.commandBuffer;
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the scene, then the overlay over it (a pass of its own: without depth).
                 Nri_BeginCommandBuffer(commandBuffer);
                 if (this.imgui) {
                     Nri_CmdCopyImguiData(this.sample, commandBuffer);
                 }
-                this.recordScene(commandBuffer, queuedFrame, swapChainTexture);
+                this.recordScene(commandBuffer, queuedFrame, index);
                 if (this.imgui) {
-                    Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
                     Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
                     Nri_CmdEndRendering(commandBuffer);
                 }
@@ -858,24 +828,24 @@ namespace DynamicMultisampleRasterizationNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
                     Nri_ImguiEndFrame(this.sample);
                 }
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -905,8 +875,6 @@ namespace DynamicMultisampleRasterizationNri {
                     Nri_DestroyImgui(this.sample);
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.uboView);
                 }
                 const descriptorPool = this.descriptorPool;
@@ -940,8 +908,8 @@ namespace DynamicMultisampleRasterizationNri {
                 this.destroyBuffer(this.indexBuffer);
                 this.destroyBuffer(this.uniformBuffer);
                 this.destroyBuffer(this.readbackBuffer);
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

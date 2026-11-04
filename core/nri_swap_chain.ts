@@ -27,6 +27,8 @@ export class NriSwapChain {
     // The acquire semaphore of the frame acquired last (its submit waits on it).
     private acquired: int = 0;
     private created: boolean = false;
+    // The swap chain's format (NriSwapChainFormat, an HDR one, say), or -1: the framework's.
+    private chainFormat: int = -1;
 
     // srgb: the views are the texture format's sRGB form (the GPU encodes the colors); else the
     // texture's own format (the app writes its colors as they are).
@@ -38,10 +40,24 @@ export class NriSwapChain {
         this.create();
     }
 
+    // A swap chain of format (NriSwapChainFormat: BT709_G22_10BIT, BT2020_G2084_10BIT, ...), its
+    // views in its textures' format.
+    initWithFormat(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, format: NriSwapChainFormat) {
+        this.sample = sample;
+        this.device = device;
+        this.queue = queue;
+        this.srgb = false;
+        this.chainFormat = format;
+        this.create();
+    }
+
     private create() {
         this.outputWidth = Nri_GetOutputWidth(this.sample);
         this.outputHeight = Nri_GetOutputHeight(this.sample);
-        this.swapChain = Nri_CreateSwapChain(this.sample, this.device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
+        const wanted = Nri_GetQueuedFrameNum(this.sample) + 1;
+        this.swapChain = this.chainFormat >= 0
+            ? Nri_CreateSwapChainWithFormat(this.sample, this.device, this.queue, wanted, this.chainFormat)
+            : Nri_CreateSwapChain(this.sample, this.device, this.queue, wanted);
         const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
         this.textureFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
         this.attachmentFormat = this.srgb ? Nri_GetSrgbFormat(this.textureFormat) : this.textureFormat;
@@ -72,9 +88,31 @@ export class NriSwapChain {
         return this.attachmentFormat;
     }
 
+    // How many textures it has.
+    textureNum(): int {
+        return this.textures.length;
+    }
+
+    // Whether it's made (and not destroyed since).
+    exists(): boolean {
+        return this.created;
+    }
+
+    // The NRI swap chain itself (for Nri_IsDisplayHdr, say).
+    handle(): NriSwapChainHandle {
+        return this.swapChain;
+    }
+
     // Whether the window's size is no longer the swap chain's.
     resized(): boolean {
         return Nri_GetOutputWidth(this.sample) != this.outputWidth || Nri_GetOutputHeight(this.sample) != this.outputHeight;
+    }
+
+    // Made again in format (NriSwapChainFormat), at the window's size, once the GPU's done with the
+    // old one (initWithFormat's).
+    recreateWithFormat(format: NriSwapChainFormat) {
+        this.chainFormat = format;
+        this.recreate();
     }
 
     // Made again at the window's size, once the GPU's done with the old one.

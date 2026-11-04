@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, radians, samplePerspective } from "../../core/matrix";
 import { MsvcRandom } from "../../core/random";
 
@@ -84,16 +86,9 @@ namespace OitLinkedListsNri {
     // pass's, the background's, the combine pass's) and the view of its slice of the scene
     // constants.
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
+        constructor(public commandBuffer: NriCommandBufferHandle,
             public gatherSet: NriDescriptorSetHandle | null, public backgroundSet: NriDescriptorSetHandle | null,
             public combineSet: NriDescriptorSetHandle | null, public sceneView: NriDescriptorHandle | null) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -143,9 +138,8 @@ namespace OitLinkedListsNri {
     class OitLinkedLists {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         private gatherLayout: NriPipelineLayoutHandle | null = null;
@@ -175,7 +169,7 @@ namespace OitLinkedListsNri {
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
-        // The swap chain textures' format and their views' (createSwapChain's).
+        // The swap chain textures' format and their views' (the swap chain's).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private swapChainViewFormat: NriFormat = NriFormat.Unknown;
 
@@ -247,12 +241,12 @@ namespace OitLinkedListsNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through sRGB views, as Donut's (sRGB) back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
             const viewFormat = this.swapChainViewFormat;
 
@@ -365,13 +359,13 @@ namespace OitLinkedListsNri {
                 console.log("Cannot create the descriptor pool");
                 return 0;
             }
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const sceneView = Nri_CreateConstantBufferView(sceneConstantBuffer, i * CONST_STRIDE, CONST_STRIDE);
                 const gatherSet = Nri_AllocateDescriptorSet(descriptorPool, gatherLayout, 0, 0);
                 const backgroundSet = Nri_AllocateDescriptorSet(descriptorPool, backgroundLayout, 0, 0);
                 const combineSet = Nri_AllocateDescriptorSet(descriptorPool, combineLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), gatherSet, backgroundSet,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), gatherSet, backgroundSet,
                     combineSet, sceneView));
                 if (!sceneView || !gatherSet || !backgroundSet || !combineSet) {
                     console.log("Cannot create the descriptor sets");
@@ -530,10 +524,7 @@ namespace OitLinkedListsNri {
 
         // Waits for the frame that last used this frame's command allocator (and its UBO slice).
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: dragging with the left
@@ -668,32 +659,13 @@ namespace OitLinkedListsNri {
             Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
         }
 
-        // The swap chain at the window's size, its textures' views and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainFormat = format;
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.swapChainViewFormat = viewFormat;
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.swapChainViewFormat = this.swapChain.viewFormat();
+            this.viewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): the swap chain and the lists (a head per
@@ -704,13 +676,13 @@ namespace OitLinkedListsNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
             Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
             this.destroySizedResources();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             this.createSizedResources(device);
             this.updateSizedDescriptors();
         }
@@ -726,19 +698,17 @@ namespace OitLinkedListsNri {
             this.animate();
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                this.recordAndPresent(frameIndex, queuedFrame, queuedFrameIndex, this.swapChainTextures[index], acquireSemaphore);
+                this.recordAndPresent(frameIndex, queuedFrame, queuedFrameIndex, index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // Records the frame into the swap chain texture, submits it and presents it.
-        recordAndPresent(frameIndex: int, queuedFrame: QueuedFrame, queuedFrameIndex: int, swapChainTexture: SwapChainTexture,
-            acquireSemaphore: NriFenceHandle) {
+        recordAndPresent(frameIndex: int, queuedFrame: QueuedFrame, queuedFrameIndex: int, index: int) {
             const descriptorPool = this.descriptorPool;
             const sceneConstantBuffer = this.sceneConstantBuffer;
             if (!descriptorPool || !sceneConstantBuffer) {
@@ -752,15 +722,15 @@ namespace OitLinkedListsNri {
                 Nri_CmdCopyImguiData(this.sample, commandBuffer);
             }
             Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
 
             // Gather pass, after the last frame's combine pass reset the lists.
             this.listBarriers(commandBuffer);
-            this.recordGather(commandBuffer, queuedFrame, swapChainTexture.colorAttachment);
+            this.recordGather(commandBuffer, queuedFrame, this.swapChain.colorAttachment(index));
             this.listBarriers(commandBuffer);
 
             // Combine pass: the background, then the lists blended over it; the overlay over them.
-            Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
             Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
             Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
             this.drawFullscreen(commandBuffer, this.backgroundLayout, this.backgroundPipeline, queuedFrame.backgroundSet);
@@ -775,20 +745,20 @@ namespace OitLinkedListsNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(commandBuffer);
 
             // Submit and present
-            Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
                 Nri_ImguiEndFrame(this.sample);
             }
-            Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+            this.swapChain.present(index);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -818,14 +788,7 @@ namespace OitLinkedListsNri {
                     Nri_DestroyImgui(this.sample);
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.sceneView);
-                }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
@@ -849,8 +812,8 @@ namespace OitLinkedListsNri {
                 this.destroyPipelineLayout(this.gatherLayout);
                 this.destroyPipelineLayout(this.backgroundLayout);
                 this.destroyPipelineLayout(this.combineLayout);
-                Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

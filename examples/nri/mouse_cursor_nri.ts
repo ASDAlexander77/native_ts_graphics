@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { SdkMesh } from "../../core/sdk_mesh";
 import { identity, multiplyF32, inverse } from "../../core/matrix";
 
@@ -85,14 +87,7 @@ namespace MouseCursorNri {
         materialSets: NriDescriptorSetHandle[] = [];
         materialViews: NriDescriptorHandle[] = [];
 
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
+        constructor(public commandBuffer: NriCommandBufferHandle) {
         }
     }
 
@@ -439,9 +434,8 @@ namespace MouseCursorNri {
     class MouseCursor {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private swapChainFormat: NriFormat = NriFormat.Unknown;
 
@@ -561,17 +555,17 @@ namespace MouseCursorNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's B8G8R8A8_UNORM back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, false);
+            this.sizeToSwapChain();
             const width = this.frameWidth;
             const height = this.frameHeight;
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator)));
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i)));
             }
 
             // Model::Draw's LinearWrap (Donut's: trilinear, wrapped); SpriteBatch's LinearClamp (the
@@ -1044,28 +1038,11 @@ namespace MouseCursorNri {
 
         // --- Rendering ----------------------------------------------------------------------------
 
-        // The swap chain at the window's size (frameWidth x frameHeight), its textures' views and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.frameWidth = Nri_GetOutputWidth(this.sample);
-            this.frameHeight = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views in the textures' format).
+        sizeToSwapChain() {
+            this.frameWidth = this.swapChain.width();
+            this.frameHeight = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
         }
 
         // The depth buffer at the swap chain's size; false if it can't be made.
@@ -1097,13 +1074,13 @@ namespace MouseCursorNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.frameWidth && Nri_GetOutputHeight(this.sample) == this.frameHeight) {
+            if (!this.swapChain.resized()) {
                 return;
             }
             Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
             this.destroyDepth();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             this.createDepth(device);
             this.layout(this.frameWidth, this.frameHeight);
             this.setView();
@@ -1113,10 +1090,7 @@ namespace MouseCursorNri {
         // OnPointerCaptureLost: the captured modes end when the window loses the focus (checked
         // here: NRIFramework calls this while the unfocused window waits, not renderFrame).
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
             if (!this.test && !this.absolute && Nri_IsWindowFocused(this.sample) == 0) {
                 this.release();
             }
@@ -1196,14 +1170,13 @@ namespace MouseCursorNri {
             }
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                this.recordAndPresent(frameIndex, queuedFrame, queuedFrameIndex, this.swapChainTextures[index], acquireSemaphore);
+                this.recordAndPresent(frameIndex, queuedFrame, queuedFrameIndex, index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // SpriteBatch::Draw(texture, destinationRectangle), white (between Nri_CmdBeginRendering* and
@@ -1290,8 +1263,7 @@ namespace MouseCursorNri {
 
         // Sample::Render: Sample::Clear, the menu's sprites (its text and the cursor are the UI's), or
         // the mode's model; the text and cursor over them.
-        recordAndPresent(frameIndex: int, queuedFrame: QueuedFrame, queuedFrameIndex: int, swapChainTexture: SwapChainTexture,
-            acquireSemaphore: NriFenceHandle) {
+        recordAndPresent(frameIndex: int, queuedFrame: QueuedFrame, queuedFrameIndex: int, index: int) {
             const descriptorPool = this.descriptorPool;
             const depthAttachment = this.depthAttachment;
             const spriteLayout = this.spriteLayout;
@@ -1308,8 +1280,8 @@ namespace MouseCursorNri {
                 Nri_CmdCopyImguiData(this.sample, commandBuffer);
             }
             Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, swapChainTexture.colorAttachment, depthAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
             Nri_CmdClearColor(commandBuffer, CORNFLOWER_BLUE[0], CORNFLOWER_BLUE[1], CORNFLOWER_BLUE[2], 1.0);
             Nri_CmdClearDepth(commandBuffer, 1.0);
             Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, width, height);
@@ -1337,7 +1309,7 @@ namespace MouseCursorNri {
             Nri_CmdEndRendering(commandBuffer);
             // The text in a pass of its own: NRIFramework's ImGui pipeline has no depth attachment.
             if (this.imgui) {
-                Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
                 Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, this.swapChainFormat);
                 Nri_CmdEndRendering(commandBuffer);
             }
@@ -1347,20 +1319,20 @@ namespace MouseCursorNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, width, height);
+                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), width, height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(commandBuffer);
 
             // Submit and present
-            Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
                 Nri_ImguiEndFrame(this.sample);
             }
-            Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+            this.swapChain.present(index);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -1390,8 +1362,6 @@ namespace MouseCursorNri {
                     Nri_DestroyImgui(this.sample);
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     for (const view of queuedFrame.materialViews) {
                         Nri_DestroyDescriptor(view);
                     }
@@ -1421,8 +1391,8 @@ namespace MouseCursorNri {
                 if (modelLayout) {
                     Nri_DestroyPipelineLayout(modelLayout);
                 }
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

@@ -12,7 +12,7 @@
 @final
 export class NriFrameRing {
     private queue: NriQueueHandle;
-    private fence: NriFenceHandle;
+    private frameFence: NriFenceHandle;
     private allocators: NriCommandAllocatorHandle[] = [];
     private commandBuffers: NriCommandBufferHandle[] = [];
     private created: boolean = false;
@@ -20,7 +20,7 @@ export class NriFrameRing {
     // count frames in flight (Nri_GetQueuedFrameNum), submitted to queue.
     init(device: NriDeviceHandle, queue: NriQueueHandle, count: int) {
         this.queue = queue;
-        this.fence = Nri_CreateFence(device, 0);
+        this.frameFence = Nri_CreateFence(device, 0);
         for (let i = 0; i < count; i++) {
             const allocator = Nri_CreateCommandAllocator(queue);
             this.allocators.push(allocator);
@@ -41,7 +41,7 @@ export class NriFrameRing {
     // slot's allocator for frameIndex to record with.
     wait(frameIndex: int) {
         const count = this.allocators.length;
-        Nri_Wait(this.fence, frameIndex >= count ? 1 + frameIndex - count : 0);
+        Nri_Wait(this.frameFence, frameIndex >= count ? 1 + frameIndex - count : 0);
         Nri_ResetCommandAllocator(this.allocators[frameIndex % count]);
     }
 
@@ -49,9 +49,15 @@ export class NriFrameRing {
         return this.commandBuffers[frameIndex % this.commandBuffers.length];
     }
 
+    // The fence: frame frameIndex done at 1 + frameIndex (for other work to wait on, a compute
+    // queue's, say).
+    fence(): NriFenceHandle {
+        return this.frameFence;
+    }
+
     // Frame frameIndex's work submitted (and presented, as NRISamples signal after the present).
     signal(frameIndex: int) {
-        Nri_QueueSignal(this.queue, this.fence, 1 + frameIndex);
+        Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
     }
 
     // (after the device is idle)
@@ -65,7 +71,7 @@ export class NriFrameRing {
         }
         this.allocators = [];
         this.commandBuffers = [];
-        Nri_DestroyFence(this.fence);
+        Nri_DestroyFence(this.frameFence);
         this.created = false;
     }
 }
