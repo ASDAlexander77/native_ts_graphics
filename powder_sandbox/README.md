@@ -580,20 +580,27 @@ The levels (step 6) as challenges: goals of more kinds, a clock and stars.
 
 The app was one 4,900-line file in `examples/nri/`. Everything of the sandbox's is in this folder
 now (sources, shaders, media, this file, its CMake and tests); the app moves into files here, a
-group at a time,
-each a pure move with the whole suite passing on D3D12 and Vulkan; later, the parts that aren't the
-game's (the frames-in-flight and readback ring, compute dispatch and barriers, the GPU profiler, the
-toolbar, tabs, slider and radial menu, touch gestures) move into `core/nri/` as the engine.
+group at a time, each a pure move with the whole suite passing on D3D12 and Vulkan; later, the
+parts that aren't the game's (the frames-in-flight and readback ring, compute dispatch and
+barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch gestures) move into
+`core/nri/` as the engine.
 
 - **Its own folder** (done): `powder_sandbox/` beside `examples/`; `add_tslang_nri_example`'s
   `SOURCE` names the entry file, and `copy_media` copies `media/` here to the binaries'
   `media/powder_sandbox/` (where the app reads its levels, as before).
-- **Test checks** (done): `checks.ts`'s `PowderSandbox` extends `sandbox.ts`'s `SandboxApp` with
-  the checks (about 1,200 lines), overriding `checkTest`; `defs.ts` holds the constants and small
-  classes both use, exported; `powder_sandbox_nri.ts` reads the command line. The app's fields are
-  `protected`. A subclass, not a module of functions: the checks call the app's own methods
-  (`addStroke`, `gravityPointX`), and a module of functions taking the app would need the app's
-  file to import it back.
-- Still to move, in order: the scenes and levels, the state (undo, save/load, regrid), the input
-  and toolbar, the simulation's recording and profiling. `powder_sandbox.hlsl` (4,200 lines) can be
-  split the same way into includes.
+- **Test checks** (done): `checks.ts`'s `PowderSandbox` extends the app with the checks (about
+  1,200 lines), overriding `checkTest`; `defs.ts` holds the constants and small classes, exported;
+  `powder_sandbox_nri.ts` reads the command line. A subclass, not a module of functions: the checks
+  call the app's own methods (`addStroke`, `gravityPointX`), and a module of functions taking the
+  app would need the app's file to import it back.
+- **Scenes and levels** (done): the fields are `state.ts`'s `SandboxState` (`protected`, with
+  `showMessage`); `levels.ts`'s `SandboxLevels` extends it with the test scenes, the levels' files,
+  goals, clock and stars (about 600 lines); `sandbox.ts`'s `SandboxApp` extends that. So the chain
+  is state, levels, app, checks, each file using only what's below it: `nextLevel` says whether a
+  level started, and the app turns the grid for it (that needs its layout).
+- Each module is rebuilt when one it imports changes (`add_tslang_nri_example` gives every module
+  its imports as dependencies; before, only the entry file had them, so a changed base class left
+  a stale subclass object that failed to link).
+- Still to move, in order: the state's GPU work (undo, save/load, regrid), the input and toolbar,
+  the simulation's recording and profiling. `shaders/powder_sandbox.hlsl` (4,200 lines) can be split
+  the same way into includes.

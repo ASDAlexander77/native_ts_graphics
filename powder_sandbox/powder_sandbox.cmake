@@ -17,7 +17,8 @@ add_custom_command(TARGET copy_media POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E ${MEDIA_COPY_COMMAND} "${CMAKE_CURRENT_SOURCE_DIR}/powder_sandbox/media"
         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/powder_sandbox")
 add_tslang_nri_example(powder_sandbox_nri SOURCE powder_sandbox/powder_sandbox_nri.ts SHADERS powder_sandbox_shaders
-    core/text_format.ts core/json_reader.ts powder_sandbox/defs.ts powder_sandbox/sandbox.ts powder_sandbox/checks.ts
+    core/text_format.ts core/json_reader.ts powder_sandbox/defs.ts powder_sandbox/state.ts powder_sandbox/levels.ts
+    powder_sandbox/sandbox.ts powder_sandbox/checks.ts
     MEDIA powder_sandbox)
 add_tslang_example_test(powder_sandbox_nri)
 # The materials' showcase: oil on water, a sand pile, burning wood, uranium in a pool, an emitter.

@@ -1088,6 +1088,12 @@ function(add_tslang_nri_example name)
     list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
     set_source_files_properties(${main} PROPERTIES OBJECT_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts;${module_ts_paths}")
+    # (each module rebuilt when a module it imports changes: a class it extends, say)
+    foreach(module IN LISTS module_ts_paths)
+        tslang_module_imports("${module}" imports)
+        set_source_files_properties("${module}" PROPERTIES OBJECT_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts;${imports}")
+    endforeach()
     tslang_own_facts(${main} ${module_ts})
     if (ANDROID)
         add_tslang_android_app(${name} "${EXAMPLE_MEDIA}" SHADERS ${EXAMPLE_SHADERS} SOURCE ${main} NRI ${EXAMPLE_UNPARSED_ARGUMENTS})
