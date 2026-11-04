@@ -122,6 +122,10 @@ namespace PowderSandboxNri {
     const PROBE_AIR = 10;
     // A level's goal's count (A_GOAL).
     const PROBE_GOAL = 12;
+    // The most particles -regrid 2 may lose turning a grid on its side: the top it crops should hold
+    // only air, but a drop thrown up there can cling under the ceiling for many seconds (its cell's
+    // velocity is sampled toward the ceiling's zero face, so it lets go slowly).
+    const CLINGING_DROPS = 16;
 
     // Cells per second squared, down.
     const GRAVITY = 300.0;
@@ -1698,15 +1702,14 @@ namespace PowderSandboxNri {
                 this.slideBrush(mx);
             }
             // A press held still on the grid opens the menu around it (and takes back what it
-            // painted); it's then the menu's.
-            if (down && !this.pressOnToolbar && !this.pressOnUi) {
+            // painted); it's then the menu's. Not while inspecting or placing the attraction point:
+            // they have no brush, and holding still is how a cell is read.
+            if (down && !this.pressOnToolbar && !this.pressOnUi && !inspecting) {
                 if (Math.abs(mx - this.pressX) > DRAG_THRESHOLD || Math.abs(my - this.pressY) > DRAG_THRESHOLD) {
                     this.pressTime = -1.0;
                 }
                 if (this.pressTime >= 0.0 && this.time - this.pressTime >= LONG_PRESS_TIME) {
-                    if (!inspecting) {
-                        this.undoRequested = true;
-                    }
+                    this.undoRequested = true;
                     this.openMenu(this.pressX, this.pressY);
                     this.longPressed = true;
                     this.pressOnUi = true;
@@ -3828,7 +3831,8 @@ namespace PowderSandboxNri {
 
         // -regrid: the grid has its wall all around and no particles in a solid cell; remade taller and
         // back, it kept every particle (the U-tube's water doesn't boil or burn); turned upright, it lost
-        // some (the sides cropped) but not all; turned on its side, none (only air above the water).
+        // some (the sides cropped) but not all; turned on its side, at most CLINGING_DROPS (only air
+        // above the water, but for drops clinging under the ceiling).
         checkRegrid(grid: int[]): string {
             const cellsReadback = this.cellsReadback;
             if (!cellsReadback) {
@@ -3864,9 +3868,12 @@ namespace PowderSandboxNri {
             if (this.regrid == 1 && used != this.regridCount) {
                 return `the grid remade taller and back kept ${used} of ${this.regridCount} particles`;
             }
-            // (turned upright, the sides are cropped; turned on its side, the top, the water under it)
+            // (turned upright, the sides are cropped; turned on its side, the top, the water under it
+            // but for a drop or two the first surge left clinging under the ceiling: on the S23's
+            // upright grid, 2 particles in its top corner)
             const croppedSides = this.gridW < this.gridH;
-            if (this.regrid == 2 && (croppedSides ? used == 0 || used >= this.regridCount : used != this.regridCount)) {
+            const lost = this.regridCount - used;
+            if (this.regrid == 2 && (croppedSides ? used == 0 || lost <= 0 : lost < 0 || lost > CLINGING_DROPS)) {
                 return `the turned grid kept ${used} of ${this.regridCount} particles`;
             }
             return "";
