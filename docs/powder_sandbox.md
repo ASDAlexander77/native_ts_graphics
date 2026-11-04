@@ -130,7 +130,9 @@ Run so far on two phones:
   - Tests: `-utube -regrid 1` remakes the grid 20 cells taller and back (every particle kept),
     `-utube -regrid 2` turns it (cropped, the U-tube still levels out); both check the wall around
     the grid and that no particle is in a solid cell.
-  - Not yet tried by turning a phone (none was connected).
+  - On the S23 (turned by its rotation setting, both ways sideways and back upright): each turn
+    remakes the grid (80 x 151 to 198 x 80 and back, at auto quality), the toolbar and the HUD are
+    laid out again, what it held stays on the floor and what's past the new sides is cropped.
 
 - **The GPU's time per step** is measured (two timestamps around the simulation) and shown in
   the HUD: about 0.2 ms on a desktop GPU.
@@ -161,7 +163,8 @@ Run so far on two phones:
   zoomed (for a test's frame).
 - **Inspect**, a tile: touching paints nothing, a crosshair marks the cell under the finger and the
   HUD reads it (temperature, pressure, contents). A long press couldn't do it: holding still is
-  how you pour.
+  how you pour. Holding still with Inspect (or while placing the attraction point) doesn't open the
+  brush menu: neither has a brush, and on the S23 the menu came up over the cell being read.
 - **Profile** (`-profile`): every 30 frames, a timestamp after each of the simulation's dispatches;
   every 8 such frames, each kernel's mean milliseconds a frame, the costliest first. On the S23
   (Adreno 740) a kernel's time shows on the one after it: the timestamps don't wait for the kernel
@@ -172,11 +175,27 @@ Run so far on two phones:
   particle. p2g_cs now counts the FLIP particles once into their own section (`I_FLIP`), and
   `flipCount` reads that: 16.8 ms a frame, g2p_cs 7.5 ms. (On the desktop's GPU it hardly showed.)
 
+- **The whole suite on the S23** (2026-11-04): every test passes, the levels and challenges
+  included (the upright-window ones are for a desktop: the phone is upright already).
+  `turned` lost 2 of 61,344 particles every run, the same 2: on the phone's upright grid
+  (144 x 271) the U-tube's first surge throws water up to the ceiling, and two particles were left
+  clinging in its top corner for many seconds; turned on its side, the grid's top is cropped and
+  them with it. A drop pressed against a ceiling lets go slowly: a velocity sampled near the
+  ceiling is interpolated toward its face's zero, and the pressure solve sends half the pull of
+  gravity out the cell's other open side. The test now allows a few (`CLINGING_DROPS`, 16).
+- **Frame rate**: the simulation's 180 steps a second take most of the S23's GPU in the showcase
+  (3.4 ms a step at 12,000 particles: 38 fps; 1.7 ms at 2,300: 100 fps). Rotation doesn't change it.
+- **Zoom and pan by hand** on the S23: pinch-zoom and the two-finger pan work (adb can't do it: it
+  injects one finger only, and `sendevent` is denied on a phone that isn't rooted).
+- **Sound**: on the S23 the app plays an AAudio stream (media, 48 kHz stereo, low latency); the
+  tests count the events.
+
 Still to do:
 
-- Zoom, pan and Inspect by hand on a phone (built and checked headless only).
-- Rotation on a phone.
+- Listen to the sound on a phone.
 - The step's time on a slower phone (the HUD shows it).
+- Drops clinging under a ceiling (above): letting them fall would mean sampling a solid face's
+  velocity from the free side, which every wall in every scene goes through.
 
 ### 4. More materials (done)
 
@@ -290,7 +309,8 @@ format is unchanged (version 2): the new state lives in the particles.
 
 - **Scenes as data** (done): levels in JSON files, `media/powder_sandbox/scenes/<name>.json`
   (copied beside the executable, and into the APK's assets: `add_tslang_nri_example` takes `MEDIA`
-  folders now, and an NRI app's APK waits for `copy_media` when it has some). Not yet run on a phone.
+  folders now, and an NRI app's APK waits for `copy_media` when it has some). Run on the S23: the
+  level and challenge tests pass there.
   - A level: `{ "name": "...", "goal": { "text": "...", "material": "water", "box": [x0, y0, x1,
     y1], "count": N }, "strokes": [{ "tool": "glass", "box": [...], "emit": "sand", "blow": "right",
     "repeat": N }, ...] }`, boxes in fractions of the grid; tools and materials by their names
@@ -309,7 +329,7 @@ format is unchanged (version 2): the new state lives in the particles.
   - The test scenes (`-scene 2` to `9`) stay in code: their checks share their geometry.
   - **Test** `level`: `test_fill.json`, an emitter over a cup (with a fan and fire, for the format's
     other fields): the cup gets its 400 particles of water.
-- **Sound** (done; not yet listened to on a phone): splashes, fizzing, fire and booms, from the
+- **Sound** (done; playing on the S23, not yet listened to there): splashes, fizzing, fire and booms, from the
   simulation's events.
   - `core/nri/nri_audio.cpp`: a playback device on the default output (miniaudio 0.11.21, one header,
     public domain or MIT-0, fetched by core/nri's CMake: WASAPI on Windows, AAudio or OpenSL ES on
