@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { SdkMesh } from "../../core/sdk_mesh";
 import {
     rotationY, transpose, inverse, cross3, dot3, normalize3, multiplyF32,
@@ -111,7 +113,7 @@ namespace BokehNri {
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
     let retainedFrameCallbacks: NriFrameCallback[] = [];
 
-    // What a frame in flight records into: its command buffer, its sets (the objects' BasicEffect
+    // A frame in flight's own data: its sets (the objects' BasicEffect
     // slices and textures; the bokeh passes' BokehCB and textures), the views of its constants, the
     // buffer its timestamps are copied into and whether it holds ones not read yet.
     class QueuedFrame {
@@ -123,15 +125,8 @@ namespace BokehNri {
         recombineSet: NriDescriptorSetHandle | null = null;
         timestampsPending: boolean = false;
 
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
+        constructor(public commandBuffer: NriCommandBufferHandle,
             public timestampBuffer: NriBufferHandle | null) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -372,9 +367,8 @@ namespace BokehNri {
     class Bokeh {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private unsupportedReason: string = "";
@@ -523,13 +517,13 @@ namespace BokehNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's R8G8B8A8_UNORM back buffers
             // (its FP16 scene copied as is).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, false);
+            this.sizeToSwapChain();
             const width = this.frameWidth;
             const height = this.frameHeight;
             const format = this.swapChainFormat;
@@ -682,11 +676,11 @@ namespace BokehNri {
                 console.log("Cannot create the constant buffer");
                 return 0;
             }
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let q = 0; q < queuedFrameNum; q++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
                 const timestampBuffer = Nri_CreateReadbackBuffer(device, TIMESTAMPS * this.querySize);
-                const queuedFrame = new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), timestampBuffer);
+                const queuedFrame = new QueuedFrame(this.frames.commandBuffer(q), timestampBuffer);
                 this.queuedFrames.push(queuedFrame);
                 const base = q * FRAME_CONSTANTS_SIZE;
                 for (let o = 0; o < OBJECT_COUNT; o++) {
@@ -1221,10 +1215,7 @@ namespace BokehNri {
 
         // Waits for the frame that last used this frame's command allocator (and its constants).
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // The GPU times this queued frame measured when it was last recorded (the GPU has finished
@@ -1254,28 +1245,11 @@ namespace BokehNri {
             Nri_CmdWriteTimestamp(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS + 2 * timer + end);
         }
 
-        createSwapChain(device: NriDeviceHandle) {
-            this.frameWidth = Nri_GetOutputWidth(this.sample);
-            this.frameHeight = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views in the textures' format).
+        sizeToSwapChain() {
+            this.frameWidth = this.swapChain.width();
+            this.frameHeight = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
         }
 
         // The window was resized (Nri_UseResizableWindow): the swap chain and the frame-sized targets
@@ -1288,13 +1262,13 @@ namespace BokehNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.frameWidth && Nri_GetOutputHeight(this.sample) == this.frameHeight) {
+            if (!this.swapChain.resized()) {
                 return;
             }
             Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
             this.destroySizeTargets();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             if (!this.createSizeTargets(device)) {
                 return;
             }
@@ -1312,14 +1286,13 @@ namespace BokehNri {
             }
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                this.recordAndPresent(frameIndex, queuedFrame, queuedFrameIndex, this.swapChainTextures[index], acquireSemaphore);
+                this.recordAndPresent(frameIndex, queuedFrame, queuedFrameIndex, index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // Moves a target to state (if it isn't in it: D3D12 rejects barriers between equal states).
@@ -1460,8 +1433,7 @@ namespace BokehNri {
         }
 
         // Records the frame into the swap chain texture, submits it and presents it.
-        recordAndPresent(frameIndex: int, queuedFrame: QueuedFrame, queuedFrameIndex: int, swapChainTexture: SwapChainTexture,
-            acquireSemaphore: NriFenceHandle) {
+        recordAndPresent(frameIndex: int, queuedFrame: QueuedFrame, queuedFrameIndex: int, index: int) {
             const descriptorPool = this.descriptorPool;
             const constantBuffer = this.constantBuffer;
             const copyLayout = this.copyLayout;
@@ -1510,9 +1482,9 @@ namespace BokehNri {
 
             //------------------------------
             // Copy (the HUD over it)
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
             this.writeTimestamp(commandBuffer, queuedFrameIndex, TI_COPY, 0);
-            Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
             Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, width, height);
             Nri_CmdSetScissor(commandBuffer, 0, 0, width, height);
             Nri_CmdSetPipelineLayout(commandBuffer, copyLayout);
@@ -1540,20 +1512,20 @@ namespace BokehNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, width, height);
+                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), width, height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(commandBuffer);
 
             // Submit and present
-            Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
                 Nri_ImguiEndFrame(this.sample);
             }
-            Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+            this.swapChain.present(index);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -1583,8 +1555,6 @@ namespace BokehNri {
                     Nri_DestroyImgui(this.sample);
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     for (const view of queuedFrame.constantViews) {
                         Nri_DestroyDescriptor(view);
                     }
@@ -1629,8 +1599,8 @@ namespace BokehNri {
                 this.destroyPipelineLayout(this.recombineLayout);
                 this.destroyPipelineLayout(this.copyLayout);
                 this.destroyPipelineLayout(this.energyLayout);
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

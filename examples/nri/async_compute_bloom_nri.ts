@@ -1,4 +1,5 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { identity, multiply, reversedPerspective, vulkanStyleProjection, toDonutClip } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
 
@@ -224,13 +225,6 @@ namespace AsyncComputeBloomNri {
         }
     }
 
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
-        }
-    }
-
     // Port of Vulkan-Samples' async_compute (as examples/async_compute_bloom.ts ports it) to NRI: an
     // 8K shadow map and a 4K HDR forward pass of the Bonza scene on the graphics queue, an HDR bloom
     // (threshold, blur down, blur up) in compute shaders, and a tone mapping composite into the swap
@@ -255,8 +249,7 @@ namespace AsyncComputeBloomNri {
         // bloom done (the composite waits for it): frame index + 1 each.
         private graphicsFence: NriFenceHandle | null = null;
         private computeFence: NriFenceHandle | null = null;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         // The swap chain's size: the window's when it was (re)created.
@@ -427,7 +420,8 @@ namespace AsyncComputeBloomNri {
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
             const viewFormat = this.swapChainViewFormat;
             this.viewFormat = viewFormat;
@@ -1171,7 +1165,7 @@ namespace AsyncComputeBloomNri {
         // The sample's render_swapchain: the HDR frame and the bloom to pixel shader resources (on
         // the graphics queue: a D3D12 compute queue can't take them there), the composite into the
         // swap chain texture, the overlay over it; then the test's read back.
-        recordComposite(commandBuffer: NriCommandBufferHandle, swapChainTexture: SwapChainTexture, frameIndex: int) {
+        recordComposite(commandBuffer: NriCommandBufferHandle, index: int, frameIndex: int) {
             const descriptorPool = this.descriptorPool;
             const compositeLayout = this.compositeLayout;
             const compositePipeline = this.compositePipeline;
@@ -1180,8 +1174,8 @@ namespace AsyncComputeBloomNri {
             }
             this.setHdrState(commandBuffer, this.hdrIndex, NriTextureState.ShaderResource);
             this.setBlurState(commandBuffer, BLOOM_INDEX, NriTextureState.ShaderResource);
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
             Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
             Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
             Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
@@ -1199,12 +1193,12 @@ namespace AsyncComputeBloomNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
         }
 
         // The scene's passes: the shadow map, the HDR frame; the bloom's output back to Storage from
@@ -1221,29 +1215,12 @@ namespace AsyncComputeBloomNri {
             this.setBlurState(commandBuffer, BLOOM_INDEX, NriTextureState.Storage);
         }
 
-        // The swap chain at the window's size, its textures' views and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainViewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainViewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
@@ -1253,12 +1230,11 @@ namespace AsyncComputeBloomNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
         }
 
         renderFrame(frameIndex: int) {
@@ -1276,10 +1252,8 @@ namespace AsyncComputeBloomNri {
             this.updateConstants(queuedFrameIndex);
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
                 const commandBuffer = queuedFrame.commandBuffer;
                 const asyncQueues = this.asyncEnabled && this.hasComputeQueue();
 
@@ -1292,19 +1266,19 @@ namespace AsyncComputeBloomNri {
                     if (this.imgui) {
                         Nri_CmdCopyImguiData(this.sample, commandBuffer);
                     }
-                    this.recordComposite(commandBuffer, swapChainTexture, frameIndex);
+                    this.recordComposite(commandBuffer, index, frameIndex);
                 }
                 Nri_EndCommandBuffer(commandBuffer);
 
                 if (!asyncQueues) {
-                    Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+                    this.swapChain.submit(commandBuffer, index);
                 } else {
-                    this.submitAsync(frameIndex, queuedFrame, swapChainTexture, acquireSemaphore);
+                    this.submitAsync(frameIndex, queuedFrame, index);
                 }
                 if (this.imgui) {
                     Nri_ImguiEndFrame(this.sample);
                 }
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
@@ -1315,7 +1289,7 @@ namespace AsyncComputeBloomNri {
         // compute queue waits for it and signals the compute fence; the composite waits for that
         // (Nri_QueueWait), then for the swap chain texture, and presents (Donut's
         // executeFrameComputeWork).
-        submitAsync(frameIndex: int, queuedFrame: QueuedFrame, swapChainTexture: SwapChainTexture, acquireSemaphore: NriFenceHandle) {
+        submitAsync(frameIndex: int, queuedFrame: QueuedFrame, index: int) {
             const computeQueue = this.computeQueue;
             const computeCommandBuffer = queuedFrame.computeCommandBuffer;
             const graphicsFence = this.graphicsFence;
@@ -1335,10 +1309,10 @@ namespace AsyncComputeBloomNri {
             if (this.imgui) {
                 Nri_CmdCopyImguiData(this.sample, compositeCommandBuffer);
             }
-            this.recordComposite(compositeCommandBuffer, swapChainTexture, frameIndex);
+            this.recordComposite(compositeCommandBuffer, index, frameIndex);
             Nri_EndCommandBuffer(compositeCommandBuffer);
             Nri_QueueWait(this.queue, computeFence, 1 + frameIndex);
-            Nri_QueueSubmit(this.queue, compositeCommandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(compositeCommandBuffer, index);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -1428,7 +1402,7 @@ namespace AsyncComputeBloomNri {
                 this.destroyFence(this.graphicsFence);
                 this.destroyFence(this.computeFence);
                 Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

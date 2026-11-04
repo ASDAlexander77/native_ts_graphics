@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { formatFixed } from "../../core/text_format";
 
 namespace SimpleHdrNri {
@@ -100,19 +102,11 @@ namespace SimpleHdrNri {
         return Math.fround(Math.fround(1.055) * Math.fround(Math.pow(value, Math.fround(1.0 / 2.4))) - Math.fround(0.055));
     }
 
-    // What a frame in flight records into, and its copy of the curve's lines (a host buffer the
+    // A frame in flight's own data: its copy of the curve's lines (a host buffer the
     // vertex shader reads, in its own descriptor set).
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public lineBuffer: NriBufferHandle | null, public lineView: NriDescriptorHandle | null,
+        constructor(public lineBuffer: NriBufferHandle | null, public lineView: NriDescriptorHandle | null,
             public sceneSet: NriDescriptorSetHandle | null) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -207,9 +201,8 @@ namespace SimpleHdrNri {
         private device: NriDeviceHandle | null = null;
         private graphicsAPI: NriGraphicsAPI = NriGraphicsAPI.None;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle | null = null;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private hdr10: boolean = false;
         private queuedFrames: QueuedFrame[] = [];
@@ -300,7 +293,6 @@ namespace SimpleHdrNri {
             this.apiName = graphicsAPI == NriGraphicsAPI.D3D11 ? "DirectX 11" : graphicsAPI == NriGraphicsAPI.D3D12 ? "DirectX 12" : "Vulkan";
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.width = Nri_GetOutputWidth(this.sample);
             this.height = Nri_GetOutputHeight(this.sample);
             this.test = Nri_IsTest(this.sample) != 0;
@@ -312,13 +304,11 @@ namespace SimpleHdrNri {
             // The swap chain: 10-bit (R10G10B10A2, as Donut's AppOptions.HdrBackBuffer), sRGB's color
             // space, or HDR10 when the display is in HDR mode (DeviceResources::UpdateColorSpace).
             this.createSwapChain(NriSwapChainFormat.BT709_G22_10BIT);
-            const swapChain = this.swapChain;
-            if (!swapChain) {
+            if (!this.swapChain.exists()) {
                 console.log("Cannot create the swap chain");
                 return 0;
             }
-            if (Nri_IsDisplayHdr(swapChain) != 0 && !this.forceSdr) {
-                this.destroySwapChain();
+            if (Nri_IsDisplayHdr(this.swapChain.handle()) != 0 && !this.forceSdr) {
                 this.createSwapChain(NriSwapChainFormat.BT2020_G2084_10BIT);
             }
             console.log(`Display in HDR mode: ${this.hdr10 ? "yes" : "no"}`);
@@ -377,15 +367,15 @@ namespace SimpleHdrNri {
                 console.log("Cannot create the descriptors");
                 return 0;
             }
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const lineBuffer = Nri_CreateHostBufferWithStride(device, MAX_LINE_VERTICES * 8, NriBufferUsage.StructuredBuffer, 8);
                 let lineView: NriDescriptorHandle | null = null;
                 if (lineBuffer) {
                     lineView = Nri_CreateStructuredBufferView(lineBuffer, 0);
                 }
                 const sceneSet = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), lineBuffer, lineView, sceneSet));
+                this.queuedFrames.push(new QueuedFrame(lineBuffer, lineView, sceneSet));
                 if (!lineView || !sceneSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -489,67 +479,43 @@ namespace SimpleHdrNri {
             Nri_DeviceWaitIdle(device);
             this.width = Nri_GetOutputWidth(this.sample);
             this.height = Nri_GetOutputHeight(this.sample);
-            this.destroySwapChain();
             this.createSwapChain(this.hdr10 ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
             this.destroyHdrScene();
             this.createHdrScene(device);
         }
 
-        // A swap chain of format (NriSwapChainFormat), its textures' views and semaphores.
+        // The swap chain made in format (NriSwapChainFormat), or made again in it once the GPU's
+        // done with the old one.
         createSwapChain(format: NriSwapChainFormat) {
             const device = this.device;
             if (!device) {
                 return;
             }
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            const swapChain = Nri_CreateSwapChainWithFormat(this.sample, device, this.queue, queuedFrameNum + 1, format);
-            this.swapChain = swapChain;
+            if (this.swapChain.exists()) {
+                this.swapChain.recreateWithFormat(format);
+            } else {
+                this.swapChain.initWithFormat(this.sample, device, this.queue, format);
+            }
             this.hdr10 = format == NriSwapChainFormat.BT2020_G2084_10BIT;
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(swapChain, 0));
-            const textureNum = Nri_GetSwapChainTextureNum(swapChain);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            const swapChain = this.swapChain;
-            if (swapChain) {
-                Nri_DestroySwapChain(swapChain);
-            }
-            this.swapChain = null;
+            this.swapChainFormat = this.swapChain.format();
         }
 
         // DeviceResources::UpdateColorSpace: HDR10 when the window's display is in HDR mode (the
         // swap chain made again, as Donut's color space change resizes it), sRGB otherwise.
         updateColorSpace() {
             const device = this.device;
-            const swapChain = this.swapChain;
-            if (!device || !swapChain) {
+            if (!device || !this.swapChain.exists()) {
                 return;
             }
-            const wanted = Nri_IsDisplayHdr(swapChain) != 0 && !this.forceSdr;
+            const wanted = Nri_IsDisplayHdr(this.swapChain.handle()) != 0 && !this.forceSdr;
             if (wanted != this.hdr10) {
-                Nri_DeviceWaitIdle(device);
-                this.destroySwapChain();
                 this.createSwapChain(wanted ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
             }
         }
 
         // Waits for the frame that last used this frame's command allocator.
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // The sample's keys: Space toggles the curve, Enter the paper white block alone, + / - change
@@ -917,17 +883,15 @@ namespace SimpleHdrNri {
             if (this.imgui) {
                 this.buildUI();
             }
-            const swapChain = this.swapChain;
-            if (!swapChain) {
+            if (!this.swapChain.exists()) {
                 return;
             }
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
-                const commandBuffer = queuedFrame.commandBuffer;
+                const texture = this.swapChain.texture(index);
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the HDR scene and its text, then the swap chain texture from it.
                 Nri_BeginCommandBuffer(commandBuffer);
@@ -935,32 +899,32 @@ namespace SimpleHdrNri {
                     Nri_CmdCopyImguiData(this.sample, commandBuffer);
                 }
                 this.recordScene(commandBuffer, queuedFrame);
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                this.recordPrepareSwapChain(commandBuffer, swapChainTexture.colorAttachment);
+                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                this.recordPrepareSwapChain(commandBuffer, this.swapChain.colorAttachment(index));
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
                     Nri_ImguiEndFrame(this.sample);
                 }
-                Nri_QueuePresent(swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR: the 10-bit channels' top 8 bits), empty if it can't
@@ -991,12 +955,10 @@ namespace SimpleHdrNri {
                     Nri_DestroyImgui(this.sample);
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.lineView);
                     this.destroyBuffer(queuedFrame.lineBuffer);
                 }
-                this.destroySwapChain();
+                this.swapChain.destroy();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -1010,7 +972,7 @@ namespace SimpleHdrNri {
                 this.destroyPipeline(this.sdrPipeline);
                 this.destroyLayout(this.sceneLayout);
                 this.destroyLayout(this.convertLayout);
-                Nri_DestroyFence(this.frameFence);
+                this.frames.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

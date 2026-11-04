@@ -1,4 +1,5 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import {
     cross3, matrixLookAtRH, matrixPerspectiveFovRH, matrixRotationAxis, matrixRotationY, matrixTranspose,
     normalize3, transform4, transformCoord3, vsub, XM_PI,
@@ -169,13 +170,6 @@ namespace MultithreadingNri {
         }
     }
 
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
-        }
-    }
-
     // Port of DirectX-Graphics-Samples' D3D12Multithreading (as examples/multithreading.ts ports it)
     // to NRI: the SquidRoom scene (1025 draws) lit by three spotlights circling it, the first casting
     // a shadow (a shadow pass from it, then 2 x 2 PCF), each frame's draws recorded by three worker
@@ -189,13 +183,12 @@ namespace MultithreadingNri {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
         private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         private width: int = 0;
         private height: int = 0;
-        // The swap chain textures' format (createSwapChain's).
+        // The swap chain textures' format (the swap chain's).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private test: boolean = false;
         // -singleThreaded: the draws recorded one context after another on the main thread (the
@@ -305,7 +298,8 @@ namespace MultithreadingNri {
             // Swap chain: the UNORM textures blitted into as they are (the Donut example's UNORM back
             // buffers, the sample's R8G8B8A8_UNORM).
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, false);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
 
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
@@ -688,30 +682,12 @@ namespace MultithreadingNri {
             }
         }
 
-        // The swap chain at the window's size, its textures' views and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainFormat = format;
-            this.viewFormat = format;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, format),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views in the textures' format).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.viewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): the swap chain made
@@ -721,12 +697,11 @@ namespace MultithreadingNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
         }
 
         // OnRender: the constants written, the workers recording the passes' draws while the main
@@ -745,10 +720,9 @@ namespace MultithreadingNri {
             Nri_WriteBuffer(constantBuffer, this.shadowOffset(queuedFrameIndex), Ref(this.shadowConstants[0]), CONSTANTS_SIZE);
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                this.recordAndSubmit(frameIndex, queuedFrame, this.swapChainTextures[index], acquireSemaphore);
+                this.recordAndSubmit(frameIndex, queuedFrame, index);
             }
 
             // Signaled after the present, as NRISamples do
@@ -757,7 +731,7 @@ namespace MultithreadingNri {
 
         // Records the frame (the workers' passes on their threads unless -singleThreaded), submits it
         // and presents.
-        recordAndSubmit(frameIndex: int, queuedFrame: QueuedFrame, swapChainTexture: SwapChainTexture, acquireSemaphore: NriFenceHandle) {
+        recordAndSubmit(frameIndex: int, queuedFrame: QueuedFrame, index: int) {
             const descriptorPool = this.descriptorPool;
             const blitSet = this.blitSet;
             const colorBuffer = this.colorBuffer;
@@ -808,8 +782,8 @@ namespace MultithreadingNri {
             Nri_BeginCommandBuffer(post);
             Nri_CmdSetDescriptorPool(post, descriptorPool);
             Nri_CmdTextureBarrier(post, colorBuffer, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-            Nri_CmdTextureBarrier(post, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(post, swapChainTexture.colorAttachment);
+            Nri_CmdTextureBarrier(post, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdBeginRendering(post, this.swapChain.colorAttachment(index));
             this.blit.record(post, blitSet, this.width, this.height);
             Nri_CmdEndRendering(post);
 
@@ -818,12 +792,12 @@ namespace MultithreadingNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(post, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(post, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                    Nri_CmdTextureBarrier(post, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(post, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(post, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(post, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(post);
 
             if (!this.singleThreaded) {
@@ -843,8 +817,8 @@ namespace MultithreadingNri {
             for (let c = 0; c < NUM_CONTEXTS; c++) {
                 Nri_QueueSubmitCommandBuffer(this.queue, queuedFrame.sceneCommandBuffers[c]);
             }
-            Nri_QueueSubmit(this.queue, post, acquireSemaphore, swapChainTexture.releaseSemaphore);
-            Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(post, index);
+            this.swapChain.present(index);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -896,11 +870,6 @@ namespace MultithreadingNri {
                     }
                     Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 }
-                for (const swapChainTexture of this.swapChainTextures) {
-                    Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                    Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                    Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -947,7 +916,7 @@ namespace MultithreadingNri {
                     }
                 }
                 Nri_DestroyFence(this.frameFence);
-                Nri_DestroySwapChain(this.swapChain);
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

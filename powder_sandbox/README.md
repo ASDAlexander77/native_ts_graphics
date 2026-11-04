@@ -634,7 +634,7 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     and buffer for each queued frame and the fence (`init`, `wait` for the latency sleep,
     `commandBuffer`, `signal` after the present, `slot`, `destroy`). The sandbox's `QueuedFrame`
     keeps only its own per-frame data (the probe's and timestamps' readbacks, the steps, the
-    level's time). The 93 other NRI examples each have the same ring written out; they could use it.
+    level's time). `fence()` gives the fence to other work that waits on it (an async compute loop).
   - **Compute kernels** (done): `core/nri_compute_kernels.ts`'s `NriComputeKernels`, pipelines
     sharing one descriptor set and one block of root constants (`init` sizes the constants, `bind`
     gives it the pipelines, the set and the buffers barrier masks name; `setFloat`, `setInt`,
@@ -655,7 +655,15 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     with a color attachment view and a pair of semaphores for each texture (`init`, sRGB views or
     the texture's own format; `width`, `height`, `viewFormat`; `resized` and `recreate`; `acquire`,
     `texture`, `colorAttachment`, `submit`, `present`; `destroy`). The sandbox keeps what it fits
-    to the window (the grid, the toolbar). The 93 other NRI examples each make theirs the same way.
+    to the window (the grid, the toolbar). For HDR: `initWithFormat` / `recreateWithFormat` (an
+    `NriSwapChainFormat`), `exists`, `handle` (for `Nri_IsDisplayHdr`), `textureNum`.
+  - **The other NRI examples** (done, PRs #250 to #255 and this one): all 93 use `NriSwapChain`,
+    and 89 use `NriFrameRing` too (their `QueuedFrame` keeps only their own per-frame data, or a
+    `commandBuffer` from the ring where helpers record into it). The 4 that record into more than
+    one command buffer a frame (async_compute_bloom, multithreading, threaded_rendering,
+    timeline_semaphore) keep their own frames. Converted by a script, each replacement checked;
+    verified by their test frames, byte for byte the same before and after on D3D12 and Vulkan
+    (where a frame shows measured times, only those differ, as they do run to run).
   - Still to do: the radial menu (never open in a test: it needs a phone to check), touch
     gestures. The tiles' row stays the sandbox's (its labels, swatches and selection are the
     game's).

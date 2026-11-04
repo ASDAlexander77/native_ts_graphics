@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
 import { DonutSceneTextures } from "../../core/nri_donut_textures";
@@ -116,15 +118,8 @@ namespace RtBindlessNri {
     // lighting constants and the instances in the trace's set, the joint matrices in the skinning
     // sets, one per skinned instance).
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
+        constructor(public commandBuffer: NriCommandBufferHandle,
             public traceSet: NriDescriptorSetHandle, public skinningSets: NriDescriptorSetHandle[]) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -138,9 +133,8 @@ namespace RtBindlessNri {
     class RtBindless {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format (the readback's) and their views' (sRGB).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
@@ -268,13 +262,13 @@ namespace RtBindlessNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
             this.vulkan = graphicsAPI == NriGraphicsAPI.VK;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
             const viewFormat = this.viewFormat;
 
@@ -399,29 +393,12 @@ namespace RtBindlessNri {
             this.colorBuffer = null;
         }
 
-        // The swap chain at the window's size, its textures' views (sRGB) and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.viewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
@@ -432,12 +409,11 @@ namespace RtBindlessNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             if (!this.colorBuffer) {
                 return;
             }
@@ -629,8 +605,8 @@ namespace RtBindlessNri {
                 return false;
             }
 
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const traceSet = Nri_AllocateDescriptorSet(descriptorPool, traceLayout, 0, 0);
                 const constantsView = this.keepView(Nri_CreateConstantBufferView(constantBuffer, i * this.constantsStride, this.constantsStride));
                 const instanceView = this.keepView(Nri_CreateStructuredBufferRangeView(instanceBuffer, i * this.instanceStride,
@@ -662,7 +638,7 @@ namespace RtBindlessNri {
                     Nri_UpdateDescriptor(set, 1, 0, skinnedStorageView);
                     skinningSets.push(set);
                 }
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), traceSet, skinningSets));
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), traceSet, skinningSets));
             }
 
             // The bindless arrays: the buffers by GeometryData's numbers; the textures by number.
@@ -701,10 +677,7 @@ namespace RtBindlessNri {
 
         // Waits for the frame that last used this frame's command allocator.
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // The Donut example's onAnimate: the camera (unless in test mode, where nothing moves it), Space
@@ -844,21 +817,20 @@ namespace RtBindlessNri {
             this.writeFrameData(queuedFrameIndex);
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                this.recordAndSubmit(frameIndex, queuedFrameIndex, queuedFrame, posed, this.swapChainTextures[index], acquireSemaphore);
+                this.recordAndSubmit(frameIndex, queuedFrameIndex, queuedFrame, posed, index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // Records the frame into the queued frame's command buffer, submits it and presents: the mip
         // chains (the first frame), the skinning (when the animations posed the scene, and the first
         // frame), the acceleration structures (Donut_UpdateSceneAccelStructs), the trace, the blit.
         recordAndSubmit(frameIndex: int, queuedFrameIndex: int, queuedFrame: QueuedFrame, posed: boolean,
-            swapChainTexture: SwapChainTexture, acquireSemaphore: NriFenceHandle) {
+            index: int) {
             const descriptorPool = this.descriptorPool;
             const scene = this.scene;
             const accelStructs = this.accelStructs;
@@ -879,8 +851,8 @@ namespace RtBindlessNri {
                 skin && this.skinnedCount > 0 ? 1 : 0);
             this.recordTrace(commandBuffer, queuedFrame);
 
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
             const blitSet = this.blitSet;
             if (blitSet) {
                 this.blit.record(commandBuffer, blitSet, this.width, this.height);
@@ -892,17 +864,17 @@ namespace RtBindlessNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
             Nri_EndCommandBuffer(commandBuffer);
 
             // Submit and present
-            Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
-            Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+            this.swapChain.submit(commandBuffer, index);
+            this.swapChain.present(index);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -928,10 +900,6 @@ namespace RtBindlessNri {
             const device = this.device;
             if (device) {
                 Nri_DeviceWaitIdle(device);
-                for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
-                }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
                     Nri_DestroyDescriptorPool(descriptorPool);
@@ -971,8 +939,8 @@ namespace RtBindlessNri {
                 this.destroyPipeline(this.skinningPipeline);
                 this.destroyLayout(this.traceLayout);
                 this.destroyLayout(this.skinningLayout);
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             const scene = this.scene;

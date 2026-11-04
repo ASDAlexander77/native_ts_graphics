@@ -1310,7 +1310,7 @@ add_tslang_example(threaded_rendering MEDIA glTF-Sample-Assets/Models/Sponza)
 add_tslang_example_test(threaded_rendering)
 # threaded_rendering with NRI and NRIFramework: Donut's forward shading and blit shaders
 # (shaders/framework), Sponza loaded as Donut's engine loads it (core/nri/nri_donut_scene.cpp).
-add_tslang_nri_example(threaded_rendering_nri core/donut_first_person_camera.ts core/nri_donut_textures.ts)
+add_tslang_nri_example(threaded_rendering_nri core/donut_first_person_camera.ts core/nri_donut_textures.ts core/nri_swap_chain.ts)
 add_tslang_example_test(threaded_rendering_nri)
 if (TARGET donut_shaders AND TARGET threaded_rendering_nri)
     add_dependencies(threaded_rendering_nri donut_shaders)
@@ -1343,7 +1343,7 @@ add_tslang_example_test(rt_shadows)
 # rt_shadows with NRI and NRIFramework instead of Donut: rt_shadows' shader library, Donut's G-buffer fill and
 # blit shaders (shaders/framework), the scene loaded as Donut loads it (core/nri/nri_donut_scene.cpp).
 add_tslang_nri_example(rt_shadows_nri SHADERS rt_shadows_shaders core/matrix.ts core/donut_first_person_camera.ts
-    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+    core/nri_donut_textures.ts core/nri_donut_blit.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(rt_shadows_nri)
 if (TARGET donut_shaders AND TARGET rt_shadows_nri)
     add_dependencies(rt_shadows_nri donut_shaders)
@@ -1367,7 +1367,7 @@ add_tslang_example_test(variable_shading)
 # donut_shaders), Sponza loaded as Donut's engine loads it. D3D12 and Vulkan (variable rate shading),
 # as the Donut example.
 add_tslang_nri_example(variable_shading_nri SHADERS variable_shading_shaders core/matrix.ts core/donut_first_person_camera.ts
-    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+    core/nri_donut_textures.ts core/nri_donut_blit.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(variable_shading_nri)
 if (TARGET donut_shaders AND TARGET variable_shading_nri)
     add_dependencies(variable_shading_nri donut_shaders)
@@ -1385,7 +1385,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(async_compute)
 add_tslang_example_test(async_compute)
 # async_compute with NRI and NRIFramework instead of Donut: async_compute's shaders.
-add_tslang_nri_example(async_compute_nri SHADERS async_compute_shaders)
+add_tslang_nri_example(async_compute_nri SHADERS async_compute_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(async_compute_nri)
 
 # Port of Vulkan-Samples' compute_nbody: an N-body simulation in two compute passes, drawn as
@@ -1439,7 +1439,7 @@ add_tslang_example_test(compute_nbody_collisions SUFFIX energy_merge ARGS -fullg
 # Donut's ThirdPersonCamera (core/donut_third_person_camera.ts). D3D11 skipped (the free slots'
 # RWStructuredBuffer<uint>: NRI's D3D11 makes stride-4 buffers raw). The Donut example's variants.
 add_tslang_nri_example(compute_nbody_collisions_nri SHADERS compute_nbody_collisions_shaders core/matrix.ts
-    core/donut_third_person_camera.ts)
+    core/donut_third_person_camera.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(compute_nbody_collisions_nri)
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX head_on ARGS -attractors 2 -particles 1)
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX merge ARGS -merge 2)
@@ -1656,7 +1656,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # hdr with NRI and NRIFramework instead of Donut: hdr's shaders, models and environment map.
-add_tslang_nri_example(hdr_nri SHADERS hdr_shaders core/matrix.ts)
+add_tslang_nri_example(hdr_nri SHADERS hdr_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(hdr_nri)
 if (TARGET hdr_media AND TARGET hdr_nri)
     add_dependencies(hdr_nri hdr_media)
@@ -1681,7 +1681,7 @@ add_tslang_example_test(calibrated_timestamps)
 # calibrated_timestamps with NRI and NRIFramework instead of Donut: hdr's shaders (the Donut
 # example's calibrated_timestamps_shaders), models and cube map (hdr_media); the calibrated timestamps
 # VK_EXT_calibrated_timestamps' (NRI patched to enable it) or D3D12's clock calibration. No D3D11.
-add_tslang_nri_example(calibrated_timestamps_nri SHADERS calibrated_timestamps_shaders core/matrix.ts)
+add_tslang_nri_example(calibrated_timestamps_nri SHADERS calibrated_timestamps_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(calibrated_timestamps_nri)
 if (TARGET hdr_media AND TARGET calibrated_timestamps_nri)
     add_dependencies(calibrated_timestamps_nri hdr_media)
@@ -1875,7 +1875,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # async_compute_bloom with NRI and NRIFramework instead of Donut: its shaders and Bonza scene, the bloom on NRI's compute queue.
-add_tslang_nri_example(async_compute_bloom_nri SHADERS async_compute_bloom_shaders core/donut_first_person_camera.ts core/matrix.ts)
+add_tslang_nri_example(async_compute_bloom_nri SHADERS async_compute_bloom_shaders core/donut_first_person_camera.ts core/matrix.ts core/nri_swap_chain.ts)
 add_tslang_example_test(async_compute_bloom_nri)
 if (TARGET async_compute_bloom_media AND TARGET async_compute_bloom_nri)
     add_dependencies(async_compute_bloom_nri async_compute_bloom_media)
@@ -1919,7 +1919,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # oit_linked_lists with NRI and NRIFramework instead of Donut: oit_linked_lists' shaders, model and background, NRIFramework's ImGui.
-add_tslang_nri_example(oit_linked_lists_nri SHADERS oit_linked_lists_shaders core/random.ts core/matrix.ts)
+add_tslang_nri_example(oit_linked_lists_nri SHADERS oit_linked_lists_shaders core/random.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(oit_linked_lists_nri)
 if (TARGET oit_linked_lists_media AND TARGET oit_linked_lists_nri)
     add_dependencies(oit_linked_lists_nri oit_linked_lists_media)
@@ -2094,7 +2094,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # rasterization_order_attachment_access with NRI and NRIFramework instead of Donut: its shaders, model and background.
-add_tslang_nri_example(rasterization_order_attachment_access_nri SHADERS rasterization_order_attachment_access_shaders core/random.ts core/matrix.ts)
+add_tslang_nri_example(rasterization_order_attachment_access_nri SHADERS rasterization_order_attachment_access_shaders core/random.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(rasterization_order_attachment_access_nri)
 if (TARGET rasterization_order_attachment_access_media AND TARGET rasterization_order_attachment_access_nri)
     add_dependencies(rasterization_order_attachment_access_nri rasterization_order_attachment_access_media)
@@ -2273,7 +2273,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # oit_depth_peeling with NRI and NRIFramework instead of Donut: oit_depth_peeling's shaders, model and background, NRIFramework's ImGui.
-add_tslang_nri_example(oit_depth_peeling_nri SHADERS oit_depth_peeling_shaders core/matrix.ts)
+add_tslang_nri_example(oit_depth_peeling_nri SHADERS oit_depth_peeling_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(oit_depth_peeling_nri)
 if (TARGET oit_depth_peeling_media AND TARGET oit_depth_peeling_nri)
     add_dependencies(oit_depth_peeling_nri oit_depth_peeling_media)
@@ -2309,7 +2309,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # render_octomap with NRI and NRIFramework instead of Donut: its shaders and map.
-add_tslang_nri_example(render_octomap_nri SHADERS render_octomap_shaders core/octomap_common.ts core/matrix.ts)
+add_tslang_nri_example(render_octomap_nri SHADERS render_octomap_shaders core/octomap_common.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(render_octomap_nri)
 if (TARGET render_octomap_media AND TARGET render_octomap_nri)
     add_dependencies(render_octomap_nri render_octomap_media)
@@ -2387,7 +2387,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # msaa with NRI and NRIFramework instead of Donut: its shaders and space module, the multisampled color resolved by shaders/nri_msaa_resolve.hlsl.
-add_tslang_nri_example(msaa_nri SHADERS msaa_shaders core/donut_first_person_camera.ts core/matrix.ts)
+add_tslang_nri_example(msaa_nri SHADERS msaa_shaders core/donut_first_person_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 if (TARGET msaa_nri)
     add_dependencies(msaa_nri nri_msaa_resolve_shaders)
 endif()
@@ -2537,7 +2537,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # fragment_shading_rate_dynamic with NRI and NRIFramework instead of Donut: fragment_shading_rate_dynamic's shaders, model and textures.
-add_tslang_nri_example(fragment_shading_rate_dynamic_nri SHADERS fragment_shading_rate_dynamic_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(fragment_shading_rate_dynamic_nri SHADERS fragment_shading_rate_dynamic_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(fragment_shading_rate_dynamic_nri)
 if (TARGET fragment_shading_rate_dynamic_media AND TARGET fragment_shading_rate_dynamic_nri)
     add_dependencies(fragment_shading_rate_dynamic_nri fragment_shading_rate_dynamic_media)
@@ -2967,7 +2967,7 @@ if (TARGET hdr_media)
 endif()
 
 # timestamp_queries with NRI and NRIFramework instead of Donut: its shaders, hdr's models and environment map.
-add_tslang_nri_example(timestamp_queries_nri SHADERS timestamp_queries_shaders core/matrix.ts)
+add_tslang_nri_example(timestamp_queries_nri SHADERS timestamp_queries_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(timestamp_queries_nri)
 if (TARGET hdr_media AND TARGET timestamp_queries_nri)
     add_dependencies(timestamp_queries_nri hdr_media)
@@ -3036,7 +3036,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(timeline_semaphore)
 add_tslang_example_test(timeline_semaphore)
 # timeline_semaphore with NRI and NRIFramework instead of Donut: timeline_semaphore's shaders.
-add_tslang_nri_example(timeline_semaphore_nri SHADERS timeline_semaphore_shaders)
+add_tslang_nri_example(timeline_semaphore_nri SHADERS timeline_semaphore_shaders core/nri_swap_chain.ts)
 add_tslang_example_test(timeline_semaphore_nri)
 
 # Port of Vulkan-Samples' color_write_enable: a triangle drawn into three targets, each written in
@@ -3090,7 +3090,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # dynamic_multisample_rasterization with NRI and NRIFramework instead of Donut: its shaders and msaa's space module.
-add_tslang_nri_example(dynamic_multisample_rasterization_nri SHADERS dynamic_multisample_rasterization_shaders core/matrix.ts)
+add_tslang_nri_example(dynamic_multisample_rasterization_nri SHADERS dynamic_multisample_rasterization_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 # The NRI examples' multisample resolve by a shader (see the .hlsl).
 donut_compile_shaders_all_platforms(
     TARGET nri_msaa_resolve_shaders
@@ -3123,7 +3123,7 @@ if (TARGET hdr_media)
     add_dependencies(vertex_dynamic_state hdr_media)
 endif()
 # vertex_dynamic_state with NRI and NRIFramework instead of Donut: vertex_dynamic_state's shaders and model.
-add_tslang_nri_example(vertex_dynamic_state_nri SHADERS vertex_dynamic_state_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(vertex_dynamic_state_nri SHADERS vertex_dynamic_state_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(vertex_dynamic_state_nri)
 if (TARGET hdr_media AND TARGET vertex_dynamic_state_nri)
     add_dependencies(vertex_dynamic_state_nri hdr_media)
@@ -3279,7 +3279,7 @@ add_tslang_example_test(shader_debugprintf APIS vk)
 # sphere and its texture (fragment_shading_rate_dynamic's copies), shader printf through the Vulkan
 # validation layer (Nri_UseShaderPrintf: the layer and its printf setting on for this example's
 # device, a messenger of the interop's own for its messages). Vulkan only, as the Donut example.
-add_tslang_nri_example(shader_debugprintf_nri SHADERS shader_debugprintf_shaders core/matrix.ts)
+add_tslang_nri_example(shader_debugprintf_nri SHADERS shader_debugprintf_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(shader_debugprintf_nri APIS vk)
 if (TARGET fragment_shading_rate_dynamic_media AND TARGET shader_debugprintf_nri)
     add_dependencies(shader_debugprintf_nri fragment_shading_rate_dynamic_media)
@@ -3542,7 +3542,7 @@ add_tslang_example_test(simple_hdr)
 
 # simple_hdr with NRI and NRIFramework instead of Donut: simple_hdr's shaders; its text drawn by
 # NRIFramework's ImGui (DONUT_SAMPLES_MEDIA_DIR's DroidSans Mono, as the Donut example's).
-add_tslang_nri_example(simple_hdr_nri SHADERS simple_hdr_shaders core/text_format.ts)
+add_tslang_nri_example(simple_hdr_nri SHADERS simple_hdr_shaders core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(simple_hdr_nri)
 
 # Port of the Xbox ATG VideoTexturePC12 sample (PCSamples/Graphics/VideoTexturePC12): a video played
@@ -3635,7 +3635,7 @@ add_atg_media(bokeh bokeh
 # permutations), the sample's SDKMESH models (the reader is in nri_interop) and iris texture, the
 # font. No D3D11: NRI's D3D11 backend has no structured buffers of 4-byte structures (the energy
 # shader's scratch memory), so the tests are D3D12's and Vulkan's.
-add_tslang_nri_example(bokeh_nri SHADERS bokeh_shaders core/matrix.ts core/text_format.ts core/sdk_mesh.ts)
+add_tslang_nri_example(bokeh_nri SHADERS bokeh_shaders core/matrix.ts core/text_format.ts core/sdk_mesh.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(bokeh_nri)
 add_tslang_example_test(bokeh_nri SUFFIX slow ARGS -slow)
 if (TARGET bokeh_media AND TARGET bokeh_nri)
@@ -3675,7 +3675,7 @@ add_atg_media(raytracing_ao raytracing_ao
 # ray tracing; their storage textures' Vulkan formats declared for NRIFramework's validation), the
 # sample's SDKMESH models (the reader is in nri_interop) and texture (raytracing_ao_media), Donut's
 # blit shaders (donut_shaders), its HUD drawn by NRIFramework's ImGui.
-add_tslang_nri_example(raytracing_ao_nri SHADERS raytracing_ao_shaders core/matrix.ts core/text_format.ts core/sdk_mesh.ts)
+add_tslang_nri_example(raytracing_ao_nri SHADERS raytracing_ao_shaders core/matrix.ts core/text_format.ts core/sdk_mesh.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(raytracing_ao_nri)
 if (TARGET raytracing_ao_media AND TARGET raytracing_ao_nri)
     add_dependencies(raytracing_ao_nri raytracing_ao_media)
@@ -3721,7 +3721,7 @@ add_atg_media(simple_pbr simple_pbr
 # simple_pbr with NRI and NRIFramework instead of Donut: simple_pbr's shaders, its SDKMESH reader
 # (core/sdkmesh.cpp, compiled into nri_interop) and XBOX_ATG_SAMPLES_DIR's models and textures
 # (simple_pbr_media).
-add_tslang_nri_example(simple_pbr_nri SHADERS simple_pbr_shaders core/matrix.ts core/sdk_mesh.ts)
+add_tslang_nri_example(simple_pbr_nri SHADERS simple_pbr_shaders core/matrix.ts core/sdk_mesh.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(simple_pbr_nri)
 if (TARGET simple_pbr_media AND TARGET simple_pbr_nri)
     add_dependencies(simple_pbr_nri simple_pbr_media)
@@ -3742,7 +3742,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(simple_compute core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_compute)
 # simple_compute with NRI and NRIFramework instead of Donut: simple_compute's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(simple_compute_nri SHADERS simple_compute_shaders core/text_format.ts)
+add_tslang_nri_example(simple_compute_nri SHADERS simple_compute_shaders core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(simple_compute_nri)
 # simple_compute has no draw of its own to show the fractal with: 16bit_arithmetic's visualization shaders.
 if (TARGET 16bit_arithmetic_shaders AND TARGET simple_compute_nri)
@@ -3799,7 +3799,7 @@ add_atg_media(mouse_cursor mouse_cursor
 
 # mouse_cursor with NRI and NRIFramework instead of Donut: its shaders, the sample's SDKMESH models
 # (the reader is in nri_interop) and menu images, the font; the mouse and keys polled each frame.
-add_tslang_nri_example(mouse_cursor_nri SHADERS mouse_cursor_shaders core/matrix.ts core/sdk_mesh.ts)
+add_tslang_nri_example(mouse_cursor_nri SHADERS mouse_cursor_shaders core/matrix.ts core/sdk_mesh.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(mouse_cursor_nri)
 if (TARGET mouse_cursor_media AND TARGET mouse_cursor_nri)
     add_dependencies(mouse_cursor_nri mouse_cursor_media)
@@ -3833,7 +3833,7 @@ endif()
 add_tslang_example(collision core/matrix.ts core/directx_collision.ts core/directx_collision.cpp MEDIA fonts)
 add_tslang_example_test(collision)
 # collision with NRI and NRIFramework instead of Donut: collision's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(collision_nri SHADERS collision_shaders core/matrix.ts core/directx_collision.ts core/directx_collision.cpp)
+add_tslang_nri_example(collision_nri SHADERS collision_shaders core/matrix.ts core/directx_collision.ts core/directx_collision.cpp core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(collision_nri)
 
 # Port of NVIDIA's DXR tutorial 14 (Refit, github.com/NVIDIAGameWorks/DxrTutorials): three
@@ -4111,7 +4111,7 @@ add_tslang_example_test(hdr_display SUFFIX 16bit ARGS -testFormat 16)
 # hdr_display with NRI and NRIFramework instead of Donut: hdr_display's shaders (D3D12 and Vulkan
 # only, as the Donut example's), its UI layer's text drawn by NRIFramework's ImGui; 8-bit, 10-bit
 # and 16-bit float swap chains (-testFormat).
-add_tslang_nri_example(hdr_display_nri SHADERS hdr_display_shaders)
+add_tslang_nri_example(hdr_display_nri SHADERS hdr_display_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(hdr_display_nri)
 add_tslang_example_test(hdr_display_nri SUFFIX 10bit ARGS -testFormat 10)
 add_tslang_example_test(hdr_display_nri SUFFIX 16bit ARGS -testFormat 16)
@@ -4203,7 +4203,7 @@ add_tslang_example_test(multithreading SUFFIX single_threaded ARGS -singleThread
 # multithreading with NRI and NRIFramework instead of Donut: the sample's shaders, its SquidRoom
 # data (multithreading_media), Donut's blit shaders (donut_shaders); the draws recorded on C++ worker
 # threads by nri_interop's draw passes.
-add_tslang_nri_example(multithreading_nri SHADERS multithreading_shaders core/directx_math.ts core/squid_room.ts core/nri_donut_blit.ts)
+add_tslang_nri_example(multithreading_nri SHADERS multithreading_shaders core/directx_math.ts core/squid_room.ts core/nri_donut_blit.ts core/nri_swap_chain.ts)
 if (TARGET multithreading_media AND TARGET multithreading_nri)
     add_dependencies(multithreading_nri multithreading_media)
 endif()
@@ -4363,7 +4363,7 @@ add_tslang_example(wave_intrinsics MEDIA fonts)
 add_tslang_example_test(wave_intrinsics)
 
 # wave_intrinsics with NRI and NRIFramework instead of Donut: the same shaders.
-add_tslang_nri_example(wave_intrinsics_nri SHADERS wave_intrinsics_shaders)
+add_tslang_nri_example(wave_intrinsics_nri SHADERS wave_intrinsics_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(wave_intrinsics_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12DepthBoundsTest: a triangle at depths 0.1 to 0.9 drawn into
@@ -4452,7 +4452,7 @@ add_tslang_example_test(rt_bindless)
 # (shaders/framework), the scene loaded and animated as Donut's engine does it
 # (core/nri/nri_donut_scene.cpp's Nri_LoadDonutAnimatedScene). D3D12 or Vulkan.
 add_tslang_nri_example(rt_bindless_nri SHADERS rt_bindless_shaders core/matrix.ts core/donut_first_person_camera.ts
-    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+    core/nri_donut_textures.ts core/nri_donut_blit.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(rt_bindless_nri)
 add_tslang_example_test(rt_bindless_nri SUFFIX rayquery ARGS -rayQuery)
 if (TARGET donut_shaders AND TARGET rt_bindless_nri)
@@ -4503,7 +4503,7 @@ add_custom_target(environment_map_media DEPENDS "${output}")
 add_dependencies(environment_map environment_map_media)
 # environment_map with NRI and NRIFramework: Donut's passes' shaders (shaders/framework), Sponza
 # loaded as Donut's engine loads it (core/nri/nri_donut_scene.cpp); the DDS environment map only.
-add_tslang_nri_example(environment_map_nri core/matrix.ts core/donut_first_person_camera.ts core/nri_donut_textures.ts)
+add_tslang_nri_example(environment_map_nri core/matrix.ts core/donut_first_person_camera.ts core/nri_donut_textures.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(environment_map_nri)
 if (TARGET donut_shaders AND TARGET environment_map_nri)
     add_dependencies(environment_map_nri donut_shaders)
@@ -4536,7 +4536,7 @@ donut_compile_shaders(
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rt_reflections_nri/spirv
 )
 add_tslang_nri_example(rt_reflections_nri SHADERS rt_reflections_nri_shaders core/matrix.ts core/donut_first_person_camera.ts
-    core/nri_donut_textures.ts core/nri_donut_blit.ts)
+    core/nri_donut_textures.ts core/nri_donut_blit.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(rt_reflections_nri)
 if (TARGET donut_shaders AND TARGET rt_reflections_nri)
     add_dependencies(rt_reflections_nri donut_shaders)
@@ -4566,7 +4566,7 @@ add_tslang_example_test(rt_particles)
 # mesh added, its textures (media/rt_particles, nvidia-logo.png: copied at configure), Donut's blit
 # shaders (donut_shaders).
 add_tslang_nri_example(rt_particles_nri SHADERS rt_particles_shaders core/matrix.ts core/random.ts
-    core/donut_third_person_camera.ts core/nri_donut_textures.ts core/nri_donut_blit.ts)
+    core/donut_third_person_camera.ts core/nri_donut_textures.ts core/nri_donut_blit.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(rt_particles_nri)
 if (TARGET donut_shaders AND TARGET rt_particles_nri)
     add_dependencies(rt_particles_nri donut_shaders)
