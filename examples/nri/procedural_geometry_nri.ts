@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
@@ -117,18 +119,11 @@ namespace ProceduralGeometryNri {
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
     let retainedFrameCallbacks: NriFrameCallback[] = [];
 
-    // What a frame in flight records into, its scene constants' and AABB transforms' copies (written
+    // A frame in flight's own data: its scene constants' and AABB transforms' copies (written
     // while the frames before it may still be reading theirs) and its set.
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public sceneConstantsView: NriDescriptorHandle | null, public aabbAttributeBuffer: NriBufferHandle | null,
+        constructor(public sceneConstantsView: NriDescriptorHandle | null, public aabbAttributeBuffer: NriBufferHandle | null,
             public aabbAttributeView: NriDescriptorHandle | null, public set: NriDescriptorSetHandle | null) {
-        }
-    }
-
-    // A swap chain texture and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -230,9 +225,8 @@ namespace ProceduralGeometryNri {
     class ProceduralGeometry {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format (UNORM), the output's.
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private queuedFrames: QueuedFrame[] = [];
@@ -335,18 +329,18 @@ namespace ProceduralGeometryNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format, as the sample's CopyResource.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, false);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
 
             // Queued frames (their sets come below)
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), null, null, null, null));
+                this.queuedFrames.push(new QueuedFrame(null, null, null, null));
             }
 
             // Ray tracing pipelines: D3D12 or Vulkan (the Donut example's shaders have no DXBC).
@@ -450,26 +444,11 @@ namespace ProceduralGeometryNri {
             return 1;
         }
 
-        // The swap chain at the window's size, its semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views in the textures' format).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
         }
 
         // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
@@ -480,12 +459,11 @@ namespace ProceduralGeometryNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             const output = this.output;
             if (!output) {
                 return;
@@ -718,10 +696,7 @@ namespace ProceduralGeometryNri {
 
         // Waits for the frame that last used this frame's command allocator.
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // Whether the toggle key (keysDown's index) went down since the last frame.
@@ -871,38 +846,37 @@ namespace ProceduralGeometryNri {
             this.animate(this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample));
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
-                const commandBuffer = queuedFrame.commandBuffer;
+                const texture = this.swapChain.texture(index);
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the rays, then their output copied into the frame.
                 Nri_BeginCommandBuffer(commandBuffer);
                 this.recordRays(commandBuffer, queuedFrame, frameIndex);
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
-                this.recordCopy(commandBuffer, swapChainTexture.texture);
+                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
+                this.recordCopy(commandBuffer, texture);
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.CopyDestination;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -929,8 +903,6 @@ namespace ProceduralGeometryNri {
             if (device) {
                 Nri_DeviceWaitIdle(device);
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.sceneConstantsView);
                     this.destroyDescriptor(queuedFrame.aabbAttributeView);
                     this.destroyBuffer(queuedFrame.aabbAttributeBuffer);
@@ -978,8 +950,8 @@ namespace ProceduralGeometryNri {
                 if (layout) {
                     Nri_DestroyPipelineLayout(layout);
                 }
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

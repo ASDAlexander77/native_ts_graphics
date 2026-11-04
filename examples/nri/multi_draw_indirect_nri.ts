@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, samplePerspective } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
 
@@ -143,21 +145,13 @@ namespace MultiDrawIndirectNri {
         }
     }
 
-    // What a frame in flight records into, its constants' view, its descriptor sets (the draw's;
+    // A frame in flight's own data: its constants' view, its descriptor sets (the draw's;
     // the culling's; the device address culling's, null without it), the CPU culling's commands it
     // uploads, and the copy of the commands it reads the instance count from.
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public constantBufferView: NriDescriptorHandle, public drawSet: NriDescriptorSetHandle,
+        constructor(public constantBufferView: NriDescriptorHandle, public drawSet: NriDescriptorSetHandle,
             public cullSet: NriDescriptorSetHandle, public addressSet: NriDescriptorSetHandle | null,
             public hostCommands: NriBufferHandle, public readback: NriBufferHandle, public readbackValid: boolean) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -171,9 +165,8 @@ namespace MultiDrawIndirectNri {
     class MultiDrawIndirect {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         // The swap chain textures' format.
@@ -285,11 +278,11 @@ namespace MultiDrawIndirectNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
 
             // The scene's 225 textures are one array: more than D3D11's 128 texture slots (and the
@@ -590,8 +583,8 @@ namespace MultiDrawIndirectNri {
                 console.log("Cannot create the descriptors");
                 return false;
             }
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const constantBufferView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
                 const drawSet = Nri_AllocateDescriptorSet(descriptorPool, drawLayout, 0, 0);
                 const cullSet = Nri_AllocateDescriptorSet(descriptorPool, cullLayout, 0, 0);
@@ -610,7 +603,7 @@ namespace MultiDrawIndirectNri {
                 Nri_UpdateDescriptor(cullSet, 1, 0, modelInformationView);
                 Nri_UpdateDescriptor(cullSet, 2, 0, indirectCallStorage);
                 const addressSet = this.createAddressSet(descriptorPool, constantBufferView, modelInformationView);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), constantBufferView,
+                this.queuedFrames.push(new QueuedFrame(constantBufferView,
                     drawSet, cullSet, addressSet, hostCommands, readback, false));
             }
             return true;
@@ -640,8 +633,7 @@ namespace MultiDrawIndirectNri {
         latencySleep(frameIndex: int) {
             const queuedFrameNum = this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
             if (this.renderMode != RenderPath.Cpu && queuedFrame.readbackValid) {
                 this.countInstances(queuedFrame.readback);
             }
@@ -849,33 +841,12 @@ namespace MultiDrawIndirectNri {
             Nri_ImguiRender(this.sample);
         }
 
-        // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the Donut
-        // example blits into its back buffer); at the window's size (the stored width and height).
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            const swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            this.swapChain = swapChain;
-            const textureNum = Nri_GetSwapChainTextureNum(swapChain);
-            const format = Nri_GetTextureFormat(Nri_GetSwapChainTexture(swapChain, 0));
-            const viewFormat = Nri_GetSrgbFormat(format);
-            this.swapChainFormat = format;
-            this.viewFormat = viewFormat;
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.viewFormat = this.swapChain.viewFormat();
         }
 
         // The depth buffer: D32, cleared to 1; at the stored size. False on failure.
@@ -906,12 +877,11 @@ namespace MultiDrawIndirectNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             this.destroyDepth();
             this.createDepth(device);
         }
@@ -934,13 +904,12 @@ namespace MultiDrawIndirectNri {
             }
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             const depthAttachment = this.depthAttachment;
             const descriptorPool = this.descriptorPool;
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
-                const commandBuffer = queuedFrame.commandBuffer;
+                const texture = this.swapChain.texture(index);
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the culling (the CPU's commands uploaded, or the GPU's), the copy of the
                 // commands, then cleared, the scene, the overlay over it.
@@ -961,16 +930,16 @@ namespace MultiDrawIndirectNri {
                 if (this.renderMode != RenderPath.Cpu) {
                     this.recordCommandsCopy(commandBuffer, queuedFrame);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, swapChainTexture.colorAttachment, depthAttachment);
+                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
                     Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
                     Nri_CmdClearDepth(commandBuffer, 1.0);
                     this.recordDraw(commandBuffer, queuedFrame);
                     Nri_CmdEndRendering(commandBuffer);
                 }
                 if (this.imgui) {
-                    Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
                     Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
                     Nri_CmdEndRendering(commandBuffer);
                 }
@@ -980,24 +949,24 @@ namespace MultiDrawIndirectNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
                     Nri_ImguiEndFrame(this.sample);
                 }
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -1027,8 +996,6 @@ namespace MultiDrawIndirectNri {
                     Nri_DestroyImgui(this.sample);
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     Nri_DestroyDescriptor(queuedFrame.constantBufferView);
                     Nri_DestroyBuffer(queuedFrame.hostCommands);
                     Nri_DestroyBuffer(queuedFrame.readback);
@@ -1062,8 +1029,8 @@ namespace MultiDrawIndirectNri {
                 this.destroyLayout(this.drawLayout);
                 this.destroyLayout(this.cullLayout);
                 this.destroyLayout(this.addressLayout);
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

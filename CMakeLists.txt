@@ -1745,7 +1745,7 @@ endif()
 # ray_tracing_extended with NRI and NRIFramework instead of Donut: its shaders, its scene and
 # textures (ray_tracing_extended_media); the refraction sheet's BLAS updated in place every frame.
 add_tslang_nri_example(ray_tracing_extended_nri SHADERS ray_tracing_extended_shaders core/matrix.ts core/random.ts
-    core/donut_first_person_camera.ts)
+    core/donut_first_person_camera.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(ray_tracing_extended_nri)
 if (TARGET ray_tracing_extended_media AND TARGET ray_tracing_extended_nri)
     add_dependencies(ray_tracing_extended_nri ray_tracing_extended_media)
@@ -1756,7 +1756,7 @@ endif()
 # Vulkan's VK_NV_ray_tracing_invocation_reorder, which NRI is patched to enable),
 # ray_tracing_extended's scene and textures. The second test traces without reordering.
 add_tslang_nri_example(ray_tracing_invocation_reorder_nri SHADERS ray_tracing_invocation_reorder_shaders core/matrix.ts
-    core/random.ts core/donut_first_person_camera.ts)
+    core/random.ts core/donut_first_person_camera.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(ray_tracing_invocation_reorder_nri)
 add_tslang_example_test(ray_tracing_invocation_reorder_nri SUFFIX noser ARGS -noser)
 if (TARGET ray_tracing_extended_media AND TARGET ray_tracing_invocation_reorder_nri)
@@ -1816,7 +1816,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # multi_draw_indirect with NRI and NRIFramework instead of Donut: its shaders and Vokselia scene.
-add_tslang_nri_example(multi_draw_indirect_nri SHADERS multi_draw_indirect_shaders core/donut_first_person_camera.ts core/matrix.ts)
+add_tslang_nri_example(multi_draw_indirect_nri SHADERS multi_draw_indirect_shaders core/donut_first_person_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(multi_draw_indirect_nri)
 if (TARGET multi_draw_indirect_media AND TARGET multi_draw_indirect_nri)
     add_dependencies(multi_draw_indirect_nri multi_draw_indirect_media)
@@ -2486,7 +2486,7 @@ endif()
 
 # ray_tracing_position_fetch with NRI and NRIFramework instead of Donut: its shaders and scene; Vulkan
 # only, as the Donut example.
-add_tslang_nri_example(ray_tracing_position_fetch_nri SHADERS ray_tracing_position_fetch_shaders core/matrix.ts)
+add_tslang_nri_example(ray_tracing_position_fetch_nri SHADERS ray_tracing_position_fetch_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(ray_tracing_position_fetch_nri APIS vk)
 if (TARGET ray_tracing_position_fetch_media AND TARGET ray_tracing_position_fetch_nri)
     add_dependencies(ray_tracing_position_fetch_nri ray_tracing_position_fetch_media)
@@ -2840,7 +2840,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # mobile_nerf with NRI and NRIFramework instead of Donut: mobile_nerf's shaders and NeRF scenes.
-add_tslang_nri_example(mobile_nerf_nri SHADERS mobile_nerf_shaders core/mobile_nerf_common.ts core/matrix.ts)
+add_tslang_nri_example(mobile_nerf_nri SHADERS mobile_nerf_shaders core/mobile_nerf_common.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(mobile_nerf_nri)
 if (TARGET mobile_nerf_media AND TARGET mobile_nerf_nri)
     add_dependencies(mobile_nerf_nri mobile_nerf_media)
@@ -2901,7 +2901,7 @@ endif()
 
 # mobile_nerf_rayquery with NRI and NRIFramework instead of Donut: its shaders and mobile_nerf's NeRF
 # scenes.
-add_tslang_nri_example(mobile_nerf_rayquery_nri SHADERS mobile_nerf_rayquery_shaders core/mobile_nerf_common.ts core/matrix.ts)
+add_tslang_nri_example(mobile_nerf_rayquery_nri SHADERS mobile_nerf_rayquery_shaders core/mobile_nerf_common.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(mobile_nerf_rayquery_nri)
 if (TARGET mobile_nerf_media AND TARGET mobile_nerf_rayquery_nri)
     add_dependencies(mobile_nerf_rayquery_nri mobile_nerf_media)
@@ -2927,7 +2927,7 @@ endif()
 
 # ray_queries with NRI and NRIFramework instead of Donut: its shaders and ray_tracing_extended's copy
 # of Sponza.
-add_tslang_nri_example(ray_queries_nri SHADERS ray_queries_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(ray_queries_nri SHADERS ray_queries_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(ray_queries_nri)
 if (TARGET ray_tracing_extended_media AND TARGET ray_queries_nri)
     add_dependencies(ray_queries_nri ray_tracing_extended_media)
@@ -2948,7 +2948,7 @@ add_tslang_example(ray_tracing_reflection core/vulkan_samples_camera.ts core/mat
 add_tslang_example_test(ray_tracing_reflection)
 
 # ray_tracing_reflection with NRI and NRIFramework instead of Donut: the same shader library.
-add_tslang_nri_example(ray_tracing_reflection_nri SHADERS ray_tracing_reflection_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(ray_tracing_reflection_nri SHADERS ray_tracing_reflection_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(ray_tracing_reflection_nri)
 
 # Port of Vulkan-Samples' timestamp_queries: its hdr sample (hdr's shaders and models) with the GPU
@@ -2999,7 +2999,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # patch_control_points with NRI and NRIFramework instead of Donut: patch_control_points' shaders and terrain, NRIFramework's ImGui.
-add_tslang_nri_example(patch_control_points_nri SHADERS patch_control_points_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(patch_control_points_nri SHADERS patch_control_points_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(patch_control_points_nri)
 if (TARGET patch_control_points_media AND TARGET patch_control_points_nri)
     add_dependencies(patch_control_points_nri patch_control_points_media)
@@ -3877,7 +3877,7 @@ add_tslang_example(procedural_geometry core/directx_math.ts)
 add_tslang_example_test(procedural_geometry)
 
 # procedural_geometry with NRI and NRIFramework instead of Donut: the same shader library.
-add_tslang_nri_example(procedural_geometry_nri SHADERS procedural_geometry_shaders core/directx_math.ts)
+add_tslang_nri_example(procedural_geometry_nri SHADERS procedural_geometry_shaders core/directx_math.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(procedural_geometry_nri)
 
 # Copies files of a DirectX-Graphics-Samples checkout (DIRECTX_GRAPHICS_SAMPLES_DIR; paths relative
