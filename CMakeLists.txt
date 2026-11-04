@@ -1250,7 +1250,7 @@ add_tslang_example(rt_triangle)
 add_tslang_example_test(rt_triangle)
 # rt_triangle with NRI and NRIFramework instead of Donut: rt_triangle's shader library, blitted into the
 # swap chain with Donut's blit (shaders/framework's rect_vs and blit_ps).
-add_tslang_nri_example(rt_triangle_nri SHADERS rt_triangle_shaders core/nri_donut_blit.ts)
+add_tslang_nri_example(rt_triangle_nri SHADERS rt_triangle_shaders core/nri_donut_blit.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(rt_triangle_nri)
 if (TARGET donut_shaders AND TARGET rt_triangle_nri)
     add_dependencies(rt_triangle_nri donut_shaders)
@@ -1268,7 +1268,7 @@ add_tslang_example(vertex_buffer core/matrix.ts MEDIA nvidia-logo.png)
 add_tslang_example_test(vertex_buffer)
 # vertex_buffer with NRI and NRIFramework instead of Donut: vertex_buffer's shaders, and the media
 # folder's nvidia-logo.png.
-add_tslang_nri_example(vertex_buffer_nri SHADERS vertex_buffer_shaders core/matrix.ts)
+add_tslang_nri_example(vertex_buffer_nri SHADERS vertex_buffer_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 # (On Android there is no vertex_buffer_nri, only its app; copy_media is defined below.)
 if (TARGET vertex_buffer_nri)
     add_dependencies(vertex_buffer_nri copy_media)
@@ -1541,7 +1541,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(terrain_tessellation core/matrix.ts MEDIA terrain_tessellation)
 add_tslang_example_test(terrain_tessellation)
 # terrain_tessellation with NRI and NRIFramework instead of Donut: terrain_tessellation's shaders and textures, NRIFramework's ImGui.
-add_tslang_nri_example(terrain_tessellation_nri SHADERS terrain_tessellation_shaders core/donut_first_person_camera.ts core/matrix.ts)
+add_tslang_nri_example(terrain_tessellation_nri SHADERS terrain_tessellation_shaders core/donut_first_person_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(terrain_tessellation_nri)
 # The terrain's blit into the swap chain is Donut's (shaders/framework's rect_vs and blit_ps).
 if (TARGET donut_shaders AND TARGET terrain_tessellation_nri)
@@ -2449,7 +2449,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # texture_mipmap_generation with NRI and NRIFramework instead of Donut: its shaders, model and texture, the mips drawn level by level.
-add_tslang_nri_example(texture_mipmap_generation_nri SHADERS texture_mipmap_generation_shaders core/matrix.ts)
+add_tslang_nri_example(texture_mipmap_generation_nri SHADERS texture_mipmap_generation_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(texture_mipmap_generation_nri)
 if (TARGET texture_mipmap_generation_media AND TARGET texture_mipmap_generation_nri)
     add_dependencies(texture_mipmap_generation_nri texture_mipmap_generation_media)
@@ -2624,7 +2624,7 @@ endif()
 # its scene and KTX 2 textures (texture_compression_comparison_media) and Basis Universal's transcoder
 # (core/basis_transcoder.cpp, compiled into nri_interop).
 add_tslang_nri_example(texture_compression_comparison_nri SHADERS texture_compression_comparison_shaders core/matrix.ts
-    core/donut_first_person_camera.ts core/transcoded_texture.ts)
+    core/donut_first_person_camera.ts core/transcoded_texture.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(texture_compression_comparison_nri)
 if (TARGET texture_compression_comparison_media AND TARGET texture_compression_comparison_nri)
     add_dependencies(texture_compression_comparison_nri texture_compression_comparison_media)
@@ -3217,7 +3217,7 @@ if (TARGET fragment_shading_rate_media)
     add_dependencies(texture_loading fragment_shading_rate_media)
 endif()
 # texture_loading with NRI and NRIFramework instead of Donut: texture_loading's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(texture_loading_nri SHADERS texture_loading_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(texture_loading_nri SHADERS texture_loading_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(texture_loading_nri)
 if (TARGET fragment_shading_rate_media AND TARGET texture_loading_nri)
     add_dependencies(texture_loading_nri fragment_shading_rate_media)
@@ -3368,7 +3368,7 @@ if (TARGET fragment_shading_rate_media)
     add_dependencies(separate_image_sampler fragment_shading_rate_media)
 endif()
 # separate_image_sampler with NRI and NRIFramework instead of Donut: separate_image_sampler's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(separate_image_sampler_nri SHADERS separate_image_sampler_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(separate_image_sampler_nri SHADERS separate_image_sampler_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(separate_image_sampler_nri)
 if (TARGET fragment_shading_rate_media AND TARGET separate_image_sampler_nri)
     add_dependencies(separate_image_sampler_nri fragment_shading_rate_media)
@@ -3479,7 +3479,7 @@ endif()
 # (texture_compression_basisu_media) and Basis Universal's transcoder (core/basis_transcoder.cpp,
 # compiled into nri_interop).
 add_tslang_nri_example(texture_compression_basisu_nri SHADERS texture_compression_basisu_shaders core/vulkan_samples_camera.ts
-    core/matrix.ts core/text_format.ts core/transcoded_texture.ts)
+    core/matrix.ts core/text_format.ts core/transcoded_texture.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(texture_compression_basisu_nri)
 if (TARGET texture_compression_basisu_media AND TARGET texture_compression_basisu_nri)
     add_dependencies(texture_compression_basisu_nri texture_compression_basisu_media)
@@ -3762,7 +3762,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(simple_bezier core/text_format.ts MEDIA fonts)
 add_tslang_example_test(simple_bezier)
 # simple_bezier with NRI and NRIFramework instead of Donut: simple_bezier's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(simple_bezier_nri SHADERS simple_bezier_shaders core/text_format.ts)
+add_tslang_nri_example(simple_bezier_nri SHADERS simple_bezier_shaders core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(simple_bezier_nri)
 
 # Port of the Xbox ATG MouseCursor UWP sample (UWPSamples/System/MouseCursor): a menu picked with the
@@ -4253,7 +4253,7 @@ add_tslang_example(raytracing_simple_lighting core/directx_math.ts)
 add_tslang_example_test(raytracing_simple_lighting)
 
 # raytracing_simple_lighting with NRI and NRIFramework instead of Donut: the same shader library.
-add_tslang_nri_example(raytracing_simple_lighting_nri SHADERS raytracing_simple_lighting_shaders core/directx_math.ts)
+add_tslang_nri_example(raytracing_simple_lighting_nri SHADERS raytracing_simple_lighting_shaders core/directx_math.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(raytracing_simple_lighting_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingLibrarySubobjects: the Simple Lighting cube (lit
