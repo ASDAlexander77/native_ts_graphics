@@ -1469,10 +1469,10 @@ namespace PowderSandboxNri {
             return y < this.height - this.tileHeight;
         }
 
-        // The size slider shows while the brush is sized by its radius (a circle or a square), along
-        // the top, sliderHeight() tall.
+        // The size slider shows while the brush is sized by its radius (a circle, a square, a line's
+        // half width; not a box, the size it's stretched to), along the top, sliderHeight() tall.
         sliderShown(): boolean {
-            return this.brushShape == SHAPE_CIRCLE || this.brushShape == SHAPE_SQUARE;
+            return this.brushShape != SHAPE_BOX;
         }
 
         sliderTop(): number {

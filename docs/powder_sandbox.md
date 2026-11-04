@@ -29,8 +29,9 @@ levels out in connected vessels. That's the U-tube test, and every change has to
 - **Brush menu:** a press held still on the grid for 0.45 s opens the brush shapes in a ring around
   it (Circle up, Square right, Line down, Box left), the one in use lit; released on one, or a tap on
   one next, picks it; a tap elsewhere closes it. What the held press painted is taken back (so holding
-  still to pour now opens the menu: keep the finger moving). While the brush is a circle or a square, a
-  slider along the top sizes it (0.5 to 30 cells); the HUD sits under it.
+  still to pour now opens the menu: keep the finger moving). While the brush is a circle, a square or a
+  line, a slider along the top sizes it (0.5 to 30 cells: a line's half width); the HUD sits under
+  it.
 - **Painting:** materials and tools (Heat, Cool, Erase); circle, square, line and box
   brushes with an outline cursor; mouse or touch.
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
