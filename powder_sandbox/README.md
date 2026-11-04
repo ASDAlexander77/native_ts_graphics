@@ -606,6 +606,10 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
   `SandboxView`, and the constants, barriers and `dispatch` are the state's. With the view below the
   levels, `nextLevel` turns the grid for a level itself again. The chain: state, view, levels,
   saves, app, checks.
-- Still to move, in order: the input and toolbar, the simulation's recording and profiling (the app
-  is about 1,650 lines now). `shaders/powder_sandbox.hlsl` (4,200 lines) can be split the same way
-  into includes.
+- **The toolbar and input** (done): `ui.ts`'s `SandboxUI` extends the saves with the tabs and
+  tiles, the size slider, the radial menu, the readout (`buildUI`) and `handleInput` with the tilt
+  (about 600 lines). It uses only what's below it (the view's `layout` and `zoomAt`, `nextLevel`,
+  `setFloat`, `showMessage`); the app extends it. The chain: state, view, levels, saves, ui, app,
+  checks.
+- Still to move: the simulation's recording and profiling (the app is about 1,050 lines now).
+  `shaders/powder_sandbox.hlsl` (4,200 lines) can be split the same way into includes.

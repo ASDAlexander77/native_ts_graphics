@@ -7,8 +7,8 @@ import {
 } from "./defs";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
-// each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts, sandbox.ts
-// (the app) and checks.ts.
+// each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts, ui.ts,
+// sandbox.ts (the app) and checks.ts.
 export class SandboxState {
     protected device: NriDeviceHandle | null = null;
     protected queue: NriQueueHandle;
