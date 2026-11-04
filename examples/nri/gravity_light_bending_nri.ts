@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutThirdPersonCamera } from "../../core/donut_third_person_camera";
 
@@ -163,18 +165,10 @@ namespace GravityLightBendingNri {
         return x * (2.0 * x * x + 3.0 * b * b) / (3.0 * b * b * b * b * r2 * Math.sqrt(r2));
     }
 
-    // What a frame in flight records into, and its views of the constant buffer: its SceneConstants
+    // A frame in flight's own data: its views of the constant buffer: its SceneConstants
     // and PlanarViewConstants.
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public sceneView: NriDescriptorHandle, public viewView: NriDescriptorHandle) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
+        constructor(public sceneView: NriDescriptorHandle, public viewView: NriDescriptorHandle) {
         }
     }
 
@@ -197,9 +191,8 @@ namespace GravityLightBendingNri {
     class LightBending {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         // The swap chain textures' format (their views': viewFormat).
@@ -335,13 +328,13 @@ namespace GravityLightBendingNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
             this.autoRotate = !this.test;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
 
             // The layouts, as the Donut example's binding layouts: the compute pass's scene (b0) and
@@ -415,8 +408,8 @@ namespace GravityLightBendingNri {
             }
 
             // Queued frames
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const sceneView = Nri_CreateConstantBufferView(constantBuffer, i * this.frameStride, this.sceneStride);
                 const viewView = Nri_CreateConstantBufferView(constantBuffer, i * this.frameStride + this.sceneStride, align(this.viewSize));
                 if (!sceneView || !viewView) {
@@ -425,7 +418,7 @@ namespace GravityLightBendingNri {
                 }
                 this.constantViews.push(sceneView);
                 this.constantViews.push(viewView);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), sceneView, viewView));
+                this.queuedFrames.push(new QueuedFrame(sceneView, viewView));
             }
 
             // A look-at camera over the XZ plane, where the bodies orbit and the sheet of rays lies.
@@ -480,10 +473,7 @@ namespace GravityLightBendingNri {
 
         // Waits for the frame that last used this frame's command allocator.
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // 1 if the key (a GLFW key code) was pressed since the last frame.
@@ -717,30 +707,12 @@ namespace GravityLightBendingNri {
             this.draw(commandBuffer, queuedFrame, this.bodyPipeline, this.bodyCount * VERTICES_PER_QUAD);
         }
 
-        // The swap chain at the window's size, its textures' views (sRGB, as Donut's sRGB back buffers)
-        // and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.viewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.viewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.viewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): once the GPU is done with it, the swap chain
@@ -751,12 +723,11 @@ namespace GravityLightBendingNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
         }
 
         renderFrame(frameIndex: int) {
@@ -769,11 +740,10 @@ namespace GravityLightBendingNri {
             }
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
-                const commandBuffer = queuedFrame.commandBuffer;
+                const texture = this.swapChain.texture(index);
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
                 this.writeConstants(queuedFrameIndex);
 
                 // Record: the rays; the sky (or black), the lines and the bodies, the settings window.
@@ -782,8 +752,8 @@ namespace GravityLightBendingNri {
                 if (this.imgui) {
                     Nri_CmdCopyImguiData(this.sample, commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
                 this.recordDraws(commandBuffer, queuedFrame);
                 if (this.imgui) {
                     Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
@@ -795,25 +765,25 @@ namespace GravityLightBendingNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                         this.recordRayReadback(commandBuffer);
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
                     Nri_ImguiEndFrame(this.sample);
                 }
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // Copies the rays and their paths (after the last frame's draws) to the readback buffers.
@@ -1420,11 +1390,7 @@ namespace GravityLightBendingNri {
                 if (this.imgui) {
                     Nri_DestroyImgui(this.sample);
                 }
-                for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
-                }
-                this.destroySwapChain();
+                this.swapChain.destroy();
                 for (const view of this.constantViews) {
                     Nri_DestroyDescriptor(view);
                 }
@@ -1452,7 +1418,7 @@ namespace GravityLightBendingNri {
                 if (drawLayout) {
                     Nri_DestroyPipelineLayout(drawLayout);
                 }
-                Nri_DestroyFence(this.frameFence);
+                this.frames.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);

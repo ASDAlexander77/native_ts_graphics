@@ -1322,7 +1322,7 @@ add_tslang_example(deferred_shading core/matrix.ts MEDIA nvidia-logo.png)
 add_tslang_example_test(deferred_shading)
 # deferred_shading with NRI and NRIFramework: Donut's G-buffer fill, deferred lighting and blit
 # shaders (shaders/framework), their constants filled by core/nri/nri_donut_constants.cpp.
-add_tslang_nri_example(deferred_shading_nri core/matrix.ts)
+add_tslang_nri_example(deferred_shading_nri core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(deferred_shading_nri)
 if (TARGET donut_shaders AND TARGET deferred_shading_nri)
     add_dependencies(deferred_shading_nri donut_shaders)
@@ -1479,7 +1479,7 @@ add_tslang_example_test(gravity_light_bending SUFFIX capture ARGS -scene single 
 # gravity_light_bending with NRI and NRIFramework instead of Donut: gravity_light_bending's shaders,
 # Donut's ThirdPersonCamera (core/donut_third_person_camera.ts). The Donut example's variants.
 add_tslang_nri_example(gravity_light_bending_nri SHADERS gravity_light_bending_shaders core/matrix.ts
-    core/donut_third_person_camera.ts)
+    core/donut_third_person_camera.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(gravity_light_bending_nri)
 add_tslang_example_test(gravity_light_bending_nri SUFFIX straight ARGS -gravity 0)
 add_tslang_example_test(gravity_light_bending_nri SUFFIX nosky ARGS -scene blackhole -nosky)
@@ -2027,7 +2027,7 @@ add_tslang_example(conservative_rasterization core/matrix.ts)
 add_tslang_example_test(conservative_rasterization)
 
 # conservative_rasterization with NRI and NRIFramework instead of Donut: the same shaders.
-add_tslang_nri_example(conservative_rasterization_nri SHADERS conservative_rasterization_shaders core/matrix.ts)
+add_tslang_nri_example(conservative_rasterization_nri SHADERS conservative_rasterization_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(conservative_rasterization_nri)
 
 # Port of Vulkan-Samples' conditional_rendering: each node of a glTF model drawn or skipped by a
@@ -2142,7 +2142,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(fragment_shader_barycentric fragment_shader_barycentric_media)
 endif()
 # fragment_shader_barycentric with NRI and NRIFramework instead of Donut: fragment_shader_barycentric's shaders and models, NRIFramework's ImGui.
-add_tslang_nri_example(fragment_shader_barycentric_nri SHADERS fragment_shader_barycentric_shaders core/matrix.ts)
+add_tslang_nri_example(fragment_shader_barycentric_nri SHADERS fragment_shader_barycentric_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(fragment_shader_barycentric_nri)
 if (TARGET fragment_shader_barycentric_media AND TARGET fragment_shader_barycentric_nri)
     add_dependencies(fragment_shader_barycentric_nri fragment_shader_barycentric_media)
@@ -2409,7 +2409,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(dynamic_blending core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
 add_tslang_example_test(dynamic_blending)
 # dynamic_blending with NRI and NRIFramework instead of Donut: dynamic_blending's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(dynamic_blending_nri SHADERS dynamic_blending_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
+add_tslang_nri_example(dynamic_blending_nri SHADERS dynamic_blending_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_blending_nri)
 
 # Port of Vulkan-Samples' texture_mipmap_generation: a texture's mip chain generated on the GPU from
@@ -2762,7 +2762,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # fragment_shading_rate with NRI and NRIFramework instead of Donut: fragment_shading_rate's shaders, model and textures.
-add_tslang_nri_example(fragment_shading_rate_nri SHADERS fragment_shading_rate_shaders core/matrix.ts)
+add_tslang_nri_example(fragment_shading_rate_nri SHADERS fragment_shading_rate_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(fragment_shading_rate_nri)
 if (TARGET fragment_shading_rate_media AND TARGET fragment_shading_rate_nri)
     add_dependencies(fragment_shading_rate_nri fragment_shading_rate_media)
@@ -3145,7 +3145,7 @@ if (TARGET hdr_media)
     add_dependencies(dynamic_rendering hdr_media)
 endif()
 # dynamic_rendering with NRI and NRIFramework instead of Donut: dynamic_rendering's shaders and models.
-add_tslang_nri_example(dynamic_rendering_nri SHADERS dynamic_rendering_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(dynamic_rendering_nri SHADERS dynamic_rendering_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_rendering_nri)
 if (TARGET hdr_media AND TARGET dynamic_rendering_nri)
     add_dependencies(dynamic_rendering_nri hdr_media)
@@ -4064,7 +4064,7 @@ donut_compile_shaders(
 add_tslang_example(execute_indirect core/random.ts core/directx_math.ts)
 add_tslang_example_test(execute_indirect)
 # execute_indirect with NRI and NRIFramework instead of Donut: execute_indirect's shaders (D3D12, Vulkan).
-add_tslang_nri_example(execute_indirect_nri SHADERS execute_indirect_shaders core/random.ts core/directx_math.ts)
+add_tslang_nri_example(execute_indirect_nri SHADERS execute_indirect_shaders core/random.ts core/directx_math.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(execute_indirect_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12DynamicIndexing: 120 copies of a city, each draw's pixel shader
@@ -4084,7 +4084,7 @@ add_dxgs_media(dynamic_indexing dynamic_indexing Samples/Desktop/D3D12DynamicInd
 add_tslang_example_test(dynamic_indexing)
 # dynamic_indexing with NRI and NRIFramework instead of Donut: dynamic_indexing's shaders and data
 # file.
-add_tslang_nri_example(dynamic_indexing_nri SHADERS dynamic_indexing_shaders core/directx_math.ts core/simple_camera.ts)
+add_tslang_nri_example(dynamic_indexing_nri SHADERS dynamic_indexing_shaders core/directx_math.ts core/simple_camera.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 if (TARGET dynamic_indexing_media AND TARGET dynamic_indexing_nri)
     add_dependencies(dynamic_indexing_nri dynamic_indexing_media)
 endif()
@@ -4380,7 +4380,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(depth_bounds_test)
 add_tslang_example_test(depth_bounds_test)
 # depth_bounds_test with NRI and NRIFramework instead of Donut: depth_bounds_test's shaders.
-add_tslang_nri_example(depth_bounds_test_nri SHADERS depth_bounds_test_shaders)
+add_tslang_nri_example(depth_bounds_test_nri SHADERS depth_bounds_test_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(depth_bounds_test_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12PredicationQueries: a translucent quad moving across a far
