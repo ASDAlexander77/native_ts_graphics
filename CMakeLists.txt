@@ -1608,7 +1608,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # instancing with NRI and NRIFramework instead of Donut: instancing's shaders, models and textures, NRIFramework's ImGui.
-add_tslang_nri_example(instancing_nri SHADERS instancing_shaders core/random.ts core/matrix.ts)
+add_tslang_nri_example(instancing_nri SHADERS instancing_shaders core/random.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(instancing_nri)
 if (TARGET instancing_media AND TARGET instancing_nri)
     add_dependencies(instancing_nri instancing_media)
@@ -1960,7 +1960,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # gshader_to_mshader with NRI and NRIFramework instead of Donut: its geometry and mesh shaders and teapot.
-add_tslang_nri_example(gshader_to_mshader_nri SHADERS gshader_to_mshader_shaders core/matrix.ts)
+add_tslang_nri_example(gshader_to_mshader_nri SHADERS gshader_to_mshader_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 if (TARGET gshader_to_mshader_nri)
     add_dependencies(gshader_to_mshader_nri gshader_to_mshader_mesh_shaders)
 endif()
@@ -2227,7 +2227,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # logic_op_dynamic_state with NRI and NRIFramework instead of Donut: logic_op_dynamic_state's shaders, model and environment map, NRIFramework's ImGui.
-add_tslang_nri_example(logic_op_dynamic_state_nri SHADERS logic_op_dynamic_state_shaders core/matrix.ts)
+add_tslang_nri_example(logic_op_dynamic_state_nri SHADERS logic_op_dynamic_state_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(logic_op_dynamic_state_nri)
 if (TARGET logic_op_dynamic_state_media AND TARGET logic_op_dynamic_state_nri)
     add_dependencies(logic_op_dynamic_state_nri logic_op_dynamic_state_media)
@@ -2713,7 +2713,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # extended_dynamic_state2 with NRI and NRIFramework instead of Donut: its shaders, scenes and environment map.
-add_tslang_nri_example(extended_dynamic_state2_nri SHADERS extended_dynamic_state2_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
+add_tslang_nri_example(extended_dynamic_state2_nri SHADERS extended_dynamic_state2_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(extended_dynamic_state2_nri)
 if (TARGET extended_dynamic_state2_media AND TARGET extended_dynamic_state2_nri)
     add_dependencies(extended_dynamic_state2_nri extended_dynamic_state2_media)
@@ -3198,7 +3198,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(dynamic_uniform_buffers core/vulkan_samples_camera.ts core/matrix.ts)
 add_tslang_example_test(dynamic_uniform_buffers)
 # dynamic_uniform_buffers with NRI and NRIFramework instead of Donut: dynamic_uniform_buffers' shaders.
-add_tslang_nri_example(dynamic_uniform_buffers_nri SHADERS dynamic_uniform_buffers_shaders core/matrix.ts)
+add_tslang_nri_example(dynamic_uniform_buffers_nri SHADERS dynamic_uniform_buffers_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_uniform_buffers_nri)
 
 # Port of Vulkan-Samples' texture_loading: a lit quad with a texture loaded with its mip levels,
@@ -3413,7 +3413,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
 endif()
 
 # dynamic_rendering_local_read with NRI and NRIFramework instead of Donut: its shaders, scenes and glass texture.
-add_tslang_nri_example(dynamic_rendering_local_read_nri SHADERS dynamic_rendering_local_read_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(dynamic_rendering_local_read_nri SHADERS dynamic_rendering_local_read_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_rendering_local_read_nri)
 if (TARGET dynamic_rendering_local_read_media AND TARGET dynamic_rendering_local_read_nri)
     add_dependencies(dynamic_rendering_local_read_nri dynamic_rendering_local_read_media)
@@ -4043,7 +4043,7 @@ endforeach()
 add_dxgs_media(dynamic_lod dynamic_lod ${dynamic_lod_media})
 add_tslang_example_test(dynamic_lod)
 # dynamic_lod with NRI and NRIFramework instead of Donut: dynamic_lod's shaders and models.
-add_tslang_nri_example(dynamic_lod_nri SHADERS dynamic_lod_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_nri_example(dynamic_lod_nri SHADERS dynamic_lod_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_lod_nri)
 if (TARGET dynamic_lod_media AND TARGET dynamic_lod_nri)
     add_dependencies(dynamic_lod_nri dynamic_lod_media)
@@ -4132,7 +4132,7 @@ donut_compile_shaders(
 add_tslang_example(n_body_gravity core/random.ts core/simple_camera.ts core/directx_math.ts)
 add_tslang_example_test(n_body_gravity)
 # n_body_gravity with NRI and NRIFramework instead of Donut: n_body_gravity's shaders.
-add_tslang_nri_example(n_body_gravity_nri SHADERS n_body_gravity_shaders core/random.ts core/simple_camera.ts core/directx_math.ts)
+add_tslang_nri_example(n_body_gravity_nri SHADERS n_body_gravity_shaders core/random.ts core/simple_camera.ts core/directx_math.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(n_body_gravity_nri)
 
 # Copies a folder of the DirectX-Graphics-Samples checkout into an example's media folder, whole.
@@ -4230,7 +4230,7 @@ add_dxgs_media(bundles bundles Samples/Desktop/D3D12Bundles/src/occcity.bin)
 add_tslang_example_test(bundles)
 # bundles' scene with NRI and NRIFramework instead of Donut (NRI has no bundles: the draws are
 # recorded every frame): bundles' shaders and data file.
-add_tslang_nri_example(bundles_nri SHADERS bundles_shaders core/directx_math.ts core/simple_camera.ts)
+add_tslang_nri_example(bundles_nri SHADERS bundles_shaders core/directx_math.ts core/simple_camera.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 if (TARGET bundles_media AND TARGET bundles_nri)
     add_dependencies(bundles_nri bundles_media)
 endif()
@@ -4477,7 +4477,7 @@ add_tslang_example_test(bindless_rendering)
 # loads it (core/nri/nri_donut_scene.cpp), its textures' mip chains blitted with Donut's blit shaders
 # (shaders/framework).
 add_tslang_nri_example(bindless_rendering_nri SHADERS bindless_rendering_shaders core/matrix.ts core/donut_first_person_camera.ts
-    core/nri_donut_textures.ts)
+    core/nri_donut_textures.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(bindless_rendering_nri)
 if (TARGET donut_shaders AND TARGET bindless_rendering_nri)
     add_dependencies(bindless_rendering_nri donut_shaders)
