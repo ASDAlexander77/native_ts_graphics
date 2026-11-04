@@ -351,7 +351,10 @@ DECLARE_PUSH_CONSTANTS(SandboxConstants, g_C, 0, 0);
 // probe): liquid hitting something (its velocity changed by over SPLASH_SPEED in a step), acid eating
 // a cell or water boiling, fire burning, gunpowder going off.
 #define I_EVENTS (I_TSUM + 8)
-#define INT_SECTIONS (I_TSUM + 9)
+// The cell's FLIP particles (flipCount's), counted once by p2g_cs: summed from their twelve types'
+// counts each time, as fluidCell did 8 times a velocity sample, it cost the S23 about 20 ms a step.
+#define I_FLIP (I_TSUM + 9)
+#define INT_SECTIONS (I_TSUM + 10)
 // Past those (not cleared each step), the glow: the cells' light (fixed point, GLOW_SCALE at 1, red,
 // green and blue sections), blurred along x into I_GLOW_X, then along y back into I_GLOW, once a
 // frame (glow_emit_cs, glow_x_cs, glow_y_cs). A Gaussian of GLOW_SIGMA cells, out to GLOW_RADIUS;
@@ -672,9 +675,7 @@ int countOf(uint material, int x, int y)
 
 int flipCount(int x, int y)
 {
-    return countOf(WATER, x, y) + countOf(OIL, x, y) + countOf(SAND, x, y) + countOf(LAVA, x, y) + countOf(ACID, x, y)
-        + countOf(SALT, x, y) + countOf(GUNPOWDER, x, y) + countOf(HONEY, x, y) + countOf(PETROL, x, y)
-        + countOf(THERMITE, x, y) + countOf(NITRO, x, y) + countOf(SEED, x, y);
+    return inGrid(x, y) ? u_GridInt[gi(I_FLIP, cellIndex(x, y))] : 0;
 }
 
 // A cell's side o's neighbor, as an offset: 0 left, 1 right, 2 up, 3 down. (Worked out, not a local
@@ -1175,6 +1176,7 @@ void p2g_cs(uint3 id : SV_DispatchThreadID)
     {
         return;
     }
+    InterlockedAdd(u_GridInt[gi(I_FLIP, c)], 1);
     const float rho = particleDensity(p);
     const float nu = viscosity(p);
     if (!isPowder(p.type))

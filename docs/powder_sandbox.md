@@ -161,6 +161,15 @@ Run so far on two phones:
 - **Inspect**, a tile: touching paints nothing, a crosshair marks the cell under the finger and the
   HUD reads it (temperature, pressure, contents). A long press couldn't do it: holding still is
   how you pour.
+- **Profile** (`-profile`): every 30 frames, a timestamp after each of the simulation's dispatches;
+  every 8 such frames, each kernel's mean milliseconds a frame, the costliest first. On the S23
+  (Adreno 740) a kernel's time shows on the one after it: the timestamps don't wait for the kernel
+  before (cutting a kernel's work drops the next one's figure).
+- **g2p on the S23** (found with it): the U-tube took 74 ms a frame on the 144-row grid (about 25 ms a
+  step; 7.5 ms once), 64 of them in g2p_cs. `fluidCell` summed a cell's twelve FLIP types' counts,
+  8 times a velocity sample, three samples a liquid particle a step: about 300 reads of counts a
+  particle. p2g_cs now counts the FLIP particles once into their own section (`I_FLIP`), and
+  `flipCount` reads that: 16.8 ms a frame, g2p_cs 7.5 ms. (On the desktop's GPU it hardly showed.)
 
 Still to do:
 
