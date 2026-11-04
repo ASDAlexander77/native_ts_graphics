@@ -54,6 +54,12 @@ namespace PowderSandboxNri {
     // brushes' menu around it: the shapes in a ring, up, right, down and left; what it painted is
     // taken back.
     const LONG_PRESS_TIME = 0.45;
+    // -profile: every PROFILE_EVERY frames, a timestamp after each of the simulation's dispatches (at
+    // most PROFILE_QUERIES); every PROFILE_REPORT such frames, each entry's mean milliseconds a frame,
+    // the costliest first.
+    const PROFILE_EVERY = 30;
+    const PROFILE_QUERIES = 1024;
+    const PROFILE_REPORT = 8;
     // The brush's radius (in cells): its smallest and largest.
     const MIN_BRUSH = 0.5;
     const MAX_BRUSH = 30.0;
@@ -69,7 +75,7 @@ namespace PowderSandboxNri {
     // u_Alloc[10]: up to 18 types)
     const PARTICLE_TYPES = 20;
     // The glow's sections past INT_SECTIONS (powder_sandbox.hlsl's I_GLOW, GLOW_SECTIONS, GLOW_SCALE).
-    const I_GLOW = 6 + PARTICLE_TYPES + 9;
+    const I_GLOW = 6 + PARTICLE_TYPES + 10;
     // (red, green, blue and the hole field, a pass)
     const GLOW_SECTIONS = 8;
     const GLOW_SCALE = 4096.0;
@@ -78,8 +84,8 @@ namespace PowderSandboxNri {
     const SPARK_SECTIONS = 2;
     const SPARK_ITERATIONS = 2;
     // The int buffer: the step's sections, then those.
-    const ALL_INT_SECTIONS = 6 + PARTICLE_TYPES + 9 + GLOW_SECTIONS + SPARK_SECTIONS;
-    const INT_SECTIONS = 6 + PARTICLE_TYPES + 9;
+    const ALL_INT_SECTIONS = 6 + PARTICLE_TYPES + 10 + GLOW_SECTIONS + SPARK_SECTIONS;
+    const INT_SECTIONS = 6 + PARTICLE_TYPES + 10;
     // The step's events for sound (I_EVENTS: splash, fizz, fire, boom), read back after the probe's
     // ints.
     const I_EVENTS = 6 + PARTICLE_TYPES + 8;
@@ -799,6 +805,17 @@ namespace PowderSandboxNri {
         // The GPU's time for the simulation (a queued frame's two timestamps), the last frame's that
         // stepped, per step.
         private queryPool: NriQueryPoolHandle | null = null;
+        // -profile: its queries and their readback, the entries the frame being timed dispatched (one
+        // a timestamp after the first), whether one's being recorded, the frame whose are waiting to be
+        // read (-1 none), the milliseconds summed for each entry over the frames read.
+        profile: boolean = false;
+        private profilePool: NriQueryPoolHandle | null = null;
+        private profileReadback: NriBufferHandle | null = null;
+        private profileEntries: int[] = [];
+        private profiling: boolean = false;
+        private profileFrame: int = -1;
+        private profileSums: number[] = [];
+        private profileFrames: int = 0;
         private querySize: int = 8;
         private stepMs: number = 0.0;
         private fpsFrames: int = 0;
@@ -1069,6 +1086,14 @@ namespace PowderSandboxNri {
             this.queryPool = queryPool;
             if (queryPool) {
                 this.querySize = Nri_GetQuerySize(queryPool);
+            }
+            // (no && with a handle: tslang can't mix one with a boolean)
+            if (this.profile && this.querySize > 0) {
+                this.profilePool = Nri_CreateTimestampQueryPool(device, PROFILE_QUERIES);
+                this.profileReadback = Nri_CreateReadbackBuffer(device, PROFILE_QUERIES * this.querySize);
+                for (let e = 0; e < ENTRIES.length; e++) {
+                    this.profileSums.push(0.0);
+                }
             }
             for (let i = 0; i < queuedFrameNum; i++) {
                 const commandAllocator = Nri_CreateCommandAllocator(this.queue);
@@ -2084,6 +2109,84 @@ namespace PowderSandboxNri {
             Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, this.computeSet);
             Nri_CmdDispatch(commandBuffer, Math.floor((count + GROUP_SIZE - 1) / GROUP_SIZE), 1, 1);
             this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
+            const profilePool = this.profilePool;
+            if (profilePool) {
+                if (this.profiling && this.profileEntries.length + 1 < PROFILE_QUERIES) {
+                    this.profileEntries.push(entry);
+                    Nri_CmdWriteTimestamp(commandBuffer, profilePool, this.profileEntries.length);
+                }
+            }
+        }
+
+        // -profile: this frame's dispatches timed, if it's one to time (and the last one's were read).
+        beginProfile(commandBuffer: NriCommandBufferHandle) {
+            const profilePool = this.profilePool;
+            if (!profilePool || this.profileFrame >= 0 || this.frameIndex % PROFILE_EVERY != 0) {
+                return;
+            }
+            Nri_CmdResetQueries(commandBuffer, profilePool, 0, PROFILE_QUERIES);
+            Nri_CmdWriteTimestamp(commandBuffer, profilePool, 0);
+            this.profileEntries = [];
+            this.profiling = true;
+        }
+
+        endProfile(commandBuffer: NriCommandBufferHandle) {
+            const profilePool = this.profilePool;
+            const profileReadback = this.profileReadback;
+            if (!this.profiling || !profilePool || !profileReadback) {
+                return;
+            }
+            this.profiling = false;
+            Nri_CmdCopyQueries(commandBuffer, profilePool, 0, this.profileEntries.length + 1, profileReadback, 0);
+            this.profileFrame = this.frameIndex;
+        }
+
+        // The timed frame's intervals, once the GPU's done with it (its queued frame's slot back), into
+        // the sums; every PROFILE_REPORT frames, the report.
+        readProfile() {
+            const device = this.device;
+            const profileReadback = this.profileReadback;
+            if (!device || !profileReadback || this.profileFrame < 0 || this.frameIndex - this.profileFrame < this.queuedFrames.length) {
+                return;
+            }
+            this.profileFrame = -1;
+            for (let i = 0; i < this.profileEntries.length; i++) {
+                const ms = Nri_ReadTimestampIntervalMs(device, profileReadback, i * this.querySize, (i + 1) * this.querySize);
+                if (ms >= 0.0) {
+                    this.profileSums[this.profileEntries[i]] += ms;
+                }
+            }
+            this.profileFrames++;
+            if (this.profileFrames < PROFILE_REPORT) {
+                return;
+            }
+            let total = 0.0;
+            for (const sum of this.profileSums) {
+                total += sum;
+            }
+            let report = `Profile (${this.gridW} x ${this.gridH}, ${CAPACITY - this.probe[0]} particles): ${formatFixed(total / this.profileFrames, 2)} ms a frame;`;
+            const shown: boolean[] = [];
+            for (let e = 0; e < ENTRIES.length; e++) {
+                shown.push(false);
+            }
+            for (let n = 0; n < 12; n++) {
+                let best = -1;
+                for (let e = 0; e < ENTRIES.length; e++) {
+                    if (!shown[e] && (best < 0 || this.profileSums[e] > this.profileSums[best])) {
+                        best = e;
+                    }
+                }
+                if (best < 0 || this.profileSums[best] <= 0.0) {
+                    break;
+                }
+                shown[best] = true;
+                report = `${report} ${ENTRIES[best]} ${formatFixed(this.profileSums[best] / this.profileFrames, 2)}`;
+            }
+            console.log(report);
+            for (let e = 0; e < ENTRIES.length; e++) {
+                this.profileSums[e] = 0.0;
+            }
+            this.profileFrames = 0;
         }
 
         // Electricity, while running: spark_cs's iterations (each one's parity in the substep), with the
@@ -3188,6 +3291,7 @@ namespace PowderSandboxNri {
                 this.probe[0] = CAPACITY;
             }
             this.readTimestamps(queuedFrame);
+            this.readProfile();
 
             // The steps this frame's time covers; after a long frame (over two frames at 60 Hz) the
             // simulation falls behind rather than taking ever more steps.
@@ -3236,9 +3340,11 @@ namespace PowderSandboxNri {
                     Nri_CmdResetQueries(commandBuffer, queryPool, queryBase, 2);
                     Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
                 }
+                this.beginProfile(commandBuffer);
                 this.recordSimulation(commandBuffer, brushMode, steps);
                 this.recordSparks(commandBuffer, brushMode);
                 this.recordGlow(commandBuffer);
+                this.endProfile(commandBuffer);
                 queuedFrame.steps = this.paused ? 0 : steps;
                 queuedFrame.levelTime = this.levelTime;
                 const timestampReadback = queuedFrame.timestampReadback;
@@ -4609,6 +4715,14 @@ namespace PowderSandboxNri {
                 if (queryPool) {
                     Nri_DestroyQueryPool(queryPool);
                 }
+                const profilePool = this.profilePool;
+                if (profilePool) {
+                    Nri_DestroyQueryPool(profilePool);
+                }
+                const profileReadback = this.profileReadback;
+                if (profileReadback) {
+                    Nri_DestroyBuffer(profileReadback);
+                }
                 this.destroySwapChain();
                 for (const view of this.storageViews) {
                     Nri_DestroyDescriptor(view);
@@ -4686,6 +4800,7 @@ namespace PowderSandboxNri {
         Nri_AddExampleOptionWithValues(sample, "-air", 1);
         Nri_AddExampleOptionWithValues(sample, "-bodies", 1);
         Nri_AddExampleOption(sample, "-mute");
+        Nri_AddExampleOption(sample, "-profile");
         Nri_AddExampleOptionWithValues(sample, "-gravity", 1);
         Nri_AddExampleOptionWithValues(sample, "-tilt", 2);
         Nri_AddExampleOptionWithValues(sample, "-window", 2);
@@ -4743,6 +4858,8 @@ namespace PowderSandboxNri {
             } else if (arg == "-vcycles" && i + 1 < argc) {
                 sandbox.vcycles = Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 1);
                 i++;
+            } else if (arg == "-profile") {
+                sandbox.profile = true;
             } else if (arg == "-mute") {
                 sandbox.mute = true;
             } else if (arg == "-tilt" && i + 2 < argc) {
