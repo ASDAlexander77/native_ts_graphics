@@ -1,10 +1,11 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import {
-    TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, GROUP_SIZE, CONSTANTS_SIZE,
-    DEFAULT_SUBSTEPS, DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES, DEFAULT_SMOOTH,
-    DEFAULT_VISCOSITY_SWEEPS, WATER, BUFFERS, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level,
-    Stroke, QueuedFrame, SwapChainTexture
+    TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, DEFAULT_SUBSTEPS,
+    DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES, DEFAULT_SMOOTH, DEFAULT_VISCOSITY_SWEEPS,
+    WATER, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level, Stroke, QueuedFrame,
+    SwapChainTexture
 } from "./defs";
+import { NriComputeKernels } from "../core/nri_compute_kernels";
 import { NriFrameRing } from "../core/nri_frame_ring";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 
@@ -170,7 +171,8 @@ export class SandboxState {
     // went from where it was pressed, up for a tap.
     protected fanDirection: int = 3;
 
-    protected constants: f32[] = [];
+    // The root constants every entry sees, and the entries dispatched (every part records with it).
+    protected kernels: NriComputeKernels = new NriComputeKernels();
     protected probe: int[] = [];
     protected probeFloats: f32[] = [];
 
@@ -272,16 +274,6 @@ export class SandboxState {
         this.messageTime = MESSAGE_TIME;
     }
 
-    // The root constants every entry sees (set by index), and the dispatches and barriers every
-    // part records with.
-    setFloat(index: int, value: number) {
-        this.constants[index] = value;
-    }
-
-    setInt(index: int, value: int) {
-        Nri_StoreInt32(Ref(this.constants[index]), value);
-    }
-
     // The attraction point, in the grid (its center until one's placed).
     gravityPointX(): number {
         return this.gravityX < 0.0 ? this.gridW * 0.5 : Math.min(this.gravityX, this.gridW - 1.0);
@@ -291,24 +283,4 @@ export class SandboxState {
         return this.gravityY < 0.0 ? this.gridH * 0.5 : Math.min(this.gravityY, this.gridH - 1.0);
     }
 
-    barriers(commandBuffer: NriCommandBufferHandle, mask: int, before: NriBufferState, after: NriBufferState) {
-        for (let i = 0; i < BUFFERS; i++) {
-            if ((mask & (1 << i)) != 0) {
-                Nri_CmdBufferBarrier(commandBuffer, this.buffers[i], before, after);
-            }
-        }
-    }
-
-    // An entry over count threads, then a barrier on the buffers in barrierMask.
-    dispatch(commandBuffer: NriCommandBufferHandle, entry: int, count: int, barrierMask: int) {
-        Nri_CmdSetPipeline(commandBuffer, this.pipelines[entry]);
-        Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.constants[0]), CONSTANTS_SIZE);
-        Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, this.computeSet);
-        Nri_CmdDispatch(commandBuffer, Math.floor((count + GROUP_SIZE - 1) / GROUP_SIZE), 1, 1);
-        this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
-        const profiler = this.profiler;
-        if (profiler) {
-            profiler.mark(commandBuffer, entry);
-        }
-    }
 }

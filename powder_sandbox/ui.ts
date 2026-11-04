@@ -322,19 +322,19 @@ export class SandboxUI extends SandboxSimulation {
         } else if (down && toGrid && !stretches) {
             brushMode = 1;
             this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
-            this.setFloat(10, this.lastGridX);
-            this.setFloat(11, this.lastGridY);
-            this.setFloat(12, gx);
-            this.setFloat(13, gy);
+            this.kernels.setFloat(10, this.lastGridX);
+            this.kernels.setFloat(11, this.lastGridY);
+            this.kernels.setFloat(12, gx);
+            this.kernels.setFloat(13, gy);
             this.lastGridX = gx;
             this.lastGridY = gy;
         } else if (!down && pressOnGrid && stretches && !middle) {
             brushMode = boxing ? 2 : 1;
             this.fanDirection = fanDirectionOf(gx - this.anchorX, gy - this.anchorY);
-            this.setFloat(10, this.anchorX);
-            this.setFloat(11, this.anchorY);
-            this.setFloat(12, gx);
-            this.setFloat(13, gy);
+            this.kernels.setFloat(10, this.anchorX);
+            this.kernels.setFloat(11, this.anchorY);
+            this.kernels.setFloat(12, gx);
+            this.kernels.setFloat(13, gy);
         }
 
         // The cursor: the brush at the pointer, or the line or box being stretched; none over
@@ -357,8 +357,8 @@ export class SandboxUI extends SandboxSimulation {
         }
         const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
         this.shapeWord = shape | (cursorMode << 4);
-        this.setFloat(28, cursorX);
-        this.setFloat(29, cursorY);
+        this.kernels.setFloat(28, cursorX);
+        this.kernels.setFloat(29, cursorY);
         this.wasDown = down;
         return brushMode;
     }
