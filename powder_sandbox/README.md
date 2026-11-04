@@ -648,8 +648,8 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     tool. Checked by the test frames: the slider's row and the toolbar are byte for byte the same
     as before, wide and upright (540 x 1170, both rows scrolled), on D3D12 and Vulkan. On the S23
     by hand (adb): dragging the slider sizes the brush (3 to 22, nothing painted), and tapping a
-    tab shows its group (the mark stays under the tool's tab). Not checked: scrolling the tabs (on
-    the S23 they all fit; no test drives input).
+    tab shows its group (the mark stays under the tool's tab); scrolling, checked on the S23 by
+    hand, works too.
   - Still to do: the radial menu (never open in a test: it needs a phone to check), touch
     gestures. The tiles' row stays the sandbox's (its labels, swatches and selection are the
     game's).
