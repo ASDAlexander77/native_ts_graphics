@@ -640,4 +640,16 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     gives it the pipelines, the set and the buffers barrier masks name; `setFloat`, `setInt`,
     `dispatch` with a barrier mask, `barriers`, `setGraphicsConstants` for the draw, `setProfiler`
     to mark each dispatch). The sandbox still owns and destroys the pipelines and buffers.
-  - Still to do: the toolbar's widgets (tabs, size slider, radial menu), touch gestures.
+  - **Slider and tab row** (done): `core/nri_slider.ts`'s `NriSlider` (`place`, `contains` with a
+    row's height of slack past the track's ends, `fraction`, `draw`) and `core/nri_tab_row.ts`'s
+    `NriTabRow` (`layout` from the labels' widths, `offset`, `scrollTo`, `tabAt`, `left`/`right`,
+    marks under tabs, `draw` with its scroll bar). What they mean stays the sandbox's: when the
+    slider shows (not for a box), its fraction as a brush size, the mark under the tab holding the
+    tool. Checked by the test frames: the slider's row and the toolbar are byte for byte the same
+    as before, wide and upright (540 x 1170, both rows scrolled), on D3D12 and Vulkan. On the S23
+    by hand (adb): dragging the slider sizes the brush (3 to 22, nothing painted), and tapping a
+    tab shows its group (the mark stays under the tool's tab); scrolling, checked on the S23 by
+    hand, works too.
+  - Still to do: the radial menu (never open in a test: it needs a phone to check), touch
+    gestures. The tiles' row stays the sandbox's (its labels, swatches and selection are the
+    game's).

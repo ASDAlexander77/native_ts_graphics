@@ -43,15 +43,6 @@ export class SandboxUI extends SandboxSimulation {
         this.toolbarScroll = Math.min(Math.max(scroll, 0.0), this.maxScroll());
     }
 
-    // How far the tabs' row scrolls.
-    maxTabScroll(): number {
-        return Math.max(this.tabEnd - this.width, 0.0);
-    }
-
-    scrollTabs(scroll: number) {
-        this.tabScroll = Math.min(Math.max(scroll, 0.0), this.maxTabScroll());
-    }
-
     // Whether y is on the tabs' row (else the tiles', on the toolbar).
     onTabRow(y: number): boolean {
         return y < this.height - this.tileHeight;
@@ -72,13 +63,12 @@ export class SandboxUI extends SandboxSimulation {
     }
 
     onSlider(x: number, y: number): boolean {
-        return this.sliderShown() && y >= this.sliderTop() && y < this.sliderTop() + this.sliderHeight() && x >= this.sliderX0 - this.sliderHeight()
-            && x <= this.sliderX1 + this.sliderHeight();
+        return this.sliderShown() && this.slider.contains(x, y);
     }
 
     // The brush's radius from x along the slider's track (whole cells, or the smallest).
     slideBrush(x: number) {
-        const t = Math.min(Math.max((x - this.sliderX0) / Math.max(this.sliderX1 - this.sliderX0, 1.0), 0.0), 1.0);
+        const t = this.slider.fraction(x);
         const radius = Math.round(MIN_BRUSH + t * (MAX_BRUSH - MIN_BRUSH));
         this.brushRadius = radius < 1.0 ? MIN_BRUSH : radius;
     }
@@ -200,7 +190,7 @@ export class SandboxUI extends SandboxSimulation {
         // (with Control, or the middle button down: a pinch), or sizes the brush.
         const wheel = Nri_GetMouseWheel(this.sample);
         if (overToolbar && wheel != 0.0 && this.onTabRow(my)) {
-            this.scrollTabs(this.tabScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
+            this.tabs.scrollTo(this.tabs.offset() + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
         } else if (overToolbar && wheel != 0.0) {
             this.scrollToolbar(this.toolbarScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
         } else if (wheel != 0.0 && (middle || control)) {
@@ -247,7 +237,7 @@ export class SandboxUI extends SandboxSimulation {
             }
             this.pressX = mx;
             this.pressY = my;
-            this.pressScroll = this.onTabRow(my) ? this.tabScroll : this.toolbarScroll;
+            this.pressScroll = this.onTabRow(my) ? this.tabs.offset() : this.toolbarScroll;
             this.dragging = false;
             this.lastGridX = gx;
             this.lastGridY = gy;
@@ -263,16 +253,14 @@ export class SandboxUI extends SandboxSimulation {
                     this.dragging = true;
                 }
                 if (this.dragging && tabs) {
-                    this.scrollTabs(this.pressScroll - (mx - this.pressX));
+                    this.tabs.scrollTo(this.pressScroll - (mx - this.pressX));
                 } else if (this.dragging) {
                     this.scrollToolbar(this.pressScroll - (mx - this.pressX));
                 }
             } else if (this.wasDown && !this.dragging && tabs) {
-                const x = this.pressX + this.tabScroll;
-                for (let g = 0; g < this.tabX.length; g++) {
-                    if (x >= this.tabX[g] && x < (g + 1 < this.tabX.length ? this.tabX[g + 1] : this.tabEnd)) {
-                        this.showGroup(g);
-                    }
+                const g = this.tabs.tabAt(this.pressX);
+                if (g >= 0) {
+                    this.showGroup(g);
                 }
             } else if (this.wasDown && !this.dragging) {
                 const index: int = Math.floor((this.pressX + this.toolbarScroll) / this.tileWidth);
@@ -376,40 +364,14 @@ export class SandboxUI extends SandboxSimulation {
         Nri_ImguiDrawRect(0.0, top, this.width, bottom, 0.08, 0.08, 0.1, 1.0);
         // The tabs: each as wide as its label and a gap, spread over the row when they fit; the
         // group shown lit as a selected tile is, and under a tab whose group holds the tool, a bar of the tool's color.
-        const tabGap = Nri_ImguiCalcTextWidth("  ");
-        let tabsWidth = 0.0;
-        for (const name of this.groups) {
-            tabsWidth += Nri_ImguiCalcTextWidth(name) + tabGap;
-        }
-        const spread = tabsWidth < this.width ? (this.width - tabsWidth) / this.groups.length : 0.0;
-        this.tabX = [];
-        let tabEdge = 0.0;
-        for (let g = 0; g < this.groups.length; g++) {
-            this.tabX.push(tabEdge);
-            tabEdge += Nri_ImguiCalcTextWidth(this.groups[g]) + tabGap + spread;
-        }
-        this.tabEnd = tabEdge;
-        this.scrollTabs(this.tabScroll);
-        for (let g = 0; g < this.groups.length; g++) {
-            const x0 = this.tabX[g] - this.tabScroll;
-            const x1 = (g + 1 < this.groups.length ? this.tabX[g + 1] : this.tabEnd) - this.tabScroll;
-            if (x1 <= 0.0 || x0 >= this.width) {
-                continue;
+        this.tabs.layout(this.groups, this.width);
+        this.tabs.clearMarks();
+        for (const tile of this.tiles) {
+            if (tile.tool == this.tool) {
+                this.tabs.mark(tile.group, tile.r, tile.g, tile.b);
             }
-            const shown = g == this.group;
-            if (shown) {
-                Nri_ImguiDrawRect(x0 + 1.0, tabTop + 1.0, x1 - 1.0, top, 0.95, 0.95, 0.95, 1.0);
-            }
-            for (const tile of this.tiles) {
-                if (tile.group == g && tile.tool == this.tool) {
-                    Nri_ImguiDrawRect(x0 + pad, top - 4.0, x1 - pad, top - 1.0, tile.r, tile.g, tile.b, 1.0);
-                }
-            }
-            const name = this.groups[g];
-            const gray = shown ? 0.0 : 0.65;
-            Nri_ImguiDrawText((x0 + x1 - Nri_ImguiCalcTextWidth(name)) * 0.5, tabTop + (this.tabHeight - labelHeight) * 0.5 + 2.0, name,
-                gray, gray, gray, 1.0, 0);
         }
+        this.tabs.draw(tabTop, this.tabHeight, this.group, labelHeight, pad);
         for (let i = 0; i < this.groupTiles.length; i++) {
             const tile = this.groupTiles[i];
             const x0 = i * tileWidth - this.toolbarScroll;
@@ -446,11 +408,8 @@ export class SandboxUI extends SandboxSimulation {
             Nri_ImguiDrawText(x0 + (tileWidth - textWidth) * 0.5, bottom - pad - labelHeight + 2.0, label,
                 selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, 1.0, 0);
         }
-        // When a row scrolls, a bar along its top: how much of it shows, and where.
-        if (this.maxTabScroll() > 0.0) {
-            Nri_ImguiDrawRect(this.tabScroll / this.tabEnd * this.width, tabTop, (this.tabScroll + this.width) / this.tabEnd * this.width,
-                tabTop + 3.0, 0.7, 0.7, 0.75, 1.0);
-        }
+        // When the tiles' row scrolls, a bar along its top: how much of it shows, and where (the
+        // tabs draw theirs).
         if (this.maxScroll() > 0.0) {
             const total = this.groupTiles.length * tileWidth;
             const barX0 = this.toolbarScroll / total * this.width;
@@ -464,17 +423,10 @@ export class SandboxUI extends SandboxSimulation {
             const sliderTop = this.sliderTop();
             const sliderHeight = this.sliderHeight();
             const sizeLabel = `Size ${formatFixed(this.brushRadius, this.brushRadius < 1.0 ? 1 : 0)}`;
-            this.sliderX0 = 8.0 + Nri_ImguiCalcTextWidth("Size 30.0") + sliderHeight;
-            this.sliderX1 = Math.min(this.width - 8.0 - sliderHeight * 0.5, this.sliderX0 + this.width * 0.6);
-            Nri_ImguiDrawRect(0.0, sliderTop - 2.0, this.sliderX1 + sliderHeight, sliderTop + sliderHeight + 2.0, 0.08, 0.08, 0.1, 0.8);
-            Nri_ImguiDrawText(8.0, sliderTop + (sliderHeight - labelHeight) * 0.5 + 2.0, sizeLabel, 1.0, 1.0, 1.0, 1.0, 0);
-            const mid = sliderTop + sliderHeight * 0.5;
-            Nri_ImguiDrawRect(this.sliderX0, mid - 2.0, this.sliderX1, mid + 2.0, 0.45, 0.45, 0.5, 1.0);
-            const t = (this.brushRadius - MIN_BRUSH) / (MAX_BRUSH - MIN_BRUSH);
-            const knobX = this.sliderX0 + t * (this.sliderX1 - this.sliderX0);
-            const knob = sliderHeight * 0.3;
-            Nri_ImguiDrawRect(this.sliderX0, mid - 2.0, knobX, mid + 2.0, 0.95, 0.95, 0.95, 1.0);
-            Nri_ImguiDrawRect(knobX - knob, mid - knob * 1.4, knobX + knob, mid + knob * 1.4, 0.95, 0.95, 0.95, 1.0);
+            const x0 = 8.0 + Nri_ImguiCalcTextWidth("Size 30.0") + sliderHeight;
+            const x1 = Math.min(this.width - 8.0 - sliderHeight * 0.5, x0 + this.width * 0.6);
+            this.slider.place(0.0, x0, x1, sliderTop, sliderHeight);
+            this.slider.draw(sizeLabel, (this.brushRadius - MIN_BRUSH) / (MAX_BRUSH - MIN_BRUSH), labelHeight);
             hudTop = sliderTop + sliderHeight + 6.0;
         }
         // The brushes' menu: an icon for each shape, the brush's lit.

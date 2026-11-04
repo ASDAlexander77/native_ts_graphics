@@ -8,6 +8,8 @@ import {
 import { NriComputeKernels } from "../core/nri_compute_kernels";
 import { NriFrameRing } from "../core/nri_frame_ring";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
+import { NriSlider } from "../core/nri_slider";
+import { NriTabRow } from "../core/nri_tab_row";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
 // each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts,
@@ -89,13 +91,11 @@ export class SandboxState {
     protected toolbarHeight: number = 0.0;
     protected tileWidth: number = MIN_TILE_WIDTH;
     protected tileHeight: number = 56.0;
-    // The tiles' row scrolled left by this many pixels (0 .. maxScroll()); the tabs' row, its
-    // height, and its tabs' left edges and right end (as buildUI last laid them out).
+    // The tiles' row scrolled left by this many pixels (0 .. maxScroll()); the tabs' row (as
+    // buildUI last laid it out) and its height.
     protected toolbarScroll: number = 0.0;
-    protected tabScroll: number = 0.0;
+    protected tabs: NriTabRow = new NriTabRow();
     protected tabHeight: number = 32.0;
-    protected tabX: number[] = [];
-    protected tabEnd: number = 0.0;
     protected viewX: number = 0.0;
     protected viewY: number = 0.0;
     protected cellPixels: number = 1.0;
@@ -154,10 +154,8 @@ export class SandboxState {
     protected menuOpen: boolean = false;
     protected menuX: number = 0.0;
     protected menuY: number = 0.0;
-    // The size slider's track, from sliderX0 to sliderX1 (as buildUI last laid it out), and its
-    // row's top and height.
-    protected sliderX0: number = 0.0;
-    protected sliderX1: number = 0.0;
+    // The size slider (where buildUI last placed it).
+    protected slider: NriSlider = new NriSlider();
     protected pressScroll: number = 0.0;
     protected dragging: boolean = false;
     protected lastGridX: number = 0.0;
