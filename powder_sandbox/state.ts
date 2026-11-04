@@ -1,13 +1,14 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import {
-    TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, DEFAULT_SUBSTEPS,
-    DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES, DEFAULT_SMOOTH, DEFAULT_VISCOSITY_SWEEPS,
-    WATER, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level, Stroke, QueuedFrame,
-    SwapChainTexture
+    TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, PROFILE_QUERIES, GROUP_SIZE,
+    CONSTANTS_SIZE, DEFAULT_SUBSTEPS, DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES,
+    DEFAULT_SMOOTH, DEFAULT_VISCOSITY_SWEEPS, WATER, BUFFERS, Tile, GRAVITY_DOWN, MESSAGE_TIME,
+    SHAPE_CIRCLE, Level, Stroke, QueuedFrame, SwapChainTexture
 } from "./defs";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
-// each of its parts (levels.ts, sandbox.ts, checks.ts) extends with what it does.
+// each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts,
+// simulation.ts, ui.ts, sandbox.ts (the app) and checks.ts.
 export class SandboxState {
     protected device: NriDeviceHandle | null = null;
     protected queue: NriQueueHandle;
@@ -274,5 +275,48 @@ export class SandboxState {
         console.log(text);
         this.message = text;
         this.messageTime = MESSAGE_TIME;
+    }
+
+    // The root constants every entry sees (set by index), and the dispatches and barriers every
+    // part records with.
+    setFloat(index: int, value: number) {
+        this.constants[index] = value;
+    }
+
+    setInt(index: int, value: int) {
+        Nri_StoreInt32(Ref(this.constants[index]), value);
+    }
+
+    // The attraction point, in the grid (its center until one's placed).
+    gravityPointX(): number {
+        return this.gravityX < 0.0 ? this.gridW * 0.5 : Math.min(this.gravityX, this.gridW - 1.0);
+    }
+
+    gravityPointY(): number {
+        return this.gravityY < 0.0 ? this.gridH * 0.5 : Math.min(this.gravityY, this.gridH - 1.0);
+    }
+
+    barriers(commandBuffer: NriCommandBufferHandle, mask: int, before: NriBufferState, after: NriBufferState) {
+        for (let i = 0; i < BUFFERS; i++) {
+            if ((mask & (1 << i)) != 0) {
+                Nri_CmdBufferBarrier(commandBuffer, this.buffers[i], before, after);
+            }
+        }
+    }
+
+    // An entry over count threads, then a barrier on the buffers in barrierMask.
+    dispatch(commandBuffer: NriCommandBufferHandle, entry: int, count: int, barrierMask: int) {
+        Nri_CmdSetPipeline(commandBuffer, this.pipelines[entry]);
+        Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.constants[0]), CONSTANTS_SIZE);
+        Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, this.computeSet);
+        Nri_CmdDispatch(commandBuffer, Math.floor((count + GROUP_SIZE - 1) / GROUP_SIZE), 1, 1);
+        this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
+        const profilePool = this.profilePool;
+        if (profilePool) {
+            if (this.profiling && this.profileEntries.length + 1 < PROFILE_QUERIES) {
+                this.profileEntries.push(entry);
+                Nri_CmdWriteTimestamp(commandBuffer, profilePool, this.profileEntries.length);
+            }
+        }
     }
 }
