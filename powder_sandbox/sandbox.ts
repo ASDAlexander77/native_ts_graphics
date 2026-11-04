@@ -2,7 +2,7 @@
 import { formatFixed } from "../core/text_format";
 import {
     WINDOW_TITLE, CAPACITY, DEFAULT_GRID_HEIGHT, MAX_GRID_LONG, GRID_CAPACITY, MAX_ZOOM,
-    PROFILE_EVERY, PROFILE_QUERIES, PROFILE_REPORT, CONSTANTS_FLOATS, CONSTANTS_SIZE,
+    PROFILE_EVERY, PROFILE_QUERIES, PROFILE_REPORT, GROUP_SIZE, CONSTANTS_FLOATS, CONSTANTS_SIZE,
     ALL_INT_SECTIONS, I_EVENTS, EVENT_COUNT, FLOAT_SECTIONS, ALLOC_LIST, PARTICLE_SIZE, PROBE_INTS,
     WATER, OIL, SAND, FIRE, LAVA, ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, GLASS, WOOD, URANIUM,
     EMITTER, ICE, METAL, FAN, BLOCK, BATTERY, LAMP, ERASE, HEAT, COOL, SALT_WATER, SPARK, C4, COAL,
@@ -26,9 +26,7 @@ let retainedFrameCallbacks: NriFrameCallback[] = [];
 export class SandboxApp extends SandboxUI {
     constructor(sample: NriSampleHandle) {
         super(sample);
-        for (let i = 0; i < CONSTANTS_FLOATS; i++) {
-            this.constants.push(0.0);
-        }
+        this.kernels.init(CONSTANTS_FLOATS, GROUP_SIZE);
         for (let i = 0; i < PROBE_INTS + EVENT_COUNT; i++) {
             this.probe.push(0);
             this.probeFloats.push(0.0);
@@ -170,6 +168,7 @@ export class SandboxApp extends SandboxUI {
             const profiler = new NriGpuProfiler();
             if (profiler.init(device, ENTRIES, PROFILE_QUERIES, PROFILE_EVERY, PROFILE_REPORT)) {
                 this.profiler = profiler;
+                this.kernels.setProfiler(profiler);
             } else {
                 profiler.destroy();
             }
@@ -299,6 +298,7 @@ export class SandboxApp extends SandboxUI {
         }
         this.computeSet = computeSet;
         this.drawSet = drawSet;
+        this.kernels.bind(this.pipelines, computeSet, this.buffers);
         for (let i = 0; i < BUFFERS; i++) {
             Nri_UpdateDescriptor(computeSet, i, 0, this.storageViews[i]);
         }
@@ -390,7 +390,7 @@ export class SandboxApp extends SandboxUI {
         Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
         Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
         Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-        Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.constants[0]), CONSTANTS_SIZE);
+        this.kernels.setGraphicsConstants(commandBuffer);
         Nri_CmdSetDescriptorPool(commandBuffer, this.descriptorPool);
         Nri_CmdSetDescriptorSet(commandBuffer, 0, this.drawSet);
         Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
@@ -490,17 +490,17 @@ export class SandboxApp extends SandboxUI {
                     queuedFrame.timedSteps = this.paused ? 0 : steps;
                 }
             }
-            this.dispatch(commandBuffer, PROBE, 1, 0);
+            this.kernels.dispatch(commandBuffer, PROBE, 1, 0);
             // (the brush's fields stand for the goal's material and box)
             const level = this.level;
             if (level && level.goalCount > 0) {
-                this.setInt(8, level.goalMaterial | (level.goalLit ? GOAL_LIT : 0));
-                this.setFloat(10, level.goalBox[0] * this.gridW);
-                this.setFloat(11, level.goalBox[1] * this.gridH);
-                this.setFloat(12, level.goalBox[2] * this.gridW);
-                this.setFloat(13, level.goalBox[3] * this.gridH);
-                this.dispatch(commandBuffer, GOAL, 1, 0);
-                this.setInt(8, this.tool);
+                this.kernels.setInt(8, level.goalMaterial | (level.goalLit ? GOAL_LIT : 0));
+                this.kernels.setFloat(10, level.goalBox[0] * this.gridW);
+                this.kernels.setFloat(11, level.goalBox[1] * this.gridH);
+                this.kernels.setFloat(12, level.goalBox[2] * this.gridW);
+                this.kernels.setFloat(13, level.goalBox[3] * this.gridH);
+                this.kernels.dispatch(commandBuffer, GOAL, 1, 0);
+                this.kernels.setInt(8, this.tool);
             }
             const alloc = this.buffers[4];
             Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
@@ -533,7 +533,7 @@ export class SandboxApp extends SandboxUI {
                 }
             }
             const shown = B_GRID_INT | B_GRID_FLOAT | B_CELLS;
-            this.barriers(commandBuffer, shown, NriBufferState.Storage, NriBufferState.PixelShaderResource);
+            this.kernels.barriers(commandBuffer, shown, NriBufferState.Storage, NriBufferState.PixelShaderResource);
             if (this.imgui) {
                 Nri_CmdCopyImguiData(this.sample, commandBuffer);
             }
@@ -545,7 +545,7 @@ export class SandboxApp extends SandboxUI {
                 Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, this.viewFormat);
             }
             Nri_CmdEndRendering(commandBuffer);
-            this.barriers(commandBuffer, shown, NriBufferState.PixelShaderResource, NriBufferState.Storage);
+            this.kernels.barriers(commandBuffer, shown, NriBufferState.PixelShaderResource, NriBufferState.Storage);
             let presentFrom = NriTextureState.ColorAttachment;
             const frameReadback = this.frameReadback;
             if (frameReadback) {

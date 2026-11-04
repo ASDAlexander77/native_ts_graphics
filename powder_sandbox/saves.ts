@@ -162,14 +162,14 @@ export class SandboxSaves extends SandboxLevels {
         Nri_CmdSetDescriptorPool(commandBuffer, this.descriptorPool);
         Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
         // (the brush's fields stand for the old grid and the offset)
-        this.setInt(8, oldW);
-        this.setInt(9, oldH);
-        this.setInt(15, this.regridOffsetX(oldW));
-        this.setInt(16, this.gridH - oldH);
-        this.dispatch(commandBuffer, REGRID_GRID, this.stride, B_ALL);
-        this.dispatch(commandBuffer, REGRID_PARTICLES, CAPACITY, B_ALL);
-        this.setInt(8, this.tool);
-        this.setInt(15, this.emitType);
+        this.kernels.setInt(8, oldW);
+        this.kernels.setInt(9, oldH);
+        this.kernels.setInt(15, this.regridOffsetX(oldW));
+        this.kernels.setInt(16, this.gridH - oldH);
+        this.kernels.dispatch(commandBuffer, REGRID_GRID, this.stride, B_ALL);
+        this.kernels.dispatch(commandBuffer, REGRID_PARTICLES, CAPACITY, B_ALL);
+        this.kernels.setInt(8, this.tool);
+        this.kernels.setInt(15, this.emitType);
         this.stateW = this.gridW;
         this.stateH = this.gridH;
         console.log(`Grid remade: ${oldW} x ${oldH} to ${this.gridW} x ${this.gridH} cells`);

@@ -18,28 +18,28 @@ import { SandboxSaves } from "./saves";
 export class SandboxSimulation extends SandboxSaves {
     // The constants every entry sees this frame (substep, parity and the brush are set per dispatch).
     fillConstants(dt: number) {
-        this.setInt(0, this.gridW);
-        this.setInt(1, this.gridH);
-        this.setInt(2, this.stride);
-        this.setInt(3, CAPACITY);
-        this.setFloat(4, dt);
-        this.setFloat(5, GRAVITY);
-        this.setInt(6, this.frameIndex);
-        this.setInt(8, this.tool);
-        this.setFloat(14, this.brushRadius);
-        this.setInt(15, this.tool == FAN ? this.fanDirection : this.emitType);
-        this.setFloat(17, FLIP_RATIO);
-        this.setInt(18, this.overlay);
-        this.setFloat(19, this.time);
-        this.setFloat(20, this.viewX);
-        this.setFloat(21, this.viewY);
-        this.setFloat(22, this.cellPixels);
-        this.setInt(23, this.scene);
+        this.kernels.setInt(0, this.gridW);
+        this.kernels.setInt(1, this.gridH);
+        this.kernels.setInt(2, this.stride);
+        this.kernels.setInt(3, CAPACITY);
+        this.kernels.setFloat(4, dt);
+        this.kernels.setFloat(5, GRAVITY);
+        this.kernels.setInt(6, this.frameIndex);
+        this.kernels.setInt(8, this.tool);
+        this.kernels.setFloat(14, this.brushRadius);
+        this.kernels.setInt(15, this.tool == FAN ? this.fanDirection : this.emitType);
+        this.kernels.setFloat(17, FLIP_RATIO);
+        this.kernels.setInt(18, this.overlay);
+        this.kernels.setFloat(19, this.time);
+        this.kernels.setFloat(20, this.viewX);
+        this.kernels.setFloat(21, this.viewY);
+        this.kernels.setFloat(22, this.cellPixels);
+        this.kernels.setInt(23, this.scene);
         // (multigrid smooths level 0 with pressure_cs too, not over-relaxed)
-        this.setFloat(24, this.solver == SOLVER_SOR ? SOR_OMEGA : 1.0);
-        this.setFloat(25, this.mouseGridX);
-        this.setFloat(26, this.mouseGridY);
-        this.setInt(27, this.shapeWord | (this.gravityMode << 8));
+        this.kernels.setFloat(24, this.solver == SOLVER_SOR ? SOR_OMEGA : 1.0);
+        this.kernels.setFloat(25, this.mouseGridX);
+        this.kernels.setFloat(26, this.mouseGridY);
+        this.kernels.setInt(27, this.shapeWord | (this.gravityMode << 8));
         // (tilted: the gravity's direction instead of the point)
         const tilted = this.gravityMode == GRAVITY_TILT;
         if (tilted && !this.tiltFixed) {
@@ -47,8 +47,8 @@ export class SandboxSimulation extends SandboxSaves {
         } else {
             Nri_GetGravity(0, Ref(this.sensed[0]));
         }
-        this.setFloat(30, tilted ? this.tiltX : this.gravityPointX());
-        this.setFloat(31, tilted ? this.tiltY : this.gravityPointY());
+        this.kernels.setFloat(30, tilted ? this.tiltX : this.gravityPointX());
+        this.kernels.setFloat(31, tilted ? this.tiltY : this.gravityPointY());
     }
 
     // Electricity, while running: spark_cs's iterations (each one's parity in the substep), with the
@@ -60,12 +60,12 @@ export class SandboxSimulation extends SandboxSaves {
             return;
         }
         const cells = this.gridW * this.gridH;
-        this.setInt(9, brushMode);
+        this.kernels.setInt(9, brushMode);
         for (let k = 0; k < SPARK_ITERATIONS; k++) {
-            this.setInt(7, k);
-            this.dispatch(commandBuffer, SPARKS, cells, B_GRID_INT);
+            this.kernels.setInt(7, k);
+            this.kernels.dispatch(commandBuffer, SPARKS, cells, B_GRID_INT);
         }
-        this.setInt(9, 0);
+        this.kernels.setInt(9, 0);
     }
 
     // The glow, from the frame's last step: the cells' light, blurred along x then y.
@@ -74,9 +74,9 @@ export class SandboxSimulation extends SandboxSaves {
             return;
         }
         const cells = this.gridW * this.gridH;
-        this.dispatch(commandBuffer, GLOW_EMIT, cells, B_GRID_INT);
-        this.dispatch(commandBuffer, GLOW_X, cells, B_GRID_INT);
-        this.dispatch(commandBuffer, GLOW_Y, cells, B_GRID_INT);
+        this.kernels.dispatch(commandBuffer, GLOW_EMIT, cells, B_GRID_INT);
+        this.kernels.dispatch(commandBuffer, GLOW_X, cells, B_GRID_INT);
+        this.kernels.dispatch(commandBuffer, GLOW_Y, cells, B_GRID_INT);
     }
 
     // steps: the simulation's fixed steps this frame (0 when the frame took less than one).
@@ -89,8 +89,8 @@ export class SandboxSimulation extends SandboxSaves {
         Nri_CmdSetDescriptorPool(commandBuffer, this.descriptorPool);
         Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
         if (this.needsInit) {
-            this.dispatch(commandBuffer, INIT_GRID, this.stride, B_ALL);
-            this.dispatch(commandBuffer, INIT_PARTICLES, CAPACITY, B_ALL);
+            this.kernels.dispatch(commandBuffer, INIT_GRID, this.stride, B_ALL);
+            this.kernels.dispatch(commandBuffer, INIT_PARTICLES, CAPACITY, B_ALL);
             this.needsInit = false;
             if (this.sceneOnClear) {
                 this.buildScene();
@@ -105,52 +105,52 @@ export class SandboxSimulation extends SandboxSaves {
             this.script.splice(0, 1);
             brushMode = 2;
             this.strokeBrush = 2;
-            this.setInt(8, stroke.tool);
-            this.setFloat(10, stroke.x0);
-            this.setFloat(11, stroke.y0);
-            this.setFloat(12, stroke.x1);
-            this.setFloat(13, stroke.y1);
-            this.setInt(15, stroke.emit);
+            this.kernels.setInt(8, stroke.tool);
+            this.kernels.setFloat(10, stroke.x0);
+            this.kernels.setFloat(11, stroke.y0);
+            this.kernels.setFloat(12, stroke.x1);
+            this.kernels.setFloat(13, stroke.y1);
+            this.kernels.setInt(15, stroke.emit);
         }
 
         if (this.paused || (steps == 0 && brushMode != 0)) {
             // Painting still works (paused, or between steps): the counts, then the brush.
-            this.setInt(7, 0);
-            this.setInt(9, brushMode);
-            this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
-            this.dispatch(commandBuffer, P2G, CAPACITY, B_ALL);
-            this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
+            this.kernels.setInt(7, 0);
+            this.kernels.setInt(9, brushMode);
+            this.kernels.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
+            this.kernels.dispatch(commandBuffer, P2G, CAPACITY, B_ALL);
+            this.kernels.dispatch(commandBuffer, SPAWN, cells, B_ALL);
             return;
         }
         for (let s = 0; s < steps; s++) {
-            this.setInt(7, s);
-            this.setInt(9, s == 0 ? brushMode : 0);
-            this.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
-            this.dispatch(commandBuffer, P2G, CAPACITY, B_ALL);
-            this.dispatch(commandBuffer, GRID, this.stride, B_ALL);
+            this.kernels.setInt(7, s);
+            this.kernels.setInt(9, s == 0 ? brushMode : 0);
+            this.kernels.dispatch(commandBuffer, CLEAR, this.stride * INT_SECTIONS, B_ALL);
+            this.kernels.dispatch(commandBuffer, P2G, CAPACITY, B_ALL);
+            this.kernels.dispatch(commandBuffer, GRID, this.stride, B_ALL);
             // (only with viscous particles, as the readout a frame or two late says)
             const viscousSweeps = this.probe[PROBE_VISCOUS] != 0 ? this.viscositySweeps : 0;
             for (let k = 0; k < viscousSweeps; k++) {
                 for (let parity = 0; parity < 2; parity++) {
-                    this.setInt(16, parity);
-                    this.dispatch(commandBuffer, VISCOSITY, this.stride, B_GRID_FLOAT);
+                    this.kernels.setInt(16, parity);
+                    this.kernels.dispatch(commandBuffer, VISCOSITY, this.stride, B_GRID_FLOAT);
                 }
             }
             // The air once a frame, over its steps.
             if (this.air && s == steps - 1) {
-                this.setInt(16, steps);
-                this.dispatch(commandBuffer, AIR, 1, B_ALL);
+                this.kernels.setInt(16, steps);
+                this.kernels.dispatch(commandBuffer, AIR, 1, B_ALL);
             }
-            this.dispatch(commandBuffer, HEAT_SOURCE, cells, B_ALL);
-            this.dispatch(commandBuffer, HEAT_DIFFUSE, cells, B_ALL);
-            this.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
+            this.kernels.dispatch(commandBuffer, HEAT_SOURCE, cells, B_ALL);
+            this.kernels.dispatch(commandBuffer, HEAT_DIFFUSE, cells, B_ALL);
+            this.kernels.dispatch(commandBuffer, DIVERGENCE, cells, B_ALL);
             this.recordPressure(commandBuffer);
-            this.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
+            this.kernels.dispatch(commandBuffer, PROJECT, this.stride, B_ALL);
             if (this.bodies) {
-                this.dispatch(commandBuffer, BODIES, MAX_BODIES * GROUP_SIZE, B_ALL);
+                this.kernels.dispatch(commandBuffer, BODIES, MAX_BODIES * GROUP_SIZE, B_ALL);
             }
-            this.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
-            this.dispatch(commandBuffer, SPAWN, cells, B_ALL);
+            this.kernels.dispatch(commandBuffer, G2P, CAPACITY, B_ALL);
+            this.kernels.dispatch(commandBuffer, SPAWN, cells, B_ALL);
         }
     }
 
@@ -160,10 +160,10 @@ export class SandboxSimulation extends SandboxSaves {
         const cells = this.gridW * this.gridH;
         if (this.solver == SOLVER_SOR) {
             for (let i = 0; i < this.iterations; i++) {
-                this.setInt(16, 0);
-                this.dispatch(commandBuffer, PRESSURE, cells, B_GRID_FLOAT);
-                this.setInt(16, 1);
-                this.dispatch(commandBuffer, PRESSURE, cells, B_GRID_FLOAT);
+                this.kernels.setInt(16, 0);
+                this.kernels.dispatch(commandBuffer, PRESSURE, cells, B_GRID_FLOAT);
+                this.kernels.setInt(16, 1);
+                this.kernels.dispatch(commandBuffer, PRESSURE, cells, B_GRID_FLOAT);
             }
             return;
         }
@@ -171,20 +171,20 @@ export class SandboxSimulation extends SandboxSaves {
         for (let l = 1; l < levels; l++) {
             const w = levelSize(this.gridW, l);
             const h = levelSize(this.gridH, l);
-            this.setInt(16, l << 8);
-            this.dispatch(commandBuffer, MG_SETUP, (w + 1) * (h + 1), B_MG);
+            this.kernels.setInt(16, l << 8);
+            this.kernels.dispatch(commandBuffer, MG_SETUP, (w + 1) * (h + 1), B_MG);
         }
         for (let v = 0; v < this.vcycles; v++) {
             for (let l = 0; l < levels - 1; l++) {
                 this.recordSmooth(commandBuffer, l);
-                this.setInt(16, l << 8);
-                this.dispatch(commandBuffer, MG_RESTRICT, levelSize(this.gridW, l + 1) * levelSize(this.gridH, l + 1), B_MG);
+                this.kernels.setInt(16, l << 8);
+                this.kernels.dispatch(commandBuffer, MG_RESTRICT, levelSize(this.gridW, l + 1) * levelSize(this.gridH, l + 1), B_MG);
             }
-            this.setInt(16, (levels - 1) << 8);
-            this.dispatch(commandBuffer, MG_COARSE, 1, B_MG);
+            this.kernels.setInt(16, (levels - 1) << 8);
+            this.kernels.dispatch(commandBuffer, MG_COARSE, 1, B_MG);
             for (let l = levels - 2; l >= 0; l--) {
-                this.setInt(16, l << 8);
-                this.dispatch(commandBuffer, MG_PROLONG, levelSize(this.gridW, l) * levelSize(this.gridH, l),
+                this.kernels.setInt(16, l << 8);
+                this.kernels.dispatch(commandBuffer, MG_PROLONG, levelSize(this.gridW, l) * levelSize(this.gridH, l),
                     l == 0 ? B_GRID_FLOAT : B_MG);
                 this.recordSmooth(commandBuffer, l);
             }
@@ -196,11 +196,11 @@ export class SandboxSimulation extends SandboxSaves {
         const count = levelSize(this.gridW, level) * levelSize(this.gridH, level);
         for (let i = 0; i < this.smooth; i++) {
             for (let parity = 0; parity < 2; parity++) {
-                this.setInt(16, parity | (level << 8));
+                this.kernels.setInt(16, parity | (level << 8));
                 if (level == 0) {
-                    this.dispatch(commandBuffer, PRESSURE, count, B_GRID_FLOAT);
+                    this.kernels.dispatch(commandBuffer, PRESSURE, count, B_GRID_FLOAT);
                 } else {
-                    this.dispatch(commandBuffer, MG_SMOOTH, count, B_MG);
+                    this.kernels.dispatch(commandBuffer, MG_SMOOTH, count, B_MG);
                 }
             }
         }

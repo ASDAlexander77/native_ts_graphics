@@ -635,5 +635,9 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     `commandBuffer`, `signal` after the present, `slot`, `destroy`). The sandbox's `QueuedFrame`
     keeps only its own per-frame data (the probe's and timestamps' readbacks, the steps, the
     level's time). The 93 other NRI examples each have the same ring written out; they could use it.
-  - Still to do: dispatch and barriers, the toolbar's widgets (tabs, size slider, radial menu),
-    touch gestures.
+  - **Compute kernels** (done): `core/nri_compute_kernels.ts`'s `NriComputeKernels`, pipelines
+    sharing one descriptor set and one block of root constants (`init` sizes the constants, `bind`
+    gives it the pipelines, the set and the buffers barrier masks name; `setFloat`, `setInt`,
+    `dispatch` with a barrier mask, `barriers`, `setGraphicsConstants` for the draw, `setProfiler`
+    to mark each dispatch). The sandbox still owns and destroys the pipelines and buffers.
+  - Still to do: the toolbar's widgets (tabs, size slider, radial menu), touch gestures.
