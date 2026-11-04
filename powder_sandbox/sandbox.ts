@@ -140,7 +140,6 @@ export class SandboxApp extends SandboxUI {
         console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
         this.queue = Nri_GetGraphicsQueue(device);
-        this.frameFence = Nri_CreateFence(device, 0);
         this.test = Nri_IsTest(this.sample) != 0;
         // (a test's default scene is the U-tube, not a level's empty one)
         if (this.test && this.scene == 0 && !this.level) {
@@ -175,16 +174,15 @@ export class SandboxApp extends SandboxUI {
                 profiler.destroy();
             }
         }
+        this.frames.init(device, this.queue, queuedFrameNum);
         for (let i = 0; i < queuedFrameNum; i++) {
-            const commandAllocator = Nri_CreateCommandAllocator(this.queue);
             const probeReadback = Nri_CreateReadbackBuffer(device, (PROBE_INTS + EVENT_COUNT) * 4);
             if (!probeReadback) {
                 console.log("Cannot create the readback buffers");
                 return 0;
             }
             const timestampReadback = queryPool ? Nri_CreateReadbackBuffer(device, 2 * this.querySize) : null;
-            this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), probeReadback,
-                timestampReadback));
+            this.queuedFrames.push(new QueuedFrame(probeReadback, timestampReadback));
         }
 
         // The layouts: the constants (b0) and six storage buffers (u0 .. u5) for the
@@ -379,10 +377,7 @@ export class SandboxApp extends SandboxUI {
 
     // Waits for the frame that last used this frame's command allocator.
     latencySleep(frameIndex: int) {
-        const queuedFrameNum = this.queuedFrames.length;
-        const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-        Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-        Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+        this.frames.wait(frameIndex);
     }
 
     recordDraw(commandBuffer: NriCommandBufferHandle) {
@@ -463,7 +458,7 @@ export class SandboxApp extends SandboxUI {
         const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
         if (index >= 0) {
             const swapChainTexture = this.swapChainTextures[index];
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(frameIndex);
 
             // Record: the simulation's steps, the readout, then the grid drawn and the toolbar
             // over it.
@@ -572,7 +567,7 @@ export class SandboxApp extends SandboxUI {
         }
 
         // Signaled after the present, as NRISamples do
-        Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+        this.frames.signal(frameIndex);
         this.finishStateRequests();
     }
 
@@ -593,9 +588,8 @@ export class SandboxApp extends SandboxUI {
             if (this.imgui) {
                 Nri_DestroyImgui(this.sample);
             }
+            this.frames.destroy();
             for (const queuedFrame of this.queuedFrames) {
-                Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                 Nri_DestroyBuffer(queuedFrame.probeReadback);
                 const timestampReadback = queuedFrame.timestampReadback;
                 if (timestampReadback) {
@@ -655,7 +649,6 @@ export class SandboxApp extends SandboxUI {
             for (const undoBuffer of this.undoBuffers) {
                 Nri_DestroyBuffer(undoBuffer);
             }
-            Nri_DestroyFence(this.frameFence);
             Nri_DestroyDevice(device);
         }
         Nri_DestroySample(this.sample);

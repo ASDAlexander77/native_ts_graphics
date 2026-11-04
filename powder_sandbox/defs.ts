@@ -660,16 +660,16 @@ export class Stroke {
     }
 }
 
-// What a frame in flight records into, where it reads the HUD's probe back, and the GPU's
-// timestamps around its simulation (and how many steps it took), read when its turn comes again.
+// What a frame in flight keeps besides its command buffer (NriFrameRing's): where it reads the HUD's
+// probe back, and the GPU's timestamps around its simulation (and how many steps it took), read
+// when its turn comes again.
 export class QueuedFrame {
     public timedSteps: int = -1;
     // The steps it simulated (whether or not timed), for its events.
     public steps: int = 0;
     // The level's time after it (-1 before the level's strokes were painted), for its goal.
     public levelTime: number = -1.0;
-    constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-        public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
+    constructor(public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
     }
 }
 
