@@ -1111,7 +1111,7 @@ function(add_tslang_nri_example name)
 endfunction()
 
 # basic_triangle with NRI and NRIFramework instead of Donut: basic_triangle's shaders.
-add_tslang_nri_example(basic_triangle_nri SHADERS basic_triangle_shaders)
+add_tslang_nri_example(basic_triangle_nri SHADERS basic_triangle_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(basic_triangle_nri)
 
 # Port of Donut-Samples' meshlets. D3D11 has no mesh shaders, so no DXBC.
@@ -1127,7 +1127,7 @@ donut_compile_shaders(
 add_tslang_example(meshlets)
 add_tslang_example_test(meshlets)
 # meshlets with NRI and NRIFramework instead of Donut: meshlets' shaders.
-add_tslang_nri_example(meshlets_nri SHADERS meshlets_shaders)
+add_tslang_nri_example(meshlets_nri SHADERS meshlets_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(meshlets_nri)
 
 # Port of Donut-Samples' shader_specializations. Specialization constants are Vulkan-only.
@@ -2169,7 +2169,7 @@ donut_compile_shaders(
 add_tslang_example(16bit_arithmetic)
 add_tslang_example_test(16bit_arithmetic)
 # 16bit_arithmetic with NRI and NRIFramework instead of Donut: 16bit_arithmetic's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(16bit_arithmetic_nri SHADERS 16bit_arithmetic_shaders)
+add_tslang_nri_example(16bit_arithmetic_nri SHADERS 16bit_arithmetic_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(16bit_arithmetic_nri)
 add_dependencies(16bit_arithmetic 16bit_arithmetic_fp16_shaders)
 
@@ -2187,7 +2187,7 @@ donut_compile_shaders(
 add_tslang_example(compute_shader_derivatives)
 add_tslang_example_test(compute_shader_derivatives)
 # compute_shader_derivatives with NRI and NRIFramework instead of Donut: compute_shader_derivatives's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(compute_shader_derivatives_nri SHADERS compute_shader_derivatives_shaders)
+add_tslang_nri_example(compute_shader_derivatives_nri SHADERS compute_shader_derivatives_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(compute_shader_derivatives_nri)
 
 # Port of Vulkan-Samples' logic_op_dynamic_state: a cube combined with the background by a logic
@@ -2645,7 +2645,7 @@ donut_compile_shaders(
 add_tslang_example(shader_quad_control)
 add_tslang_example_test(shader_quad_control)
 # shader_quad_control with NRI and NRIFramework instead of Donut: shader_quad_control's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(shader_quad_control_nri SHADERS shader_quad_control_shaders)
+add_tslang_nri_example(shader_quad_control_nri SHADERS shader_quad_control_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(shader_quad_control_nri)
 
 # Port of Vulkan-Samples' dynamic_line_rasterization: a cube's edges drawn as lines whose
@@ -3020,7 +3020,7 @@ donut_compile_shaders(
 add_tslang_example(descriptor_indexing)
 add_tslang_example_test(descriptor_indexing)
 # descriptor_indexing with NRI and NRIFramework instead of Donut: descriptor_indexing's shaders.
-add_tslang_nri_example(descriptor_indexing_nri SHADERS descriptor_indexing_shaders)
+add_tslang_nri_example(descriptor_indexing_nri SHADERS descriptor_indexing_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(descriptor_indexing_nri)
 
 # Port of Vulkan-Samples' timeline_semaphore: Conway's Game of Life stepped on the compute queue,
@@ -3051,7 +3051,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(color_write_enable)
 add_tslang_example_test(color_write_enable)
 # color_write_enable with NRI and NRIFramework instead of Donut: color_write_enable's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(color_write_enable_nri SHADERS color_write_enable_shaders)
+add_tslang_nri_example(color_write_enable_nri SHADERS color_write_enable_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(color_write_enable_nri)
 
 # Port of Vulkan-Samples' dynamic_multisample_rasterization: the Space Module scene with its normal
@@ -3182,7 +3182,7 @@ donut_compile_shaders(
 add_tslang_example(mesh_shading)
 add_tslang_example_test(mesh_shading)
 # mesh_shading with NRI and NRIFramework instead of Donut: mesh_shading's shaders.
-add_tslang_nri_example(mesh_shading_nri SHADERS mesh_shading_shaders)
+add_tslang_nri_example(mesh_shading_nri SHADERS mesh_shading_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(mesh_shading_nri)
 
 # Port of Vulkan-Samples' dynamic_uniform_buffers: 125 spinning cubes, one draw each, their model
@@ -3254,7 +3254,7 @@ donut_compile_shaders(
 add_tslang_example(buffer_device_address)
 add_tslang_example_test(buffer_device_address APIS vk)
 # buffer_device_address with NRI and NRIFramework instead of Donut: buffer_device_address's shaders (Vulkan).
-add_tslang_nri_example(buffer_device_address_nri SHADERS buffer_device_address_shaders)
+add_tslang_nri_example(buffer_device_address_nri SHADERS buffer_device_address_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(buffer_device_address_nri APIS vk)
 
 # Port of Vulkan-Samples' shader_debugprintf: a sky sphere and three lit spheres, the vertex shader
@@ -4412,7 +4412,7 @@ donut_compile_shaders(
 add_tslang_example(small_resources core/random.ts)
 add_tslang_example_test(small_resources)
 # small_resources with NRI and NRIFramework instead of Donut: small_resources' shaders.
-add_tslang_nri_example(small_resources_nri SHADERS small_resources_shaders core/random.ts)
+add_tslang_nri_example(small_resources_nri SHADERS small_resources_shaders core/random.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(small_resources_nri)
 add_tslang_example_test(small_resources_nri SUFFIX committed ARGS -committed)
 

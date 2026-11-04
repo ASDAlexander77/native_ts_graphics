@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 
 namespace MeshletsNri {
     // meshlets, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
@@ -17,19 +19,6 @@ namespace MeshletsNri {
     // The callbacks given to C++, kept for as long as it may call them.
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
     let retainedFrameCallbacks: NriFrameCallback[] = [];
-
-    // What a frame in flight records into.
-    class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle) {
-        }
-    }
-
-    // A swap chain texture, its view and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle,
-            public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
-        }
-    }
 
     // -test: checks the last frame, read back. The corners are the black clear color; the meshlet
     // triangle covers an eighth of the frame, colored in the middle, its apex at the top.
@@ -73,10 +62,8 @@ namespace MeshletsNri {
     class Meshlets {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
-        private queuedFrames: QueuedFrame[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private pipelineLayout: NriPipelineLayoutHandle;
         private pipeline: NriPipelineHandle | null = null;
         // The swap chain's size: the window's when it was (re)created.
@@ -137,20 +124,17 @@ namespace MeshletsNri {
             }
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, true);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
             const viewFormat = this.swapChainViewFormat;
 
             // Queued frames
-            for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator)));
-            }
+            this.frames.init(device, this.queue, queuedFrameNum);
 
             // Pipeline: meshlets.hlsl's shaders, as compiled for the Donut example.
             this.pipelineLayout = Nri_CreatePipelineLayout(device);
@@ -173,29 +157,12 @@ namespace MeshletsNri {
             return 1;
         }
 
-        // The swap chain at the window's size, its textures' views and semaphores.
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            this.swapChainViewFormat = Nri_GetSrgbFormat(this.swapChainFormat);
-            for (let i = 0; i < textureNum; i++) {
-                const texture = Nri_GetSwapChainTexture(this.swapChain, i);
-                this.swapChainTextures.push(new SwapChainTexture(texture, Nri_CreateColorAttachmentView(texture, this.swapChainViewFormat),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-                Nri_DestroyDescriptor(swapChainTexture.colorAttachment);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
+            this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
         // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
@@ -205,38 +172,32 @@ namespace MeshletsNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.destroySwapChain();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
         }
 
         // Waits for the frame that last used this frame's command allocator.
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         renderFrame(frameIndex: int) {
             this.resizeIfNeeded();
-            const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
+                const texture = this.swapChain.texture(index);
                 const pipeline = this.pipeline;
-                const commandBuffer = queuedFrame.commandBuffer;
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
                 Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, swapChainTexture.colorAttachment);
+                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
                 Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
                 if (pipeline) {
                     Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
@@ -252,21 +213,21 @@ namespace MeshletsNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -293,10 +254,6 @@ namespace MeshletsNri {
             const device = this.device;
             if (device) {
                 Nri_DeviceWaitIdle(device);
-                for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
-                }
                 const pipeline = this.pipeline;
                 if (pipeline) {
                     Nri_DestroyPipeline(pipeline);
@@ -307,8 +264,8 @@ namespace MeshletsNri {
                 }
                 if (this.unsupportedReason == "") {
                     Nri_DestroyPipelineLayout(this.pipelineLayout);
-                    Nri_DestroyFence(this.frameFence);
-                    this.destroySwapChain();
+                    this.frames.destroy();
+                    this.swapChain.destroy();
                 }
                 Nri_DestroyDevice(device);
             }
