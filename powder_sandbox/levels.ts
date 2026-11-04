@@ -16,19 +16,18 @@ import {
     SPONGE_TUB_TOP, SPONGE_WATER, SEED_POOL, SEED_WET, SEED_LEDGE, SWITCH_ROWS, SWITCH_X, LAMP_X,
     DETECTOR_ROWS, HEATERS, toolNamed, LevelStroke, Level, starText, Stroke
 } from "./defs";
-import { SandboxState } from "./state";
+import { SandboxView } from "./view";
 
 // The sandbox's scenes and levels: the test scenes' strokes, the levels read from their files
 // (index.json's list, a level's goal, clock and stars) and the best stars kept.
-export class SandboxLevels extends SandboxState {
+export class SandboxLevels extends SandboxView {
     // A rectangle of grid fractions (0..1 across, 0..1 down) painted with tool.
     addStroke(tool: int, x0: number, y0: number, x1: number, y1: number, emit: int) {
         this.script.push(new Stroke(tool, x0 * this.gridW, y0 * this.gridH, x1 * this.gridW, y1 * this.gridH, emit));
     }
 
-    // The next level of index.json's list (read when first wanted), the grid cleared for it; true if
-    // one started (the app turns the grid wider than tall for it).
-    nextLevel(): boolean {
+    // The next level of index.json's list (read when first wanted), the grid cleared for it.
+    nextLevel() {
         if (this.levelNames.length == 0) {
             const reader = this.readJson("index");
             if (reader && reader.beginObject()) {
@@ -44,7 +43,7 @@ export class SandboxLevels extends SandboxState {
             }
             if (this.levelNames.length == 0) {
                 this.showMessage("No levels");
-                return false;
+                return;
             }
             this.readStars();
         }
@@ -54,11 +53,17 @@ export class SandboxLevels extends SandboxState {
             this.startLevel(level);
             this.snapshotRequested = true;
             this.needsInit = true;
+            // (on a grid wider than tall: turned, if the window's upright)
+            if (this.gridW < this.gridH) {
+                const oldW = this.gridW;
+                const oldH = this.gridH;
+                this.fitGrid();
+                this.reshaped(oldW, oldH);
+                this.layout();
+            }
             const best = this.bestStars[this.levelIndex];
             this.showMessage(best > 0 ? `${level.name} (best ${starText(best)})` : level.name);
-            return true;
         }
-        return false;
     }
 
     startLevel(level: Level | null) {
