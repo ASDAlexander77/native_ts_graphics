@@ -1400,7 +1400,7 @@ donut_compile_shaders_all_platforms(
 add_tslang_example(compute_nbody core/random.ts core/matrix.ts)
 add_tslang_example_test(compute_nbody)
 # compute_nbody with NRI and NRIFramework instead of Donut: compute_nbody's shaders.
-add_tslang_nri_example(compute_nbody_nri SHADERS compute_nbody_shaders core/random.ts core/matrix.ts)
+add_tslang_nri_example(compute_nbody_nri SHADERS compute_nbody_shaders core/random.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(compute_nbody_nri)
 
 # compute_nbody with collisions: a third compute pass makes the particles bounce off each other
@@ -1502,7 +1502,7 @@ add_tslang_example(atom_orbitals core/matrix.ts)
 # stays (3 n^2 - l (l + 1)) / 2.
 add_tslang_example_test(atom_orbitals)
 # atom_orbitals with NRI and NRIFramework instead of Donut: atom_orbitals's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(atom_orbitals_nri SHADERS atom_orbitals_shaders core/matrix.ts)
+add_tslang_nri_example(atom_orbitals_nri SHADERS atom_orbitals_shaders core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(atom_orbitals_nri)
 # 1s + 2p0, equal parts: the cloud sloshes along z, <z>(t) = <1s|z|2p0> cos(3/8 t). The time scale
 # ends the 5 seconds at 3/8 t = 11 pi, the cloud at its lowest (it starts at its highest).
@@ -2011,7 +2011,7 @@ donut_compile_shaders(
 add_tslang_example(mesh_shader_culling)
 add_tslang_example_test(mesh_shader_culling)
 # mesh_shader_culling with NRI and NRIFramework instead of Donut: mesh_shader_culling's shaders, NRIFramework's ImGui.
-add_tslang_nri_example(mesh_shader_culling_nri SHADERS mesh_shader_culling_shaders)
+add_tslang_nri_example(mesh_shader_culling_nri SHADERS mesh_shader_culling_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(mesh_shader_culling_nri)
 
 # Port of Vulkan-Samples' conservative_rasterization: a triangle drawn at low resolution with and
@@ -2666,7 +2666,7 @@ add_tslang_example_test(dynamic_line_rasterization)
 # ImGui; the lines' rasterization mode, width and stipple through an NRI patch
 # (patches/NRI-line-rasterization.patch). The test variants cover each mode and a wide line (Vulkan's).
 add_tslang_nri_example(dynamic_line_rasterization_nri SHADERS dynamic_line_rasterization_shaders core/vulkan_samples_camera.ts
-    core/matrix.ts core/text_format.ts)
+    core/matrix.ts core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_line_rasterization_nri)
 add_tslang_example_test(dynamic_line_rasterization_nri SUFFIX bresenham ARGS -mode 2)
 add_tslang_example_test(dynamic_line_rasterization_nri SUFFIX smooth ARGS -mode 3)
@@ -2875,7 +2875,7 @@ if (VULKAN_SAMPLES_ASSETS_DIR)
     add_dependencies(dynamic_primitive_clipping dynamic_primitive_clipping_media)
 endif()
 # dynamic_primitive_clipping with NRI and NRIFramework instead of Donut: dynamic_primitive_clipping's shaders and models, NRIFramework's ImGui.
-add_tslang_nri_example(dynamic_primitive_clipping_nri SHADERS dynamic_primitive_clipping_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts)
+add_tslang_nri_example(dynamic_primitive_clipping_nri SHADERS dynamic_primitive_clipping_shaders core/vulkan_samples_camera.ts core/matrix.ts core/text_format.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dynamic_primitive_clipping_nri)
 if (TARGET dynamic_primitive_clipping_media AND TARGET dynamic_primitive_clipping_nri)
     add_dependencies(dynamic_primitive_clipping_nri dynamic_primitive_clipping_media)
@@ -3327,7 +3327,7 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/push_descriptors_nri.hlsl
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/push_descriptors_nri/spirv
 )
-add_tslang_nri_example(push_descriptors_nri SHADERS push_descriptors_nri_shaders core/vulkan_samples_camera.ts core/matrix.ts)
+add_tslang_nri_example(push_descriptors_nri SHADERS push_descriptors_nri_shaders core/vulkan_samples_camera.ts core/matrix.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(push_descriptors_nri APIS vk)
 if (TARGET push_descriptors_media AND TARGET push_descriptors_nri)
     add_dependencies(push_descriptors_nri push_descriptors_media fragment_shading_rate_media)
@@ -3850,7 +3850,7 @@ donut_compile_shaders(
 add_tslang_example(dxr_refit)
 add_tslang_example_test(dxr_refit)
 # dxr_refit with NRI and NRIFramework instead of Donut: dxr_refit's shader library.
-add_tslang_nri_example(dxr_refit_nri SHADERS dxr_refit_shaders)
+add_tslang_nri_example(dxr_refit_nri SHADERS dxr_refit_shaders core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(dxr_refit_nri)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingProceduralGeometry: procedural geometry in AABBs
@@ -3962,7 +3962,7 @@ add_tslang_example(meshlet_render core/simple_camera.ts core/directx_math.ts cor
 add_dxgs_media(meshlet_render meshlet_render Samples/Desktop/D3D12MeshShaders/src/Assets/Dragon_LOD0.bin)
 add_tslang_example_test(meshlet_render)
 # meshlet_render with NRI and NRIFramework instead of Donut: meshlet_render's shaders and model.
-add_tslang_nri_example(meshlet_render_nri SHADERS meshlet_render_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_nri_example(meshlet_render_nri SHADERS meshlet_render_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(meshlet_render_nri)
 if (TARGET meshlet_render_media AND TARGET meshlet_render_nri)
     add_dependencies(meshlet_render_nri meshlet_render_media)
@@ -3991,7 +3991,7 @@ add_dxgs_media(meshlet_cull meshlet_cull
     Samples/Desktop/D3D12MeshShaders/src/Assets/Camera.bin)
 add_tslang_example_test(meshlet_cull)
 # meshlet_cull with NRI and NRIFramework instead of Donut: meshlet_cull's shaders and models.
-add_tslang_nri_example(meshlet_cull_nri SHADERS meshlet_cull_shaders core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_nri_example(meshlet_cull_nri SHADERS meshlet_cull_shaders core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(meshlet_cull_nri)
 if (TARGET meshlet_cull_media AND TARGET meshlet_cull_nri)
     add_dependencies(meshlet_cull_nri meshlet_cull_media)
@@ -4015,7 +4015,7 @@ add_tslang_example(meshlet_instancing core/simple_camera.ts core/directx_math.ts
 add_dxgs_media(meshlet_instancing meshlet_instancing Samples/Desktop/D3D12MeshShaders/src/Assets/ToyRobot.bin)
 add_tslang_example_test(meshlet_instancing)
 # meshlet_instancing with NRI and NRIFramework instead of Donut: meshlet_instancing's shaders and model.
-add_tslang_nri_example(meshlet_instancing_nri SHADERS meshlet_instancing_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp)
+add_tslang_nri_example(meshlet_instancing_nri SHADERS meshlet_instancing_shaders core/simple_camera.ts core/directx_math.ts core/meshlet_model.ts core/meshlet_model.cpp core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(meshlet_instancing_nri)
 if (TARGET meshlet_instancing_media AND TARGET meshlet_instancing_nri)
     add_dependencies(meshlet_instancing_nri meshlet_instancing_media)
