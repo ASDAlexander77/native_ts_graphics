@@ -1,6 +1,6 @@
 {
     "name": "Fill the cup",
-    "goal": { "text": "water in the cup", "material": "water", "box": [0.7, 0.7, 0.85, 1.0], "count": 1200 },
+    "goal": { "text": "water in the cup", "material": "water", "box": [0.7, 0.7, 0.85, 1.0], "count": 900 },
     "stars": [6, 10],
     "strokes": [
         { "tool": "wall", "box": [0.02, 0.45, 0.42, 0.5] },

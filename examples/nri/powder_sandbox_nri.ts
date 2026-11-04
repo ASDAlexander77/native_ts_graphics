@@ -229,8 +229,10 @@ namespace PowderSandboxNri {
     const B_ALL = 63;
     const BUFFERS = 6;
 
-    // The toolbar: a tile per tool, then the actions.
+    // The toolbar: a row of groups' tabs over a row of the chosen group's tiles (a tool or an action
+    // each).
     class Tile {
+        public group: int = 0;
         constructor(public label: string, public tool: int, public r: number, public g: number, public b: number) {
         }
     }
@@ -749,8 +751,13 @@ namespace PowderSandboxNri {
         private toolbarHeight: number = 0.0;
         private tileWidth: number = MIN_TILE_WIDTH;
         private tileHeight: number = 56.0;
-        // The toolbar's row scrolled left by this many pixels (0 .. maxScroll()).
+        // The tiles' row scrolled left by this many pixels (0 .. maxScroll()); the tabs' row, its
+        // height, and its tabs' left edges and right end (as buildUI last laid them out).
         private toolbarScroll: number = 0.0;
+        private tabScroll: number = 0.0;
+        private tabHeight: number = 32.0;
+        private tabX: number[] = [];
+        private tabEnd: number = 0.0;
         private viewX: number = 0.0;
         private viewY: number = 0.0;
         private cellPixels: number = 1.0;
@@ -768,6 +775,10 @@ namespace PowderSandboxNri {
         private pressTime: number = 0.0;
 
         private tiles: Tile[] = [];
+        // The groups' names; the group shown, and its tiles.
+        private groups: string[] = [];
+        private group: int = 0;
+        private groupTiles: Tile[] = [];
         private tool: int = WATER;
         private emitType: int = WATER;
         private brushRadius: number = 3.0;
@@ -792,6 +803,7 @@ namespace PowderSandboxNri {
         private zWasDown: boolean = false;
         private pressOnToolbar: boolean = false;
         private pressX: number = 0.0;
+        private pressY: number = 0.0;
         private pressScroll: number = 0.0;
         private dragging: boolean = false;
         private lastGridX: number = 0.0;
@@ -909,60 +921,71 @@ namespace PowderSandboxNri {
                 this.eventTotals.push(0);
                 this.soundCooldowns.push(0.0);
             }
-            this.tiles.push(new Tile("Water", WATER, 0.12, 0.38, 0.9));
-            this.tiles.push(new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
-            this.tiles.push(new Tile("Oil", OIL, 0.72, 0.5, 0.12));
-            this.tiles.push(new Tile("Petrol", PETROL, 0.95, 0.88, 0.5));
-            this.tiles.push(new Tile("Nitro", NITRO, 0.86, 0.9, 0.62));
-            this.tiles.push(new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
-            this.tiles.push(new Tile("Sand", SAND, 0.86, 0.74, 0.44));
-            this.tiles.push(new Tile("Salt", SALT, 0.92, 0.92, 0.95));
-            this.tiles.push(new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
-            this.tiles.push(new Tile("Thermite", THERMITE, 0.55, 0.35, 0.3));
-            this.tiles.push(new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
-            this.tiles.push(new Tile("Acid", ACID, 0.45, 0.92, 0.18));
-            this.tiles.push(new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
-            this.tiles.push(new Tile("Hydrogen", HYDROGEN, 0.8, 0.88, 1.0));
-            this.tiles.push(new Tile("Oxygen", OXYGEN, 0.5, 0.68, 1.0));
-            this.tiles.push(new Tile("Neon", NEON, 1.0, 0.4, 0.3));
-            this.tiles.push(new Tile("Wall", WALL, 0.42, 0.42, 0.45));
-            this.tiles.push(new Tile("Metal", METAL, 0.6, 0.64, 0.7));
-            this.tiles.push(new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
-            this.tiles.push(new Tile("Lamp", LAMP, 0.95, 0.85, 0.55));
-            this.tiles.push(new Tile("Switch", SWITCH, 0.45, 0.2, 0.2));
-            this.tiles.push(new Tile("Detector", DETECTOR, 0.75, 0.3, 0.6));
-            this.tiles.push(new Tile("Heater", HEATER, 0.6, 0.35, 0.28));
-            this.tiles.push(new Tile("Fan", FAN, 0.3, 0.5, 0.58));
-            this.tiles.push(new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
-            this.tiles.push(new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
-            this.tiles.push(new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
-            this.tiles.push(new Tile("Coal", COAL, 0.2, 0.19, 0.19));
-            this.tiles.push(new Tile("Fuse", FUSE, 0.5, 0.36, 0.24));
-            this.tiles.push(new Tile("C-4", C4, 0.84, 0.8, 0.68));
-            this.tiles.push(new Tile("Seed", SEED, 0.55, 0.45, 0.2));
-            this.tiles.push(new Tile("Sponge", SPONGE, 0.9, 0.85, 0.45));
-            this.tiles.push(new Tile("Clone", CLONE, 0.85, 0.85, 0.3));
-            this.tiles.push(new Tile("Black hole", BLACK_HOLE, 0.2, 0.08, 0.3));
-            this.tiles.push(new Tile("White hole", WHITE_HOLE, 0.9, 0.92, 1.0));
-            this.tiles.push(new Tile("Ice", ICE, 0.75, 0.92, 1.0));
-            this.tiles.push(new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
-            this.tiles.push(new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
-            this.tiles.push(new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
-            this.tiles.push(new Tile("Cool", COOL, 0.3, 0.6, 1.0));
-            this.tiles.push(new Tile("Spark", SPARK, 0.7, 0.85, 1.0));
-            this.tiles.push(new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
-            this.tiles.push(new Tile("Inspect", INSPECT, 0.55, 0.55, 0.6));
-            this.tiles.push(new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Gravity", ACTION_GRAVITY, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
-            this.tiles.push(new Tile("Levels", ACTION_LEVEL, 0.3, 0.3, 0.3));
+            // The toolbar's tiles, by group (a tool may be in more than one).
+            this.groups.push("Liquid");
+            this.addTile(0, new Tile("Water", WATER, 0.12, 0.38, 0.9));
+            this.addTile(0, new Tile("Salt water", SALT_WATER, 0.1, 0.55, 0.62));
+            this.addTile(0, new Tile("Oil", OIL, 0.72, 0.5, 0.12));
+            this.addTile(0, new Tile("Petrol", PETROL, 0.95, 0.88, 0.5));
+            this.addTile(0, new Tile("Nitro", NITRO, 0.86, 0.9, 0.62));
+            this.addTile(0, new Tile("Honey", HONEY, 0.85, 0.55, 0.1));
+            this.addTile(0, new Tile("Acid", ACID, 0.45, 0.92, 0.18));
+            this.addTile(0, new Tile("Lava", LAVA, 0.85, 0.25, 0.05));
+            this.groups.push("Powder");
+            this.addTile(1, new Tile("Sand", SAND, 0.86, 0.74, 0.44));
+            this.addTile(1, new Tile("Salt", SALT, 0.92, 0.92, 0.95));
+            this.addTile(1, new Tile("Gunpowder", GUNPOWDER, 0.2, 0.2, 0.22));
+            this.addTile(1, new Tile("Thermite", THERMITE, 0.55, 0.35, 0.3));
+            this.addTile(1, new Tile("Seed", SEED, 0.55, 0.45, 0.2));
+            this.groups.push("Gas");
+            this.addTile(2, new Tile("Fire", FIRE, 1.0, 0.45, 0.1));
+            this.addTile(2, new Tile("Hydrogen", HYDROGEN, 0.8, 0.88, 1.0));
+            this.addTile(2, new Tile("Oxygen", OXYGEN, 0.5, 0.68, 1.0));
+            this.addTile(2, new Tile("Neon", NEON, 1.0, 0.4, 0.3));
+            this.groups.push("Solid");
+            this.addTile(3, new Tile("Wall", WALL, 0.42, 0.42, 0.45));
+            this.addTile(3, new Tile("Glass", GLASS, 0.6, 0.85, 0.92));
+            this.addTile(3, new Tile("Wood", WOOD, 0.45, 0.28, 0.12));
+            this.addTile(3, new Tile("Coal", COAL, 0.2, 0.19, 0.19));
+            this.addTile(3, new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.addTile(3, new Tile("Ice", ICE, 0.75, 0.92, 1.0));
+            this.addTile(3, new Tile("Block", BLOCK, 0.72, 0.52, 0.3));
+            this.addTile(3, new Tile("Sponge", SPONGE, 0.9, 0.85, 0.45));
+            this.addTile(3, new Tile("C-4", C4, 0.84, 0.8, 0.68));
+            this.addTile(3, new Tile("Fuse", FUSE, 0.5, 0.36, 0.24));
+            this.addTile(3, new Tile("Uranium", URANIUM, 0.25, 0.65, 0.2));
+            this.groups.push("Power");
+            this.addTile(4, new Tile("Battery", BATTERY, 0.75, 0.45, 0.2));
+            this.addTile(4, new Tile("Metal", METAL, 0.6, 0.64, 0.7));
+            this.addTile(4, new Tile("Lamp", LAMP, 0.95, 0.85, 0.55));
+            this.addTile(4, new Tile("Switch", SWITCH, 0.45, 0.2, 0.2));
+            this.addTile(4, new Tile("Detector", DETECTOR, 0.75, 0.3, 0.6));
+            this.addTile(4, new Tile("Heater", HEATER, 0.6, 0.35, 0.28));
+            this.addTile(4, new Tile("Spark", SPARK, 0.7, 0.85, 1.0));
+            this.groups.push("Special");
+            this.addTile(5, new Tile("Emitter", EMITTER, 0.62, 0.22, 0.62));
+            this.addTile(5, new Tile("Clone", CLONE, 0.85, 0.85, 0.3));
+            this.addTile(5, new Tile("Fan", FAN, 0.3, 0.5, 0.58));
+            this.addTile(5, new Tile("Black hole", BLACK_HOLE, 0.2, 0.08, 0.3));
+            this.addTile(5, new Tile("White hole", WHITE_HOLE, 0.9, 0.92, 1.0));
+            this.groups.push("Tools");
+            this.addTile(6, new Tile("Heat", HEAT, 0.95, 0.25, 0.15));
+            this.addTile(6, new Tile("Cool", COOL, 0.3, 0.6, 1.0));
+            this.addTile(6, new Tile("Erase", ERASE, 0.35, 0.12, 0.12));
+            this.addTile(6, new Tile("Inspect", INSPECT, 0.55, 0.55, 0.6));
+            this.addTile(6, new Tile("Shape", ACTION_SHAPE, 0.3, 0.3, 0.3));
+            this.addTile(6, new Tile("Brush -", ACTION_SMALLER, 0.3, 0.3, 0.3));
+            this.addTile(6, new Tile("Brush +", ACTION_LARGER, 0.3, 0.3, 0.3));
+            this.groups.push("Game");
+            this.addTile(7, new Tile("Gravity", ACTION_GRAVITY, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Pause", ACTION_PAUSE, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("View", ACTION_VIEW, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Clear", ACTION_CLEAR, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Undo", ACTION_UNDO, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Save", ACTION_SAVE, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Load", ACTION_LOAD, 0.3, 0.3, 0.3));
+            this.addTile(7, new Tile("Levels", ACTION_LEVEL, 0.3, 0.3, 0.3));
+            this.showGroup(0);
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -1219,7 +1242,7 @@ namespace PowderSandboxNri {
             Nri_DeviceWaitIdle(device);
             this.destroySwapChain();
             this.createSwapChain(device);
-            const wide = this.wantsWide() || this.width >= this.height - this.toolbarTileHeight();
+            const wide = this.wantsWide() || this.width >= this.height - this.toolbarFullHeight();
             if (wide != (this.gridW >= this.gridH)) {
                 const oldW = this.gridW;
                 const oldH = this.gridH;
@@ -1281,12 +1304,41 @@ namespace PowderSandboxNri {
 
         // A cell's size, in pixels, when the whole grid fits above the toolbar.
         fitPixels(): number {
-            return Math.min(this.width / this.gridW, (this.height - this.toolbarTileHeight()) / this.gridH);
+            return Math.min(this.width / this.gridW, (this.height - this.toolbarFullHeight()) / this.gridH);
         }
 
-        // The toolbar's height: a share of the window's shorter side, 56 .. 160 pixels.
+        // A tile's height: a share of the window's shorter side, 56 .. 160 pixels.
         toolbarTileHeight(): number {
             return Math.floor(Math.min(Math.max(Math.min(this.width, this.height) * 0.12, 56.0), 160.0));
+        }
+
+        // The tabs' row's height: under half a tile's, but room for a line of text.
+        toolbarTabHeight(): number {
+            return Math.floor(Math.max(this.toolbarTileHeight() * 0.42, 28.0));
+        }
+
+        // The whole toolbar's: the tabs' row and the tiles'.
+        toolbarFullHeight(): number {
+            return this.toolbarTileHeight() + this.toolbarTabHeight();
+        }
+
+        // A tile for a group's row (and the list of every tile).
+        addTile(group: int, tile: Tile) {
+            tile.group = group;
+            this.tiles.push(tile);
+        }
+
+        // The group whose tiles the toolbar shows; its row scrolled back to its start.
+        showGroup(group: int) {
+            this.group = group;
+            this.groupTiles = [];
+            for (const tile of this.tiles) {
+                if (tile.group == group) {
+                    this.groupTiles.push(tile);
+                }
+            }
+            this.toolbarScroll = 0.0;
+            this.layout();
         }
 
         // Whether the grid's wider than tall whatever the window's shape: a level's, and the test
@@ -1302,7 +1354,7 @@ namespace PowderSandboxNri {
         // The grid's size from the shape of the window above the toolbar: gridHeight cells along its
         // shorter side, up to MAX_GRID_LONG along the longer (a wider window shows margins).
         fitGrid() {
-            const playHeight = this.height - this.toolbarTileHeight();
+            const playHeight = this.height - this.toolbarFullHeight();
             let gridW: int = this.gridHeight;
             let gridH: int = this.gridHeight;
             if (this.width >= playHeight) {
@@ -1322,14 +1374,16 @@ namespace PowderSandboxNri {
             console.log(`Grid: ${this.gridW} x ${this.gridH} cells`);
         }
 
-        // The toolbar: one row of tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each
-        // (no narrower than tall) and scrolled sideways when they don't fit (a phone held upright); and
+        // The toolbar: the tabs' row (laid out by buildUI, by their labels), and under it the group's
+        // tiles, spread over the window's width, or MIN_TILE_WIDTH pixels each (no narrower than tall)
+        // and scrolled sideways when they don't fit (a phone held upright); and
         // where the grid's drawn: zoom times as large as fits above it, around its view's center
         // (kept where the grid still fills the area across, or down; centered where it doesn't).
         layout() {
             this.tileHeight = this.toolbarTileHeight();
-            this.tileWidth = Math.max(this.width / this.tiles.length, Math.max(MIN_TILE_WIDTH, this.tileHeight));
-            this.toolbarHeight = this.tileHeight;
+            this.tabHeight = this.toolbarTabHeight();
+            this.tileWidth = Math.max(this.width / Math.max(this.groupTiles.length, 1), Math.max(MIN_TILE_WIDTH, this.tileHeight));
+            this.toolbarHeight = this.tileHeight + this.tabHeight;
             const playHeight = this.height - this.toolbarHeight;
             this.cellPixels = this.fitPixels() * this.zoom;
             const halfW = this.width * 0.5 / this.cellPixels;
@@ -1348,13 +1402,27 @@ namespace PowderSandboxNri {
             Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
         }
 
-        // How far the toolbar's row scrolls.
+        // How far the tiles' row scrolls.
         maxScroll(): number {
-            return Math.max(this.tiles.length * this.tileWidth - this.width, 0.0);
+            return Math.max(this.groupTiles.length * this.tileWidth - this.width, 0.0);
         }
 
         scrollToolbar(scroll: number) {
             this.toolbarScroll = Math.min(Math.max(scroll, 0.0), this.maxScroll());
+        }
+
+        // How far the tabs' row scrolls.
+        maxTabScroll(): number {
+            return Math.max(this.tabEnd - this.width, 0.0);
+        }
+
+        scrollTabs(scroll: number) {
+            this.tabScroll = Math.min(Math.max(scroll, 0.0), this.maxTabScroll());
+        }
+
+        // Whether y is on the tabs' row (else the tiles', on the toolbar).
+        onTabRow(y: number): boolean {
+            return y < this.height - this.tileHeight;
         }
 
         // A toolbar tile was tapped.
@@ -1435,7 +1503,9 @@ namespace PowderSandboxNri {
             // The wheel over the toolbar scrolls it (half a tile a notch); over the grid it zooms
             // (with Control, or the middle button down: a pinch), or sizes the brush.
             const wheel = Nri_GetMouseWheel(this.sample);
-            if (overToolbar && wheel != 0.0) {
+            if (overToolbar && wheel != 0.0 && this.onTabRow(my)) {
+                this.scrollTabs(this.tabScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
+            } else if (overToolbar && wheel != 0.0) {
                 this.scrollToolbar(this.toolbarScroll + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
             } else if (wheel != 0.0 && (middle || control)) {
                 this.zoomAt(mx, my, wheel);
@@ -1475,26 +1545,38 @@ namespace PowderSandboxNri {
                     this.snapshotRequested = true;
                 }
                 this.pressX = mx;
-                this.pressScroll = this.toolbarScroll;
+                this.pressY = my;
+                this.pressScroll = this.onTabRow(my) ? this.tabScroll : this.toolbarScroll;
                 this.dragging = false;
                 this.lastGridX = gx;
                 this.lastGridY = gy;
                 this.anchorX = gx;
                 this.anchorY = gy;
             }
-            // On the toolbar: a drag scrolls the row, a release that didn't drag taps the tile there.
+            // On the toolbar: a drag scrolls the row pressed, a release that didn't drag taps the tab
+            // or the tile there.
             if (this.pressOnToolbar) {
+                const tabs = this.onTabRow(this.pressY);
                 if (down) {
                     if (Math.abs(mx - this.pressX) > DRAG_THRESHOLD) {
                         this.dragging = true;
                     }
-                    if (this.dragging) {
+                    if (this.dragging && tabs) {
+                        this.scrollTabs(this.pressScroll - (mx - this.pressX));
+                    } else if (this.dragging) {
                         this.scrollToolbar(this.pressScroll - (mx - this.pressX));
+                    }
+                } else if (this.wasDown && !this.dragging && tabs) {
+                    const x = this.pressX + this.tabScroll;
+                    for (let g = 0; g < this.tabX.length; g++) {
+                        if (x >= this.tabX[g] && x < (g + 1 < this.tabX.length ? this.tabX[g + 1] : this.tabEnd)) {
+                            this.showGroup(g);
+                        }
                     }
                 } else if (this.wasDown && !this.dragging) {
                     const index: int = Math.floor((this.pressX + this.toolbarScroll) / this.tileWidth);
-                    if (index >= 0 && index < this.tiles.length) {
-                        this.onTile(this.tiles[index]);
+                    if (index >= 0 && index < this.groupTiles.length) {
+                        this.onTile(this.groupTiles[index]);
                     }
                 }
             }
@@ -2575,7 +2657,8 @@ namespace PowderSandboxNri {
                 // Coal and wood, lit on top.
                 this.addStroke(COAL, BURN_BLOCKS[0], BURN_TOP, BURN_BLOCKS[1], 1.0, WATER);
                 this.addStroke(WOOD, BURN_BLOCKS[2], BURN_TOP, BURN_BLOCKS[3], 1.0, WATER);
-                for (let k = 0; k < 5; k++) {
+                // (fire for 10 frames: with 5, on some grids' widths no coal was still alight at the end)
+                for (let k = 0; k < 10; k++) {
                     this.addStroke(FIRE, BURN_BLOCKS[0], BURN_TOP - 0.04, BURN_BLOCKS[1], BURN_TOP, WATER);
                     this.addStroke(FIRE, BURN_BLOCKS[2], BURN_TOP - 0.04, BURN_BLOCKS[3], BURN_TOP, WATER);
                 }
@@ -2723,11 +2806,49 @@ namespace PowderSandboxNri {
             const tileWidth = this.tileWidth;
             const pad = Math.max(2.0, Math.min(tileWidth, this.tileHeight) * 0.06);
             const labelHeight = Nri_ImguiGetFontSize() + 4.0;
-            const top = this.height - this.toolbarHeight;
+            const tabTop = this.height - this.toolbarHeight;
+            const top = tabTop + this.tabHeight;
             const bottom = this.height;
+            Nri_ImguiDrawRect(0.0, tabTop, this.width, top, 0.13, 0.13, 0.16, 1.0);
             Nri_ImguiDrawRect(0.0, top, this.width, bottom, 0.08, 0.08, 0.1, 1.0);
-            for (let i = 0; i < this.tiles.length; i++) {
-                const tile = this.tiles[i];
+            // The tabs: each as wide as its label and a gap, spread over the row when they fit; the
+            // group shown lit as a selected tile is, and under a tab whose group holds the tool, a bar of the tool's color.
+            const tabGap = Nri_ImguiCalcTextWidth("  ");
+            let tabsWidth = 0.0;
+            for (const name of this.groups) {
+                tabsWidth += Nri_ImguiCalcTextWidth(name) + tabGap;
+            }
+            const spread = tabsWidth < this.width ? (this.width - tabsWidth) / this.groups.length : 0.0;
+            this.tabX = [];
+            let tabEdge = 0.0;
+            for (let g = 0; g < this.groups.length; g++) {
+                this.tabX.push(tabEdge);
+                tabEdge += Nri_ImguiCalcTextWidth(this.groups[g]) + tabGap + spread;
+            }
+            this.tabEnd = tabEdge;
+            this.scrollTabs(this.tabScroll);
+            for (let g = 0; g < this.groups.length; g++) {
+                const x0 = this.tabX[g] - this.tabScroll;
+                const x1 = (g + 1 < this.groups.length ? this.tabX[g + 1] : this.tabEnd) - this.tabScroll;
+                if (x1 <= 0.0 || x0 >= this.width) {
+                    continue;
+                }
+                const shown = g == this.group;
+                if (shown) {
+                    Nri_ImguiDrawRect(x0 + 1.0, tabTop + 1.0, x1 - 1.0, top, 0.95, 0.95, 0.95, 1.0);
+                }
+                for (const tile of this.tiles) {
+                    if (tile.group == g && tile.tool == this.tool) {
+                        Nri_ImguiDrawRect(x0 + pad, top - 4.0, x1 - pad, top - 1.0, tile.r, tile.g, tile.b, 1.0);
+                    }
+                }
+                const name = this.groups[g];
+                const gray = shown ? 0.0 : 0.65;
+                Nri_ImguiDrawText((x0 + x1 - Nri_ImguiCalcTextWidth(name)) * 0.5, tabTop + (this.tabHeight - labelHeight) * 0.5 + 2.0, name,
+                    gray, gray, gray, 1.0, 0);
+            }
+            for (let i = 0; i < this.groupTiles.length; i++) {
+                const tile = this.groupTiles[i];
                 const x0 = i * tileWidth - this.toolbarScroll;
                 if (x0 + tileWidth <= 0.0 || x0 >= this.width) {
                     continue;
@@ -2762,9 +2883,13 @@ namespace PowderSandboxNri {
                 Nri_ImguiDrawText(x0 + (tileWidth - textWidth) * 0.5, bottom - pad - labelHeight + 2.0, label,
                     selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, 1.0, 0);
             }
-            // When the row scrolls, a bar along its top: how much of it shows, and where.
+            // When a row scrolls, a bar along its top: how much of it shows, and where.
+            if (this.maxTabScroll() > 0.0) {
+                Nri_ImguiDrawRect(this.tabScroll / this.tabEnd * this.width, tabTop, (this.tabScroll + this.width) / this.tabEnd * this.width,
+                    tabTop + 3.0, 0.7, 0.7, 0.75, 1.0);
+            }
             if (this.maxScroll() > 0.0) {
-                const total = this.tiles.length * tileWidth;
+                const total = this.groupTiles.length * tileWidth;
                 const barX0 = this.toolbarScroll / total * this.width;
                 const barX1 = (this.toolbarScroll + this.width) / total * this.width;
                 Nri_ImguiDrawRect(barX0, top, barX1, top + 3.0, 0.7, 0.7, 0.75, 1.0);
