@@ -2,14 +2,14 @@
 import {
     TEST_FRAMES, DEFAULT_GRID_HEIGHT, STEP_BUDGET_MS, MIN_TILE_WIDTH, DEFAULT_SUBSTEPS,
     DEFAULT_ITERATIONS, SOLVER_MULTIGRID, DEFAULT_VCYCLES, DEFAULT_SMOOTH, DEFAULT_VISCOSITY_SWEEPS,
-    WATER, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level, Stroke, QueuedFrame,
-    SwapChainTexture
+    WATER, Tile, GRAVITY_DOWN, MESSAGE_TIME, SHAPE_CIRCLE, Level, Stroke, QueuedFrame
 } from "./defs";
 import { NriComputeKernels } from "../core/nri_compute_kernels";
 import { NriFrameRing } from "../core/nri_frame_ring";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 import { NriSlider } from "../core/nri_slider";
 import { NriTabRow } from "../core/nri_tab_row";
+import { NriSwapChain } from "../core/nri_swap_chain";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
 // each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts,
@@ -18,9 +18,8 @@ export class SandboxState {
     protected device: NriDeviceHandle | null = null;
     protected queue: NriQueueHandle;
     protected frames: NriFrameRing = new NriFrameRing();
-    protected swapChain: NriSwapChainHandle;
+    protected swapChain: NriSwapChain = new NriSwapChain();
     protected viewFormat: NriFormat = NriFormat.Unknown;
-    protected swapChainTextures: SwapChainTexture[] = [];
     protected queuedFrames: QueuedFrame[] = [];
     protected computeLayout: NriPipelineLayoutHandle | null = null;
     protected drawLayout: NriPipelineLayoutHandle | null = null;

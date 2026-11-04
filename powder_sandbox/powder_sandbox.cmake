@@ -18,7 +18,7 @@ add_custom_command(TARGET copy_media POST_BUILD
         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/powder_sandbox")
 add_tslang_nri_example(powder_sandbox_nri SOURCE powder_sandbox/powder_sandbox_nri.ts SHADERS powder_sandbox_shaders
     core/text_format.ts core/json_reader.ts core/nri_compute_kernels.ts core/nri_frame_ring.ts
-    core/nri_gpu_profiler.ts core/nri_slider.ts core/nri_tab_row.ts
+    core/nri_gpu_profiler.ts core/nri_slider.ts core/nri_tab_row.ts core/nri_swap_chain.ts
     powder_sandbox/defs.ts powder_sandbox/state.ts powder_sandbox/view.ts powder_sandbox/levels.ts
     powder_sandbox/saves.ts powder_sandbox/simulation.ts powder_sandbox/ui.ts powder_sandbox/sandbox.ts
     powder_sandbox/checks.ts

@@ -649,7 +649,13 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     as before, wide and upright (540 x 1170, both rows scrolled), on D3D12 and Vulkan. On the S23
     by hand (adb): dragging the slider sizes the brush (3 to 22, nothing painted), and tapping a
     tab shows its group (the mark stays under the tool's tab); scrolling, checked on the S23 by
-    hand, works too.
+    hand, works too. (Only the sandbox uses them so far: later UI parts stay in `powder_sandbox/`
+    till a second app needs them.)
+  - **Swap chain** (done): `core/nri_swap_chain.ts`'s `NriSwapChain`, made at the window's size
+    with a color attachment view and a pair of semaphores for each texture (`init`, sRGB views or
+    the texture's own format; `width`, `height`, `viewFormat`; `resized` and `recreate`; `acquire`,
+    `texture`, `colorAttachment`, `submit`, `present`; `destroy`). The sandbox keeps what it fits
+    to the window (the grid, the toolbar). The 93 other NRI examples each make theirs the same way.
   - Still to do: the radial menu (never open in a test: it needs a phone to check), touch
     gestures. The tiles' row stays the sandbox's (its labels, swatches and selection are the
     game's).
