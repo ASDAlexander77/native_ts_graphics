@@ -1,4 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
+import { NriFrameRing } from "../../core/nri_frame_ring";
+import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, cross3, dot3 } from "../../core/matrix";
 import { randomFloat } from "../../core/random";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
@@ -76,18 +78,11 @@ namespace RayTracingExtendedNri {
     let retainedInitializeCallbacks: NriInitializeCallback[] = [];
     let retainedFrameCallbacks: NriFrameCallback[] = [];
 
-    // What a frame in flight records into: its constants' slice and the refraction model's vertices
+    // A frame in flight's own data: its constants' slice and the refraction model's vertices
     // (rewritten every frame), and the set binding them.
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public constantsView: NriDescriptorHandle | null, public dynamicVertexBuffer: NriBufferHandle | null,
+        constructor(public constantsView: NriDescriptorHandle | null, public dynamicVertexBuffer: NriBufferHandle | null,
             public dynamicVertexView: NriDescriptorHandle | null, public set: NriDescriptorSetHandle | null) {
-        }
-    }
-
-    // A swap chain texture and the semaphores of its acquire and release.
-    class SwapChainTexture {
-        constructor(public texture: NriTextureHandle, public acquireSemaphore: NriFenceHandle, public releaseSemaphore: NriFenceHandle) {
         }
     }
 
@@ -277,9 +272,8 @@ namespace RayTracingExtendedNri {
     class RayTracingExtended {
         private device: NriDeviceHandle | null = null;
         private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
-        private swapChain: NriSwapChainHandle;
-        private swapChainTextures: SwapChainTexture[] = [];
+        private frames: NriFrameRing = new NriFrameRing();
+        private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private layout: NriPipelineLayoutHandle | null = null;
         private pipeline: NriPipelineHandle | null = null;
@@ -391,13 +385,13 @@ namespace RayTracingExtendedNri {
             console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
 
             this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
             this.test = Nri_IsTest(this.sample) != 0;
 
             // Swap chain: copied into, in its own (UNORM) format: the shader writes the values the
             // sample's vkCmdCopyImage puts in its sRGB back buffer as they are.
             const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            this.createSwapChain(device);
+            this.swapChain.init(this.sample, device, this.queue, false);
+            this.sizeToSwapChain();
             const format = this.swapChainFormat;
 
             // Ray tracing pipelines: D3D12 or Vulkan (the Donut example's shaders have no DXBC).
@@ -458,8 +452,8 @@ namespace RayTracingExtendedNri {
                 console.log("Cannot create the constant buffer");
                 return 0;
             }
+            this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
                 const constantsView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_SLICE, CONST_SLICE);
                 const dynamicVertexBuffer = Nri_CreateHostBufferWithStride(device, gridVertices * VERTEX_SIZE,
                     NriBufferUsage.AccelerationStructureInput, 16);
@@ -467,7 +461,7 @@ namespace RayTracingExtendedNri {
                 if (dynamicVertexBuffer) {
                     dynamicVertexView = Nri_CreateStructuredBufferView(dynamicVertexBuffer, 0);
                 }
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), constantsView,
+                this.queuedFrames.push(new QueuedFrame(constantsView,
                     dynamicVertexBuffer, dynamicVertexView, null));
                 if (!constantsView || !dynamicVertexView) {
                     console.log("Cannot create the dynamic buffers");
@@ -845,10 +839,7 @@ namespace RayTracingExtendedNri {
 
         // Waits for the frame that last used this frame's command allocator (and its buffers).
         latencySleep(frameIndex: int) {
-            const queuedFrameNum = this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frames.wait(frameIndex);
         }
 
         // The sample's calculate_rotation into this.transform: a billboard at pt facing the camera,
@@ -1025,25 +1016,11 @@ namespace RayTracingExtendedNri {
             this.outputCopied = true;
         }
 
-        createSwapChain(device: NriDeviceHandle) {
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.swapChain = Nri_CreateSwapChain(this.sample, device, this.queue, Nri_GetQueuedFrameNum(this.sample) + 1);
-            const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-            this.swapChainFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-            for (let i = 0; i < textureNum; i++) {
-                this.swapChainTextures.push(new SwapChainTexture(Nri_GetSwapChainTexture(this.swapChain, i),
-                    Nri_CreateSwapChainSemaphore(device), Nri_CreateSwapChainSemaphore(device)));
-            }
-        }
-
-        destroySwapChain() {
-            for (const swapChainTexture of this.swapChainTextures) {
-                Nri_DestroyFence(swapChainTexture.acquireSemaphore);
-                Nri_DestroyFence(swapChainTexture.releaseSemaphore);
-            }
-            this.swapChainTextures = [];
-            Nri_DestroySwapChain(this.swapChain);
+        // The swap chain's size and formats (its views in the textures' format).
+        sizeToSwapChain() {
+            this.width = this.swapChain.width();
+            this.height = this.swapChain.height();
+            this.swapChainFormat = this.swapChain.format();
         }
 
         // The output the ray generation shader writes, at the swap chain's size and in its format,
@@ -1075,7 +1052,7 @@ namespace RayTracingExtendedNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (!this.swapChain.resized()) {
                 return;
             }
             Nri_DeviceWaitIdle(device);
@@ -1084,9 +1061,9 @@ namespace RayTracingExtendedNri {
             if (this.output) {
                 hadOutput = true;
             }
-            this.destroySwapChain();
             this.destroyOutput();
-            this.createSwapChain(device);
+            this.swapChain.recreate();
+            this.sizeToSwapChain();
             if (!hadOutput) {
                 return;
             }
@@ -1107,25 +1084,23 @@ namespace RayTracingExtendedNri {
         renderFrame(frameIndex: int) {
             this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
-            const queuedFrame = this.queuedFrames[queuedFrameIndex];
             this.animate();
 
             // Acquire a swap chain texture
-            const acquireSemaphore = this.swapChainTextures[frameIndex % this.swapChainTextures.length].acquireSemaphore;
-            const index = Nri_AcquireNextTexture(this.swapChain, acquireSemaphore);
+            const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                const swapChainTexture = this.swapChainTextures[index];
-                const commandBuffer = queuedFrame.commandBuffer;
+                const texture = this.swapChain.texture(index);
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the acceleration structures and the rays, then their output copied into the
                 // frame without conversion, as the sample's vkCmdCopyImage: the UNORM values become
                 // the sRGB back buffer's encoded ones.
                 Nri_BeginCommandBuffer(commandBuffer);
                 this.recordRays(commandBuffer, queuedFrameIndex);
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
+                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
                 const output = this.output;
                 if (output) {
-                    Nri_CmdCopyTexture(commandBuffer, swapChainTexture.texture, output);
+                    Nri_CmdCopyTexture(commandBuffer, texture, output);
                 }
 
                 // The test's last frame: read back
@@ -1133,21 +1108,21 @@ namespace RayTracingExtendedNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, swapChainTexture.texture, this.width, this.height);
+                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
+                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, swapChainTexture.texture, presentFrom, NriTextureState.Present);
+                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
                 Nri_EndCommandBuffer(commandBuffer);
 
                 // Submit and present
-                Nri_QueueSubmit(this.queue, commandBuffer, acquireSemaphore, swapChainTexture.releaseSemaphore);
-                Nri_QueuePresent(this.swapChain, swapChainTexture.releaseSemaphore);
+                this.swapChain.submit(commandBuffer, index);
+                this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.frames.signal(frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -1174,8 +1149,6 @@ namespace RayTracingExtendedNri {
             if (device) {
                 Nri_DeviceWaitIdle(device);
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
                     this.destroyDescriptor(queuedFrame.constantsView);
                     this.destroyDescriptor(queuedFrame.dynamicVertexView);
                     this.destroyBuffer(queuedFrame.dynamicVertexBuffer);
@@ -1232,8 +1205,8 @@ namespace RayTracingExtendedNri {
                 if (layout) {
                     Nri_DestroyPipelineLayout(layout);
                 }
-                Nri_DestroyFence(this.frameFence);
-                this.destroySwapChain();
+                this.frames.destroy();
+                this.swapChain.destroy();
                 Nri_DestroyDevice(device);
             }
             Nri_DestroySample(this.sample);
