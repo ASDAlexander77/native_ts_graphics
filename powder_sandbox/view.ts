@@ -18,7 +18,7 @@ export class SandboxView extends SandboxState {
             stroke.y0 += dy;
             stroke.y1 += dy;
         }
-        this.wasDown = false;
+        this.pointer.restart();
     }
 
     // Where a grid oldW wide lands across the new one: centered (whole cells).

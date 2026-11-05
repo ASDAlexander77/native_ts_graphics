@@ -2,13 +2,13 @@
 // the row when they fit and scrolled sideways when they don't, the selected one lit, a colored mark
 // under any the app marks, and a bar along the top showing the scrolled row's part in view.
 //
-// Imported with `import { NriTabRow } from "../core/nri_tab_row";`, and listed in the app's
+// Imported with `import { NriTabRow } from "../core/ui/nri_tab_row";`, and listed in the app's
 // add_tslang_nri_example sources. Each frame, layout (it measures the labels: between the app's
 // NriSample.imguiNewFrame and NriSample.imguiRender) and draw; tabAt, offset and scrollTo read where it was
 // last laid out.
 
-/// <reference path="nri/nri_interop.d.ts" />
-import { NriImgui } from "./nri";
+/// <reference path="../nri/nri_interop.d.ts" />
+import { NriImgui } from "../nri";
 
 @final
 export class NriTabRow {
