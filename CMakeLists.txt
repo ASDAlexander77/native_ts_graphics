@@ -702,6 +702,22 @@ if (ANDROID)
     # uninstalled first; point this at ~/.android/debug.keystore to share Android Studio's.
     set(ANDROID_DEBUG_KEYSTORE "${CMAKE_BINARY_DIR}/debug.keystore" CACHE FILEPATH "Keystore the APKs are signed with")
 
+    # The APKs' minSdkVersion: the API level the libraries are built for (ANDROID_PLATFORM,
+    # android-29). Not CMAKE_SYSTEM_VERSION: with the NDK's toolchain that can be 1, which a store
+    # rejects (and which tells a device the app runs on any Android).
+    if (ANDROID_PLATFORM_LEVEL)
+        set(TSLANG_ANDROID_MIN_SDK ${ANDROID_PLATFORM_LEVEL})
+    elseif (ANDROID_PLATFORM MATCHES "^android-([0-9]+)$")
+        set(TSLANG_ANDROID_MIN_SDK ${CMAKE_MATCH_1})
+    elseif (ANDROID_NATIVE_API_LEVEL)
+        set(TSLANG_ANDROID_MIN_SDK ${ANDROID_NATIVE_API_LEVEL})
+    else()
+        set(TSLANG_ANDROID_MIN_SDK 29)
+    endif()
+    if (TSLANG_ANDROID_MIN_SDK LESS 29)
+        set(TSLANG_ANDROID_MIN_SDK 29)
+    endif()
+
     find_package(Python3 COMPONENTS Interpreter)
     if (NOT ANDROID_SDK_DIR OR NOT Python3_Interpreter_FOUND)
         message(STATUS "No Android SDK (set ANDROID_HOME or ANDROID_SDK_DIR) or no Python: no *_apk targets")
@@ -766,7 +782,7 @@ function(add_tslang_android_app name media)
             --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
             ${assets}
             --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
-            --min-sdk ${CMAKE_SYSTEM_VERSION} --keystore "${ANDROID_DEBUG_KEYSTORE}" --strip "${CMAKE_STRIP}"
+            --min-sdk ${TSLANG_ANDROID_MIN_SDK} --keystore "${ANDROID_DEBUG_KEYSTORE}" --strip "${CMAKE_STRIP}"
             --work "${CMAKE_BINARY_DIR}/android/${name}/apk"
             --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}.apk"
         COMMENT "Packaging ${name}.apk"
@@ -832,7 +848,7 @@ function(add_tslang_android_release name)
             --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
             ${assets}
             --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
-            --min-sdk ${CMAKE_SYSTEM_VERSION} --target-sdk ${RELEASE_TARGET_SDK} --strip "${CMAKE_STRIP}"
+            --min-sdk ${TSLANG_ANDROID_MIN_SDK} --target-sdk ${RELEASE_TARGET_SDK} --strip "${CMAKE_STRIP}"
             --package ${RELEASE_PACKAGE} --label "${RELEASE_LABEL}"
             --version-code ${RELEASE_VERSION_CODE} --version-name ${RELEASE_VERSION_NAME} ${options}
             --release --keystore "${ANDROID_RELEASE_KEYSTORE}" --key-alias "${ANDROID_RELEASE_KEY_ALIAS}"
