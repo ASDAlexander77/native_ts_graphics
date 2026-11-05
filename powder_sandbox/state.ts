@@ -10,7 +10,11 @@ import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 import { NriSlider } from "../core/nri_slider";
 import { NriTabRow } from "../core/nri_tab_row";
 import { NriSwapChain } from "../core/nri_swap_chain";
-import { NriAudio, NriBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriQueryPool, NriQueue, NriSample } from "../core/nri";
+import { NriGpuTimer } from "../core/nri_gpu_timer";
+import { FixedStep } from "../core/fixed_step";
+import { FrameRate } from "../core/frame_rate";
+import { PanZoom } from "../core/pan_zoom";
+import { NriAudio, NriBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriQueue, NriSample } from "../core/nri";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
 // each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts,
@@ -96,15 +100,10 @@ export class SandboxState {
     protected toolbarScroll: number = 0.0;
     protected tabs: NriTabRow = new NriTabRow();
     protected tabHeight: number = 32.0;
-    protected viewX: number = 0.0;
-    protected viewY: number = 0.0;
-    protected cellPixels: number = 1.0;
-    // The view: zoom (1 shows the whole grid) and the grid point (in cells) in the middle of the
-    // area above the toolbar. -zoom Z starts zoomed (a test's view).
-    zoom: number = 1.0;
+    // The view of the grid in the area above the toolbar (in cells: zoom 1 shows the whole
+    // grid). -zoom Z starts zoomed (a test's view).
+    protected panZoom: PanZoom = new PanZoom();
     startZoom: number = 1.0;
-    protected centerX: number = 0.0;
-    protected centerY: number = 0.0;
     // The middle button (or two fingers) down last frame, and where the pointer was then.
     protected middleWasDown: boolean = false;
     protected panX: number = 0.0;
@@ -126,18 +125,15 @@ export class SandboxState {
     overlay: int = 0;
     protected needsInit: boolean = true;
     protected time: number = 0.0;
-    protected frameRate: number = 0.0;
-    // The GPU's time for the simulation (a queued frame's two timestamps), the last frame's that
-    // stepped, per step.
-    protected queryPool: NriQueryPool | null = null;
+    protected frameRate: FrameRate = new FrameRate();
+    // The GPU's time for the simulation (two timestamps around it each frame); stepMs: the last
+    // frame's that stepped, per step.
+    protected gpuTimer: NriGpuTimer = new NriGpuTimer();
     // -profile: each entry's GPU time (dispatch marks them), reported now and then.
     profile: boolean = false;
     protected profiler: NriGpuProfiler | null = null;
     protected profileReports: int = 0;
-    protected querySize: int = 8;
     protected stepMs: number = 0.0;
-    protected fpsFrames: int = 0;
-    protected fpsTime: number = 0.0;
 
     // The pointer: down last frame, where (in cells), whether the press began on the toolbar; a
     // press there: where it began, the scroll then, whether it has dragged the row yet.
@@ -202,11 +198,10 @@ export class SandboxState {
     protected solved: boolean = false;
     protected script: Stroke[] = [];
     substeps: int = DEFAULT_SUBSTEPS;
-    // Time the simulation hasn't stepped through yet (under a step). It steps in fixed steps of
-    // 1 / (60 substeps) s, whatever the frame rate: the pressure each step starts from is the
-    // last step's (in units of dt), so a dt that changes from frame to frame (frame times can
-    // alternate 0.5 / 13 ms) kicks the water apart.
-    protected pendingTime: number = 0.0;
+    // The simulation's clock: fixed steps of 1 / (60 substeps) s, whatever the frame rate: the
+    // pressure each step starts from is the last step's (in units of dt), so a dt that changes
+    // from frame to frame (frame times can alternate 0.5 / 13 ms) kicks the water apart.
+    protected clock: FixedStep = new FixedStep();
     iterations: int = DEFAULT_ITERATIONS;
     solver: int = SOLVER_MULTIGRID;
     vcycles: int = DEFAULT_VCYCLES;

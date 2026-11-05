@@ -1,6 +1,6 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import {
-    MAX_GRID_LONG, MIN_TILE_WIDTH, ZOOM_STEP, MAX_ZOOM
+    MAX_GRID_LONG, MIN_TILE_WIDTH
 } from "./defs";
 import { SandboxState } from "./state";
 
@@ -39,26 +39,15 @@ export class SandboxView extends SandboxState {
 
     // The whole grid in view.
     resetView() {
-        this.zoom = 1.0;
-        this.centerX = this.gridW * 0.5;
-        this.centerY = this.gridH * 0.5;
+        this.panZoom.setContent(this.gridW, this.gridH);
+        this.panZoom.reset();
     }
 
-    // Zoomed in or out by notches (of ZOOM_STEP) around the pointer at (x, y): the grid point
-    // under it stays there.
+    // Zoomed in or out by notches (of panZoom.zoomStep; a pinch on Android sends a notch per 48 dp
+    // its fingers spread) around the pointer at (x, y): the grid point under it stays there.
     zoomAt(x: number, y: number, notches: number) {
-        const gx = (x - this.viewX) / this.cellPixels;
-        const gy = (y - this.viewY) / this.cellPixels;
-        this.zoom = Math.min(Math.max(this.zoom * Math.pow(ZOOM_STEP, notches), 1.0), MAX_ZOOM);
-        const cellPixels = this.fitPixels() * this.zoom;
-        this.centerX = gx - (x - this.width * 0.5) / cellPixels;
-        this.centerY = gy - (y - (this.height - this.toolbarHeight) * 0.5) / cellPixels;
+        this.panZoom.zoomAt(x, y, notches);
         this.layout();
-    }
-
-    // A cell's size, in pixels, when the whole grid fits above the toolbar.
-    fitPixels(): number {
-        return Math.min(this.width / this.gridW, (this.height - this.toolbarFullHeight()) / this.gridH);
     }
 
     // A tile's height: a share of the window's shorter side, 56 .. 160 pixels.
@@ -119,13 +108,8 @@ export class SandboxView extends SandboxState {
         this.tabHeight = this.toolbarTabHeight();
         this.tileWidth = Math.max(this.width / Math.max(this.groupTiles.length, 1), Math.max(MIN_TILE_WIDTH, this.tileHeight));
         this.toolbarHeight = this.tileHeight + this.tabHeight;
-        const playHeight = this.height - this.toolbarHeight;
-        this.cellPixels = this.fitPixels() * this.zoom;
-        const halfW = this.width * 0.5 / this.cellPixels;
-        const halfH = playHeight * 0.5 / this.cellPixels;
-        this.centerX = this.gridW <= 2.0 * halfW ? this.gridW * 0.5 : Math.min(Math.max(this.centerX, halfW), this.gridW - halfW);
-        this.centerY = this.gridH <= 2.0 * halfH ? this.gridH * 0.5 : Math.min(Math.max(this.centerY, halfH), this.gridH - halfH);
-        this.viewX = this.width * 0.5 - this.centerX * this.cellPixels;
-        this.viewY = playHeight * 0.5 - this.centerY * this.cellPixels;
+        this.panZoom.setArea(0.0, 0.0, this.width, this.height - this.toolbarHeight);
+        this.panZoom.setContent(this.gridW, this.gridH);
+        this.panZoom.layout();
     }
 }

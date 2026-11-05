@@ -18,6 +18,7 @@ import {
 } from "./defs";
 import { SandboxView } from "./view";
 import { NriFile } from "../core/nri";
+import { IntFile } from "../core/int_file";
 
 // The sandbox's scenes and levels: the test scenes' strokes, the levels read from their files
 // (index.json's list, a level's goal, clock and stars) and the best stars kept.
@@ -82,41 +83,25 @@ export class SandboxLevels extends SandboxView {
         for (let k = 0; k < this.levelNames.length; k++) {
             this.bestStars.push(0);
         }
-        const file = NriFile.load(STARS_PATH);
-        if (!file) {
+        const ints = IntFile.read(STARS_PATH, STARS_MAGIC, 1 + this.levelNames.length);
+        if (!ints || ints.length < 1) {
             return;
         }
-        const bytes: int[] = [];
-        const size = file.getSize();
-        for (let i = 0; i < size; i++) {
-            bytes.push(0);
-        }
-        if (size > 0) {
-            file.copyBytes(0, size, Ref(bytes[0]));
-        }
-        file.destroy();
-        const ints: int[] = [];
-        for (let i = 0; i + 3 < size; i += 4) {
-            ints.push(bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24));
-        }
-        if (ints.length < 2 || ints[0] != STARS_MAGIC) {
-            return;
-        }
-        for (let k = 0; k < this.levelNames.length && k < ints[1] && 2 + k < ints.length; k++) {
-            this.bestStars[k] = Math.min(Math.max(ints[2 + k], 0), 3);
+        for (let k = 0; k < this.levelNames.length && k < ints[0] && 1 + k < ints.length; k++) {
+            this.bestStars[k] = Math.min(Math.max(ints[1 + k], 0), 3);
         }
     }
 
     // The best stars, into STARS_PATH (not in tests).
     saveStars() {
-        if (this.test || this.queuedFrames.length == 0) {
+        if (this.test) {
             return;
         }
-        const ints: int[] = [STARS_MAGIC, this.bestStars.length];
+        const ints: int[] = [this.bestStars.length];
         for (const stars of this.bestStars) {
             ints.push(stars);
         }
-        this.queuedFrames[0].probeReadback.saveToFile(0, Ref(ints[0]), ints.length, STARS_PATH);
+        IntFile.write(STARS_PATH, STARS_MAGIC, ints);
     }
 
     // The level's goal against the count a frame's probe read (time: the level's time after that

@@ -163,6 +163,13 @@ export class Nri {
         return Nri_HasShaderPrintf();
     }
 
+    // Writes count ints (Ref of an int array element) to path, as Nri_SaveBufferToFile does. 1, or 0 on
+    // failure.
+    // (Nri_SaveIntsToFile)
+    static saveIntsToFile(ints: Ref<int>, count: int, path: string): int {
+        return Nri_SaveIntsToFile(ints, count, path);
+    }
+
     // A Donut PlanarShadowMap (one orthographic view; a D24S8 texture array of one resolution x
     // resolution slice, depth cleared to 1) fitted to the directional light of
     // Nri_FillDonutDirectionalLightConstants' arguments and world-space bounds (Nri_GetDonutSceneBounds'),

@@ -698,6 +698,9 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // buffer (a readback buffer, after the GPU wrote it), to path (relative to the executable's directory;
 // the app's data directory on Android), replacing the file only once it's written. 1, or 0 on failure.
 @nodrops declare function Nri_SaveBufferToFile(buffer: NriBufferHandle, byteSize: int, header: Ref<int>, headerInts: int, path: string): int;
+// Writes count ints (Ref of an int array element) to path, as Nri_SaveBufferToFile does. 1, or 0 on
+// failure.
+@nodrops declare function Nri_SaveIntsToFile(ints: Ref<int>, count: int, path: string): int;
 // A pool of capacity timestamp queries (the graphics queue's); null on failure.
 @nodrops declare function Nri_CreateTimestampQueryPool(device: NriDeviceHandle, capacity: int): NriQueryPoolHandle | null;
 @nodrops declare function Nri_DestroyQueryPool(queryPool: NriQueryPoolHandle): void;

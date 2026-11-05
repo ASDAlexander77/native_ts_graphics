@@ -180,8 +180,7 @@ export class SandboxUI extends SandboxSimulation {
             this.panY = my;
         }
         if (middle) {
-            this.centerX -= (mx - this.panX) / this.cellPixels;
-            this.centerY -= (my - this.panY) / this.cellPixels;
+            this.panZoom.pan(mx - this.panX, my - this.panY);
             this.panX = mx;
             this.panY = my;
             this.layout();
@@ -202,8 +201,8 @@ export class SandboxUI extends SandboxSimulation {
             this.brushRadius = Math.max(this.brushRadius - 1.0, MIN_BRUSH);
         }
         this.middleWasDown = middle;
-        const gx = (mx - this.viewX) / this.cellPixels;
-        const gy = (my - this.viewY) / this.cellPixels;
+        const gx = this.panZoom.toContentX(mx);
+        const gy = this.panZoom.toContentY(my);
         this.mouseGridX = gx;
         this.mouseGridY = gy;
         if (this.sample.isKeyToggled(NriKey.Space) != 0) {
@@ -447,10 +446,10 @@ export class SandboxUI extends SandboxSimulation {
 
         // Particles in use, the brush, the view; the cell under the pointer.
         const used = CAPACITY - this.probe[0];
-        let y = this.drawWrapped([`${formatFixed(this.frameRate, 0)} fps`, `step ${formatFixed(this.stepMs, 2)} ms`,
+        let y = this.drawWrapped([`${formatFixed(this.frameRate.fps(), 0)} fps`, `step ${formatFixed(this.stepMs, 2)} ms`,
             `particles ${used} / ${CAPACITY}`,
             `brush ${formatFixed(this.brushRadius, 0)} ${SHAPE_NAMES[this.brushShape]}`, `view: ${VIEW_NAMES[this.overlay]}`,
-            this.zoom > 1.001 ? `zoom ${formatFixed(this.zoom, 1)}x` : "",
+            this.panZoom.zoom > 1.001 ? `zoom ${formatFixed(this.panZoom.zoom, 1)}x` : "",
             this.paused ? "PAUSED" : ""], hudTop, labelHeight, 1.0);
         const cell = this.probe[3] & 0xFF;
         let contents = materialName(cell);

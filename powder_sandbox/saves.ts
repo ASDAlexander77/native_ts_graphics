@@ -6,6 +6,7 @@ import {
 } from "./defs";
 import { SandboxLevels } from "./levels";
 import { NriBuffer, NriCommandBuffer, NriFile } from "../core/nri";
+import { IntFile } from "../core/int_file";
 
 // The state's GPU work: undo snapshots, saving and loading, the grid remade (a phone turned, or a
 // -regrid test) and the -roundTrip test, requested by a frame and recorded into it.
@@ -188,14 +189,9 @@ export class SandboxSaves extends SandboxLevels {
             this.showMessage("Nothing saved yet");
             return null;
         }
-        const bytes: int[] = [];
-        for (let i = 0; i < SAVE_HEADER_INTS * 4; i++) {
-            bytes.push(0);
-        }
-        file.copyBytes(0, Math.min(bytes.length, file.getSize()), Ref(bytes[0]));
-        const header: int[] = [];
-        for (let i = 0; i < SAVE_HEADER_INTS; i++) {
-            header.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
+        const header = IntFile.readInts(file, SAVE_HEADER_INTS);
+        while (header.length < SAVE_HEADER_INTS) {
+            header.push(0);
         }
         const headerInts = header[1] == 3 ? SAVE_HEADER_INTS_3 : SAVE_HEADER_INTS;
         let loadBuffer: NriBuffer | null = null;

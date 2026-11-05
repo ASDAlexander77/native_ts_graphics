@@ -1,7 +1,7 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import { formatFixed } from "../core/text_format";
 import {
-    WINDOW_TITLE, CAPACITY, DEFAULT_GRID_HEIGHT, MAX_GRID_LONG, GRID_CAPACITY, MAX_ZOOM,
+    WINDOW_TITLE, CAPACITY, DEFAULT_GRID_HEIGHT, MAX_GRID_LONG, GRID_CAPACITY,
     PROFILE_EVERY, PROFILE_QUERIES, PROFILE_REPORT, GROUP_SIZE, CONSTANTS_FLOATS, CONSTANTS_SIZE,
     ALL_INT_SECTIONS, I_EVENTS, EVENT_COUNT, FLOAT_SECTIONS, ALLOC_LIST, PARTICLE_SIZE, PROBE_INTS,
     WATER, OIL, SAND, FIRE, LAVA, ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, GLASS, WOOD, URANIUM,
@@ -155,17 +155,13 @@ export class SandboxApp extends SandboxUI {
         this.sizeToSwapChain();
         const format = this.viewFormat;
         this.fitGrid();
-        this.zoom = Math.min(Math.max(this.startZoom, 1.0), MAX_ZOOM);
+        this.panZoom.zoom = Math.min(Math.max(this.startZoom, 1.0), this.panZoom.maxZoom);
         this.layout();
         this.stateW = this.gridW;
         this.stateH = this.gridH;
 
         // Queued frames
-        const queryPool = device.createTimestampQueryPool(2 * queuedFrameNum);
-        this.queryPool = queryPool;
-        if (queryPool) {
-            this.querySize = queryPool.getQuerySize();
-        }
+        this.gpuTimer.init(device, queuedFrameNum);
         if (this.profile) {
             const profiler = new NriGpuProfiler();
             if (profiler.init(device, ENTRIES, PROFILE_QUERIES, PROFILE_EVERY, PROFILE_REPORT)) {
@@ -182,8 +178,7 @@ export class SandboxApp extends SandboxUI {
                 console.log("Cannot create the readback buffers");
                 return 0;
             }
-            const timestampReadback = queryPool ? device.createReadbackBuffer(2 * this.querySize) : null;
-            this.queuedFrames.push(new QueuedFrame(probeReadback, timestampReadback));
+            this.queuedFrames.push(new QueuedFrame(probeReadback));
         }
 
         // The layouts: the constants (b0) and six storage buffers (u0 .. u5) for the
@@ -386,13 +381,7 @@ export class SandboxApp extends SandboxUI {
         const frameTime = this.test ? 1.0 / 60.0 : Math.min(this.sample.getFrameTime(), 0.25);
         this.time += frameTime;
         this.messageTime -= frameTime;
-        this.fpsFrames++;
-        this.fpsTime += this.sample.getFrameTime();
-        if (this.fpsTime >= 0.5) {
-            this.frameRate = this.fpsFrames / this.fpsTime;
-            this.fpsFrames = 0;
-            this.fpsTime = 0.0;
-        }
+        this.frameRate.tick(this.sample.getFrameTime());
 
         // The readout this slot's last frame wrote, and its simulation's time.
         if (frameIndex >= this.queuedFrames.length) {
@@ -411,14 +400,7 @@ export class SandboxApp extends SandboxUI {
         const step = 1.0 / (60.0 * this.substeps);
         let steps = this.substeps;
         if (!this.test) {
-            this.pendingTime += frameTime;
-            steps = Math.floor(this.pendingTime / step);
-            if (steps > 2 * this.substeps) {
-                steps = 2 * this.substeps;
-                this.pendingTime = 0.0;
-            } else {
-                this.pendingTime -= steps * step;
-            }
+            steps = this.clock.advance(frameTime, step, 2 * this.substeps);
         }
 
         if (this.test && this.roundTrip) {
@@ -446,12 +428,7 @@ export class SandboxApp extends SandboxUI {
             // over it.
             commandBuffer.begin();
             this.recordStateRequests(commandBuffer);
-            const queryPool = this.queryPool;
-            const queryBase = (frameIndex % this.queuedFrames.length) * 2;
-            if (queryPool) {
-                commandBuffer.resetQueries(queryPool, queryBase, 2);
-                commandBuffer.writeTimestamp(queryPool, queryBase);
-            }
+            this.gpuTimer.begin(commandBuffer, frameIndex);
             const profiler = this.profiler;
             if (profiler) {
                 profiler.begin(commandBuffer, this.frameIndex);
@@ -464,13 +441,8 @@ export class SandboxApp extends SandboxUI {
             }
             queuedFrame.steps = this.paused ? 0 : steps;
             queuedFrame.levelTime = this.levelTime;
-            const timestampReadback = queuedFrame.timestampReadback;
-            if (queryPool) {
-                commandBuffer.writeTimestamp(queryPool, queryBase + 1);
-                if (timestampReadback) {
-                    commandBuffer.copyQueries(queryPool, queryBase, 2, timestampReadback, 0);
-                    queuedFrame.timedSteps = this.paused ? 0 : steps;
-                }
+            if (this.gpuTimer.end(commandBuffer, frameIndex)) {
+                queuedFrame.timedSteps = this.paused ? 0 : steps;
             }
             this.kernels.dispatch(commandBuffer, PROBE, 1, 0);
             // (the brush's fields stand for the goal's material and box)
@@ -573,15 +545,8 @@ export class SandboxApp extends SandboxUI {
             this.frames.destroy();
             for (const queuedFrame of this.queuedFrames) {
                 queuedFrame.probeReadback.destroy();
-                const timestampReadback = queuedFrame.timestampReadback;
-                if (timestampReadback) {
-                    timestampReadback.destroy();
-                }
             }
-            const queryPool = this.queryPool;
-            if (queryPool) {
-                queryPool.destroy();
-            }
+            this.gpuTimer.destroy();
             const profiler = this.profiler;
             if (profiler) {
                 profiler.destroy();
