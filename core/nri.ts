@@ -1153,6 +1153,9 @@ export class NriDescriptorSet {
 // A NriDeviceHandle.
 @final
 export class NriDevice {
+    // The cached getters' results (made at the first call).
+    private cachedGraphicsQueue: NriQueue | null = null;
+
     constructor(public readonly handle: NriDeviceHandle) {
     }
 
@@ -1854,7 +1857,12 @@ export class NriDevice {
 
     // (Nri_GetGraphicsQueue)
     getGraphicsQueue(): NriQueue {
-        return new NriQueue(Nri_GetGraphicsQueue(this.handle));
+        let result = this.cachedGraphicsQueue;
+        if (!result) {
+            result = new NriQueue(Nri_GetGraphicsQueue(this.handle));
+            this.cachedGraphicsQueue = result;
+        }
+        return result;
     }
 
     // The line rasterization modes pipelines can have: NriLineRasterizationBits (Vulkan's line rasterization
@@ -2022,6 +2030,9 @@ export class NriDevice {
 // A NriDonutAnimatedSceneHandle.
 @final
 export class NriDonutAnimatedScene {
+    // The cached getters' results (made at the first call).
+    private cachedScene: NriDonutScene | null = null;
+
     constructor(public readonly handle: NriDonutAnimatedSceneHandle) {
     }
 
@@ -2060,7 +2071,12 @@ export class NriDonutAnimatedScene {
 
     // (Nri_GetDonutAnimatedSceneScene)
     getScene(): NriDonutScene {
-        return new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
+        let result = this.cachedScene;
+        if (!result) {
+            result = new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
+            this.cachedScene = result;
+        }
+        return result;
     }
 
     // The skinned instances, each's joint count and joint matrices (float4x4 each: Donut's skinning shader's
@@ -2126,6 +2142,9 @@ export class NriDonutAnimatedScene {
 // A NriDonutAnimatedSceneAccelStructsHandle.
 @final
 export class NriDonutAnimatedSceneAccelStructs {
+    // The cached getters' results (made at the first call).
+    private cachedTopLevelAS: NriTopLevelAS | null = null;
+
     constructor(public readonly handle: NriDonutAnimatedSceneAccelStructsHandle) {
     }
 
@@ -2136,7 +2155,12 @@ export class NriDonutAnimatedSceneAccelStructs {
 
     // (Nri_GetDonutAnimatedSceneTopLevelAS)
     getTopLevelAS(): NriTopLevelAS {
-        return new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
+        let result = this.cachedTopLevelAS;
+        if (!result) {
+            result = new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
+            this.cachedTopLevelAS = result;
+        }
+        return result;
     }
 }
 
@@ -2289,6 +2313,9 @@ export class NriDonutScene {
 // A NriDonutSceneAccelStructsHandle.
 @final
 export class NriDonutSceneAccelStructs {
+    // The cached getters' results (made at the first call).
+    private cachedTopLevelAS: NriTopLevelAS | null = null;
+
     constructor(public readonly handle: NriDonutSceneAccelStructsHandle) {
     }
 
@@ -2299,7 +2326,12 @@ export class NriDonutSceneAccelStructs {
 
     // (Nri_GetDonutSceneTopLevelAS)
     getTopLevelAS(): NriTopLevelAS {
-        return new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
+        let result = this.cachedTopLevelAS;
+        if (!result) {
+            result = new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
+            this.cachedTopLevelAS = result;
+        }
+        return result;
     }
 }
 
@@ -2488,6 +2520,10 @@ export class NriFile {
 // A NriGltfMeshHandle.
 @final
 export class NriGltfMesh {
+    // The cached getters' results (made at the first call).
+    private cachedIndexBuffer: NriBuffer | null = null;
+    private cachedVertexBuffer: NriBuffer | null = null;
+
     constructor(public readonly handle: NriGltfMeshHandle) {
     }
 
@@ -2498,7 +2534,12 @@ export class NriGltfMesh {
 
     // (Nri_GetGltfMeshIndexBuffer)
     getIndexBuffer(): NriBuffer {
-        return new NriBuffer(Nri_GetGltfMeshIndexBuffer(this.handle));
+        let result = this.cachedIndexBuffer;
+        if (!result) {
+            result = new NriBuffer(Nri_GetGltfMeshIndexBuffer(this.handle));
+            this.cachedIndexBuffer = result;
+        }
+        return result;
     }
 
     // (Nri_GetGltfMeshIndexCount)
@@ -2509,7 +2550,12 @@ export class NriGltfMesh {
     // Valid as long as the mesh.
     // (Nri_GetGltfMeshVertexBuffer)
     getVertexBuffer(): NriBuffer {
-        return new NriBuffer(Nri_GetGltfMeshVertexBuffer(this.handle));
+        let result = this.cachedVertexBuffer;
+        if (!result) {
+            result = new NriBuffer(Nri_GetGltfMeshVertexBuffer(this.handle));
+            this.cachedVertexBuffer = result;
+        }
+        return result;
     }
 }
 
@@ -3573,6 +3619,9 @@ export class NriTextureLevels {
 // A NriTopLevelASHandle.
 @final
 export class NriTopLevelAS {
+    // The cached getters' results (made at the first call).
+    private cachedTopLevelAccelerationStructure: NriAccelerationStructure | null = null;
+
     constructor(public readonly handle: NriTopLevelASHandle) {
     }
 
@@ -3596,13 +3645,21 @@ export class NriTopLevelAS {
 
     // (Nri_GetTopLevelAccelerationStructure)
     getTopLevelAccelerationStructure(): NriAccelerationStructure {
-        return new NriAccelerationStructure(Nri_GetTopLevelAccelerationStructure(this.handle));
+        let result = this.cachedTopLevelAccelerationStructure;
+        if (!result) {
+            result = new NriAccelerationStructure(Nri_GetTopLevelAccelerationStructure(this.handle));
+            this.cachedTopLevelAccelerationStructure = result;
+        }
+        return result;
     }
 }
 
 // An NriUpdatableBlasHandle.
 @final
 export class NriUpdatableBlas {
+    // The cached getters' results (made at the first call).
+    private cachedAccelerationStructure: NriAccelerationStructure | null = null;
+
     constructor(public readonly handle: NriUpdatableBlasHandle) {
     }
 
@@ -3614,6 +3671,11 @@ export class NriUpdatableBlas {
     // The structure (for Nri_TopLevelASAddInstance).
     // (Nri_GetUpdatableBlasAccelerationStructure)
     getAccelerationStructure(): NriAccelerationStructure {
-        return new NriAccelerationStructure(Nri_GetUpdatableBlasAccelerationStructure(this.handle));
+        let result = this.cachedAccelerationStructure;
+        if (!result) {
+            result = new NriAccelerationStructure(Nri_GetUpdatableBlasAccelerationStructure(this.handle));
+            this.cachedAccelerationStructure = result;
+        }
+        return result;
     }
 }

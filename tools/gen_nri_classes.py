@@ -48,6 +48,21 @@ EXTRA_NOUNS = {
 }
 
 
+# Getters of an object fixed for the object's life (set when it's made): the class keeps the first
+# result, so a getter called each frame (mesh.getIndexBuffer() in a draw loop) makes no object
+# after the first call.
+CACHED = {
+    'Nri_GetGltfMeshIndexBuffer',
+    'Nri_GetGltfMeshVertexBuffer',
+    'Nri_GetUpdatableBlasAccelerationStructure',
+    'Nri_GetTopLevelAccelerationStructure',
+    'Nri_GetDonutSceneTopLevelAS',
+    'Nri_GetDonutAnimatedSceneTopLevelAS',
+    'Nri_GetDonutAnimatedSceneScene',
+    'Nri_GetGraphicsQueue',
+}
+
+
 def core_class_names():
     names = set()
     for f in os.listdir(os.path.join(ROOT, 'core')):
@@ -258,6 +273,7 @@ def generate(handles, functions, cls_of):
         out.append('@final')
         out.append(f'export class {c} {{')
         body = []
+        cached_fields = []
         if h:
             body.append(f'    constructor(public readonly handle: {h}) {{')
             body.append('    }')
@@ -281,6 +297,18 @@ def generate(handles, functions, cls_of):
                 body.append(f'    {static}{f.method}({sig}): {ts_type(ret, cls_of)} {{')
                 body.append(f'        const result = {call};')
                 body.append(f'        return result ? new {cls_of[rb]}(result) : null;')
+            elif f.name in CACHED:
+                if f.static or params or ret.endswith(' | null'):
+                    sys.exit(f"{f.name}: only a method without parameters and a non-null result is cached")
+                field = 'cached' + f.method[3:] if f.method.startswith('get') else 'cached' + f.method[:1].upper() + f.method[1:]
+                body.append(f'    {f.method}(): {cls_of[rb]} {{')
+                body.append(f'        let result = this.{field};')
+                body.append('        if (!result) {')
+                body.append(f'            result = new {cls_of[rb]}({call});')
+                body.append(f'            this.{field} = result;')
+                body.append('        }')
+                body.append('        return result;')
+                cached_fields.append(f'    private {field}: {cls_of[rb]} | null = null;')
             elif rb in cls_of:
                 body.append(f'    {static}{f.method}({sig}): {cls_of[rb]} {{')
                 body.append(f'        return new {cls_of[rb]}({call});')
@@ -288,6 +316,10 @@ def generate(handles, functions, cls_of):
                 body.append(f'    {static}{f.method}({sig}): {ret} {{')
                 body.append(f'        return {call};')
             body.append('    }')
+        if cached_fields:
+            out.append('    // The cached getters\' results (made at the first call).')
+            out.extend(cached_fields)
+            out.append('')
         out.extend(body)
         out.append('}')
     out.append('')
