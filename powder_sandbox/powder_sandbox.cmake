@@ -119,10 +119,10 @@ endif()
 add_tslang_android_release(powder_sandbox_nri
     PACKAGE io.github.asdalexander77.powdersandbox
     LABEL "Powder Sandbox"
-    VERSION_CODE 1
-    VERSION_NAME 1.0
+    VERSION_CODE 2
+    VERSION_NAME 0.1
     RES powder_sandbox/android/res
     ICON @mipmap/ic_launcher
     CATEGORY game
-    VULKAN_VERSION 0x402000
+    VULKAN_VERSION 0x403000
     TARGET_SDK 36)

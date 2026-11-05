@@ -20,7 +20,8 @@ The folder follows fastlane's `metadata/android` layout, so `fastlane supply` ca
 - Application ID `io.github.asdalexander77.powdersandbox` (permanent once uploaded), label
   "Powder Sandbox", category game.
 - Target SDK 36 (Google Play's level for new apps since 31 August 2026), minimum SDK 29.
-- Needs Vulkan 1.2 (`android.hardware.vulkan.version` 0x402000, required): Play offers it only to
+- Needs Vulkan 1.3 (`android.hardware.vulkan.version` 0x403000, required; NRI itself needs 1.2 with
+  dynamic rendering and synchronization2, which 1.3 makes core): Play offers it only to
   devices that can run it. arm64 only.
 - Not debuggable, no backup, no permissions. The system bars are hidden (a swipe shows them).
 
