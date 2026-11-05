@@ -5697,6 +5697,53 @@ extern "C"
             ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))));
     }
 
+    // A rectangle's outline from (x0, y0) to (x1, y1), its corners rounded by rounding and its lines
+    // thickness wide, in UI coordinates, on the background draw list.
+    NRI_INTEROP_API void Nri_ImguiDrawRectOutline(double x0, double y0, double x1, double y1, double rounding, double thickness,
+        double r, double g, double b, double a)
+    {
+        ImGui::GetBackgroundDrawList()->AddRect(ImVec2(float(x0), float(y0)), ImVec2(float(x1), float(y1)),
+            ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))), float(rounding), 0, float(thickness));
+    }
+
+    // A line from (x0, y0) to (x1, y1), thickness wide, in UI coordinates, on the background draw list.
+    NRI_INTEROP_API void Nri_ImguiDrawLine(double x0, double y0, double x1, double y1, double thickness,
+        double r, double g, double b, double a)
+    {
+        ImGui::GetBackgroundDrawList()->AddLine(ImVec2(float(x0), float(y0)), ImVec2(float(x1), float(y1)),
+            ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))), float(thickness));
+    }
+
+    // A filled triangle (x0, y0), (x1, y1), (x2, y2) in UI coordinates, on the background draw list.
+    NRI_INTEROP_API void Nri_ImguiDrawTriangle(double x0, double y0, double x1, double y1, double x2, double y2,
+        double r, double g, double b, double a)
+    {
+        ImGui::GetBackgroundDrawList()->AddTriangleFilled(ImVec2(float(x0), float(y0)), ImVec2(float(x1), float(y1)),
+            ImVec2(float(x2), float(y2)), ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))));
+    }
+
+    // A circle at (x, y) of radius in UI coordinates, filled (thickness <= 0) or its outline thickness
+    // wide, on the background draw list.
+    NRI_INTEROP_API void Nri_ImguiDrawCircle(double x, double y, double radius, double thickness,
+        double r, double g, double b, double a)
+    {
+        ImU32 color = ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a)));
+        if (thickness <= 0.0)
+            ImGui::GetBackgroundDrawList()->AddCircleFilled(ImVec2(float(x), float(y)), float(radius), color);
+        else
+            ImGui::GetBackgroundDrawList()->AddCircle(ImVec2(float(x), float(y)), float(radius), color, 0, float(thickness));
+    }
+
+    // An arc of the circle at (x, y) of radius, from angle a0 to a1 (radians, clockwise on screen from
+    // +x), thickness wide, in UI coordinates, on the background draw list.
+    NRI_INTEROP_API void Nri_ImguiDrawArc(double x, double y, double radius, double a0, double a1, double thickness,
+        double r, double g, double b, double a)
+    {
+        ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+        drawList->PathArcTo(ImVec2(float(x), float(y)), float(radius), float(a0), float(a1));
+        drawList->PathStroke(ImGui::GetColorU32(ImVec4(float(r), float(g), float(b), float(a))), 0, float(thickness));
+    }
+
     // The width of a line of text in the default font, in UI coordinates.
     NRI_INTEROP_API double Nri_ImguiCalcTextWidth(const char* text)
     {

@@ -1565,6 +1565,24 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows.
 @nodrops declare function Nri_ImguiDrawRect(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number,
     a: number): void;
+// A rectangle's outline from (x0, y0) to (x1, y1), its corners rounded by rounding and its lines
+// thickness wide, in UI coordinates, behind the windows.
+@nodrops declare function Nri_ImguiDrawRectOutline(x0: number, y0: number, x1: number, y1: number, rounding: number,
+    thickness: number, r: number, g: number, b: number, a: number): void;
+// A line from (x0, y0) to (x1, y1), thickness wide, in UI coordinates, behind the windows.
+@nodrops declare function Nri_ImguiDrawLine(x0: number, y0: number, x1: number, y1: number, thickness: number,
+    r: number, g: number, b: number, a: number): void;
+// A filled triangle (x0, y0), (x1, y1), (x2, y2) in UI coordinates, behind the windows.
+@nodrops declare function Nri_ImguiDrawTriangle(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number,
+    r: number, g: number, b: number, a: number): void;
+// A circle at (x, y) of radius in UI coordinates, filled (thickness <= 0) or its outline thickness
+// wide, behind the windows.
+@nodrops declare function Nri_ImguiDrawCircle(x: number, y: number, radius: number, thickness: number,
+    r: number, g: number, b: number, a: number): void;
+// An arc of the circle at (x, y) of radius, from angle a0 to a1 (radians, clockwise on screen from
+// +x), thickness wide, in UI coordinates, behind the windows.
+@nodrops declare function Nri_ImguiDrawArc(x: number, y: number, radius: number, a0: number, a1: number, thickness: number,
+    r: number, g: number, b: number, a: number): void;
 // The width of a line of text in the default font, in UI coordinates.
 @nodrops declare function Nri_ImguiCalcTextWidth(text: string): number;
 // The height of a line of text in the default font, in UI coordinates.

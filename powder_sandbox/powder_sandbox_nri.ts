@@ -42,6 +42,7 @@ namespace PowderSandboxNri {
         sample.addExampleOption("-mute");
         sample.addExampleOption("-profile");
         sample.addExampleOptionWithValues("-gravity", 1);
+        sample.addExampleOptionWithValues("-tab", 1);
         sample.addExampleOptionWithValues("-tilt", 2);
         sample.addExampleOptionWithValues("-window", 2);
         sample.addExampleOption("-sound");
@@ -109,6 +110,10 @@ namespace PowderSandboxNri {
                 // (the window's size: -window 540 1170 is a phone held upright)
                 sample.setWindowSize(Math.max(parseInt(Nri.getArg(argc, argv, i + 1)), 64), Math.max(parseInt(Nri.getArg(argc, argv, i + 2)), 64));
                 i += 2;
+            } else if (arg == "-tab" && i + 1 < argc) {
+                // (the toolbar's tab shown first: 6 is Tools, 7 Game)
+                sandbox.showGroup(Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i + 1)), 0), sandbox.tabCount() - 1));
+                i++;
             } else if (arg == "-gravity" && i + 1 < argc) {
                 sandbox.gravityMode = Math.max(GRAVITY_NAMES.indexOf(Nri.getArg(argc, argv, i + 1)), 0);
                 i++;

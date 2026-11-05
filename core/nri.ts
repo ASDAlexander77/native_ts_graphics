@@ -267,10 +267,37 @@ export class NriImgui {
         return Nri_ImguiDragFloat3(label, values, speed);
     }
 
+    // An arc of the circle at (x, y) of radius, from angle a0 to a1 (radians, clockwise on screen from
+    // +x), thickness wide, in UI coordinates, behind the windows.
+    // (Nri_ImguiDrawArc)
+    static drawArc(x: number, y: number, radius: number, a0: number, a1: number, thickness: number, r: number, g: number, b: number, a: number) {
+        Nri_ImguiDrawArc(x, y, radius, a0, a1, thickness, r, g, b, a);
+    }
+
+    // A circle at (x, y) of radius in UI coordinates, filled (thickness <= 0) or its outline thickness
+    // wide, behind the windows.
+    // (Nri_ImguiDrawCircle)
+    static drawCircle(x: number, y: number, radius: number, thickness: number, r: number, g: number, b: number, a: number) {
+        Nri_ImguiDrawCircle(x, y, radius, thickness, r, g, b, a);
+    }
+
+    // A line from (x0, y0) to (x1, y1), thickness wide, in UI coordinates, behind the windows.
+    // (Nri_ImguiDrawLine)
+    static drawLine(x0: number, y0: number, x1: number, y1: number, thickness: number, r: number, g: number, b: number, a: number) {
+        Nri_ImguiDrawLine(x0, y0, x1, y1, thickness, r, g, b, a);
+    }
+
     // A filled rectangle from (x0, y0) to (x1, y1) in UI coordinates, behind the windows.
     // (Nri_ImguiDrawRect)
     static drawRect(x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number, a: number) {
         Nri_ImguiDrawRect(x0, y0, x1, y1, r, g, b, a);
+    }
+
+    // A rectangle's outline from (x0, y0) to (x1, y1), its corners rounded by rounding and its lines
+    // thickness wide, in UI coordinates, behind the windows.
+    // (Nri_ImguiDrawRectOutline)
+    static drawRectOutline(x0: number, y0: number, x1: number, y1: number, rounding: number, thickness: number, r: number, g: number, b: number, a: number) {
+        Nri_ImguiDrawRectOutline(x0, y0, x1, y1, rounding, thickness, r, g, b, a);
     }
 
     // Text at (x, y) in UI coordinates (its top-left corner, or with alignRight its top-right one) in the
@@ -279,6 +306,12 @@ export class NriImgui {
     // (Nri_ImguiDrawText)
     static drawText(x: number, y: number, text: string, r: number, g: number, b: number, a: number, alignRight: int) {
         Nri_ImguiDrawText(x, y, text, r, g, b, a, alignRight);
+    }
+
+    // A filled triangle (x0, y0), (x1, y1), (x2, y2) in UI coordinates, behind the windows.
+    // (Nri_ImguiDrawTriangle)
+    static drawTriangle(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, r: number, g: number, b: number, a: number) {
+        Nri_ImguiDrawTriangle(x0, y0, x1, y1, x2, y2, r, g, b, a);
     }
 
     // (Nri_ImguiEnd)
