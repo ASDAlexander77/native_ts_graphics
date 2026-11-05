@@ -151,7 +151,7 @@ export class PowderSandbox extends SandboxApp {
         }
         let eventLog = "";
         for (let k = 0; k < EVENT_COUNT; k++) {
-            eventLog = `${eventLog}${k > 0 ? ", " : ""}${EVENT_NAMES[k]} ${this.eventTotals[k]}`;
+            eventLog = `${eventLog}${k > 0 ? ", " : ""}${EVENT_NAMES[k]} ${this.sounds.total(k)}`;
         }
         console.log(`Sound events: ${eventLog}`);
         // (the showcase's falling water and burning wood; the acid eating wood; the gunpowder.
@@ -182,7 +182,7 @@ export class PowderSandbox extends SandboxApp {
             expected.push(0);
         }
         for (const k of expected) {
-            if (this.eventTotals[k] == 0) {
+            if (this.sounds.total(k) == 0) {
                 return `no ${EVENT_NAMES[k]} events`;
             }
         }

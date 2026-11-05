@@ -14,6 +14,8 @@ import { NriGpuTimer } from "../core/nri_gpu_timer";
 import { FixedStep } from "../core/fixed_step";
 import { FrameRate } from "../core/frame_rate";
 import { PanZoom } from "../core/pan_zoom";
+import { AutoQuality } from "../core/auto_quality";
+import { SoundEvents } from "../core/sound_events";
 import { NriAudio, NriBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriQueue, NriSample } from "../core/nri";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
@@ -228,13 +230,12 @@ export class SandboxState {
     // handleInput's brush shape and cursor (constants[27], the gravity's mode above them).
     protected shapeWord: int = 0;
     // Sound (none with -mute, nor in tests but for -sound: the device opened, playing nothing): the
-    // playback device, the events counted so far (each
-    // frame's last step's, times its steps), each sound's time till it may play again.
+    // playback device, and the sounds of the events (each frame's last step's, times its steps):
+    // the events counted so far, each sound's time till it may play again.
     mute: boolean = false;
     soundCheck: boolean = false;
     protected audio: NriAudio | null = null;
-    protected eventTotals: int[] = [];
-    protected soundCooldowns: number[] = [];
+    protected sounds: SoundEvents = new SoundEvents();
     // The grid's cells along its shorter side (-gridHeight N, MIN_GRID_HEIGHT .. DEFAULT_GRID_HEIGHT:
     // no auto quality then), and auto quality (-quality auto: the cached size, or measured; fixed:
     // off; calibrate: measured again. Unset, auto, but in a test fixed, or measured without
@@ -243,11 +244,9 @@ export class SandboxState {
     gridHeightSet: boolean = false;
     quality: string = "";
     stepBudget: number = STEP_BUDGET_MS;
-    protected calibrating: boolean = false;
+    protected calibration: AutoQuality = new AutoQuality();
     protected calibrationScene: int = 0;
     protected calibrationLevel: Level | null = null;
-    protected qualitySum: number = 0.0;
-    protected qualityCount: int = 0;
     // -test: the float sections, read back at the end (the pressure equation's residual).
     protected floatReadback: NriBuffer | null = null;
     // The brush mode of the scene's stroke this frame (0: none), for spark_cs.
