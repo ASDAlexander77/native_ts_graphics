@@ -30,17 +30,12 @@ export const MIN_GRID_HEIGHT = 72;
 // Where the chosen height is kept (beside the save): QUALITY_MAGIC, the height.
 export const QUALITY_PATH = "powder_sandbox.quality";
 export const QUALITY_MAGIC = 0x51445750;
-export const QUALITY_HEADER_INTS = 2;
 export const MAX_GRID_LONG = 432;
 export const GRID_CAPACITY = (DEFAULT_GRID_HEIGHT + 1) * (MAX_GRID_LONG + 1);
 // A toolbar tile's narrowest (its label in ImGui's default font fits).
 export const MIN_TILE_WIDTH = 72.0;
 // How far (in pixels) a press on the toolbar moves before it scrolls it instead of tapping a tile.
 export const DRAG_THRESHOLD = 8.0;
-// Zoom: a wheel notch's factor (a pinch on Android sends a notch per 48 dp its fingers spread),
-// and the closest (cells this many times larger than when the grid fits the window).
-export const ZOOM_STEP = 1.15;
-export const MAX_ZOOM = 8.0;
 // A second finger down this soon (in seconds) after the first takes back what the first painted:
 // it was a pinch, not a stroke.
 export const STROKE_CANCEL_TIME = 0.3;
@@ -670,6 +665,6 @@ export class QueuedFrame {
     public steps: int = 0;
     // The level's time after it (-1 before the level's strokes were painted), for its goal.
     public levelTime: number = -1.0;
-    constructor(public probeReadback: NriBuffer, public timestampReadback: NriBuffer | null) {
+    constructor(public probeReadback: NriBuffer) {
     }
 }

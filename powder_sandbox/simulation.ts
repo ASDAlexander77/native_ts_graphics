@@ -2,7 +2,7 @@
 import { formatFixed } from "../core/text_format";
 import {
     CAPACITY, DEFAULT_GRID_HEIGHT, QUALITY_FRAMES, STEP_BUDGET_MS, MIN_GRID_HEIGHT, QUALITY_PATH,
-    QUALITY_MAGIC, QUALITY_HEADER_INTS, GROUP_SIZE, SPARK_ITERATIONS, INT_SECTIONS, EVENT_COUNT,
+    QUALITY_MAGIC, GROUP_SIZE, SPARK_ITERATIONS, INT_SECTIONS, EVENT_COUNT,
     EVENT_MIN, EVENT_COOLDOWN, EVENTS_LOUD, MAX_BODIES, PROBE_INTS, PROBE_VISCOUS, GRAVITY,
     FLIP_RATIO, SOR_OMEGA, SOLVER_SOR, FAN, INIT_GRID, INIT_PARTICLES, CLEAR, P2G, GRID,
     HEAT_SOURCE, HEAT_DIFFUSE, DIVERGENCE, PRESSURE, PROJECT, G2P, SPAWN, MG_SETUP, MG_SMOOTH,
@@ -11,7 +11,8 @@ import {
     levelCount, QueuedFrame
 } from "./defs";
 import { SandboxSaves } from "./saves";
-import { Nri, NriCommandBuffer, NriFile } from "../core/nri";
+import { Nri, NriCommandBuffer } from "../core/nri";
+import { IntFile } from "../core/int_file";
 
 // The simulation's recording: the frame's constants (with the tilt sensor's gravity), its steps'
 // dispatches (the pressure solve, the sparks and glow), the GPU profiler and step timer, auto
@@ -32,9 +33,9 @@ export class SandboxSimulation extends SandboxSaves {
         this.kernels.setFloat(17, FLIP_RATIO);
         this.kernels.setInt(18, this.overlay);
         this.kernels.setFloat(19, this.time);
-        this.kernels.setFloat(20, this.viewX);
-        this.kernels.setFloat(21, this.viewY);
-        this.kernels.setFloat(22, this.cellPixels);
+        this.kernels.setFloat(20, this.panZoom.originX);
+        this.kernels.setFloat(21, this.panZoom.originY);
+        this.kernels.setFloat(22, this.panZoom.scale);
         this.kernels.setInt(23, this.scene);
         // (multigrid smooths level 0 with pressure_cs too, not over-relaxed)
         this.kernels.setFloat(24, this.solver == SOLVER_SOR ? SOR_OMEGA : 1.0);
@@ -233,24 +234,11 @@ export class SandboxSimulation extends SandboxSaves {
 
     // The grid height QUALITY_PATH holds, or 0.
     readCachedHeight(): int {
-        const file = NriFile.load(QUALITY_PATH);
-        if (!file) {
+        const ints = IntFile.read(QUALITY_PATH, QUALITY_MAGIC, 1);
+        if (!ints || ints.length < 1 || ints[0] < MIN_GRID_HEIGHT || ints[0] > DEFAULT_GRID_HEIGHT) {
             return 0;
         }
-        const bytes: int[] = [];
-        for (let i = 0; i < QUALITY_HEADER_INTS * 4; i++) {
-            bytes.push(0);
-        }
-        file.copyBytes(0, bytes.length, Ref(bytes[0]));
-        file.destroy();
-        const ints: int[] = [];
-        for (let i = 0; i < QUALITY_HEADER_INTS; i++) {
-            ints.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
-        }
-        if (ints[0] != QUALITY_MAGIC || ints[1] < MIN_GRID_HEIGHT || ints[1] > DEFAULT_GRID_HEIGHT) {
-            return 0;
-        }
-        return ints[1];
+        return ints[0];
     }
 
     // While calibrating: the step time summed over QUALITY_FRAMES, then the grid's size from its mean
@@ -276,9 +264,8 @@ export class SandboxSimulation extends SandboxSaves {
         this.layout();
         console.log(`Auto quality: ${formatFixed(mean, 3)} ms a step (budget ${formatFixed(this.stepBudget, 2)}): the grid ${this.gridW} x ${this.gridH}`);
         // (a test's kept only when it asked for auto quality)
-        if ((!this.test || this.quality != "") && this.queuedFrames.length > 0) {
-            const header: int[] = [QUALITY_MAGIC, this.gridHeight];
-            this.queuedFrames[0].probeReadback.saveToFile(0, Ref(header[0]), QUALITY_HEADER_INTS, QUALITY_PATH);
+        if (!this.test || this.quality != "") {
+            IntFile.write(QUALITY_PATH, QUALITY_MAGIC, [this.gridHeight]);
         }
         // The session, begun at that size.
         this.scene = this.calibrationScene;
@@ -325,18 +312,11 @@ export class SandboxSimulation extends SandboxSaves {
     // The simulation's GPU time per step, from the frame this slot last recorded (finished: latencySleep
     // waited for it), if it stepped.
     readTimestamps(queuedFrame: QueuedFrame) {
-        const device = this.device;
-        const timestampReadback = queuedFrame.timestampReadback;
-        if (!device || !timestampReadback) {
-            return;
-        }
         const steps = queuedFrame.timedSteps;
         queuedFrame.timedSteps = -1;
-        if (steps > 0) {
-            const ms = device.readTimestampIntervalMs(timestampReadback, 0, this.querySize);
-            if (ms >= 0.0) {
-                this.stepMs = ms / steps;
-            }
+        const ms = this.gpuTimer.read(this.frameIndex);
+        if (steps > 0 && ms >= 0.0) {
+            this.stepMs = ms / steps;
         }
     }
 

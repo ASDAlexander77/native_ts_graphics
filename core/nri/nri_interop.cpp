@@ -2536,15 +2536,11 @@ extern "C"
         return 1;
     }
 
-    // Writes headerInts ints of header, then the first byteSize bytes of the buffer (a readback buffer,
-    // after the GPU wrote it), to path under LibraryDirectory() (the app's data directory on Android):
-    // to a temporary file first, which then replaces the old one, so a failed save keeps it. 1, or 0
-    // on failure.
-    NRI_INTEROP_API int Nri_SaveBufferToFile(nri::Buffer* buffer, int byteSize, const int* header, int headerInts, const char* path)
+    // Writes headerInts ints of header, then byteSize bytes of data, to path under LibraryDirectory()
+    // (the app's data directory on Android): to a temporary file first, which then replaces the old
+    // one, so a failed write keeps it. Whether it was written.
+    static bool WriteFileReplacing(const char* path, const int* header, int headerInts, const void* data, int byteSize)
     {
-        const uint8_t* data = (const uint8_t*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
-        if (!data)
-            return 0;
         const std::string target = LibraryDirectory() + path;
         const std::string temporary = target + ".tmp";
         FILE* file = fopen(temporary.c_str(), "wb");
@@ -2552,24 +2548,41 @@ extern "C"
         if (file)
         {
             written = fwrite(header, sizeof(int), (size_t)headerInts, file) == (size_t)headerInts
-                && fwrite(data, 1, (size_t)byteSize, file) == (size_t)byteSize;
+                && (byteSize == 0 || fwrite(data, 1, (size_t)byteSize, file) == (size_t)byteSize);
             written = fclose(file) == 0 && written;
         }
-        NRI.UnmapBuffer(*buffer);
         if (!written)
         {
             printf("ERROR: cannot write %s\n", temporary.c_str());
             remove(temporary.c_str());
-            return 0;
+            return false;
         }
         std::error_code error;
         std::filesystem::rename(temporary, target, error);
         if (error)
         {
             printf("ERROR: cannot replace %s: %s\n", target.c_str(), error.message().c_str());
-            return 0;
+            return false;
         }
-        return 1;
+        return true;
+    }
+
+    // Writes headerInts ints of header, then the first byteSize bytes of the buffer (a readback buffer,
+    // after the GPU wrote it), to path (WriteFileReplacing). 1, or 0 on failure.
+    NRI_INTEROP_API int Nri_SaveBufferToFile(nri::Buffer* buffer, int byteSize, const int* header, int headerInts, const char* path)
+    {
+        const uint8_t* data = (const uint8_t*)NRI.MapBuffer(*buffer, 0, nri::WHOLE_SIZE);
+        if (!data)
+            return 0;
+        const bool written = WriteFileReplacing(path, header, headerInts, data, byteSize);
+        NRI.UnmapBuffer(*buffer);
+        return written ? 1 : 0;
+    }
+
+    // Writes count ints to path (WriteFileReplacing). 1, or 0 on failure.
+    NRI_INTEROP_API int Nri_SaveIntsToFile(const int* ints, int count, const char* path)
+    {
+        return WriteFileReplacing(path, ints, count, nullptr, 0) ? 1 : 0;
     }
 
     // --- Timestamp queries ------------------------------------------------------------------------

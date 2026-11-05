@@ -241,7 +241,7 @@ export class PowderSandbox extends SandboxApp {
             }
         }
         // (of the grid as drawn: a turned test scene's is a band across an upright phone)
-        const gridPixels = Math.min(this.gridW * this.gridH * this.cellPixels * this.cellPixels, pixels.length);
+        const gridPixels = Math.min(this.gridW * this.gridH * this.panZoom.scale * this.panZoom.scale, pixels.length);
         const share = 100.0 * blue / gridPixels;
         console.log(`Water: ${formatFixed(share, 1)}% of the grid`);
         // (a turned U-tube is a narrow grid between margins; scenes 8, 11 and 12 have no water, nor
@@ -249,7 +249,7 @@ export class PowderSandbox extends SandboxApp {
         const minShare = this.scene == 1 && this.regrid != 2 ? 20.0 : (this.scene == 8 || this.scene == 11 || this.scene == 12 || this.scene >= 16
             || this.sceneFile != "" ? 0.0 : 1.0);
         // (the overlays recolor it; zoomed in, only part of the grid shows)
-        if (this.overlay == 0 && this.zoom <= 1.001 && (share < minShare || share > 50.0)) {
+        if (this.overlay == 0 && this.panZoom.zoom <= 1.001 && (share < minShare || share > 50.0)) {
             return `water covers ${formatFixed(share, 1)}% of the grid, not ${formatFixed(minShare, 0)} to 50%`;
         }
         return "";
