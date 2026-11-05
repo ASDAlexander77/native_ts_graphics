@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspective, inverseGaussJordan } from "../../core/matrix";
 import { MlpReader, MobileNerfCamera } from "../../core/mobile_nerf_common";
+import { Nri, NriAccelerationStructure, NriBlasDesc, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriGltfModel, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture, NriTopLevelAS } from "../../core/nri";
 
 namespace MobileNerfRayQueryNri {
     // mobile_nerf_rayquery, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -44,7 +45,7 @@ namespace MobileNerfRayQueryNri {
     // The clear color in the sRGB back buffer, as test_check's rgb() reads it (0xBBGGRR).
     const CLEARED = 0x070707;
 
-    // Nri_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriGltfModel.load's vertices: float3 position, float3 normal, float2 texture coordinates.
     const GLTF_VERTEX_FLOATS = 8;
     // The sample's Vertex: float3 position, float2 texture coordinates.
     const VERTEX_FLOATS = 5;
@@ -106,21 +107,21 @@ namespace MobileNerfRayQueryNri {
         return "";
     }
 
-    // --- mlp.json (core/mobile_nerf_common.ts' MlpReader, over Nri_LoadFile's bytes) -----------
+    // --- mlp.json (core/mobile_nerf_common.ts' MlpReader, over NriFile.load's bytes) -----------
 
     // The sample's initialize_mlp_uniform_buffers: the layers' weights and biases, padded, appended
     // to dst.
     function loadMlp(path: string, dst: f32[]) {
-        const file = Nri_LoadFile(path);
+        const file = NriFile.load(path);
         if (!file) {
             return false;
         }
         const reader = new MlpReader();
-        const size = Nri_GetFileSize(file);
+        const size = file.getSize();
         if (reader.resize(size)) {
-            Nri_CopyFileBytes(file, 0, size, Ref(reader.bytes[0]));
+            file.copyBytes(0, size, Ref(reader.bytes[0]));
         }
-        Nri_DestroyFile(file);
+        file.destroy();
         if (size == 0) {
             return false;
         }
@@ -162,14 +163,14 @@ namespace MobileNerfRayQueryNri {
     // A frame in flight's own data: its descriptor set (its UBO slice, the MLPs, the TLAS,
     // the models' buffers, feature textures and sampler).
     class QueuedFrame {
-        constructor(public uboView: NriDescriptorHandle | null, public set: NriDescriptorSetHandle | null) {
+        constructor(public uboView: NriDescriptor | null, public set: NriDescriptorSet | null) {
         }
     }
 
     // A model's feature textures and their views.
     class Features {
-        constructor(public feature0: NriTextureHandle, public feature1: NriTextureHandle,
-            public feature0View: NriDescriptorHandle, public feature1View: NriDescriptorHandle) {
+        constructor(public feature0: NriTexture, public feature1: NriTexture,
+            public feature0View: NriDescriptor, public feature1View: NriDescriptor) {
         }
     }
 
@@ -181,29 +182,29 @@ namespace MobileNerfRayQueryNri {
     // model's vertices and runs its feature textures through the model's MLP. Missed pixels keep the
     // clear color.
     class MobileNerfRayQuery {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         // The swap chain textures' format (its views' are viewFormat).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
         private features: Features[] = [];
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private vertexView: NriDescriptorHandle | null = null;
-        private indexView: NriDescriptorHandle | null = null;
-        private blases: NriAccelerationStructureHandle[] = [];
-        private topLevelAS: NriTopLevelASHandle | null = null;
-        private topLevelASView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private uniformBuffer: NriBufferHandle | null = null;
-        private weightsBuffer: NriBufferHandle | null = null;
-        private weightsView: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private vertexView: NriDescriptor | null = null;
+        private indexView: NriDescriptor | null = null;
+        private blases: NriAccelerationStructure[] = [];
+        private topLevelAS: NriTopLevelAS | null = null;
+        private topLevelASView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private uniformBuffer: NriBuffer | null = null;
+        private weightsBuffer: NriBuffer | null = null;
+        private weightsView: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
@@ -220,11 +221,11 @@ namespace MobileNerfRayQueryNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             this.camera.setLookAt([CAMERA_POSITION[0], -CAMERA_POSITION[1], CAMERA_POSITION[2]], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
@@ -239,13 +240,13 @@ namespace MobileNerfRayQueryNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -258,19 +259,19 @@ namespace MobileNerfRayQueryNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -281,7 +282,7 @@ namespace MobileNerfRayQueryNri {
                 this.unsupportedReason = "No D3D11 shaders (ray queries need D3D12 or Vulkan)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.RayQuery) == 0) {
+            if (device.isFeatureSupported(NriFeature.RayQuery) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Queries";
                 return 0;
             }
@@ -297,14 +298,14 @@ namespace MobileNerfRayQueryNri {
             let loaded = this.loadModels(device);
             for (let m = 0; m < MODELS.length && loaded; m++) {
                 const dir = MEDIA_DIR + MODELS[m] + "/";
-                const feature0 = Nri_LoadImageTexture(device, this.queue, dir + "shape0.pngfeat0.png", 0);
-                const feature1 = Nri_LoadImageTexture(device, this.queue, dir + "shape0.pngfeat1.png", 0);
+                const feature0 = device.loadImageTexture(this.queue, dir + "shape0.pngfeat0.png", 0);
+                const feature1 = device.loadImageTexture(this.queue, dir + "shape0.pngfeat1.png", 0);
                 if (!feature0 || !feature1) {
                     loaded = false;
                     break;
                 }
-                this.features.push(new Features(feature0, feature1, Nri_CreateTextureView(feature0, NriFormat.RGBA8_UNORM),
-                    Nri_CreateTextureView(feature1, NriFormat.RGBA8_UNORM)));
+                this.features.push(new Features(feature0, feature1, feature0.createView(NriFormat.RGBA8_UNORM),
+                    feature1.createView(NriFormat.RGBA8_UNORM)));
             }
             if (!loaded) {
                 console.log("Cannot load the NeRF models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
@@ -314,7 +315,7 @@ namespace MobileNerfRayQueryNri {
             // The sample's create_top_level_acceleration_structure: each model in each place of the
             // instancing grid, its instance ID the model's (for its buffers, textures and weights);
             // built before the first frame.
-            const topLevelAS = Nri_CreateTopLevelAS(device, MODELS.length * INSTANCE_DIM[0] * INSTANCE_DIM[1] * INSTANCE_DIM[2],
+            const topLevelAS = device.createTopLevelAS(MODELS.length * INSTANCE_DIM[0] * INSTANCE_DIM[1] * INSTANCE_DIM[2],
                 NriAccelerationStructureFlags.None, 1);
             this.topLevelAS = topLevelAS;
             if (!topLevelAS) {
@@ -322,11 +323,11 @@ namespace MobileNerfRayQueryNri {
                 return 0;
             }
             this.addInstances(topLevelAS);
-            if (Nri_BuildTopLevelASOnQueue(this.queue, topLevelAS) == 0) {
+            if (this.queue.buildTopLevelAS(topLevelAS) == 0) {
                 console.log("Cannot build the top level acceleration structure");
                 return 0;
             }
-            const topLevelASView = Nri_CreateAccelerationStructureDescriptor(Nri_GetTopLevelAccelerationStructure(topLevelAS));
+            const topLevelASView = topLevelAS.getTopLevelAccelerationStructure().createDescriptor();
             this.topLevelASView = topLevelASView;
 
             for (let m = 0; m < MODELS.length; m++) {
@@ -336,35 +337,35 @@ namespace MobileNerfRayQueryNri {
             }
 
             // Feature textures filtered bilinearly at their (only) level, clamped.
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
             this.sampler = sampler;
             // The MLPs, written once (the Donut example writes the same every frame).
             const weightsSize = Math.ceil(this.weights.length * 4 / 256) * 256;
-            const weightsBuffer = Nri_CreateHostBuffer(device, weightsSize, NriBufferUsage.ConstantBuffer);
+            const weightsBuffer = device.createHostBuffer(weightsSize, NriBufferUsage.ConstantBuffer);
             this.weightsBuffer = weightsBuffer;
             if (!sampler || !weightsBuffer) {
                 console.log("Cannot create the sampler and the MLP buffer");
                 return 0;
             }
-            Nri_WriteBuffer(weightsBuffer, 0, Ref(this.weights[0]), this.weights.length * 4);
-            const weightsView = Nri_CreateConstantBufferView(weightsBuffer, 0, weightsSize);
+            weightsBuffer.write(0, Ref(this.weights[0]), this.weights.length * 4);
+            const weightsView = weightsBuffer.createConstantView(0, weightsSize);
             this.weightsView = weightsView;
 
             // The layout, as the Donut example's binding layout: the global UBO (b0), the MLPs (b1),
             // the TLAS (t0), the vertices (t1) and indices (t2), the feature textures (t3 to t6, t7 to
             // t10: arrays) and their sampler (s0).
             const stages = NriStage.Pixel;
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 1, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.AccelerationStructure, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 1, 1, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 2, 1, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 3, MODELS.length, NriDescriptorType.Texture, stages, NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 7, MODELS.length, NriDescriptorType.Texture, stages, NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 1, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.AccelerationStructure, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 1, 1, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 2, 1, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 3, MODELS.length, NriDescriptorType.Texture, stages, NriRangeFlags.Array);
+            layoutDesc.addRange(0, 7, MODELS.length, NriDescriptorType.Texture, stages, NriRangeFlags.Array);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -379,9 +380,9 @@ namespace MobileNerfRayQueryNri {
             }
 
             // A queued frame's UBO slice, in its descriptor set with the rest.
-            const uniformBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
+            const uniformBuffer = device.createHostBuffer(queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
             this.uniformBuffer = uniformBuffer;
-            const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, queuedFrameNum, queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithAccelerationStructures(queuedFrameNum, queuedFrameNum,
                 2 * queuedFrameNum, 2 * MODELS.length * queuedFrameNum, 0, 2 * queuedFrameNum, queuedFrameNum);
             this.descriptorPool = descriptorPool;
             const vertexView = this.vertexView;
@@ -392,29 +393,29 @@ namespace MobileNerfRayQueryNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const uboView = Nri_CreateConstantBufferView(uniformBuffer, i * UBO_STRIDE, UBO_STRIDE);
-                const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+                const uboView = uniformBuffer.createConstantView(i * UBO_STRIDE, UBO_STRIDE);
+                const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(uboView, set));
                 if (!uboView || !set) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(set, 0, 0, uboView);
-                Nri_UpdateDescriptor(set, 1, 0, weightsView);
-                Nri_UpdateDescriptor(set, 2, 0, topLevelASView);
-                Nri_UpdateDescriptor(set, 3, 0, vertexView);
-                Nri_UpdateDescriptor(set, 4, 0, indexView);
+                set.updateDescriptor(0, 0, uboView);
+                set.updateDescriptor(1, 0, weightsView);
+                set.updateDescriptor(2, 0, topLevelASView);
+                set.updateDescriptor(3, 0, vertexView);
+                set.updateDescriptor(4, 0, indexView);
                 for (let m = 0; m < MODELS.length; m++) {
-                    Nri_UpdateDescriptor(set, 5, m, this.features[m].feature0View);
-                    Nri_UpdateDescriptor(set, 6, m, this.features[m].feature1View);
+                    set.updateDescriptor(5, m, this.features[m].feature0View);
+                    set.updateDescriptor(6, m, this.features[m].feature1View);
                 }
-                Nri_UpdateDescriptor(set, 7, 0, sampler);
+                set.updateDescriptor(7, 0, sampler);
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -422,19 +423,19 @@ namespace MobileNerfRayQueryNri {
 
         // The sample's pipeline draws a triangle over the screen: no culling, nothing blended, no
         // depth (its depth test passes everywhere, the triangle's depth being 0).
-        createPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_quad_vs.bin`, "quad_vs") != 0;
+        createPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_quad_vs.bin`, "quad_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_rayquery_ps.bin`, "rayquery_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_rayquery_ps.bin`, "rayquery_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -444,24 +445,24 @@ namespace MobileNerfRayQueryNri {
         // shader reads), and a BLAS of them with the model's combo transform (y negated, as the
         // sample's vertices are). NRI's BLAS geometry has no transform: the translation is added to
         // the BLAS's positions, in float as the builder would. False on failure.
-        loadModels(device: NriDeviceHandle) {
+        loadModels(device: NriDevice) {
             const vertices: f32[] = [];
             const indices: int[] = [];
             const firstVertices: int[] = [];
             const firstIndices: int[] = [];
             const counts: int[] = [];
             for (const modelName of MODELS) {
-                const model = Nri_LoadGltfModel(MEDIA_DIR + modelName + "/shape0.gltf");
+                const model = NriGltfModel.load(MEDIA_DIR + modelName + "/shape0.gltf");
                 if (!model) {
                     return false;
                 }
                 const firstVertex = vertices.length / VERTEX_FLOATS;
                 const firstIndex = indices.length;
-                const primitiveCount = Nri_GetGltfModelPrimitiveCount(model);
+                const primitiveCount = model.getPrimitiveCount();
                 for (let p = 0; p < primitiveCount; p++) {
                     const vertexStart = vertices.length / VERTEX_FLOATS - firstVertex;
-                    const vertexCount = Nri_GetGltfModelVertexCount(model, p);
-                    const indexCount = Nri_GetGltfModelIndexCount(model, p);
+                    const vertexCount = model.getVertexCount(p);
+                    const indexCount = model.getIndexCount(p);
                     const gltfVertices: f32[] = [];
                     for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
                         gltfVertices.push(0.0);
@@ -470,8 +471,8 @@ namespace MobileNerfRayQueryNri {
                     for (let i = 0; i < indexCount; i++) {
                         gltfIndices.push(0);
                     }
-                    Nri_CopyGltfModelVertices(model, p, Ref(gltfVertices[0]));
-                    Nri_CopyGltfModelIndices(model, p, Ref(gltfIndices[0]));
+                    model.copyVertices(p, Ref(gltfVertices[0]));
+                    model.copyIndices(p, Ref(gltfIndices[0]));
                     for (let v = 0; v < vertexCount; v++) {
                         const g = v * GLTF_VERTEX_FLOATS;
                         vertices.push(gltfVertices[g]);
@@ -484,7 +485,7 @@ namespace MobileNerfRayQueryNri {
                         indices.push(vertexStart + gltfIndices[i]);
                     }
                 }
-                Nri_DestroyGltfModel(model);
+                model.destroy();
                 firstVertices.push(firstVertex);
                 firstIndices.push(firstIndex);
                 counts.push(vertices.length / VERTEX_FLOATS - firstVertex);
@@ -496,15 +497,15 @@ namespace MobileNerfRayQueryNri {
                 return false;
             }
 
-            const vertexBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, 4);
+            const vertexBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, 4);
             this.vertexBuffer = vertexBuffer;
-            const indexBuffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4, 4);
+            const indexBuffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4, 4);
             this.indexBuffer = indexBuffer;
             if (!vertexBuffer || !indexBuffer) {
                 return false;
             }
-            this.vertexView = Nri_CreateStructuredBufferView(vertexBuffer, 0);
-            this.indexView = Nri_CreateStructuredBufferView(indexBuffer, 0);
+            this.vertexView = vertexBuffer.createStructuredView(0);
+            this.indexView = indexBuffer.createStructuredView(0);
 
             for (let m = 0; m < MODELS.length; m++) {
                 const translation = [
@@ -525,10 +526,10 @@ namespace MobileNerfRayQueryNri {
                 for (let i = 0; i < indexCount; i++) {
                     modelIndices.push(indices[firstIndices[m] + i]);
                 }
-                const desc = Nri_CreateBlasDesc();
-                Nri_BlasDescAddTriangles(desc, Ref(positions[0]), vertexCount, Ref(modelIndices[0]), indexCount);
-                const blas = Nri_BuildBlasFromDesc(device, this.queue, desc, NriAccelerationStructureFlags.PreferFastTrace);
-                Nri_DestroyBlasDesc(desc);
+                const desc = NriBlasDesc.create();
+                desc.addTriangles(Ref(positions[0]), vertexCount, Ref(modelIndices[0]), indexCount);
+                const blas = device.buildBlasFromDesc(this.queue, desc, NriAccelerationStructureFlags.PreferFastTrace);
+                desc.destroy();
                 if (!blas) {
                     return false;
                 }
@@ -539,7 +540,7 @@ namespace MobileNerfRayQueryNri {
 
         // The instancing grid's instances, each model at each place (rows of a 3 x 4 matrix: identity,
         // translated), as the sample adds them.
-        addInstances(topLevelAS: NriTopLevelASHandle) {
+        addInstances(topLevelAS: NriTopLevelAS) {
             const transform: f32[] = [];
             for (let i = 0; i < 12; i++) {
                 transform.push(0.0);
@@ -558,7 +559,7 @@ namespace MobileNerfRayQueryNri {
                         transform[7] = offset[1];
                         transform[11] = offset[2];
                         for (let m = 0; m < this.blases.length; m++) {
-                            Nri_TopLevelASAddInstance(topLevelAS, this.blases[m], Ref(transform[0]), m, 0xFF, 0, INSTANCE_FLAGS_CULL_DISABLE);
+                            topLevelAS.addInstance(this.blases[m], Ref(transform[0]), m, 0xFF, 0, INSTANCE_FLAGS_CULL_DISABLE);
                         }
                     }
                 }
@@ -574,15 +575,15 @@ namespace MobileNerfRayQueryNri {
         // example's mouse callbacks give them).
         handleMouse() {
             for (let button = 0; button < 3; button++) {
-                this.camera.mouseButton(<MouseButton>button, <Action>Nri_IsButtonPressed(this.sample, button));
+                this.camera.mouseButton(<MouseButton>button, <Action>this.sample.isButtonPressed(button));
             }
-            this.camera.mouseMove(Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample));
+            this.camera.mouseMove(this.sample.getMouseX(), this.sample.getMouseY());
         }
 
         // The sample's update_uniform_buffer: the inverses of its view and projection (glm's, no y
         // flip: the shader takes SV_Position's y as the sample's gl_FragCoord's), the image size and
         // the field of view; into this frame's UBO slice (the model offsets written once).
-        writeUbo(uniformBuffer: NriBufferHandle, queuedFrameIndex: int) {
+        writeUbo(uniformBuffer: NriBuffer, queuedFrameIndex: int) {
             const viewInverse = inverseGaussJordan(this.camera.view());
             const projInverse = inverseGaussJordan(perspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR));
             const u = this.ubo;
@@ -593,23 +594,23 @@ namespace MobileNerfRayQueryNri {
             u[UBO_IMG_DIM] = this.width;
             u[UBO_IMG_DIM + 1] = this.height;
             u[UBO_TAN_HALF_FOV] = Math.tan(0.5 * radians(CAMERA_FOV));
-            Nri_WriteBuffer(uniformBuffer, queuedFrameIndex * UBO_STRIDE, Ref(u[0]), UBO_FLOATS * 4);
+            uniformBuffer.write(queuedFrameIndex * UBO_STRIDE, Ref(u[0]), UBO_FLOATS * 4);
         }
 
-        // The triangle over the screen (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // The triangle over the screen (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.layout;
             const pipeline = this.pipeline;
             const set = queuedFrame.set;
             if (!layout || !pipeline || !set) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setDescriptorSet(0, set);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -620,7 +621,7 @@ namespace MobileNerfRayQueryNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -652,28 +653,28 @@ namespace MobileNerfRayQueryNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: color cleared to the sample's clear color; the triangle.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (descriptorPool) {
-                    Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                    commandBuffer.setDescriptorPool(descriptorPool);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
                 this.recordDraw(commandBuffer, queuedFrame);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -691,12 +692,12 @@ namespace MobileNerfRayQueryNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -706,19 +707,19 @@ namespace MobileNerfRayQueryNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.uboView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const features of this.features) {
-                    Nri_DestroyDescriptor(features.feature0View);
-                    Nri_DestroyDescriptor(features.feature1View);
-                    Nri_DestroyTexture(features.feature0);
-                    Nri_DestroyTexture(features.feature1);
+                    features.feature0View.destroy();
+                    features.feature1View.destroy();
+                    features.feature0.destroy();
+                    features.feature1.destroy();
                 }
                 this.destroyDescriptor(this.sampler);
                 this.destroyDescriptor(this.weightsView);
@@ -727,10 +728,10 @@ namespace MobileNerfRayQueryNri {
                 this.destroyDescriptor(this.topLevelASView);
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
-                    Nri_DestroyTopLevelAS(topLevelAS);
+                    topLevelAS.destroy();
                 }
                 for (const blas of this.blases) {
-                    Nri_DestroyAccelerationStructure(blas);
+                    blas.destroy();
                 }
                 this.destroyBuffer(this.vertexBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -739,35 +740,35 @@ namespace MobileNerfRayQueryNri {
                 this.destroyBuffer(this.readbackBuffer);
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const mobileNerfRayQuery = new MobileNerfRayQuery(sample);
         return mobileNerfRayQuery.run(argc, argv);
     }

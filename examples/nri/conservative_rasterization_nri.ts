@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, radians, samplePerspective } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace ConservativeRasterizationNri {
     // conservative_rasterization, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -51,7 +52,7 @@ namespace ConservativeRasterizationNri {
     // The clear colors of the low resolution target and of the screen.
     const CLEAR_COLOR = 0.05;
 
-    // Nri_IsButtonPressed's buttons.
+    // NriSample.isButtonPressed's buttons.
     const MOUSE_LEFT = 0;
     const MOUSE_RIGHT = 1;
     const MOUSE_MIDDLE = 2;
@@ -77,7 +78,7 @@ namespace ConservativeRasterizationNri {
 
     // A frame in flight's own data: its sets (its slice of the constant buffer).
     class QueuedFrame {
-        constructor(public constantView: NriDescriptorHandle, public sceneSet: NriDescriptorSetHandle) {
+        constructor(public constantView: NriDescriptor, public sceneSet: NriDescriptorSet) {
         }
     }
 
@@ -129,31 +130,31 @@ namespace ConservativeRasterizationNri {
     // screen without filtering, with the triangle's real outline drawn over it. Dragging with the left
     // mouse button turns the camera, with the right one zooms, with the middle one pans.
     class ConservativeRasterization {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         // The swap chain textures' format (its views' are viewFormat).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private sceneLayout: NriPipelineLayoutHandle | null = null;
-        private fullscreenLayout: NriPipelineLayoutHandle | null = null;
-        private trianglePipeline: NriPipelineHandle | null = null;
-        private triangleConservativePipeline: NriPipelineHandle | null = null;
-        private overlayPipeline: NriPipelineHandle | null = null;
-        private fullscreenPipeline: NriPipelineHandle | null = null;
+        private sceneLayout: NriPipelineLayout | null = null;
+        private fullscreenLayout: NriPipelineLayout | null = null;
+        private trianglePipeline: NriPipeline | null = null;
+        private triangleConservativePipeline: NriPipeline | null = null;
+        private overlayPipeline: NriPipeline | null = null;
+        private fullscreenPipeline: NriPipeline | null = null;
         private shaders: string = "";
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private fullscreenSet: NriDescriptorSetHandle | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private fullscreenSet: NriDescriptorSet | null = null;
         // The low resolution target (the screen's size divided by ZOOM_FACTOR), RGBA8_UNORM.
-        private offscreenColor: NriTextureHandle | null = null;
-        private offscreenAttachment: NriDescriptorHandle | null = null;
-        private offscreenView: NriDescriptorHandle | null = null;
+        private offscreenColor: NriTexture | null = null;
+        private offscreenAttachment: NriDescriptor | null = null;
+        private offscreenView: NriDescriptor | null = null;
         private offscreenWidth: int = 0;
         private offscreenHeight: int = 0;
         private imgui: boolean = false;
@@ -168,7 +169,7 @@ namespace ConservativeRasterizationNri {
         conservativeRasterEnabled: boolean = true;
         noUI: boolean = false;
         // The device's properties, for the overlay: Vulkan's (9 values, see
-        // Nri_GetVulkanConservativeRasterizationProperties), or the D3D tier.
+        // NriDevice.getVulkanConservativeRasterizationProperties), or the D3D tier.
         private hasVulkanProperties: boolean = false;
         private vulkanProperties: f32[] = [];
         private tier: int = 0;
@@ -180,11 +181,11 @@ namespace ConservativeRasterizationNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < 9; i++) {
                 this.vulkanProperties.push(0.0);
             }
@@ -201,13 +202,13 @@ namespace ConservativeRasterizationNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -220,44 +221,44 @@ namespace ConservativeRasterizationNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
             const viewFormat = this.viewFormat;
 
-            if (Nri_IsFeatureSupported(device, NriFeature.ConservativeRasterization) == 0) {
+            if (device.isFeatureSupported(NriFeature.ConservativeRasterization) == 0) {
                 this.unsupportedReason = "This example needs conservative rasterization";
                 return 0;
             }
-            this.hasVulkanProperties = Nri_GetVulkanConservativeRasterizationProperties(device, Ref(this.vulkanProperties[0])) != 0;
-            this.tier = Nri_GetConservativeRasterTier(device);
+            this.hasVulkanProperties = device.getVulkanConservativeRasterizationProperties(Ref(this.vulkanProperties[0])) != 0;
+            this.tier = device.getConservativeRasterTier();
 
             // The layouts: the scene's constants (b0) for the vertex, geometry and pixel shaders; the
             // low resolution image (t0) and its sampler (s0) for the full screen pass.
-            const sceneLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(sceneLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexGeometry | NriStage.Pixel,
+            const sceneLayoutDesc = NriPipelineLayoutDesc.create();
+            sceneLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexGeometry | NriStage.Pixel,
                 NriRangeFlags.None);
-            const sceneLayout = Nri_CreatePipelineLayoutFromDesc(device, sceneLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(sceneLayoutDesc);
+            const sceneLayout = device.createPipelineLayoutFromDesc(sceneLayoutDesc);
+            sceneLayoutDesc.destroy();
             this.sceneLayout = sceneLayout;
-            const fullscreenLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(fullscreenLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(fullscreenLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const fullscreenLayout = Nri_CreatePipelineLayoutFromDesc(device, fullscreenLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(fullscreenLayoutDesc);
+            const fullscreenLayoutDesc = NriPipelineLayoutDesc.create();
+            fullscreenLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            fullscreenLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            const fullscreenLayout = device.createPipelineLayoutFromDesc(fullscreenLayoutDesc);
+            fullscreenLayoutDesc.destroy();
             this.fullscreenLayout = fullscreenLayout;
             if (!sceneLayout || !fullscreenLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -280,35 +281,35 @@ namespace ConservativeRasterizationNri {
             this.triangleConservativePipeline = this.createTrianglePipeline(device, sceneLayout, true);
 
             // The outline over the screen: the edges widened by the geometry shader, no culling.
-            const overlayDesc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(overlayDesc, NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
+            const overlayDesc = NriPipelineDesc.create();
+            let loaded = overlayDesc.addShader(NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(overlayDesc, NriShaderStage.Geometry, `${this.shaders}_overlay_gs.bin`, "overlay_gs") != 0;
+                loaded = overlayDesc.addShader(NriShaderStage.Geometry, `${this.shaders}_overlay_gs.bin`, "overlay_gs") != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(overlayDesc, NriShaderStage.Pixel, `${this.shaders}_overlay_ps.bin`, "overlay_ps") != 0;
+                loaded = overlayDesc.addShader(NriShaderStage.Pixel, `${this.shaders}_overlay_ps.bin`, "overlay_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(overlayDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(overlayDesc, "COLOR", NriFormat.RGB32_SFLOAT, 12);
-            Nri_PipelineDescSetCullMode(overlayDesc, NriCullMode.None);
-            Nri_PipelineDescSetColor(overlayDesc, viewFormat, NriColorWrite.RGBA);
+            overlayDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            overlayDesc.addVertexAttribute("COLOR", NriFormat.RGB32_SFLOAT, 12);
+            overlayDesc.setCullMode(NriCullMode.None);
+            overlayDesc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.overlayPipeline = Nri_CreatePipelineFromDesc(device, sceneLayout, overlayDesc);
+                this.overlayPipeline = device.createPipelineFromDesc(sceneLayout, overlayDesc);
             }
-            Nri_DestroyPipelineDesc(overlayDesc);
+            overlayDesc.destroy();
 
             // The low resolution image over the screen.
-            const fullscreenDesc = Nri_CreatePipelineDesc();
-            loaded = Nri_PipelineDescAddShader(fullscreenDesc, NriShaderStage.Vertex, `${this.shaders}_fullscreen_vs.bin`, "fullscreen_vs") != 0;
+            const fullscreenDesc = NriPipelineDesc.create();
+            loaded = fullscreenDesc.addShader(NriShaderStage.Vertex, `${this.shaders}_fullscreen_vs.bin`, "fullscreen_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(fullscreenDesc, NriShaderStage.Pixel, `${this.shaders}_fullscreen_ps.bin`, "fullscreen_ps") != 0;
+                loaded = fullscreenDesc.addShader(NriShaderStage.Pixel, `${this.shaders}_fullscreen_ps.bin`, "fullscreen_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(fullscreenDesc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(fullscreenDesc, viewFormat, NriColorWrite.RGBA);
+            fullscreenDesc.setCullMode(NriCullMode.Back);
+            fullscreenDesc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.fullscreenPipeline = Nri_CreatePipelineFromDesc(device, fullscreenLayout, fullscreenDesc);
+                this.fullscreenPipeline = device.createPipelineFromDesc(fullscreenLayout, fullscreenDesc);
             }
-            Nri_DestroyPipelineDesc(fullscreenDesc);
+            fullscreenDesc.destroy();
             if (!this.trianglePipeline || !this.triangleConservativePipeline || !this.overlayPipeline || !this.fullscreenPipeline) {
                 console.log("Cannot load the conservative rasterization shaders");
                 return 0;
@@ -321,45 +322,45 @@ namespace ConservativeRasterizationNri {
                 0.0, -1.0, 0.0, 0.0, 0.0, 1.0,
             ];
             const indices: int[] = [0, 1, 2];
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), 3 * VERTEX_SIZE, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), 3 * 4, NriBufferUsage.IndexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), 3 * VERTEX_SIZE, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), 3 * 4, NriBufferUsage.IndexBuffer);
 
             // The low resolution image's texels as they are: nearest, clamped to the edges.
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Nearest, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Nearest, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
             this.sampler = sampler;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_SLICE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONST_SLICE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum + 1, 1, queuedFrameNum, 1, 0, 0);
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum + 1, 1, queuedFrameNum, 1, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!this.vertexBuffer || !this.indexBuffer || !sampler || !constantBuffer || !descriptorPool || !offscreenView) {
                 console.log("Cannot create the buffers and descriptors");
                 return 0;
             }
-            const fullscreenSet = Nri_AllocateDescriptorSet(descriptorPool, fullscreenLayout, 0, 0);
+            const fullscreenSet = descriptorPool.allocateDescriptorSet(fullscreenLayout, 0, 0);
             this.fullscreenSet = fullscreenSet;
             if (!fullscreenSet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
-            Nri_UpdateDescriptor(fullscreenSet, 0, 0, offscreenView);
-            Nri_UpdateDescriptor(fullscreenSet, 1, 0, sampler);
+            fullscreenSet.updateDescriptor(0, 0, offscreenView);
+            fullscreenSet.updateDescriptor(1, 0, sampler);
 
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_SLICE, CONST_SLICE);
-                const sceneSet = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
+                const constantView = constantBuffer.createConstantView(i * CONST_SLICE, CONST_SLICE);
+                const sceneSet = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
                 if (!constantView || !sceneSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(sceneSet, 0, 0, constantView);
+                sceneSet.updateDescriptor(0, 0, constantView);
                 this.queuedFrames.push(new QueuedFrame(constantView, sceneSet));
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -367,9 +368,9 @@ namespace ConservativeRasterizationNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -379,25 +380,25 @@ namespace ConservativeRasterizationNri {
         // test; for the low resolution target, without and with conservative rasterization (the sample
         // enlarging the triangle by the device's maximum extra size, Vulkan only). Null if it can't be
         // made.
-        createTrianglePipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, conservative: boolean): NriPipelineHandle | null {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
+        createTrianglePipeline(device: NriDevice, layout: NriPipelineLayout, conservative: boolean): NriPipeline | null {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${this.shaders}_triangle_ps.bin`, "triangle_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${this.shaders}_triangle_ps.bin`, "triangle_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "COLOR", NriFormat.RGB32_SFLOAT, 12);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("COLOR", NriFormat.RGB32_SFLOAT, 12);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
             if (conservative) {
-                Nri_PipelineDescSetConservativeRaster(desc, 1);
-                Nri_PipelineDescSetConservativeRasterExtraOverestimation(desc, this.hasVulkanProperties ? this.vulkanProperties[1] : 0.0);
+                desc.setConservativeRaster(1);
+                desc.setConservativeRasterExtraOverestimation(this.hasVulkanProperties ? this.vulkanProperties[1] : 0.0);
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -410,21 +411,21 @@ namespace ConservativeRasterizationNri {
         // right one zooms, with the middle one pans (unless the overlay has the mouse).
         handleMouse() {
             if (this.imgui) {
-                if (Nri_ImguiWantsMouse() != 0) {
+                if (NriImgui.wantsMouse() != 0) {
                     return;
                 }
             }
             // The sample's dx, dy: the last position minus the new one.
-            const dx = -Nri_GetMouseDeltaX(this.sample);
-            const dy = -Nri_GetMouseDeltaY(this.sample);
-            if (Nri_IsButtonPressed(this.sample, MOUSE_LEFT) != 0) {
+            const dx = -this.sample.getMouseDeltaX();
+            const dy = -this.sample.getMouseDeltaY();
+            if (this.sample.isButtonPressed(MOUSE_LEFT) != 0) {
                 this.cameraRotation[0] += dy * ROTATION_SPEED;
                 this.cameraRotation[1] -= dx * ROTATION_SPEED;
             }
-            if (Nri_IsButtonPressed(this.sample, MOUSE_RIGHT) != 0) {
+            if (this.sample.isButtonPressed(MOUSE_RIGHT) != 0) {
                 this.cameraPosition[2] += dy * ZOOM_SPEED;
             }
-            if (Nri_IsButtonPressed(this.sample, MOUSE_MIDDLE) != 0) {
+            if (this.sample.isButtonPressed(MOUSE_MIDDLE) != 0) {
                 this.cameraPosition[0] -= dx * PAN_SPEED;
                 this.cameraPosition[1] -= dy * PAN_SPEED;
             }
@@ -452,40 +453,40 @@ namespace ConservativeRasterizationNri {
             c[CONST_VIEWPORT_SIZE] = this.width;
             c[CONST_VIEWPORT_SIZE + 1] = this.height;
             c[CONST_LINE_WIDTH] = LINE_WIDTH;
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * CONST_SLICE, Ref(c[0]), CONST_FLOATS * 4);
+            constantBuffer.write(queuedFrameIndex * CONST_SLICE, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.conservativeRasterEnabled = Nri_ImguiCheckbox("Conservative rasterization", this.conservativeRasterEnabled ? 1 : 0) != 0;
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.conservativeRasterEnabled = NriImgui.checkbox("Conservative rasterization", this.conservativeRasterEnabled ? 1 : 0) != 0;
             }
-            if (Nri_ImguiCollapsingHeader("Device properties", 1) != 0) {
+            if (NriImgui.collapsingHeader("Device properties", 1) != 0) {
                 if (this.hasVulkanProperties) {
                     const p = this.vulkanProperties;
-                    Nri_ImguiText(`maxExtraPrimitiveOverestimationSize: ${formatFloat(p[1])}`);
-                    Nri_ImguiText(`extraPrimitiveOverestimationSizeGranularity: ${formatFloat(p[2])}`);
-                    Nri_ImguiText(`primitiveUnderestimation:  ${yesNo(p[3])}`);
-                    Nri_ImguiText(`conservativePointAndLineRasterization:  ${yesNo(p[4])}`);
-                    Nri_ImguiText(`degenerateTrianglesRasterized: ${yesNo(p[5])}`);
-                    Nri_ImguiText(`degenerateLinesRasterized: ${yesNo(p[6])}`);
-                    Nri_ImguiText(`fullyCoveredFragmentShaderInputVariable: ${yesNo(p[7])}`);
-                    Nri_ImguiText(`conservativeRasterizationPostDepthCoverage: ${yesNo(p[8])}`);
+                    NriImgui.text(`maxExtraPrimitiveOverestimationSize: ${formatFloat(p[1])}`);
+                    NriImgui.text(`extraPrimitiveOverestimationSizeGranularity: ${formatFloat(p[2])}`);
+                    NriImgui.text(`primitiveUnderestimation:  ${yesNo(p[3])}`);
+                    NriImgui.text(`conservativePointAndLineRasterization:  ${yesNo(p[4])}`);
+                    NriImgui.text(`degenerateTrianglesRasterized: ${yesNo(p[5])}`);
+                    NriImgui.text(`degenerateLinesRasterized: ${yesNo(p[6])}`);
+                    NriImgui.text(`fullyCoveredFragmentShaderInputVariable: ${yesNo(p[7])}`);
+                    NriImgui.text(`conservativeRasterizationPostDepthCoverage: ${yesNo(p[8])}`);
                 } else if (this.tier > 0) {
-                    Nri_ImguiText(`ConservativeRasterizationTier: ${this.tier}`);
+                    NriImgui.text(`ConservativeRasterizationTier: ${this.tier}`);
                 }
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // First pass: the triangle at low resolution, into the cleared low resolution target, which
         // then goes to the second pass.
-        recordOffscreen(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordOffscreen(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const sceneLayout = this.sceneLayout;
             const pipeline = this.conservativeRasterEnabled ? this.triangleConservativePipeline : this.trianglePipeline;
             const vertexBuffer = this.vertexBuffer;
@@ -495,24 +496,24 @@ namespace ConservativeRasterizationNri {
             if (!sceneLayout || !pipeline || !vertexBuffer || !indexBuffer || !offscreenColor || !offscreenAttachment) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, offscreenColor, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, offscreenAttachment);
-            Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.offscreenWidth, this.offscreenHeight);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.offscreenWidth, this.offscreenHeight);
-            Nri_CmdSetPipelineLayout(commandBuffer, sceneLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.sceneSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, 3, 1, 0, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, offscreenColor, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(offscreenColor, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(offscreenAttachment);
+            commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.offscreenWidth, this.offscreenHeight);
+            commandBuffer.setScissor(0, 0, this.offscreenWidth, this.offscreenHeight);
+            commandBuffer.setPipelineLayout(sceneLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.sceneSet);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(3, 1, 0, 0, 0);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(offscreenColor, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
         }
 
         // Second pass: the low resolution image over the screen (cleared first), the real triangle's
-        // outline over it (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordScreen(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // outline over it (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordScreen(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const sceneLayout = this.sceneLayout;
             const fullscreenLayout = this.fullscreenLayout;
             const fullscreenPipeline = this.fullscreenPipeline;
@@ -522,19 +523,19 @@ namespace ConservativeRasterizationNri {
             if (!sceneLayout || !fullscreenLayout || !fullscreenPipeline || !overlayPipeline || !fullscreenSet || !vertexBuffer) {
                 return;
             }
-            Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 0.25);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, fullscreenLayout);
-            Nri_CmdSetPipeline(commandBuffer, fullscreenPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, fullscreenSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 0.25);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(fullscreenLayout);
+            commandBuffer.setPipeline(fullscreenPipeline);
+            commandBuffer.setDescriptorSet(0, fullscreenSet);
+            commandBuffer.draw(3, 1, 0, 0);
 
-            Nri_CmdSetPipelineLayout(commandBuffer, sceneLayout);
-            Nri_CmdSetPipeline(commandBuffer, overlayPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.sceneSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setPipelineLayout(sceneLayout);
+            commandBuffer.setPipeline(overlayPipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.sceneSet);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -547,22 +548,22 @@ namespace ConservativeRasterizationNri {
 
         // The low resolution target at the swap chain's size divided by ZOOM_FACTOR, and its views;
         // false on failure. Once the full screen set exists, its texture slot points at the new view.
-        createOffscreen(device: NriDeviceHandle): boolean {
+        createOffscreen(device: NriDevice): boolean {
             this.offscreenWidth = Math.floor(this.width / ZOOM_FACTOR);
             this.offscreenHeight = Math.floor(this.height / ZOOM_FACTOR);
-            const offscreenColor = Nri_CreateRenderTargetTexture(device, this.queue, this.offscreenWidth, this.offscreenHeight,
+            const offscreenColor = device.createRenderTargetTexture(this.queue, this.offscreenWidth, this.offscreenHeight,
                 NriFormat.RGBA8_UNORM);
             this.offscreenColor = offscreenColor;
             if (!offscreenColor) {
                 return false;
             }
-            this.offscreenAttachment = Nri_CreateColorAttachmentView(offscreenColor, NriFormat.RGBA8_UNORM);
-            const offscreenView = Nri_CreateTextureView(offscreenColor, NriFormat.RGBA8_UNORM);
+            this.offscreenAttachment = offscreenColor.createColorAttachmentView(NriFormat.RGBA8_UNORM);
+            const offscreenView = offscreenColor.createView(NriFormat.RGBA8_UNORM);
             this.offscreenView = offscreenView;
             const fullscreenSet = this.fullscreenSet;
             if (fullscreenSet) {
                 if (offscreenView) {
-                    Nri_UpdateDescriptor(fullscreenSet, 0, 0, offscreenView);
+                    fullscreenSet.updateDescriptor(0, 0, offscreenView);
                 }
             }
             return true;
@@ -575,12 +576,12 @@ namespace ConservativeRasterizationNri {
             this.offscreenView = null;
             const offscreenColor = this.offscreenColor;
             if (offscreenColor) {
-                Nri_DestroyTexture(offscreenColor);
+                offscreenColor.destroy();
             }
             this.offscreenColor = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the low resolution target made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the low resolution target made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -590,7 +591,7 @@ namespace ConservativeRasterizationNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyOffscreen();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -620,37 +621,37 @@ namespace ConservativeRasterizationNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the low resolution pass; then the swap chain texture's, the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                commandBuffer.begin();
+                commandBuffer.setDescriptorPool(descriptorPool);
                 this.recordOffscreen(commandBuffer, queuedFrame);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
                 this.recordScreen(commandBuffer, queuedFrame);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -666,12 +667,12 @@ namespace ConservativeRasterizationNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -681,16 +682,16 @@ namespace ConservativeRasterizationNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyDescriptor(queuedFrame.constantView);
+                    queuedFrame.constantView.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.sampler);
                 this.destroyOffscreen();
@@ -706,46 +707,46 @@ namespace ConservativeRasterizationNri {
                 this.destroyLayout(this.fullscreenLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const conservativeRasterization = new ConservativeRasterization(sample);
         // -noconservative: start with conservative rasterization off; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-noconservative");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-noconservative");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-noconservative") {
                 conservativeRasterization.conservativeRasterEnabled = false;
             } else if (arg == "-noUI") {

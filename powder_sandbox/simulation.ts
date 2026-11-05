@@ -11,6 +11,7 @@ import {
     levelCount, QueuedFrame
 } from "./defs";
 import { SandboxSaves } from "./saves";
+import { Nri, NriCommandBuffer, NriFile } from "../core/nri";
 
 // The simulation's recording: the frame's constants (with the tilt sensor's gravity), its steps'
 // dispatches (the pressure solve, the sparks and glow), the GPU profiler and step timer, auto
@@ -45,7 +46,7 @@ export class SandboxSimulation extends SandboxSaves {
         if (tilted && !this.tiltFixed) {
             this.readTilt();
         } else {
-            Nri_GetGravity(0, Ref(this.sensed[0]));
+            Nri.getGravity(0, Ref(this.sensed[0]));
         }
         this.kernels.setFloat(30, tilted ? this.tiltX : this.gravityPointX());
         this.kernels.setFloat(31, tilted ? this.tiltY : this.gravityPointY());
@@ -53,7 +54,7 @@ export class SandboxSimulation extends SandboxSaves {
 
     // Electricity, while running: spark_cs's iterations (each one's parity in the substep), with the
     // brush (the Spark tool's).
-    recordSparks(commandBuffer: NriCommandBufferHandle, pointerBrush: int) {
+    recordSparks(commandBuffer: NriCommandBuffer, pointerBrush: int) {
         // (a scene's stroke this frame, or the pointer's)
         const brushMode = Math.max(pointerBrush, this.strokeBrush);
         if (!this.computeLayout || this.paused) {
@@ -69,7 +70,7 @@ export class SandboxSimulation extends SandboxSaves {
     }
 
     // The glow, from the frame's last step: the cells' light, blurred along x then y.
-    recordGlow(commandBuffer: NriCommandBufferHandle) {
+    recordGlow(commandBuffer: NriCommandBuffer) {
         if (!this.computeLayout) {
             return;
         }
@@ -80,14 +81,14 @@ export class SandboxSimulation extends SandboxSaves {
     }
 
     // steps: the simulation's fixed steps this frame (0 when the frame took less than one).
-    recordSimulation(commandBuffer: NriCommandBufferHandle, brushMode: int, steps: int) {
+    recordSimulation(commandBuffer: NriCommandBuffer, brushMode: int, steps: int) {
         const computeLayout = this.computeLayout;
         if (!computeLayout) {
             return;
         }
         const cells = this.gridW * this.gridH;
-        Nri_CmdSetDescriptorPool(commandBuffer, this.descriptorPool);
-        Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
+        commandBuffer.setDescriptorPool(this.descriptorPool);
+        commandBuffer.setComputePipelineLayout(computeLayout);
         if (this.needsInit) {
             this.kernels.dispatch(commandBuffer, INIT_GRID, this.stride, B_ALL);
             this.kernels.dispatch(commandBuffer, INIT_PARTICLES, CAPACITY, B_ALL);
@@ -156,7 +157,7 @@ export class SandboxSimulation extends SandboxSaves {
 
     // The pressure equation solved (F_P, from the last step's): SOR's sweeps, or multigrid's
     // V-cycles (its levels' types and faces set up from level 0's first).
-    recordPressure(commandBuffer: NriCommandBufferHandle) {
+    recordPressure(commandBuffer: NriCommandBuffer) {
         const cells = this.gridW * this.gridH;
         if (this.solver == SOLVER_SOR) {
             for (let i = 0; i < this.iterations; i++) {
@@ -192,7 +193,7 @@ export class SandboxSimulation extends SandboxSaves {
     }
 
     // -smooth red-black sweeps of a multigrid level (level 0's by pressure_cs).
-    recordSmooth(commandBuffer: NriCommandBufferHandle, level: int) {
+    recordSmooth(commandBuffer: NriCommandBuffer, level: int) {
         const count = levelSize(this.gridW, level) * levelSize(this.gridH, level);
         for (let i = 0; i < this.smooth; i++) {
             for (let parity = 0; parity < 2; parity++) {
@@ -232,7 +233,7 @@ export class SandboxSimulation extends SandboxSaves {
 
     // The grid height QUALITY_PATH holds, or 0.
     readCachedHeight(): int {
-        const file = Nri_LoadFile(QUALITY_PATH);
+        const file = NriFile.load(QUALITY_PATH);
         if (!file) {
             return 0;
         }
@@ -240,8 +241,8 @@ export class SandboxSimulation extends SandboxSaves {
         for (let i = 0; i < QUALITY_HEADER_INTS * 4; i++) {
             bytes.push(0);
         }
-        Nri_CopyFileBytes(file, 0, bytes.length, Ref(bytes[0]));
-        Nri_DestroyFile(file);
+        file.copyBytes(0, bytes.length, Ref(bytes[0]));
+        file.destroy();
         const ints: int[] = [];
         for (let i = 0; i < QUALITY_HEADER_INTS; i++) {
             ints.push(bytes[i * 4] | (bytes[i * 4 + 1] << 8) | (bytes[i * 4 + 2] << 16) | (bytes[i * 4 + 3] << 24));
@@ -277,7 +278,7 @@ export class SandboxSimulation extends SandboxSaves {
         // (a test's kept only when it asked for auto quality)
         if ((!this.test || this.quality != "") && this.queuedFrames.length > 0) {
             const header: int[] = [QUALITY_MAGIC, this.gridHeight];
-            Nri_SaveBufferToFile(this.queuedFrames[0].probeReadback, 0, Ref(header[0]), QUALITY_HEADER_INTS, QUALITY_PATH);
+            this.queuedFrames[0].probeReadback.saveToFile(0, Ref(header[0]), QUALITY_HEADER_INTS, QUALITY_PATH);
         }
         // The session, begun at that size.
         this.scene = this.calibrationScene;
@@ -305,7 +306,7 @@ export class SandboxSimulation extends SandboxSaves {
                     const loudness = Math.min(0.25 + 0.75 * Math.log(1.0 + events) / Math.log(1.0 + EVENTS_LOUD[k]), 1.0);
                     // (bigger booms lower)
                     const pitch = k == 3 ? 1.2 - 0.5 * Math.min(events / EVENTS_LOUD[k], 1.0) : 0.85 + 0.3 * Math.random();
-                    Nri_PlaySound(audio, k, loudness, pitch);
+                    audio.playSound(k, loudness, pitch);
                     this.soundCooldowns[k] = EVENT_COOLDOWN[k] * (0.8 + 0.4 * Math.random());
                 }
             }
@@ -332,7 +333,7 @@ export class SandboxSimulation extends SandboxSaves {
         const steps = queuedFrame.timedSteps;
         queuedFrame.timedSteps = -1;
         if (steps > 0) {
-            const ms = Nri_ReadTimestampIntervalMs(device, timestampReadback, 0, this.querySize);
+            const ms = device.readTimestampIntervalMs(timestampReadback, 0, this.querySize);
             if (ms >= 0.0) {
                 this.stepMs = ms / steps;
             }
@@ -342,7 +343,7 @@ export class SandboxSimulation extends SandboxSaves {
     // The phone's down across the screen (the grid's axes are the window's), from its gravity
     // sensor; kept while it lies flat (under TILT_FLAT g across the screen) or there's no reading.
     readTilt() {
-        if (Nri_GetGravity(1, Ref(this.sensed[0])) == 0) {
+        if (Nri.getGravity(1, Ref(this.sensed[0])) == 0) {
             return;
         }
         const x = this.sensed[0];

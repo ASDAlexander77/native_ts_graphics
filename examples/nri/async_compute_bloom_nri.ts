@@ -2,6 +2,7 @@
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { identity, multiply, reversedPerspective, vulkanStyleProjection, toDonutClip } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
+import { Nri, NriBuffer, NriCommandAllocator, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFence, NriGltfModel, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace AsyncComputeBloomNri {
     // async_compute_bloom, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -20,7 +21,7 @@ namespace AsyncComputeBloomNri {
     const SCENE_DIR = "media/async_compute_bloom/bonza/";
     const SCENE_PATH = SCENE_DIR + "Bonza.gltf";
 
-    // Nri_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriGltfModel.load's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_FLOATS = 8;
     const VERTEX_SIZE = VERTEX_FLOATS * 4;
     const NORMAL_OFFSET = 12;
@@ -216,12 +217,12 @@ namespace AsyncComputeBloomNri {
     // without async queues), the compute queue's; its constant buffer views, and its descriptor sets:
     // the shadow pass's, and the forward pass's per base color texture.
     class QueuedFrame {
-        forwardSets: NriDescriptorSetHandle[] = [];
+        forwardSets: NriDescriptorSet[] = [];
 
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public compositeCommandBuffer: NriCommandBufferHandle, public computeAllocator: NriCommandAllocatorHandle | null,
-            public computeCommandBuffer: NriCommandBufferHandle | null, public shadowView: NriDescriptorHandle | null,
-            public forwardView: NriDescriptorHandle | null, public shadowSet: NriDescriptorSetHandle | null) {
+        constructor(public commandAllocator: NriCommandAllocator, public commandBuffer: NriCommandBuffer,
+            public compositeCommandBuffer: NriCommandBuffer, public computeAllocator: NriCommandAllocator | null,
+            public computeCommandBuffer: NriCommandBuffer | null, public shadowView: NriDescriptor | null,
+            public forwardView: NriDescriptor | null, public shadowSet: NriDescriptorSet | null) {
         }
     }
 
@@ -239,16 +240,16 @@ namespace AsyncComputeBloomNri {
     // queue moves the blur chain between Storage and ComputeShaderResource. NRI's textures are
     // shared by the queues (Vulkan's concurrent sharing), so no ownership transfers.
     class AsyncComputeBloom {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         // Null without one (D3D11), or when the device has none.
-        private computeQueue: NriQueueHandle | null = null;
+        private computeQueue: NriQueue | null = null;
         private computeQueueAvailable: boolean = false;
-        private frameFence: NriFenceHandle;
+        private frameFence: NriFence;
         // The graphics queue's scene work done (the compute queue waits for it), the compute queue's
         // bloom done (the composite waits for it): frame index + 1 each.
-        private graphicsFence: NriFenceHandle | null = null;
-        private computeFence: NriFenceHandle | null = null;
+        private graphicsFence: NriFence | null = null;
+        private computeFence: NriFence | null = null;
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
@@ -272,58 +273,58 @@ namespace AsyncComputeBloomNri {
 
         private camera: DonutFirstPersonCamera = new DonutFirstPersonCamera(CAMERA_MOVE_SPEED, CAMERA_ROTATE_SPEED);
 
-        private constantBuffer: NriBufferHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private linearClamp: NriDescriptorHandle | null = null;
-        private linearWrap: NriDescriptorHandle | null = null;
-        private comparisonSampler: NriDescriptorHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private linearClamp: NriDescriptor | null = null;
+        private linearWrap: NriDescriptor | null = null;
+        private comparisonSampler: NriDescriptor | null = null;
 
         // The shadow map: 16-bit depth (8K, "overkill to stress devices"), reversed; read by the
         // forward pass between the shadow passes.
-        private shadowMap: NriTextureHandle | null = null;
-        private shadowAttachment: NriDescriptorHandle | null = null;
-        private shadowMapView: NriDescriptorHandle | null = null;
-        private shadowLayout: NriPipelineLayoutHandle | null = null;
-        private shadowPipeline: NriPipelineHandle | null = null;
+        private shadowMap: NriTexture | null = null;
+        private shadowAttachment: NriDescriptor | null = null;
+        private shadowMapView: NriDescriptor | null = null;
+        private shadowLayout: NriPipelineLayout | null = null;
+        private shadowPipeline: NriPipeline | null = null;
 
         // The HDR targets, the compute post's input: RGBA16F, two for double buffering, with one
         // depth buffer (reversed); their states (NriTextureState).
-        private hdrTargets: NriTextureHandle[] = [];
-        private hdrAttachments: NriDescriptorHandle[] = [];
-        private hdrViews: NriDescriptorHandle[] = [];
+        private hdrTargets: NriTexture[] = [];
+        private hdrAttachments: NriDescriptor[] = [];
+        private hdrViews: NriDescriptor[] = [];
         private hdrStates: NriTextureState[] = [];
-        private hdrDepth: NriTextureHandle | null = null;
-        private hdrDepthAttachment: NriDescriptorHandle | null = null;
-        private forwardLayout: NriPipelineLayoutHandle | null = null;
-        private forwardPipeline: NriPipelineHandle | null = null;
-        private forwardBlendPipeline: NriPipelineHandle | null = null;
+        private hdrDepth: NriTexture | null = null;
+        private hdrDepthAttachment: NriDescriptor | null = null;
+        private forwardLayout: NriPipelineLayout | null = null;
+        private forwardPipeline: NriPipeline | null = null;
+        private forwardBlendPipeline: NriPipeline | null = null;
         // The base color textures, one per image.
-        private textures: NriTextureHandle[] = [];
-        private textureViews: NriDescriptorHandle[] = [];
+        private textures: NriTexture[] = [];
+        private textureViews: NriDescriptor[] = [];
 
         // The bloom: the blur chain, levels 1 to BLUR_LEVELS of the HDR size (index level - 1),
         // RGBA16F, their views and states.
-        private blurChain: NriTextureHandle[] = [];
-        private blurViews: NriDescriptorHandle[] = [];
-        private blurStorageViews: NriDescriptorHandle[] = [];
+        private blurChain: NriTexture[] = [];
+        private blurViews: NriDescriptor[] = [];
+        private blurStorageViews: NriDescriptor[] = [];
         private blurStates: NriTextureState[] = [];
-        private postLayout: NriPipelineLayoutHandle | null = null;
-        private thresholdPipeline: NriPipelineHandle | null = null;
-        private blurDownPipeline: NriPipelineHandle | null = null;
-        private blurUpPipeline: NriPipelineHandle | null = null;
+        private postLayout: NriPipelineLayout | null = null;
+        private thresholdPipeline: NriPipeline | null = null;
+        private blurDownPipeline: NriPipeline | null = null;
+        private blurUpPipeline: NriPipeline | null = null;
         // The threshold pass from each HDR target, the blur down passes into blur levels 1 ..
         // BLUR_LEVELS - 1 (index level - 1), the blur up passes into levels BLUR_LEVELS - 2 .. 1
         // (index BLUR_LEVELS - 2 - level).
-        private thresholdSets: NriDescriptorSetHandle[] = [];
-        private blurDownSets: NriDescriptorSetHandle[] = [];
-        private blurUpSets: NriDescriptorSetHandle[] = [];
+        private thresholdSets: NriDescriptorSet[] = [];
+        private blurDownSets: NriDescriptorSet[] = [];
+        private blurUpSets: NriDescriptorSet[] = [];
 
         // The composite: from each HDR target, with the bloom.
-        private compositeLayout: NriPipelineLayoutHandle | null = null;
-        private compositePipeline: NriPipelineHandle | null = null;
-        private compositeSets: NriDescriptorSetHandle[] = [];
+        private compositeLayout: NriPipelineLayout | null = null;
+        private compositePipeline: NriPipeline | null = null;
+        private compositeSets: NriDescriptorSet[] = [];
 
         // The draws, a node's primitive each: index range and base vertex, base color texture,
         // alpha blending, node transform (MODEL_FLOATS each, from models), and world bounds center (3
@@ -339,7 +340,7 @@ namespace AsyncComputeBloomNri {
         private order: int[] = [];
         private distances: number[] = [];
         // The shadow pass's texture sets: none (drawScene binds them for the forward pass).
-        private noSets: NriDescriptorSetHandle[] = [];
+        private noSets: NriDescriptorSet[] = [];
 
         // Upload buffers.
         private constants: f32[] = [];
@@ -349,11 +350,11 @@ namespace AsyncComputeBloomNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -373,11 +374,11 @@ namespace AsyncComputeBloomNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -392,26 +393,26 @@ namespace AsyncComputeBloomNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.frameFence = device.createFence(0);
+            this.test = this.sample.isTest() != 0;
 
             // The compute queue, with the fences between the queues (none on D3D11, as NVRHI's).
             if (graphicsAPI != NriGraphicsAPI.D3D11) {
-                const computeQueue = Nri_GetComputeQueue(device);
+                const computeQueue = device.getComputeQueue();
                 if (computeQueue) {
                     this.computeQueue = computeQueue;
                     this.computeQueueAvailable = true;
-                    this.graphicsFence = Nri_CreateFence(device, 0);
-                    this.computeFence = Nri_CreateFence(device, 0);
+                    this.graphicsFence = device.createFence(0);
+                    this.computeFence = device.createFence(0);
                 }
             }
             if (this.asyncEnabled && !this.hasComputeQueue()) {
@@ -419,7 +420,7 @@ namespace AsyncComputeBloomNri {
             }
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -428,9 +429,9 @@ namespace AsyncComputeBloomNri {
 
             // The sample's samplers: linear and clamped for the post passes, a comparison one for the
             // shadow map; the scene's (linear, repeating) for its textures (Donut's common ones).
-            this.linearClamp = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
-            this.linearWrap = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
-            this.comparisonSampler = Nri_CreateComparisonSampler(device, NriCompareOp.Less);
+            this.linearClamp = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            this.linearWrap = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            this.comparisonSampler = device.createComparisonSampler(NriCompareOp.Less);
             const linearClamp = this.linearClamp;
             const linearWrap = this.linearWrap;
             const comparisonSampler = this.comparisonSampler;
@@ -440,38 +441,38 @@ namespace AsyncComputeBloomNri {
             }
 
             // The targets: the shadow map, the HDR targets and their depth buffer, the blur chain.
-            const shadowMap = Nri_CreateSampledDepthTexture(device, this.queue, SHADOW_RESOLUTION, SHADOW_RESOLUTION, NriFormat.D16_UNORM);
+            const shadowMap = device.createSampledDepthTexture(this.queue, SHADOW_RESOLUTION, SHADOW_RESOLUTION, NriFormat.D16_UNORM);
             this.shadowMap = shadowMap;
-            const hdrDepth = Nri_CreateDepthTexture(device, this.queue, HDR_WIDTH, HDR_HEIGHT, NriFormat.D32_SFLOAT);
+            const hdrDepth = device.createDepthTexture(this.queue, HDR_WIDTH, HDR_HEIGHT, NriFormat.D32_SFLOAT);
             this.hdrDepth = hdrDepth;
             if (!shadowMap || !hdrDepth) {
                 console.log("Cannot create the depth buffers");
                 return 0;
             }
-            this.shadowAttachment = Nri_CreateDepthAttachmentView(shadowMap, NriFormat.D16_UNORM);
-            const shadowMapView = Nri_CreateTextureView(shadowMap, NriFormat.D16_UNORM);
+            this.shadowAttachment = shadowMap.createDepthAttachmentView(NriFormat.D16_UNORM);
+            const shadowMapView = shadowMap.createView(NriFormat.D16_UNORM);
             this.shadowMapView = shadowMapView;
-            this.hdrDepthAttachment = Nri_CreateDepthAttachmentView(hdrDepth, NriFormat.D32_SFLOAT);
+            this.hdrDepthAttachment = hdrDepth.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             for (let i = 0; i < 2; i++) {
-                const target = Nri_CreateRenderTargetTexture(device, this.queue, HDR_WIDTH, HDR_HEIGHT, NriFormat.RGBA16_SFLOAT);
+                const target = device.createRenderTargetTexture(this.queue, HDR_WIDTH, HDR_HEIGHT, NriFormat.RGBA16_SFLOAT);
                 if (!target) {
                     console.log("Cannot create the HDR targets");
                     return 0;
                 }
                 this.hdrTargets.push(target);
-                this.hdrAttachments.push(Nri_CreateColorAttachmentView(target, NriFormat.RGBA16_SFLOAT));
-                this.hdrViews.push(Nri_CreateTextureView(target, NriFormat.RGBA16_SFLOAT));
+                this.hdrAttachments.push(target.createColorAttachmentView(NriFormat.RGBA16_SFLOAT));
+                this.hdrViews.push(target.createView(NriFormat.RGBA16_SFLOAT));
                 this.hdrStates.push(NriTextureState.ShaderResource);
             }
             for (let level = 1; level <= BLUR_LEVELS; level++) {
-                const texture = Nri_CreateStorageTexture(device, this.queue, levelWidth(level), levelHeight(level), NriFormat.RGBA16_SFLOAT);
+                const texture = device.createStorageTexture(this.queue, levelWidth(level), levelHeight(level), NriFormat.RGBA16_SFLOAT);
                 if (!texture) {
                     console.log("Cannot create the blur chain");
                     return 0;
                 }
                 this.blurChain.push(texture);
-                this.blurViews.push(Nri_CreateTextureView(texture, NriFormat.RGBA16_SFLOAT));
-                this.blurStorageViews.push(Nri_CreateStorageTextureView(texture, NriFormat.RGBA16_SFLOAT));
+                this.blurViews.push(texture.createView(NriFormat.RGBA16_SFLOAT));
+                this.blurStorageViews.push(texture.createStorageView(NriFormat.RGBA16_SFLOAT));
                 this.blurStates.push(NriTextureState.Storage);
             }
 
@@ -486,30 +487,30 @@ namespace AsyncComputeBloomNri {
             // s0) and the shadow map and its comparison sampler (t1, s1); the bloom's input and its
             // sampler (t0, s0), output (u0) and resolutions (b0: root constants); the composite's HDR
             // frame and bloom (t0, t1) and sampler (s0).
-            const shadowLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(shadowLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(shadowLayoutDesc, 1, MODEL_SIZE, NriStage.VertexPixel);
-            this.shadowLayout = Nri_CreatePipelineLayoutFromDesc(device, shadowLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(shadowLayoutDesc);
-            const forwardLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(forwardLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(forwardLayoutDesc, 0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(forwardLayoutDesc, 0, 0, 2, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(forwardLayoutDesc, 1, MODEL_SIZE, NriStage.VertexPixel);
-            this.forwardLayout = Nri_CreatePipelineLayoutFromDesc(device, forwardLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(forwardLayoutDesc);
-            const postLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(postLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(postLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(postLayoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(postLayoutDesc, 0, BLUR_SIZE, NriStage.Compute);
-            this.postLayout = Nri_CreatePipelineLayoutFromDesc(device, postLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(postLayoutDesc);
-            const compositeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(compositeLayoutDesc, 0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(compositeLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.compositeLayout = Nri_CreatePipelineLayoutFromDesc(device, compositeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(compositeLayoutDesc);
+            const shadowLayoutDesc = NriPipelineLayoutDesc.create();
+            shadowLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            shadowLayoutDesc.addRootConstants(1, MODEL_SIZE, NriStage.VertexPixel);
+            this.shadowLayout = device.createPipelineLayoutFromDesc(shadowLayoutDesc);
+            shadowLayoutDesc.destroy();
+            const forwardLayoutDesc = NriPipelineLayoutDesc.create();
+            forwardLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            forwardLayoutDesc.addRange(0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            forwardLayoutDesc.addRange(0, 0, 2, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            forwardLayoutDesc.addRootConstants(1, MODEL_SIZE, NriStage.VertexPixel);
+            this.forwardLayout = device.createPipelineLayoutFromDesc(forwardLayoutDesc);
+            forwardLayoutDesc.destroy();
+            const postLayoutDesc = NriPipelineLayoutDesc.create();
+            postLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
+            postLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
+            postLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            postLayoutDesc.addRootConstants(0, BLUR_SIZE, NriStage.Compute);
+            this.postLayout = device.createPipelineLayoutFromDesc(postLayoutDesc);
+            postLayoutDesc.destroy();
+            const compositeLayoutDesc = NriPipelineLayoutDesc.create();
+            compositeLayoutDesc.addRange(0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            compositeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.compositeLayout = device.createPipelineLayoutFromDesc(compositeLayoutDesc);
+            compositeLayoutDesc.destroy();
             const shadowLayout = this.shadowLayout;
             const forwardLayout = this.forwardLayout;
             const postLayout = this.postLayout;
@@ -525,9 +526,9 @@ namespace AsyncComputeBloomNri {
             this.shadowPipeline = this.createShadowPipeline(device, shadowLayout, shaders);
             this.forwardPipeline = this.createForwardPipeline(device, forwardLayout, shaders, false);
             this.forwardBlendPipeline = this.createForwardPipeline(device, forwardLayout, shaders, true);
-            this.thresholdPipeline = Nri_CreateComputePipeline(device, postLayout, `${shaders}_post_threshold_cs.bin`, "threshold_cs");
-            this.blurDownPipeline = Nri_CreateComputePipeline(device, postLayout, `${shaders}_post_blur_down_cs.bin`, "blur_down_cs");
-            this.blurUpPipeline = Nri_CreateComputePipeline(device, postLayout, `${shaders}_post_blur_up_cs.bin`, "blur_up_cs");
+            this.thresholdPipeline = device.createComputePipeline(postLayout, `${shaders}_post_threshold_cs.bin`, "threshold_cs");
+            this.blurDownPipeline = device.createComputePipeline(postLayout, `${shaders}_post_blur_down_cs.bin`, "blur_down_cs");
+            this.blurUpPipeline = device.createComputePipeline(postLayout, `${shaders}_post_blur_up_cs.bin`, "blur_up_cs");
             this.compositePipeline = this.createCompositePipeline(device, compositeLayout, shaders);
             if (!this.shadowPipeline || !this.forwardPipeline || !this.forwardBlendPipeline || !this.thresholdPipeline
                 || !this.blurDownPipeline || !this.blurUpPipeline || !this.compositePipeline) {
@@ -540,9 +541,9 @@ namespace AsyncComputeBloomNri {
             const textureCount = this.textures.length;
             const frameSetNum = 1 + textureCount;
             const postSetNum = 2 + (BLUR_LEVELS - 1) + (BLUR_LEVELS - 2);
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * 2 * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * 2 * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum * frameSetNum + postSetNum + 2,
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum * frameSetNum + postSetNum + 2,
                 queuedFrameNum * textureCount * 2 + postSetNum + 2, queuedFrameNum * frameSetNum,
                 queuedFrameNum * textureCount * 2 + postSetNum + 4, postSetNum, 0);
             this.descriptorPool = descriptorPool;
@@ -551,52 +552,52 @@ namespace AsyncComputeBloomNri {
                 return 0;
             }
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
+                const commandAllocator = this.queue.createCommandAllocator();
                 const computeQueue = this.computeQueue;
-                let computeAllocator: NriCommandAllocatorHandle | null = null;
-                let computeCommandBuffer: NriCommandBufferHandle | null = null;
+                let computeAllocator: NriCommandAllocator | null = null;
+                let computeCommandBuffer: NriCommandBuffer | null = null;
                 if (computeQueue) {
-                    const allocator = Nri_CreateCommandAllocator(computeQueue);
+                    const allocator = computeQueue.createCommandAllocator();
                     computeAllocator = allocator;
-                    computeCommandBuffer = Nri_CreateCommandBuffer(allocator);
+                    computeCommandBuffer = allocator.createCommandBuffer();
                 }
-                const shadowView = Nri_CreateConstantBufferView(constantBuffer, (2 * i) * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
-                const forwardView = Nri_CreateConstantBufferView(constantBuffer, (2 * i + 1) * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
-                const shadowSet = Nri_AllocateDescriptorSet(descriptorPool, shadowLayout, 0, 0);
-                const queuedFrame = new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator),
-                    Nri_CreateCommandBuffer(commandAllocator), computeAllocator, computeCommandBuffer, shadowView, forwardView, shadowSet);
+                const shadowView = constantBuffer.createConstantView((2 * i) * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
+                const forwardView = constantBuffer.createConstantView((2 * i + 1) * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
+                const shadowSet = descriptorPool.allocateDescriptorSet(shadowLayout, 0, 0);
+                const queuedFrame = new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(),
+                    commandAllocator.createCommandBuffer(), computeAllocator, computeCommandBuffer, shadowView, forwardView, shadowSet);
                 this.queuedFrames.push(queuedFrame);
                 if (!shadowView || !forwardView || !shadowSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(shadowSet, 0, 0, shadowView);
+                shadowSet.updateDescriptor(0, 0, shadowView);
                 for (let t = 0; t < textureCount; t++) {
-                    const forwardSet = Nri_AllocateDescriptorSet(descriptorPool, forwardLayout, 0, 0);
+                    const forwardSet = descriptorPool.allocateDescriptorSet(forwardLayout, 0, 0);
                     if (!forwardSet) {
                         console.log("Cannot create the descriptor sets");
                         return 0;
                     }
                     queuedFrame.forwardSets.push(forwardSet);
-                    Nri_UpdateDescriptor(forwardSet, 0, 0, forwardView);
-                    Nri_UpdateDescriptor(forwardSet, 1, 0, this.textureViews[t]);
-                    Nri_UpdateDescriptor(forwardSet, 1, 1, shadowMapView);
-                    Nri_UpdateDescriptor(forwardSet, 2, 0, linearWrap);
-                    Nri_UpdateDescriptor(forwardSet, 2, 1, comparisonSampler);
+                    forwardSet.updateDescriptor(0, 0, forwardView);
+                    forwardSet.updateDescriptor(1, 0, this.textureViews[t]);
+                    forwardSet.updateDescriptor(1, 1, shadowMapView);
+                    forwardSet.updateDescriptor(2, 0, linearWrap);
+                    forwardSet.updateDescriptor(2, 1, comparisonSampler);
                 }
             }
             for (let i = 0; i < 2; i++) {
                 const thresholdSet = this.createBlurSet(descriptorPool, postLayout, this.hdrViews[i], this.blurStorageViews[0]);
-                const compositeSet = Nri_AllocateDescriptorSet(descriptorPool, compositeLayout, 0, 0);
+                const compositeSet = descriptorPool.allocateDescriptorSet(compositeLayout, 0, 0);
                 if (!thresholdSet || !compositeSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
                 this.thresholdSets.push(thresholdSet);
                 this.compositeSets.push(compositeSet);
-                Nri_UpdateDescriptor(compositeSet, 0, 0, this.hdrViews[i]);
-                Nri_UpdateDescriptor(compositeSet, 0, 1, this.blurViews[BLOOM_INDEX]);
-                Nri_UpdateDescriptor(compositeSet, 1, 0, linearClamp);
+                compositeSet.updateDescriptor(0, 0, this.hdrViews[i]);
+                compositeSet.updateDescriptor(0, 1, this.blurViews[BLOOM_INDEX]);
+                compositeSet.updateDescriptor(1, 0, linearClamp);
             }
             for (let index = 1; index < BLUR_LEVELS; index++) {
                 const blurSet = this.createBlurSet(descriptorPool, postLayout, this.blurViews[index - 1], this.blurStorageViews[index]);
@@ -623,7 +624,7 @@ namespace AsyncComputeBloomNri {
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -631,108 +632,108 @@ namespace AsyncComputeBloomNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
         }
 
         // A bloom pass's set: its input and sampler, its output.
-        createBlurSet(descriptorPool: NriDescriptorPoolHandle, layout: NriPipelineLayoutHandle, input: NriDescriptorHandle,
-            output: NriDescriptorHandle) {
+        createBlurSet(descriptorPool: NriDescriptorPool, layout: NriPipelineLayout, input: NriDescriptor,
+            output: NriDescriptor) {
             const linearClamp = this.linearClamp;
-            const blurSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+            const blurSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
             if (!blurSet || !linearClamp) {
                 return null;
             }
-            Nri_UpdateDescriptor(blurSet, 0, 0, input);
-            Nri_UpdateDescriptor(blurSet, 1, 0, linearClamp);
-            Nri_UpdateDescriptor(blurSet, 2, 0, output);
+            blurSet.updateDescriptor(0, 0, input);
+            blurSet.updateDescriptor(1, 0, linearClamp);
+            blurSet.updateDescriptor(2, 0, output);
             return blurSet;
         }
 
         // The framework's geometry pipeline state: reversed depth (greater), back faces culled,
         // counter-clockwise front faces; plus the sample's depth bias against shadow acne. Positions
         // only, no color.
-        createShadowPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_shadow_vs.bin`, "shadow_vs") != 0;
+        createShadowPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_shadow_vs.bin`, "shadow_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_shadow_ps.bin`, "shadow_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_shadow_ps.bin`, "shadow_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D16_UNORM, NriCompareOp.Greater, 1, 0);
-            Nri_PipelineDescSetDepthBias(desc, SHADOW_DEPTH_BIAS, 0.0, SHADOW_SLOPE_SCALED_DEPTH_BIAS);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setDepth(NriFormat.D16_UNORM, NriCompareOp.Greater, 1, 0);
+            desc.setDepthBias(SHADOW_DEPTH_BIAS, 0.0, SHADOW_SLOPE_SCALED_DEPTH_BIAS);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The forward pass's: into the HDR target (RGBA16F), the framework's geometry state; the
         // blended materials alpha blended (Donut's AlphaBlend).
-        createForwardPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, blend: boolean) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_forward_vs.bin`, "forward_vs") != 0;
+        createForwardPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, blend: boolean) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_forward_vs.bin`, "forward_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_forward_ps.bin`, "forward_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_forward_ps.bin`, "forward_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
             if (blend) {
-                Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+                desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                     NriBlendFactor.OneMinusSrcAlpha, NriBlendFactor.Zero, NriBlendOp.Add);
             }
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The composite's: a triangle over the screen into the swap chain's sRGB view.
-        createCompositePipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_composite_vs.bin`, "composite_vs") != 0;
+        createCompositePipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_composite_vs.bin`, "composite_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_composite_ps.bin`, "composite_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_composite_ps.bin`, "composite_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The scene's base color textures and its draws: every node's primitives, their vertices and
         // indices in one vertex and one index buffer.
-        loadScene(device: NriDeviceHandle) {
-            const scene = Nri_LoadGltfModel(SCENE_PATH);
+        loadScene(device: NriDevice) {
+            const scene = NriGltfModel.load(SCENE_PATH);
             if (!scene) {
                 return false;
             }
             const loaded = this.loadSceneFrom(device, scene);
-            Nri_DestroyGltfModel(scene);
+            scene.destroy();
             return loaded;
         }
 
-        loadSceneFrom(device: NriDeviceHandle, scene: NriGltfModelHandle) {
-            const primitiveCount = Nri_GetGltfModelPrimitiveCount(scene);
+        loadSceneFrom(device: NriDevice, scene: NriGltfModel) {
+            const primitiveCount = scene.getPrimitiveCount();
 
             // The primitives' textures (by image URI) and vertices.
             const imageNames: string[] = [];
@@ -745,7 +746,7 @@ namespace AsyncComputeBloomNri {
             const meshBounds: number[] = [];
             const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
-                const image = Nri_GetGltfModelBaseColorImage(scene, p);
+                const image = scene.getBaseColorImage(p);
                 let texture = -1;
                 for (let t = 0; t < imageNames.length; t++) {
                     if (imageNames[t] == image) {
@@ -758,7 +759,7 @@ namespace AsyncComputeBloomNri {
                 }
                 primitiveTexture.push(texture);
 
-                const mesh = Nri_GetGltfModelPrimitiveMesh(scene, p);
+                const mesh = scene.getPrimitiveMesh(p);
                 if (mesh == meshFirstPrimitive.length) {
                     meshFirstPrimitive.push(p);
                     for (let k = 0; k < 3; k++) {
@@ -769,8 +770,8 @@ namespace AsyncComputeBloomNri {
                     }
                 }
 
-                const vertexCount = Nri_GetGltfModelVertexCount(scene, p);
-                const indexCount = Nri_GetGltfModelIndexCount(scene, p);
+                const vertexCount = scene.getVertexCount(p);
+                const indexCount = scene.getIndexCount(p);
                 const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
@@ -779,8 +780,8 @@ namespace AsyncComputeBloomNri {
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
-                Nri_CopyGltfModelVertices(scene, p, Ref(primitiveVertices[0]));
-                Nri_CopyGltfModelIndices(scene, p, Ref(primitiveIndices[0]));
+                scene.copyVertices(p, Ref(primitiveVertices[0]));
+                scene.copyIndices(p, Ref(primitiveIndices[0]));
 
                 primitiveBaseVertex.push(vertices.length / VERTEX_FLOATS);
                 primitiveFirstIndex.push(indices.length);
@@ -804,27 +805,27 @@ namespace AsyncComputeBloomNri {
             for (const name of imageNames) {
                 const dot = name.lastIndexOf(".");
                 const path = SCENE_DIR + (dot >= 0 ? name.substring(0, dot) : name) + ".dds";
-                const texture = Nri_LoadDdsTexture(device, this.queue, path, 1);
+                const texture = device.loadDdsTexture(this.queue, path, 1);
                 if (!texture) {
                     return false;
                 }
                 this.textures.push(texture);
-                this.textureViews.push(Nri_CreateTextureView(texture, NriFormat.RGBA8_SRGB));
+                this.textureViews.push(texture.createView(NriFormat.RGBA8_SRGB));
             }
 
             // The draws: by mesh, then node, then primitive, as the framework's meshes list their
             // nodes and submeshes.
-            const nodeCount = Nri_GetGltfModelNodeCount(scene);
+            const nodeCount = scene.getNodeCount();
             const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
             for (let mesh = 0; mesh + 1 < meshFirstPrimitive.length; mesh++) {
                 for (let node = 0; node < nodeCount; node++) {
-                    if (Nri_GetGltfModelNodeMesh(scene, node) != mesh) {
+                    if (scene.getNodeMesh(node) != mesh) {
                         continue;
                     }
-                    Nri_CopyGltfModelNodeTransform(scene, node, Ref(transform[0]));
+                    scene.copyNodeTransform(node, Ref(transform[0]));
                     // The mesh's bounds, transformed (their corners), and their center.
                     const low = [HUGE, HUGE, HUGE];
                     const high = [-HUGE, -HUGE, -HUGE];
@@ -840,10 +841,10 @@ namespace AsyncComputeBloomNri {
                     }
                     for (let p = meshFirstPrimitive[mesh]; p < meshFirstPrimitive[mesh + 1]; p++) {
                         this.drawFirstIndex.push(primitiveFirstIndex[p]);
-                        this.drawIndexCount.push(Nri_GetGltfModelIndexCount(scene, p));
+                        this.drawIndexCount.push(scene.getIndexCount(p));
                         this.drawBaseVertex.push(primitiveBaseVertex[p]);
                         this.drawTexture.push(primitiveTexture[p]);
-                        this.drawBlend.push(Nri_GetGltfModelPrimitiveAlphaMode(scene, p) == 2);
+                        this.drawBlend.push(scene.getPrimitiveAlphaMode(p) == 2);
                         for (let k = 0; k < 3; k++) {
                             this.drawCenters.push(0.5 * (low[k] + high[k]));
                         }
@@ -856,8 +857,8 @@ namespace AsyncComputeBloomNri {
                 }
             }
 
-            const vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            const indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
+            const vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            const indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
             this.vertexBuffer = vertexBuffer;
             this.indexBuffer = indexBuffer;
             if (!vertexBuffer || !indexBuffer) {
@@ -870,37 +871,37 @@ namespace AsyncComputeBloomNri {
         latencySleep(frameIndex: int) {
             const queuedFrameNum = this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frameFence.wait(frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
+            queuedFrame.commandAllocator.reset();
             const computeAllocator = queuedFrame.computeAllocator;
             if (computeAllocator) {
-                Nri_ResetCommandAllocator(computeAllocator);
+                computeAllocator.reset();
             }
         }
 
         // The camera (Donut's FirstPersonCamera, the mouse unless the overlay has it) and the time,
         // over the frame's (Donut's test mode: 1/60 s, as a float).
         animate() {
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
-            const mouseFree = !this.imgui || Nri_ImguiWantsMouse() == 0;
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
+            const mouseFree = !this.imgui || NriImgui.wantsMouse() == 0;
             this.camera.animate(this.sample, elapsedSeconds, mouseFree);
             this.elapsedTime += this.benchmark ? BENCHMARK_FRAME_TIME : elapsedSeconds;
         }
 
         // The sample's options window.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
             if (this.hasComputeQueue()) {
-                this.asyncEnabled = Nri_ImguiCheckbox("Enable async queues", this.asyncEnabled ? 1 : 0) != 0;
+                this.asyncEnabled = NriImgui.checkbox("Enable async queues", this.asyncEnabled ? 1 : 0) != 0;
             } else {
-                Nri_ImguiText("No compute queue: no async queues");
+                NriImgui.text("No compute queue: no async queues");
             }
-            this.doubleBufferHdr = Nri_ImguiCheckbox("Double buffer HDR", this.doubleBufferHdr ? 1 : 0) != 0;
-            this.rotateShadows = Nri_ImguiCheckbox("Rotate shadows", this.rotateShadows ? 1 : 0) != 0;
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            this.doubleBufferHdr = NriImgui.checkbox("Double buffer HDR", this.doubleBufferHdr ? 1 : 0) != 0;
+            this.rotateShadows = NriImgui.checkbox("Rotate shadows", this.rotateShadows ? 1 : 0) != 0;
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update: the directional light's (and shadow camera's) orientation, "lots of
@@ -963,13 +964,13 @@ namespace AsyncComputeBloomNri {
             c[CONST_LIGHT_DIRECTION + 1] = -light[9];
             c[CONST_LIGHT_DIRECTION + 2] = -light[10];
             c[CONST_LIGHT_DIRECTION + 3] = 0.0;
-            Nri_WriteBuffer(constantBuffer, (2 * queuedFrameIndex) * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
+            constantBuffer.write((2 * queuedFrameIndex) * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
 
             const donutViewProj = toDonutClip(viewProj);
             for (let i = 0; i < 16; i++) {
                 c[CONST_VIEW_PROJ + i] = donutViewProj[i];
             }
-            Nri_WriteBuffer(constantBuffer, (2 * queuedFrameIndex + 1) * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
+            constantBuffer.write((2 * queuedFrameIndex + 1) * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The framework's GeometrySubpass order, from a camera at (x, y, z): opaque draws front to
@@ -1008,18 +1009,18 @@ namespace AsyncComputeBloomNri {
             }
         }
 
-        // The scene's draws in order (between Nri_CmdBeginRendering... and Nri_CmdEndRendering): the
+        // The scene's draws in order (between NriCommandBuffer.beginRendering... and NriCommandBuffer.endRendering): the
         // forward pass's with their base color texture's set (forwardSets) and the blended ones
         // blended; the shadow pass's with its set (forwardSets empty).
-        drawScene(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle, blendPipeline: NriPipelineHandle,
-            forwardSets: NriDescriptorSetHandle[]) {
+        drawScene(commandBuffer: NriCommandBuffer, pipeline: NriPipeline, blendPipeline: NriPipeline,
+            forwardSets: NriDescriptorSet[]) {
             const vertexBuffer = this.vertexBuffer;
             const indexBuffer = this.indexBuffer;
             if (!vertexBuffer || !indexBuffer) {
                 return;
             }
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
             const forward = forwardSets.length > 0;
             // The blending (-1 before the first draw) and texture set.
             let currentBlend = -1;
@@ -1027,22 +1028,22 @@ namespace AsyncComputeBloomNri {
             for (const d of this.order) {
                 const blend = this.drawBlend[d] ? 1 : 0;
                 if (blend != currentBlend) {
-                    Nri_CmdSetPipeline(commandBuffer, blend == 1 ? blendPipeline : pipeline);
+                    commandBuffer.setPipeline(blend == 1 ? blendPipeline : pipeline);
                     currentBlend = blend;
                 }
                 const texture = forward ? this.drawTexture[d] : 0;
                 if (forward && texture != currentTexture) {
-                    Nri_CmdSetDescriptorSet(commandBuffer, 0, forwardSets[texture]);
+                    commandBuffer.setDescriptorSet(0, forwardSets[texture]);
                     currentTexture = texture;
                 }
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.models[d * MODEL_FLOATS]), MODEL_SIZE);
-                Nri_CmdDrawIndexed(commandBuffer, this.drawIndexCount[d], 1, this.drawFirstIndex[d], this.drawBaseVertex[d], 0);
+                commandBuffer.setRootConstants(0, Ref(this.models[d * MODEL_FLOATS]), MODEL_SIZE);
+                commandBuffer.drawIndexed(this.drawIndexCount[d], 1, this.drawFirstIndex[d], this.drawBaseVertex[d], 0);
             }
         }
 
         // The sample's render_shadow_pass: the scene's depth from the light, into the shadow map
         // (reversed depth, cleared to 0), left for the forward pass to read.
-        renderShadowPass(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        renderShadowPass(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const shadowMap = this.shadowMap;
             const shadowAttachment = this.shadowAttachment;
             const shadowLayout = this.shadowLayout;
@@ -1051,23 +1052,23 @@ namespace AsyncComputeBloomNri {
             if (!shadowMap || !shadowAttachment || !shadowLayout || !shadowPipeline || !shadowSet) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, shadowMap, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-            Nri_CmdBeginRenderingDepthOnly(commandBuffer, shadowAttachment);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, SHADOW_RESOLUTION, SHADOW_RESOLUTION);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, SHADOW_RESOLUTION, SHADOW_RESOLUTION);
-            Nri_CmdSetPipelineLayout(commandBuffer, shadowLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, shadowSet);
+            commandBuffer.textureBarrier(shadowMap, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+            commandBuffer.beginRenderingDepthOnly(shadowAttachment);
+            commandBuffer.clearDepth(0.0);
+            commandBuffer.setViewport(0.0, 0.0, SHADOW_RESOLUTION, SHADOW_RESOLUTION);
+            commandBuffer.setScissor(0, 0, SHADOW_RESOLUTION, SHADOW_RESOLUTION);
+            commandBuffer.setPipelineLayout(shadowLayout);
+            commandBuffer.setDescriptorSet(0, shadowSet);
             // The shadow camera's node is at the origin.
             this.sortDraws(0.0, 0.0, 0.0);
             this.drawScene(commandBuffer, shadowPipeline, shadowPipeline, this.noSets);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, shadowMap, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(shadowMap, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
         }
 
         // The sample's render_forward_offscreen_pass: the lit and shadowed scene into the HDR target,
         // left for the bloom (compute shaders, on either queue) to read.
-        renderForwardPass(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        renderForwardPass(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const hdrDepthAttachment = this.hdrDepthAttachment;
             const forwardLayout = this.forwardLayout;
             const forwardPipeline = this.forwardPipeline;
@@ -1077,12 +1078,12 @@ namespace AsyncComputeBloomNri {
             }
             const hdrIndex = this.hdrIndex;
             this.setHdrState(commandBuffer, hdrIndex, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, this.hdrAttachments[hdrIndex], hdrDepthAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, HDR_WIDTH, HDR_HEIGHT);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, HDR_WIDTH, HDR_HEIGHT);
-            Nri_CmdSetPipelineLayout(commandBuffer, forwardLayout);
+            commandBuffer.beginRenderingWithDepth(this.hdrAttachments[hdrIndex], hdrDepthAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
+            commandBuffer.clearDepth(0.0);
+            commandBuffer.setViewport(0.0, 0.0, HDR_WIDTH, HDR_HEIGHT);
+            commandBuffer.setScissor(0, 0, HDR_WIDTH, HDR_HEIGHT);
+            commandBuffer.setPipelineLayout(forwardLayout);
             const view = this.viewMatrix;
             // The camera's position: -R^T t of its view [R t].
             const position: number[] = [0.0, 0.0, 0.0];
@@ -1093,29 +1094,29 @@ namespace AsyncComputeBloomNri {
             }
             this.sortDraws(position[0], position[1], position[2]);
             this.drawScene(commandBuffer, forwardPipeline, forwardBlendPipeline, queuedFrame.forwardSets);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
             this.setHdrState(commandBuffer, hdrIndex, NriTextureState.ComputeShaderResource);
         }
 
         // A barrier moving HDR target index to state, unless it's in it (or both only read it).
-        setHdrState(commandBuffer: NriCommandBufferHandle, index: int, state: NriTextureState) {
+        setHdrState(commandBuffer: NriCommandBuffer, index: int, state: NriTextureState) {
             if (needsBarrier(this.hdrStates[index], state)) {
-                Nri_CmdTextureBarrier(commandBuffer, this.hdrTargets[index], this.hdrStates[index], state);
+                commandBuffer.textureBarrier(this.hdrTargets[index], this.hdrStates[index], state);
             }
             this.hdrStates[index] = state;
         }
 
         // A barrier moving blur chain texture index to state, unless it's in it (or both only read it).
-        setBlurState(commandBuffer: NriCommandBufferHandle, index: int, state: NriTextureState) {
+        setBlurState(commandBuffer: NriCommandBuffer, index: int, state: NriTextureState) {
             if (needsBarrier(this.blurStates[index], state)) {
-                Nri_CmdTextureBarrier(commandBuffer, this.blurChain[index], this.blurStates[index], state);
+                commandBuffer.textureBarrier(this.blurChain[index], this.blurStates[index], state);
             }
             this.blurStates[index] = state;
         }
 
         // One bloom pass: its input (ComputeShaderResource) read, its output (Storage) written, a
         // thread per texel of the output.
-        dispatchBlurPass(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, blurSet: NriDescriptorSetHandle,
+        dispatchBlurPass(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, blurSet: NriDescriptorSet,
             input: int, output: int, width: int, height: int, inputWidth: int, inputHeight: int) {
             if (!pipeline) {
                 return;
@@ -1125,30 +1126,30 @@ namespace AsyncComputeBloomNri {
             }
             this.setBlurState(commandBuffer, output, NriTextureState.Storage);
             const b = this.blurConstants;
-            Nri_StoreInt32(Ref(b[0]), width);
-            Nri_StoreInt32(Ref(b[1]), height);
+            Nri.storeInt32(Ref(b[0]), width);
+            Nri.storeInt32(Ref(b[1]), height);
             b[2] = 1.0 / width;
             b[3] = 1.0 / height;
             b[4] = 1.0 / inputWidth;
             b[5] = 1.0 / inputHeight;
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, blurSet);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(b[0]), BLUR_SIZE);
-            Nri_CmdDispatch(commandBuffer, Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE),
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setComputeDescriptorSet(0, blurSet);
+            commandBuffer.setComputeRootConstants(0, Ref(b[0]), BLUR_SIZE);
+            commandBuffer.dispatch(Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE),
                 Math.floor((height + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), 1);
         }
 
         // The sample's render_compute_post: "a very basic and dumb HDR Bloom pipeline", a threshold
         // pass into the first blur level, then blurring down the levels and back up to the second
         // (left in Storage, for the composite on the graphics queue to read).
-        renderComputePost(commandBuffer: NriCommandBufferHandle) {
+        renderComputePost(commandBuffer: NriCommandBuffer) {
             const descriptorPool = this.descriptorPool;
             const postLayout = this.postLayout;
             if (!descriptorPool || !postLayout) {
                 return;
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, postLayout);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setComputePipelineLayout(postLayout);
             this.dispatchBlurPass(commandBuffer, this.thresholdPipeline, this.thresholdSets[this.hdrIndex], -1, 0,
                 levelWidth(1), levelHeight(1), HDR_WIDTH, HDR_HEIGHT);
             for (let index = 1; index < BLUR_LEVELS; index++) {
@@ -1165,7 +1166,7 @@ namespace AsyncComputeBloomNri {
         // The sample's render_swapchain: the HDR frame and the bloom to pixel shader resources (on
         // the graphics queue: a D3D12 compute queue can't take them there), the composite into the
         // swap chain texture, the overlay over it; then the test's read back.
-        recordComposite(commandBuffer: NriCommandBufferHandle, index: int, frameIndex: int) {
+        recordComposite(commandBuffer: NriCommandBuffer, index: int, frameIndex: int) {
             const descriptorPool = this.descriptorPool;
             const compositeLayout = this.compositeLayout;
             const compositePipeline = this.compositePipeline;
@@ -1174,42 +1175,42 @@ namespace AsyncComputeBloomNri {
             }
             this.setHdrState(commandBuffer, this.hdrIndex, NriTextureState.ShaderResource);
             this.setBlurState(commandBuffer, BLOOM_INDEX, NriTextureState.ShaderResource);
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, compositeLayout);
-            Nri_CmdSetPipeline(commandBuffer, compositePipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, this.compositeSets[this.hdrIndex]);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(compositeLayout);
+            commandBuffer.setPipeline(compositePipeline);
+            commandBuffer.setDescriptorSet(0, this.compositeSets[this.hdrIndex]);
+            commandBuffer.draw(3, 1, 0, 0);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImgui(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
         }
 
         // The scene's passes: the shadow map, the HDR frame; the bloom's output back to Storage from
         // the last composite's reading (on the graphics queue, as its reading state is one a D3D12
         // compute queue can't leave).
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordScene(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const descriptorPool = this.descriptorPool;
             if (!descriptorPool) {
                 return;
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.setDescriptorPool(descriptorPool);
             this.renderShadowPass(commandBuffer, queuedFrame);
             this.renderForwardPass(commandBuffer, queuedFrame);
             this.setBlurState(commandBuffer, BLOOM_INDEX, NriTextureState.Storage);
@@ -1223,7 +1224,7 @@ namespace AsyncComputeBloomNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -1259,16 +1260,16 @@ namespace AsyncComputeBloomNri {
 
                 // The scene on the graphics queue; the bloom after it, on the same command buffer
                 // without async queues.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordScene(commandBuffer, queuedFrame);
                 if (!asyncQueues) {
                     this.renderComputePost(commandBuffer);
                     if (this.imgui) {
-                        Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                        this.sample.copyImguiData(commandBuffer);
                     }
                     this.recordComposite(commandBuffer, index, frameIndex);
                 }
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.end();
 
                 if (!asyncQueues) {
                     this.swapChain.submit(commandBuffer, index);
@@ -1276,18 +1277,18 @@ namespace AsyncComputeBloomNri {
                     this.submitAsync(frameIndex, queuedFrame, index);
                 }
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.queue.signal(this.frameFence, 1 + frameIndex);
         }
 
         // With async queues: the scene's submission signals the graphics fence; the bloom on the
         // compute queue waits for it and signals the compute fence; the composite waits for that
-        // (Nri_QueueWait), then for the swap chain texture, and presents (Donut's
+        // (NriQueue.wait), then for the swap chain texture, and presents (Donut's
         // executeFrameComputeWork).
         submitAsync(frameIndex: int, queuedFrame: QueuedFrame, index: int) {
             const computeQueue = this.computeQueue;
@@ -1297,21 +1298,21 @@ namespace AsyncComputeBloomNri {
             if (!computeQueue || !computeCommandBuffer || !graphicsFence || !computeFence) {
                 return;
             }
-            Nri_QueueSubmitWithFences(this.queue, queuedFrame.commandBuffer, null, 0, graphicsFence, 1 + frameIndex);
+            this.queue.submitWithFences(queuedFrame.commandBuffer, null, 0, graphicsFence, 1 + frameIndex);
 
-            Nri_BeginCommandBuffer(computeCommandBuffer);
+            computeCommandBuffer.begin();
             this.renderComputePost(computeCommandBuffer);
-            Nri_EndCommandBuffer(computeCommandBuffer);
-            Nri_QueueSubmitWithFences(computeQueue, computeCommandBuffer, graphicsFence, 1 + frameIndex, computeFence, 1 + frameIndex);
+            computeCommandBuffer.end();
+            computeQueue.submitWithFences(computeCommandBuffer, graphicsFence, 1 + frameIndex, computeFence, 1 + frameIndex);
 
             const compositeCommandBuffer = queuedFrame.compositeCommandBuffer;
-            Nri_BeginCommandBuffer(compositeCommandBuffer);
+            compositeCommandBuffer.begin();
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, compositeCommandBuffer);
+                this.sample.copyImguiData(compositeCommandBuffer);
             }
             this.recordComposite(compositeCommandBuffer, index, frameIndex);
-            Nri_EndCommandBuffer(compositeCommandBuffer);
-            Nri_QueueWait(this.queue, computeFence, 1 + frameIndex);
+            compositeCommandBuffer.end();
+            this.queue.wait(computeFence, 1 + frameIndex);
             this.swapChain.submit(compositeCommandBuffer, index);
         }
 
@@ -1322,12 +1323,12 @@ namespace AsyncComputeBloomNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1337,44 +1338,44 @@ namespace AsyncComputeBloomNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandBuffer(queuedFrame.compositeCommandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
+                    queuedFrame.commandBuffer.destroy();
+                    queuedFrame.compositeCommandBuffer.destroy();
+                    queuedFrame.commandAllocator.destroy();
                     const computeCommandBuffer = queuedFrame.computeCommandBuffer;
                     if (computeCommandBuffer) {
-                        Nri_DestroyCommandBuffer(computeCommandBuffer);
+                        computeCommandBuffer.destroy();
                     }
                     const computeAllocator = queuedFrame.computeAllocator;
                     if (computeAllocator) {
-                        Nri_DestroyCommandAllocator(computeAllocator);
+                        computeAllocator.destroy();
                     }
                     this.destroyDescriptor(queuedFrame.shadowView);
                     this.destroyDescriptor(queuedFrame.forwardView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const view of this.textureViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const texture of this.textures) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
                 for (let i = 0; i < this.hdrTargets.length; i++) {
-                    Nri_DestroyDescriptor(this.hdrAttachments[i]);
-                    Nri_DestroyDescriptor(this.hdrViews[i]);
-                    Nri_DestroyTexture(this.hdrTargets[i]);
+                    this.hdrAttachments[i].destroy();
+                    this.hdrViews[i].destroy();
+                    this.hdrTargets[i].destroy();
                 }
                 for (let i = 0; i < this.blurChain.length; i++) {
-                    Nri_DestroyDescriptor(this.blurViews[i]);
-                    Nri_DestroyDescriptor(this.blurStorageViews[i]);
-                    Nri_DestroyTexture(this.blurChain[i]);
+                    this.blurViews[i].destroy();
+                    this.blurStorageViews[i].destroy();
+                    this.blurChain[i].destroy();
                 }
                 this.destroyDescriptor(this.shadowAttachment);
                 this.destroyDescriptor(this.shadowMapView);
@@ -1401,64 +1402,64 @@ namespace AsyncComputeBloomNri {
                 this.destroyLayout(this.compositeLayout);
                 this.destroyFence(this.graphicsFence);
                 this.destroyFence(this.computeFence);
-                Nri_DestroyFence(this.frameFence);
+                this.frameFence.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
 
-        destroyFence(fence: NriFenceHandle | null) {
+        destroyFence(fence: NriFence | null) {
             if (fence) {
-                Nri_DestroyFence(fence);
+                fence.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const bloom = new AsyncComputeBloom(sample);
         // -async, -doublebuffer, -norotate: the settings' initial values; -benchmark: simulated at 60
         // frames per second whatever the frame rate, as the sample's --benchmark; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-async");
-        Nri_AddExampleOption(sample, "-doublebuffer");
-        Nri_AddExampleOption(sample, "-norotate");
-        Nri_AddExampleOption(sample, "-benchmark");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-async");
+        sample.addExampleOption("-doublebuffer");
+        sample.addExampleOption("-norotate");
+        sample.addExampleOption("-benchmark");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-async") {
                 bloom.asyncEnabled = true;
             } else if (arg == "-doublebuffer") {

@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { inverseGaussJordan, multiply, radians, rotation, samplePerspective, translation, transpose } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfModel, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace GshaderToMshaderNri {
     // gshader_to_mshader, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -19,7 +20,7 @@ namespace GshaderToMshaderNri {
     // in CMakeLists.txt): its first mesh's first primitive, the node's scale ignored.
     const MODEL_PATH = "media/gshader_to_mshader/teapot.gltf";
 
-    // Nri_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriGltfModel.load's vertices: float3 position, float3 normal, float2 texture coordinates.
     const GLTF_VERTEX_FLOATS = 8;
     // The model's vertex buffer: float3 position, float3 normal (the framework's Vertex, as the
     // sample's input layout reads it).
@@ -174,8 +175,8 @@ namespace GshaderToMshaderNri {
     // and the geometry shader's (the constants), the mesh shader's (the constants, meshlets and
     // vertices; null without mesh shaders).
     class QueuedFrame {
-        constructor(public constantBufferView: NriDescriptorHandle, public modelSet: NriDescriptorSetHandle,
-            public meshSet: NriDescriptorSetHandle | null) {
+        constructor(public constantBufferView: NriDescriptor, public modelSet: NriDescriptorSet,
+            public meshSet: NriDescriptorSet | null) {
         }
     }
 
@@ -185,27 +186,27 @@ namespace GshaderToMshaderNri {
     // group per meshlet of the index buffer, reading the vertices and the meshlets from structured
     // buffers).
     class GshaderToMshader {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private modelLayout: NriPipelineLayoutHandle | null = null;
-        private meshLayout: NriPipelineLayoutHandle | null = null;
-        private modelPipeline: NriPipelineHandle | null = null;
-        private geometryPipeline: NriPipelineHandle | null = null;
-        private meshPipeline: NriPipelineHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private meshletBuffer: NriBufferHandle | null = null;
-        private alignedVertexBuffer: NriBufferHandle | null = null;
-        private meshletView: NriDescriptorHandle | null = null;
-        private alignedVertexView: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private modelLayout: NriPipelineLayout | null = null;
+        private meshLayout: NriPipelineLayout | null = null;
+        private modelPipeline: NriPipeline | null = null;
+        private geometryPipeline: NriPipeline | null = null;
+        private meshPipeline: NriPipeline | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private meshletBuffer: NriBuffer | null = null;
+        private alignedVertexBuffer: NriBuffer | null = null;
+        private meshletView: NriDescriptor | null = null;
+        private alignedVertexView: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private indexCount: int = 0;
         private meshletCount: int = 0;
         private imgui: boolean = false;
@@ -236,11 +237,11 @@ namespace GshaderToMshaderNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -254,11 +255,11 @@ namespace GshaderToMshaderNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -269,20 +270,20 @@ namespace GshaderToMshaderNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the
             // Donut example blits into its back buffer).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -293,7 +294,7 @@ namespace GshaderToMshaderNri {
                 return 0;
             }
 
-            this.meshShadersSupported = Nri_IsFeatureSupported(device, NriFeature.MeshShader) != 0;
+            this.meshShadersSupported = device.isFeatureSupported(NriFeature.MeshShader) != 0;
             if (!this.meshShadersSupported) {
                 console.log("The device has no mesh shaders: the normals are drawn by the geometry shader only");
                 this.showNormalsMesh = false;
@@ -305,21 +306,21 @@ namespace GshaderToMshaderNri {
 
             // The sample's descriptor set, split by pipeline: the uniforms for the model's and the
             // geometry shader's; the uniforms, meshlets and vertices for the mesh shader's.
-            const modelLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(modelLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexGeometry, NriRangeFlags.None);
-            const modelLayout = Nri_CreatePipelineLayoutFromDesc(device, modelLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(modelLayoutDesc);
+            const modelLayoutDesc = NriPipelineLayoutDesc.create();
+            modelLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexGeometry, NriRangeFlags.None);
+            const modelLayout = device.createPipelineLayoutFromDesc(modelLayoutDesc);
+            modelLayoutDesc.destroy();
             this.modelLayout = modelLayout;
             if (!modelLayout) {
                 console.log("Cannot create the pipeline layout");
                 return 0;
             }
             if (this.meshShadersSupported) {
-                const meshLayoutDesc = Nri_CreatePipelineLayoutDesc();
-                Nri_PipelineLayoutDescAddRange(meshLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Mesh, NriRangeFlags.None);
-                Nri_PipelineLayoutDescAddRange(meshLayoutDesc, 0, 0, 2, NriDescriptorType.StructuredBuffer, NriStage.Mesh, NriRangeFlags.None);
-                this.meshLayout = Nri_CreatePipelineLayoutFromDesc(device, meshLayoutDesc);
-                Nri_DestroyPipelineLayoutDesc(meshLayoutDesc);
+                const meshLayoutDesc = NriPipelineLayoutDesc.create();
+                meshLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Mesh, NriRangeFlags.None);
+                meshLayoutDesc.addRange(0, 0, 2, NriDescriptorType.StructuredBuffer, NriStage.Mesh, NriRangeFlags.None);
+                this.meshLayout = device.createPipelineLayoutFromDesc(meshLayoutDesc);
+                meshLayoutDesc.destroy();
                 if (!this.meshLayout) {
                     console.log("Cannot create the pipeline layout");
                     return 0;
@@ -341,10 +342,10 @@ namespace GshaderToMshaderNri {
             }
 
             // The constants, a queued frame's each; a queued frame's descriptor sets.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setsPerFrame = this.meshShadersSupported ? 2 : 1;
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, setsPerFrame * queuedFrameNum, 0,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(setsPerFrame * queuedFrameNum, 0,
                 setsPerFrame * queuedFrameNum, 0, 0, 2 * queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
@@ -353,13 +354,13 @@ namespace GshaderToMshaderNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantBufferView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
-                const modelSet = Nri_AllocateDescriptorSet(descriptorPool, modelLayout, 0, 0);
+                const constantBufferView = constantBuffer.createConstantView(i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
+                const modelSet = descriptorPool.allocateDescriptorSet(modelLayout, 0, 0);
                 if (!constantBufferView || !modelSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(modelSet, 0, 0, constantBufferView);
+                modelSet.updateDescriptor(0, 0, constantBufferView);
                 const meshSet = this.createMeshSet(descriptorPool, constantBufferView);
                 this.queuedFrames.push(new QueuedFrame(constantBufferView,
                     modelSet, meshSet));
@@ -367,7 +368,7 @@ namespace GshaderToMshaderNri {
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -375,9 +376,9 @@ namespace GshaderToMshaderNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -385,14 +386,14 @@ namespace GshaderToMshaderNri {
 
         // The model: the framework's glTF loader's vertices (positions, normals normalized) and
         // indices; with mesh shaders, its meshlets and its vertices aligned to float4s.
-        loadModel(device: NriDeviceHandle) {
-            const model = Nri_LoadGltfModel(MODEL_PATH);
+        loadModel(device: NriDevice) {
+            const model = NriGltfModel.load(MODEL_PATH);
             if (!model) {
                 console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return false;
             }
-            const vertexCount = Nri_GetGltfModelVertexCount(model, 0);
-            this.indexCount = Nri_GetGltfModelIndexCount(model, 0);
+            const vertexCount = model.getVertexCount(0);
+            this.indexCount = model.getIndexCount(0);
             const gltfVertices: f32[] = [];
             for (let i = 0; i < vertexCount * GLTF_VERTEX_FLOATS; i++) {
                 gltfVertices.push(0.0);
@@ -401,9 +402,9 @@ namespace GshaderToMshaderNri {
             for (let i = 0; i < this.indexCount; i++) {
                 indices.push(0);
             }
-            Nri_CopyGltfModelVertices(model, 0, Ref(gltfVertices[0]));
-            Nri_CopyGltfModelIndices(model, 0, Ref(indices[0]));
-            Nri_DestroyGltfModel(model);
+            model.copyVertices(0, Ref(gltfVertices[0]));
+            model.copyIndices(0, Ref(indices[0]));
+            model.destroy();
 
             const vertices: f32[] = [];
             const alignedVertices: f32[] = [];
@@ -428,9 +429,9 @@ namespace GshaderToMshaderNri {
                 alignedVertices.push(nz * inverseLength);
                 alignedVertices.push(0.0);
             }
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertexCount * VERTEX_FLOATS * 4,
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertexCount * VERTEX_FLOATS * 4,
                 NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), this.indexCount * 4,
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), this.indexCount * 4,
                 NriBufferUsage.IndexBuffer);
             if (!this.vertexBuffer || !this.indexBuffer) {
                 console.log("Cannot create the model's buffers");
@@ -442,9 +443,9 @@ namespace GshaderToMshaderNri {
 
             const meshlets = prepareMeshlets(indices, this.indexCount, vertexCount);
             this.meshletCount = meshlets.length / MESHLET_UINTS;
-            const meshletBuffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(meshlets[0]), meshlets.length * 4,
+            const meshletBuffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(meshlets[0]), meshlets.length * 4,
                 MESHLET_UINTS * 4);
-            const alignedVertexBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(alignedVertices[0]),
+            const alignedVertexBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(alignedVertices[0]),
                 alignedVertices.length * 4, ALIGNED_VERTEX_FLOATS * 4);
             this.meshletBuffer = meshletBuffer;
             this.alignedVertexBuffer = alignedVertexBuffer;
@@ -452,8 +453,8 @@ namespace GshaderToMshaderNri {
                 console.log("Cannot create the meshlets' buffers");
                 return false;
             }
-            const meshletView = Nri_CreateStructuredBufferView(meshletBuffer, 0);
-            const alignedVertexView = Nri_CreateStructuredBufferView(alignedVertexBuffer, 0);
+            const meshletView = meshletBuffer.createStructuredView(0);
+            const alignedVertexView = alignedVertexBuffer.createStructuredView(0);
             this.meshletView = meshletView;
             this.alignedVertexView = alignedVertexView;
             if (!meshletView || !alignedVertexView) {
@@ -465,68 +466,68 @@ namespace GshaderToMshaderNri {
 
         // A queued frame's mesh shader set: its constants, the meshlets and the aligned vertices; null
         // without mesh shaders.
-        createMeshSet(descriptorPool: NriDescriptorPoolHandle, constantBufferView: NriDescriptorHandle): NriDescriptorSetHandle | null {
+        createMeshSet(descriptorPool: NriDescriptorPool, constantBufferView: NriDescriptor): NriDescriptorSet | null {
             const meshLayout = this.meshLayout;
             const meshletView = this.meshletView;
             const alignedVertexView = this.alignedVertexView;
             if (!meshLayout || !meshletView || !alignedVertexView) {
                 return null;
             }
-            const meshSet = Nri_AllocateDescriptorSet(descriptorPool, meshLayout, 0, 0);
+            const meshSet = descriptorPool.allocateDescriptorSet(meshLayout, 0, 0);
             if (!meshSet) {
                 return null;
             }
-            Nri_UpdateDescriptor(meshSet, 0, 0, constantBufferView);
-            Nri_UpdateDescriptor(meshSet, 1, 0, meshletView);
-            Nri_UpdateDescriptor(meshSet, 1, 1, alignedVertexView);
+            meshSet.updateDescriptor(0, 0, constantBufferView);
+            meshSet.updateDescriptor(1, 0, meshletView);
+            meshSet.updateDescriptor(1, 1, alignedVertexView);
             return meshSet;
         }
 
         // The model's pipelines (geometry shader "" for none): the model's positions and normals in;
         // reversed depth (greater passes), no culling.
-        createPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, vs: string, gs: string, ps: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
+        createPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, vs: string, gs: string, ps: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
             if (loaded && gs != "") {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Geometry, `${shaders}_${gs}.bin`, gs) != 0;
+                loaded = desc.addShader(NriShaderStage.Geometry, `${shaders}_${gs}.bin`, gs) != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The normals, by the mesh shader (no task shader: a group per meshlet), lines out; false if
         // it can't be created (true without mesh shaders).
-        createMeshPipeline(device: NriDeviceHandle, shaders: string) {
+        createMeshPipeline(device: NriDevice, shaders: string) {
             const meshLayout = this.meshLayout;
             if (!meshLayout) {
                 return true;
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Mesh, `${shaders}_normals_ms.bin`, "normals_ms") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Mesh, `${shaders}_normals_ms.bin`, "normals_ms") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_mesh_ps.bin`, "mesh_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_mesh_ps.bin`, "mesh_ps") != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.LineList);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setTopology(NriTopology.LineList);
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, meshLayout, desc);
+                pipeline = device.createPipelineFromDesc(meshLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             this.meshPipeline = pipeline;
             if (!pipeline) {
                 return false;
@@ -543,11 +544,11 @@ namespace GshaderToMshaderNri {
         // the right one zooms, with the middle one pans (the cursor's position as the Donut
         // example's callbacks give it; not while the overlay has the mouse).
         handleMouse() {
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
-            const mouseFree = !this.imgui || Nri_ImguiWantsMouse() == 0;
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
+            const mouseFree = !this.imgui || NriImgui.wantsMouse() == 0;
             for (let button = 0; button < 3; button++) {
-                this.buttons[button] = mouseFree && Nri_IsButtonPressed(this.sample, button) != 0;
+                this.buttons[button] = mouseFree && this.sample.isButtonPressed(button) != 0;
             }
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
@@ -589,36 +590,36 @@ namespace GshaderToMshaderNri {
                 c[CONST_PROJECTION + i] = projection[i];
                 c[CONST_NORMAL + i] = normal[i];
             }
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
+            constantBuffer.write(queuedFrameIndex * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The sample's overlay (its title, ApiVulkanSample's default): one normals checkbox at a
         // time, checking one unchecks the other.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                const showNormalsGeo = Nri_ImguiCheckbox("Display normals - gshader", this.showNormalsGeo ? 1 : 0) != 0;
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                const showNormalsGeo = NriImgui.checkbox("Display normals - gshader", this.showNormalsGeo ? 1 : 0) != 0;
                 if (showNormalsGeo != this.showNormalsGeo) {
                     this.showNormalsGeo = showNormalsGeo;
                     this.showNormalsMesh = false;
                 }
                 if (this.meshShadersSupported) {
-                    const showNormalsMesh = Nri_ImguiCheckbox("Display normals - mshader", this.showNormalsMesh ? 1 : 0) != 0;
+                    const showNormalsMesh = NriImgui.checkbox("Display normals - mshader", this.showNormalsMesh ? 1 : 0) != 0;
                     if (showNormalsMesh != this.showNormalsMesh) {
                         this.showNormalsMesh = showNormalsMesh;
                         this.showNormalsGeo = false;
                     }
                 }
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The lit model, and the normals by the geometry or mesh shader (between
-        // Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const descriptorPool = this.descriptorPool;
             const modelLayout = this.modelLayout;
             const modelPipeline = this.modelPipeline;
@@ -628,19 +629,19 @@ namespace GshaderToMshaderNri {
             if (!descriptorPool || !modelLayout || !modelPipeline || !geometryPipeline || !vertexBuffer || !indexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, modelLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.modelSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_FLOATS * 4);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetPipeline(commandBuffer, modelPipeline);
-            Nri_CmdDrawIndexed(commandBuffer, this.indexCount, 1, 0, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(modelLayout);
+            commandBuffer.setDescriptorSet(0, queuedFrame.modelSet);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_FLOATS * 4);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setPipeline(modelPipeline);
+            commandBuffer.drawIndexed(this.indexCount, 1, 0, 0, 0);
 
             if (this.showNormalsGeo) {
-                Nri_CmdSetPipeline(commandBuffer, geometryPipeline);
-                Nri_CmdDrawIndexed(commandBuffer, this.indexCount, 1, 0, 0, 0);
+                commandBuffer.setPipeline(geometryPipeline);
+                commandBuffer.drawIndexed(this.indexCount, 1, 0, 0, 0);
             }
             if (this.showNormalsMesh) {
                 this.recordMeshNormals(commandBuffer, queuedFrame);
@@ -648,17 +649,17 @@ namespace GshaderToMshaderNri {
         }
 
         // The normals by the mesh shader: a group per meshlet.
-        recordMeshNormals(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordMeshNormals(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const meshLayout = this.meshLayout;
             const meshPipeline = this.meshPipeline;
             const meshSet = queuedFrame.meshSet;
             if (!meshLayout || !meshPipeline || !meshSet) {
                 return;
             }
-            Nri_CmdSetPipelineLayout(commandBuffer, meshLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, meshSet);
-            Nri_CmdSetPipeline(commandBuffer, meshPipeline);
-            Nri_CmdDrawMeshTasks(commandBuffer, this.meshletCount, 1, 1);
+            commandBuffer.setPipelineLayout(meshLayout);
+            commandBuffer.setDescriptorSet(0, meshSet);
+            commandBuffer.setPipeline(meshPipeline);
+            commandBuffer.drawMeshTasks(this.meshletCount, 1, 1);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -671,31 +672,31 @@ namespace GshaderToMshaderNri {
         }
 
         // The depth buffer at the swap chain's size.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 console.log("Cannot create the depth buffer");
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -705,7 +706,7 @@ namespace GshaderToMshaderNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -731,22 +732,22 @@ namespace GshaderToMshaderNri {
 
                 // Record: cleared (reversed depth: the far plane is 0), the model and its normals,
                 // the overlay over them.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraw(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 if (this.imgui) {
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -754,18 +755,18 @@ namespace GshaderToMshaderNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -781,12 +782,12 @@ namespace GshaderToMshaderNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -796,23 +797,23 @@ namespace GshaderToMshaderNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyDescriptor(queuedFrame.constantBufferView);
+                    queuedFrame.constantBufferView.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.meshletView);
                 this.destroyDescriptor(this.alignedVertexView);
                 this.destroyDescriptor(this.depthAttachment);
                 const depthTexture = this.depthTexture;
                 if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
+                    depthTexture.destroy();
                 }
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.vertexBuffer);
@@ -827,48 +828,48 @@ namespace GshaderToMshaderNri {
                 this.destroyLayout(this.meshLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const gshaderToMshader = new GshaderToMshader(sample);
         // -gshader / -mshader: start with the normals drawn by the geometry / mesh shader; -noUI: no
         // overlay.
-        Nri_AddExampleOption(sample, "-gshader");
-        Nri_AddExampleOption(sample, "-mshader");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-gshader");
+        sample.addExampleOption("-mshader");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-gshader") {
                 gshaderToMshader.showNormalsGeo = true;
                 gshaderToMshader.showNormalsMesh = false;

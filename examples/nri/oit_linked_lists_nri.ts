@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, radians, samplePerspective } from "../../core/matrix";
 import { MsvcRandom } from "../../core/random";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace OitLinkedListsNri {
     // oit_linked_lists, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -24,7 +25,7 @@ namespace OitLinkedListsNri {
     const MODEL_PATH = "media/oit_linked_lists/geosphere.gltf";
     const BACKGROUND_PATH = "media/oit_linked_lists/vulkan_logo_full.dds";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // The sample's grid of transparent spheres: rows (x) by columns (y) by layers (z), one unit
@@ -86,9 +87,9 @@ namespace OitLinkedListsNri {
     // pass's, the background's, the combine pass's) and the view of its slice of the scene
     // constants.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public gatherSet: NriDescriptorSetHandle | null, public backgroundSet: NriDescriptorSetHandle | null,
-            public combineSet: NriDescriptorSetHandle | null, public sceneView: NriDescriptorHandle | null) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public gatherSet: NriDescriptorSet | null, public backgroundSet: NriDescriptorSet | null,
+            public combineSet: NriDescriptorSet | null, public sceneView: NriDescriptor | null) {
         }
     }
 
@@ -136,36 +137,36 @@ namespace OitLinkedListsNri {
     // for the next frame as it goes. Drawn straight into the sRGB swap chain view, as the Donut
     // example draws into its back buffer.
     class OitLinkedLists {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private gatherLayout: NriPipelineLayoutHandle | null = null;
-        private backgroundLayout: NriPipelineLayoutHandle | null = null;
-        private combineLayout: NriPipelineLayoutHandle | null = null;
+        private gatherLayout: NriPipelineLayout | null = null;
+        private backgroundLayout: NriPipelineLayout | null = null;
+        private combineLayout: NriPipelineLayout | null = null;
         // Why the example can't run on the device (empty when it can).
         private unsupportedReason: string = "";
-        private gatherPipeline: NriPipelineHandle | null = null;
-        private backgroundPipeline: NriPipelineHandle | null = null;
-        private combinePipeline: NriPipelineHandle | null = null;
-        private mesh: NriGltfMeshHandle | null = null;
-        private background: NriTextureHandle | null = null;
-        private backgroundView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private sceneConstantBuffer: NriBufferHandle | null = null;
-        private instanceConstantBuffer: NriBufferHandle | null = null;
-        private instanceView: NriDescriptorHandle | null = null;
+        private gatherPipeline: NriPipeline | null = null;
+        private backgroundPipeline: NriPipeline | null = null;
+        private combinePipeline: NriPipeline | null = null;
+        private mesh: NriGltfMesh | null = null;
+        private background: NriTexture | null = null;
+        private backgroundView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private sceneConstantBuffer: NriBuffer | null = null;
+        private instanceConstantBuffer: NriBuffer | null = null;
+        private instanceView: NriDescriptor | null = null;
         // The lists, for the window's size: a head per pixel, the fragments and their counter.
-        private linkedListHead: NriTextureHandle | null = null;
-        private linkedListHeadView: NriDescriptorHandle | null = null;
-        private fragmentBuffer: NriBufferHandle | null = null;
-        private fragmentBufferView: NriDescriptorHandle | null = null;
-        private fragmentCounter: NriBufferHandle | null = null;
-        private fragmentCounterView: NriDescriptorHandle | null = null;
+        private linkedListHead: NriTexture | null = null;
+        private linkedListHeadView: NriDescriptor | null = null;
+        private fragmentBuffer: NriBuffer | null = null;
+        private fragmentBufferView: NriDescriptor | null = null;
+        private fragmentCounter: NriBuffer | null = null;
+        private fragmentCounterView: NriDescriptor | null = null;
         private fragmentMaxCount: int = 0;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -195,11 +196,11 @@ namespace OitLinkedListsNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -213,13 +214,13 @@ namespace OitLinkedListsNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -232,19 +233,19 @@ namespace OitLinkedListsNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as Donut's (sRGB) back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -260,46 +261,46 @@ namespace OitLinkedListsNri {
                 return 0;
             }
 
-            this.mesh = Nri_LoadGltfMesh(device, this.queue, MODEL_PATH);
-            const background = Nri_LoadDdsTexture(device, this.queue, BACKGROUND_PATH, 1);
+            this.mesh = device.loadGltfMesh(this.queue, MODEL_PATH);
+            const background = device.loadDdsTexture(this.queue, BACKGROUND_PATH, 1);
             this.background = background;
             if (!this.mesh || !background) {
                 console.log("Cannot load the model and the background: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const backgroundView = Nri_CreateTextureView(background, NriFormat.RGBA8_SRGB);
+            const backgroundView = background.createView(NriFormat.RGBA8_SRGB);
             this.backgroundView = backgroundView;
             // Donut's LinearWrap: linear, repeating (one mip level, as the sample's texture).
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
 
             // The sample's descriptor set, split by pass as the Donut example does: the gather pass's
             // scene and instance uniforms, list heads, fragment buffer and counter; the background's
             // scene uniform, texture and sampler; the combine pass's scene uniform, list heads,
             // fragments and counter.
-            const gatherLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 1, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 2, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 3, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            this.gatherLayout = Nri_CreatePipelineLayoutFromDesc(device, gatherLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(gatherLayoutDesc);
+            const gatherLayoutDesc = NriPipelineLayoutDesc.create();
+            gatherLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            gatherLayoutDesc.addRange(0, 1, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            gatherLayoutDesc.addRange(0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
+            gatherLayoutDesc.addRange(0, 2, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            gatherLayoutDesc.addRange(0, 3, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            this.gatherLayout = device.createPipelineLayoutFromDesc(gatherLayoutDesc);
+            gatherLayoutDesc.destroy();
 
-            const backgroundLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            this.backgroundLayout = Nri_CreatePipelineLayoutFromDesc(device, backgroundLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(backgroundLayoutDesc);
+            const backgroundLayoutDesc = NriPipelineLayoutDesc.create();
+            backgroundLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            backgroundLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            backgroundLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            this.backgroundLayout = device.createPipelineLayoutFromDesc(backgroundLayoutDesc);
+            backgroundLayoutDesc.destroy();
 
-            const combineLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 2, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 3, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            this.combineLayout = Nri_CreatePipelineLayoutFromDesc(device, combineLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(combineLayoutDesc);
+            const combineLayoutDesc = NriPipelineLayoutDesc.create();
+            combineLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            combineLayoutDesc.addRange(0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
+            combineLayoutDesc.addRange(0, 2, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            combineLayoutDesc.addRange(0, 3, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            this.combineLayout = device.createPipelineLayoutFromDesc(combineLayoutDesc);
+            combineLayoutDesc.destroy();
 
             const gatherLayout = this.gatherLayout;
             const backgroundLayout = this.backgroundLayout;
@@ -327,8 +328,8 @@ namespace OitLinkedListsNri {
 
             // The uniforms: the scene's, a queued frame's each; the instances', written once (the
             // sample's fill_instance_data).
-            const sceneConstantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
-            const instanceConstantBuffer = Nri_CreateHostBuffer(device, INSTANCE_BYTES, NriBufferUsage.ConstantBuffer);
+            const sceneConstantBuffer = device.createHostBuffer(queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const instanceConstantBuffer = device.createHostBuffer(INSTANCE_BYTES, NriBufferUsage.ConstantBuffer);
             this.sceneConstantBuffer = sceneConstantBuffer;
             this.instanceConstantBuffer = instanceConstantBuffer;
             if (!sceneConstantBuffer || !instanceConstantBuffer) {
@@ -336,7 +337,7 @@ namespace OitLinkedListsNri {
                 return 0;
             }
             this.fillInstanceData(instanceConstantBuffer);
-            const instanceView = Nri_CreateConstantBufferView(instanceConstantBuffer, 0, INSTANCE_BYTES);
+            const instanceView = instanceConstantBuffer.createConstantView(0, INSTANCE_BYTES);
             this.instanceView = instanceView;
 
             // The lists, for the window's size.
@@ -352,7 +353,7 @@ namespace OitLinkedListsNri {
             }
 
             // A queued frame's descriptor sets.
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 3 * queuedFrameNum, queuedFrameNum, 4 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(3 * queuedFrameNum, queuedFrameNum, 4 * queuedFrameNum,
                 queuedFrameNum, 2 * queuedFrameNum, 0, 4 * queuedFrameNum, 0);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
@@ -361,33 +362,33 @@ namespace OitLinkedListsNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const sceneView = Nri_CreateConstantBufferView(sceneConstantBuffer, i * CONST_STRIDE, CONST_STRIDE);
-                const gatherSet = Nri_AllocateDescriptorSet(descriptorPool, gatherLayout, 0, 0);
-                const backgroundSet = Nri_AllocateDescriptorSet(descriptorPool, backgroundLayout, 0, 0);
-                const combineSet = Nri_AllocateDescriptorSet(descriptorPool, combineLayout, 0, 0);
+                const sceneView = sceneConstantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
+                const gatherSet = descriptorPool.allocateDescriptorSet(gatherLayout, 0, 0);
+                const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
+                const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), gatherSet, backgroundSet,
                     combineSet, sceneView));
                 if (!sceneView || !gatherSet || !backgroundSet || !combineSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(gatherSet, 0, 0, sceneView);
-                Nri_UpdateDescriptor(gatherSet, 1, 0, instanceView);
-                Nri_UpdateDescriptor(gatherSet, 2, 0, linkedListHeadView);
-                Nri_UpdateDescriptor(gatherSet, 3, 0, fragmentBufferView);
-                Nri_UpdateDescriptor(gatherSet, 4, 0, fragmentCounterView);
-                Nri_UpdateDescriptor(backgroundSet, 0, 0, sceneView);
-                Nri_UpdateDescriptor(backgroundSet, 1, 0, backgroundView);
-                Nri_UpdateDescriptor(backgroundSet, 2, 0, sampler);
-                Nri_UpdateDescriptor(combineSet, 0, 0, sceneView);
-                Nri_UpdateDescriptor(combineSet, 1, 0, linkedListHeadView);
-                Nri_UpdateDescriptor(combineSet, 2, 0, fragmentBufferView);
-                Nri_UpdateDescriptor(combineSet, 3, 0, fragmentCounterView);
+                gatherSet.updateDescriptor(0, 0, sceneView);
+                gatherSet.updateDescriptor(1, 0, instanceView);
+                gatherSet.updateDescriptor(2, 0, linkedListHeadView);
+                gatherSet.updateDescriptor(3, 0, fragmentBufferView);
+                gatherSet.updateDescriptor(4, 0, fragmentCounterView);
+                backgroundSet.updateDescriptor(0, 0, sceneView);
+                backgroundSet.updateDescriptor(1, 0, backgroundView);
+                backgroundSet.updateDescriptor(2, 0, sampler);
+                combineSet.updateDescriptor(0, 0, sceneView);
+                combineSet.updateDescriptor(1, 0, linkedListHeadView);
+                combineSet.updateDescriptor(2, 0, fragmentBufferView);
+                combineSet.updateDescriptor(3, 0, fragmentCounterView);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -395,9 +396,9 @@ namespace OitLinkedListsNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -405,33 +406,33 @@ namespace OitLinkedListsNri {
 
         // A pipeline of the shaders vs and ps: with positions (the gather pass's model) or no vertex
         // input, the channels written, blended (AlphaOver) or not; no culling, no depth.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, vs: string, ps: string,
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, vs: string, ps: string,
             positions: boolean, writeMask: int, blend: boolean) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
             if (positions) {
-                Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
+                desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
             }
-            Nri_PipelineDescSetColor(desc, this.viewFormat, writeMask);
+            desc.setColor(this.viewFormat, writeMask);
             if (blend) {
-                Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+                desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                     NriBlendFactor.One, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add);
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The sample's create_fragment_resources and clear_sized_resources: a list head per pixel
         // (all empty), room for FRAGMENTS_PER_PIXEL_AVERAGE fragments per pixel, and the counter
         // (0), all read and written by pixel shaders; false on failure.
-        createSizedResources(device: NriDeviceHandle): boolean {
+        createSizedResources(device: NriDevice): boolean {
             const width = this.width;
             const height = this.height;
             this.fragmentMaxCount = width * height * FRAGMENTS_PER_PIXEL_AVERAGE;
@@ -439,21 +440,21 @@ namespace OitLinkedListsNri {
             for (let i = 0; i < width * height; i++) {
                 heads.push(LINKED_LIST_END_SENTINEL);
             }
-            const linkedListHead = Nri_CreateStorageTextureWithData(device, this.queue, width, height, NriFormat.R32_UINT, Ref(heads[0]),
+            const linkedListHead = device.createStorageTextureWithData(this.queue, width, height, NriFormat.R32_UINT, Ref(heads[0]),
                 width * 4, NriTextureState.PixelStorage);
             this.linkedListHead = linkedListHead;
-            this.fragmentBuffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, this.fragmentMaxCount * FRAGMENT_SIZE, FRAGMENT_SIZE,
+            this.fragmentBuffer = device.createUninitializedStorageBuffer(this.queue, this.fragmentMaxCount * FRAGMENT_SIZE, FRAGMENT_SIZE,
                 NriBufferState.PixelStorage);
             const zero: int[] = [0];
-            this.fragmentCounter = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zero[0]), 4, 4, NriBufferState.PixelStorage);
+            this.fragmentCounter = device.createStorageBufferFromInts(this.queue, Ref(zero[0]), 4, 4, NriBufferState.PixelStorage);
             const fragmentBuffer = this.fragmentBuffer;
             const fragmentCounter = this.fragmentCounter;
             if (!linkedListHead || !fragmentBuffer || !fragmentCounter) {
                 return false;
             }
-            this.linkedListHeadView = Nri_CreateStorageTextureView(linkedListHead, NriFormat.R32_UINT);
-            this.fragmentBufferView = Nri_CreateStructuredBufferView(fragmentBuffer, 1);
-            this.fragmentCounterView = Nri_CreateStructuredBufferView(fragmentCounter, 1);
+            this.linkedListHeadView = linkedListHead.createStorageView(NriFormat.R32_UINT);
+            this.fragmentBufferView = fragmentBuffer.createStructuredView(1);
+            this.fragmentCounterView = fragmentCounter.createStructuredView(1);
             return true;
         }
 
@@ -484,20 +485,20 @@ namespace OitLinkedListsNri {
                 const gatherSet = queuedFrame.gatherSet;
                 const combineSet = queuedFrame.combineSet;
                 if (gatherSet) {
-                    Nri_UpdateDescriptor(gatherSet, 2, 0, linkedListHeadView);
-                    Nri_UpdateDescriptor(gatherSet, 3, 0, fragmentBufferView);
-                    Nri_UpdateDescriptor(gatherSet, 4, 0, fragmentCounterView);
+                    gatherSet.updateDescriptor(2, 0, linkedListHeadView);
+                    gatherSet.updateDescriptor(3, 0, fragmentBufferView);
+                    gatherSet.updateDescriptor(4, 0, fragmentCounterView);
                 }
                 if (combineSet) {
-                    Nri_UpdateDescriptor(combineSet, 1, 0, linkedListHeadView);
-                    Nri_UpdateDescriptor(combineSet, 2, 0, fragmentBufferView);
-                    Nri_UpdateDescriptor(combineSet, 3, 0, fragmentCounterView);
+                    combineSet.updateDescriptor(1, 0, linkedListHeadView);
+                    combineSet.updateDescriptor(2, 0, fragmentBufferView);
+                    combineSet.updateDescriptor(3, 0, fragmentCounterView);
                 }
             }
         }
 
         // The sample's fill_instance_data: the grid's transforms and random colors (alpha 0.2 to 1).
-        fillInstanceData(instanceConstantBuffer: NriBufferHandle) {
+        fillInstanceData(instanceConstantBuffer: NriBuffer) {
             const random = new MsvcRandom(1);
             const instances: f32[] = [];
             for (let l = 0; l < INSTANCE_LAYER_COUNT; l++) {
@@ -519,7 +520,7 @@ namespace OitLinkedListsNri {
                     }
                 }
             }
-            Nri_WriteBuffer(instanceConstantBuffer, 0, Ref(instances[0]), INSTANCE_BYTES);
+            instanceConstantBuffer.write(0, Ref(instances[0]), INSTANCE_BYTES);
         }
 
         // Waits for the frame that last used this frame's command allocator (and its UBO slice).
@@ -530,15 +531,15 @@ namespace OitLinkedListsNri {
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: dragging with the left
         // button rotates the camera, with the right one zooms, with the middle one pans.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (!pressed || !overlay) {
                     this.buttons[button] = pressed;
                 }
             }
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.buttons[0]) {
@@ -562,7 +563,7 @@ namespace OitLinkedListsNri {
             if (!this.cameraAutoRotation) {
                 return;
             }
-            let deltaTime = Nri_GetFrameTime(this.sample);
+            let deltaTime = this.sample.getFrameTime();
             if (this.benchmark) {
                 deltaTime = BENCHMARK_FRAME_TIME;
             } else if (this.test) {
@@ -574,23 +575,23 @@ namespace OitLinkedListsNri {
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.sortFragments = Nri_ImguiCheckbox("Sort fragments", this.sortFragments ? 1 : 0) != 0;
-                this.cameraAutoRotation = Nri_ImguiCheckbox("Camera auto-rotation", this.cameraAutoRotation ? 1 : 0) != 0;
-                this.sortedFragmentCount = Nri_ImguiSliderInt("Sorted fragments per pixel", this.sortedFragmentCount,
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.sortFragments = NriImgui.checkbox("Sort fragments", this.sortFragments ? 1 : 0) != 0;
+                this.cameraAutoRotation = NriImgui.checkbox("Camera auto-rotation", this.cameraAutoRotation ? 1 : 0) != 0;
+                this.sortedFragmentCount = NriImgui.sliderInt("Sorted fragments per pixel", this.sortedFragmentCount,
                     SORTED_FRAGMENT_MIN_COUNT, SORTED_FRAGMENT_MAX_COUNT);
-                this.backgroundGrayscale = Nri_ImguiSliderFloat("Background grayscale", this.backgroundGrayscale, 0.0, 1.0);
+                this.backgroundGrayscale = NriImgui.sliderFloat("Background grayscale", this.backgroundGrayscale, 0.0, 1.0);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_scene_constants: its camera's matrices and the settings, into this
         // frame's slice.
-        updateSceneConstants(sceneConstantBuffer: NriBufferHandle, offset: int) {
+        updateSceneConstants(sceneConstantBuffer: NriBuffer, offset: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -604,29 +605,29 @@ namespace OitLinkedListsNri {
                 c[CONST_VIEW + i] = view[i];
             }
             c[CONST_BACKGROUND_GRAYSCALE] = this.backgroundGrayscale;
-            Nri_StoreInt32(Ref(c[CONST_SORT_FRAGMENTS]), this.sortFragments ? 1 : 0);
-            Nri_StoreInt32(Ref(c[CONST_FRAGMENT_MAX_COUNT]), this.fragmentMaxCount);
-            Nri_StoreInt32(Ref(c[CONST_SORTED_FRAGMENT_COUNT]), this.sortedFragmentCount);
-            Nri_WriteBuffer(sceneConstantBuffer, offset, Ref(c[0]), CONST_FLOATS * 4);
+            Nri.storeInt32(Ref(c[CONST_SORT_FRAGMENTS]), this.sortFragments ? 1 : 0);
+            Nri.storeInt32(Ref(c[CONST_FRAGMENT_MAX_COUNT]), this.fragmentMaxCount);
+            Nri.storeInt32(Ref(c[CONST_SORTED_FRAGMENT_COUNT]), this.sortedFragmentCount);
+            sceneConstantBuffer.write(offset, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The lists' writes before seen by the accesses after (the sample's buffer barriers): UAV
         // barriers between pixel shaders.
-        listBarriers(commandBuffer: NriCommandBufferHandle) {
+        listBarriers(commandBuffer: NriCommandBuffer) {
             const linkedListHead = this.linkedListHead;
             const fragmentBuffer = this.fragmentBuffer;
             const fragmentCounter = this.fragmentCounter;
             if (!linkedListHead || !fragmentBuffer || !fragmentCounter) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, linkedListHead, NriTextureState.PixelStorage, NriTextureState.PixelStorage);
-            Nri_CmdBufferBarrier(commandBuffer, fragmentBuffer, NriBufferState.PixelStorage, NriBufferState.PixelStorage);
-            Nri_CmdBufferBarrier(commandBuffer, fragmentCounter, NriBufferState.PixelStorage, NriBufferState.PixelStorage);
+            commandBuffer.textureBarrier(linkedListHead, NriTextureState.PixelStorage, NriTextureState.PixelStorage);
+            commandBuffer.bufferBarrier(fragmentBuffer, NriBufferState.PixelStorage, NriBufferState.PixelStorage);
+            commandBuffer.bufferBarrier(fragmentCounter, NriBufferState.PixelStorage, NriBufferState.PixelStorage);
         }
 
         // Gather pass: every sphere's fragments into the lists (rendering into the swap chain view,
         // which it doesn't write).
-        recordGather(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, colorAttachment: NriDescriptorHandle) {
+        recordGather(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, colorAttachment: NriDescriptor) {
             const gatherLayout = this.gatherLayout;
             const gatherPipeline = this.gatherPipeline;
             const gatherSet = queuedFrame.gatherSet;
@@ -634,29 +635,29 @@ namespace OitLinkedListsNri {
             if (!gatherLayout || !gatherPipeline || !gatherSet || !mesh) {
                 return;
             }
-            Nri_CmdBeginRendering(commandBuffer, colorAttachment);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, gatherLayout);
-            Nri_CmdSetPipeline(commandBuffer, gatherPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, gatherSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(mesh), 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(mesh), 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(mesh), INSTANCE_COUNT, 0, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.beginRendering(colorAttachment);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(gatherLayout);
+            commandBuffer.setPipeline(gatherPipeline);
+            commandBuffer.setDescriptorSet(0, gatherSet);
+            commandBuffer.setVertexBuffer(0, mesh.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(mesh.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(mesh.getIndexCount(), INSTANCE_COUNT, 0, 0, 0);
+            commandBuffer.endRendering();
         }
 
         // A fullscreen triangle of the pipeline with its layout and set (between
-        // Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        drawFullscreen(commandBuffer: NriCommandBufferHandle, pipelineLayout: NriPipelineLayoutHandle | null,
-            pipeline: NriPipelineHandle | null, set: NriDescriptorSetHandle | null) {
+        // NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        drawFullscreen(commandBuffer: NriCommandBuffer, pipelineLayout: NriPipelineLayout | null,
+            pipeline: NriPipeline | null, set: NriDescriptorSet | null) {
             if (!pipelineLayout || !pipeline || !set) {
                 return;
             }
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, set);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -668,7 +669,7 @@ namespace OitLinkedListsNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the lists (a head per
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the lists (a head per
         // pixel, the fragments' room) made again at its size (the sets pointed at the new ones), once
         // the GPU is done with the old ones.
         resizeIfNeeded() {
@@ -679,7 +680,7 @@ namespace OitLinkedListsNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizedResources();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -717,12 +718,12 @@ namespace OitLinkedListsNri {
             const commandBuffer = queuedFrame.commandBuffer;
             this.updateSceneConstants(sceneConstantBuffer, queuedFrameIndex * CONST_STRIDE);
 
-            Nri_BeginCommandBuffer(commandBuffer);
+            commandBuffer.begin();
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
 
             // Gather pass, after the last frame's combine pass reset the lists.
             this.listBarriers(commandBuffer);
@@ -730,33 +731,33 @@ namespace OitLinkedListsNri {
             this.listBarriers(commandBuffer);
 
             // Combine pass: the background, then the lists blended over it; the overlay over them.
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
             this.drawFullscreen(commandBuffer, this.backgroundLayout, this.backgroundPipeline, queuedFrame.backgroundSet);
             this.drawFullscreen(commandBuffer, this.combineLayout, this.combinePipeline, queuedFrame.combineSet);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImgui(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -768,12 +769,12 @@ namespace OitLinkedListsNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -783,16 +784,16 @@ namespace OitLinkedListsNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.sceneView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.backgroundView);
                 this.destroyDescriptor(this.sampler);
@@ -801,7 +802,7 @@ namespace OitLinkedListsNri {
                 this.destroyTexture(this.background);
                 const mesh = this.mesh;
                 if (mesh) {
-                    Nri_DestroyGltfMesh(mesh);
+                    mesh.destroy();
                 }
                 this.destroyBuffer(this.sceneConstantBuffer);
                 this.destroyBuffer(this.instanceConstantBuffer);
@@ -814,69 +815,69 @@ namespace OitLinkedListsNri {
                 this.destroyPipelineLayout(this.combineLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyPipelineLayout(pipelineLayout: NriPipelineLayoutHandle | null) {
+        destroyPipelineLayout(pipelineLayout: NriPipelineLayout | null) {
             if (pipelineLayout) {
-                Nri_DestroyPipelineLayout(pipelineLayout);
+                pipelineLayout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const oit = new OitLinkedLists(sample);
         // -nosort: fragments blended unsorted; -sorted <1..16>: sorted fragments per pixel; -rotate:
         // camera auto-rotation; -grayscale <0..1>: the background's brightness; -benchmark: 1/60
         // second per frame; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-nosort");
-        Nri_AddExampleOptionWithValues(sample, "-sorted", 1);
-        Nri_AddExampleOption(sample, "-rotate");
-        Nri_AddExampleOptionWithValues(sample, "-grayscale", 1);
-        Nri_AddExampleOption(sample, "-benchmark");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-nosort");
+        sample.addExampleOptionWithValues("-sorted", 1);
+        sample.addExampleOption("-rotate");
+        sample.addExampleOptionWithValues("-grayscale", 1);
+        sample.addExampleOption("-benchmark");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-nosort") {
                 oit.sortFragments = false;
             } else if (arg == "-rotate") {
                 oit.cameraAutoRotation = true;
             } else if (arg == "-sorted" && i + 1 < argc) {
                 i++;
-                oit.sortedFragmentCount = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), SORTED_FRAGMENT_MIN_COUNT),
+                oit.sortedFragmentCount = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), SORTED_FRAGMENT_MIN_COUNT),
                     SORTED_FRAGMENT_MAX_COUNT);
             } else if (arg == "-grayscale" && i + 1 < argc) {
                 i++;
-                oit.backgroundGrayscale = Math.min(Math.max(parseFloat(Nri_GetArg(argc, argv, i)), 0.0), 1.0);
+                oit.backgroundGrayscale = Math.min(Math.max(parseFloat(Nri.getArg(argc, argv, i)), 0.0), 1.0);
             } else if (arg == "-benchmark") {
                 oit.benchmark = true;
             } else if (arg == "-noUI") {

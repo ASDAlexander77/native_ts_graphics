@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { formatFixed } from "../../core/text_format";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace SimpleBezierNri {
     // simple_bezier, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -19,7 +20,7 @@ namespace SimpleBezierNri {
     const LINE_SPACING = 32.0;
     const TITLE_SPACING = 61.8;
 
-    // GLFW's key codes (Donut's Key values), which Nri_IsKeyPressed and Nri_IsKeyToggled take.
+    // GLFW's key codes (Donut's Key values), which NriSample.isKeyPressed and NriSample.isKeyToggled take.
     const KEY_W = 87;
     const KEY_1 = 49;
     const KEY_2 = 50;
@@ -256,21 +257,21 @@ namespace SimpleBezierNri {
     // lines: the Donut example asks Vulkan for Bresenham lines (D3D's aliased ones), which NRI has no
     // setting for.
     class SimpleBezier {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format (its views' are viewFormat).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
         // [wireframe][partition mode]
-        private pipelines: (NriPipelineHandle | null)[] = [];
-        private controlPointVB: NriBufferHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantBufferView: NriDescriptorHandle | null = null;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
+        private pipelines: (NriPipeline | null)[] = [];
+        private controlPointVB: NriBuffer | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantBufferView: NriDescriptor | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -291,11 +292,11 @@ namespace SimpleBezierNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             this.viewMatrix = lookAtLH(this.cameraEye, CAMERA_AT, CAMERA_UP);
             for (let i = 0; i < CB_FLOATS; i++) {
                 this.cb.push(0.0);
@@ -310,11 +311,11 @@ namespace SimpleBezierNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -333,20 +334,20 @@ namespace SimpleBezierNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB back buffers (gamma-correct
             // rendering).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -363,10 +364,10 @@ namespace SimpleBezierNri {
             this.updateProjection();
 
             // The layout: the per frame constant buffer (b0), for every stage, a root descriptor.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.VertexTessellationPixel);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.VertexTessellationPixel);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -392,19 +393,19 @@ namespace SimpleBezierNri {
             for (const v of MOBIUS_STRIP) {
                 points.push(v);
             }
-            this.controlPointVB = Nri_CreateUploadedBuffer(device, this.queue, Ref(points[0]), CONTROL_POINTS * VERTEX_SIZE,
+            this.controlPointVB = device.createUploadedBuffer(this.queue, Ref(points[0]), CONTROL_POINTS * VERTEX_SIZE,
                 NriBufferUsage.VertexBuffer);
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CB_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CB_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!this.controlPointVB || !constantBuffer) {
                 console.log("Cannot create the buffers");
                 return 0;
             }
-            this.constantBufferView = Nri_CreateConstantBufferView(constantBuffer, 0, CB_STRIDE);
+            this.constantBufferView = constantBuffer.createConstantView(0, CB_STRIDE);
 
             // The sample's HUD.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -412,9 +413,9 @@ namespace SimpleBezierNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -422,31 +423,31 @@ namespace SimpleBezierNri {
 
         // The sample's PSOs: 16 control point patches, no culling, depth clip on, depth tested
         // (less) and written; solid with BezierPS or wireframe with SolidColorPS.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, wireframe: int, mode: int) {
-            const desc = Nri_CreatePipelineDesc();
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, wireframe: int, mode: int) {
+            const desc = NriPipelineDesc.create();
             const hs = HULL_SHADERS[mode];
             const ps = wireframe != 0 ? "SolidColorPS" : "BezierPS";
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_BezierVS.bin`, "BezierVS") != 0;
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_BezierVS.bin`, "BezierVS") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Hull, `${shaders}_${hs}.bin`, hs) != 0;
+                loaded = desc.addShader(NriShaderStage.Hull, `${shaders}_${hs}.bin`, hs) != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Domain, `${shaders}_BezierDS.bin`, "BezierDS") != 0;
+                loaded = desc.addShader(NriShaderStage.Domain, `${shaders}_BezierDS.bin`, "BezierDS") != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetTopology(desc, NriTopology.PatchList);
-            Nri_PipelineDescSetPatchControlPoints(desc, PATCH_SIZE);
-            Nri_PipelineDescSetWireframe(desc, wireframe);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.setTopology(NriTopology.PatchList);
+            desc.setPatchControlPoints(PATCH_SIZE);
+            desc.setWireframe(wireframe);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -457,11 +458,11 @@ namespace SimpleBezierNri {
 
         // 1 if the key was pressed since the last frame.
         toggled(key: int) {
-            return Nri_IsKeyToggled(this.sample, key) != 0;
+            return this.sample.isKeyToggled(key) != 0;
         }
 
         held(key: int) {
-            return Nri_IsKeyPressed(this.sample, key) != 0;
+            return this.sample.isKeyPressed(key) != 0;
         }
 
         // Sample::Update: the key presses (one action per press, in the sample's order), then the
@@ -496,14 +497,14 @@ namespace SimpleBezierNri {
         }
 
         line(x: number, y: number, text: string) {
-            Nri_ImguiDrawText(x, y, text, LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
+            NriImgui.drawText(x, y, text, LIGHT_GREY, LIGHT_GREY, LIGHT_GREY, 1.0, 0);
         }
 
         // The sample's HUD (SpriteFont text in the title-safe area): the settings at the top, the
         // controls at the bottom; the help screen (ATG::Help, a gamepad picture with callouts) as
         // the sample's title, description and keyboard controls in text.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             // SimpleMath::Viewport::ComputeTitleSafeArea
             const safeW = Math.fround((this.width + 19.0) / 20.0);
             const safeH = Math.fround((this.height + 19.0) / 20.0);
@@ -535,12 +536,12 @@ namespace SimpleBezierNri {
                 this.line(left, bottom - 2 * LINE_SPACING, "Left/Right - Rotate   Up/Down - Increase/decrease subdivisions");
                 this.line(left, bottom - LINE_SPACING, "1/2/3 - Change partition mode   W - Toggle wireframe   Esc - Exit   F1 - Help");
             }
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
-        // Draw the mesh (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering), its
+        // Draw the mesh (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering), its
         // constants at constantsOffset.
-        recordDraw(commandBuffer: NriCommandBufferHandle, constantsOffset: int) {
+        recordDraw(commandBuffer: NriCommandBuffer, constantsOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipelines[(this.drawWires ? 1 : 0) * HULL_SHADERS.length + this.partitionMode];
             const constantBuffer = this.constantBuffer;
@@ -559,15 +560,15 @@ namespace SimpleBezierNri {
             this.cb[17] = this.cameraEye[1];
             this.cb[18] = this.cameraEye[2];
             this.cb[19] = this.subdivs;
-            Nri_WriteBuffer(constantBuffer, constantsOffset, Ref(this.cb[0]), CB_FLOATS * 4);
+            constantBuffer.write(constantsOffset, Ref(this.cb[0]), CB_FLOATS * 4);
 
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, constantBufferView, constantsOffset);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, controlPointVB, 0, VERTEX_SIZE);
-            Nri_CmdDraw(commandBuffer, CONTROL_POINTS, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootDescriptor(0, constantBufferView, constantsOffset);
+            commandBuffer.setVertexBuffer(0, controlPointVB, 0, VERTEX_SIZE);
+            commandBuffer.draw(CONTROL_POINTS, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -579,25 +580,25 @@ namespace SimpleBezierNri {
         }
 
         // The D32 depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
@@ -608,7 +609,7 @@ namespace SimpleBezierNri {
             this.projectionMatrix = perspectiveFovLH(Math.PI / 4.0, aspect, 0.01, 100.0);
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain, the depth buffer and the projection made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain, the depth buffer and the projection made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -618,7 +619,7 @@ namespace SimpleBezierNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -642,23 +643,23 @@ namespace SimpleBezierNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: Sample::Clear, the mesh (not behind the help screen), then the HUD.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, BACKGROUND, BACKGROUND, BACKGROUND, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(BACKGROUND, BACKGROUND, BACKGROUND, 1.0);
+                    commandBuffer.clearDepth(1.0);
                     if (!this.showHelp) {
                         this.recordDraw(commandBuffer, queuedFrameIndex * CB_STRIDE);
                     }
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -666,18 +667,18 @@ namespace SimpleBezierNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -693,12 +694,12 @@ namespace SimpleBezierNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -708,9 +709,9 @@ namespace SimpleBezierNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 this.destroyDescriptor(this.constantBufferView);
                 this.destroyDepth();
@@ -719,61 +720,61 @@ namespace SimpleBezierNri {
                 this.destroyBuffer(this.readbackBuffer);
                 for (const pipeline of this.pipelines) {
                     if (pipeline) {
-                        Nri_DestroyPipeline(pipeline);
+                        pipeline.destroy();
                     }
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const simpleBezier = new SimpleBezier(sample);
         // The initial settings: -wireframe, -partition <0..2>, -subdivs <4..16>, -rotate <steps>,
         // -help (wireframe, partition mode, subdivisions, the camera turned by Left/Right steps, the
         // help screen); -noUI: no HUD.
-        Nri_AddExampleOption(sample, "-wireframe");
-        Nri_AddExampleOptionWithValues(sample, "-partition", 1);
-        Nri_AddExampleOptionWithValues(sample, "-subdivs", 1);
-        Nri_AddExampleOptionWithValues(sample, "-rotate", 1);
-        Nri_AddExampleOption(sample, "-help");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-wireframe");
+        sample.addExampleOptionWithValues("-partition", 1);
+        sample.addExampleOptionWithValues("-subdivs", 1);
+        sample.addExampleOptionWithValues("-rotate", 1);
+        sample.addExampleOption("-help");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         let rotateSteps = 0;
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-wireframe") {
                 simpleBezier.drawWires = true;
             } else if (arg == "-partition" && i + 1 < argc) {
                 i++;
-                simpleBezier.partitionMode = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), 0), 2);
+                simpleBezier.partitionMode = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), 0), 2);
             } else if (arg == "-subdivs" && i + 1 < argc) {
                 i++;
-                simpleBezier.subdivs = Math.min(Math.max(Math.fround(parseFloat(Nri_GetArg(argc, argv, i))), MIN_DIVS), MAX_DIVS);
+                simpleBezier.subdivs = Math.min(Math.max(Math.fround(parseFloat(Nri.getArg(argc, argv, i))), MIN_DIVS), MAX_DIVS);
             } else if (arg == "-rotate" && i + 1 < argc) {
                 i++;
-                rotateSteps = parseInt(Nri_GetArg(argc, argv, i));
+                rotateSteps = parseInt(Nri.getArg(argc, argv, i));
             } else if (arg == "-help") {
                 simpleBezier.showHelp = true;
             } else if (arg == "-noUI") {

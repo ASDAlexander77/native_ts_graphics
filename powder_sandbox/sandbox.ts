@@ -14,6 +14,7 @@ import {
 } from "./defs";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 import { SandboxUI } from "./ui";
+import { Nri, NriAudio, NriCommandBuffer, NriPipelineDesc, NriPipelineLayoutDesc, NriSample } from "../core/nri";
 
 // The callbacks given to C++, kept for as long as it may call them.
 let retainedInitializeCallbacks: NriInitializeCallback[] = [];
@@ -24,7 +25,7 @@ let retainedFrameCallbacks: NriFrameCallback[] = [];
 // save/load and regrid: saves.ts; the simulation's recording: simulation.ts; the toolbar and
 // input: ui.ts).
 export class SandboxApp extends SandboxUI {
-    constructor(sample: NriSampleHandle) {
+    constructor(sample: NriSample) {
         super(sample);
         this.kernels.init(CONSTANTS_FLOATS, GROUP_SIZE);
         for (let i = 0; i < PROBE_INTS + EVENT_COUNT; i++) {
@@ -110,11 +111,11 @@ export class SandboxApp extends SandboxUI {
         retainedInitializeCallbacks.push(initialize);
         retainedFrameCallbacks.push(latencySleep);
         retainedFrameCallbacks.push(renderFrame);
-        Nri_SetInitializeCallback(this.sample, initialize);
-        Nri_SetLatencySleepCallback(this.sample, latencySleep);
-        Nri_SetRenderFrameCallback(this.sample, renderFrame);
+        this.sample.setInitializeCallback(initialize);
+        this.sample.setLatencySleepCallback(latencySleep);
+        this.sample.setRenderFrameCallback(renderFrame);
 
-        let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, this.testFrames);
+        let result = this.sample.run(argc, argv, WINDOW_TITLE, this.testFrames);
         if (result == 0 && this.test) {
             console.log(`Simulation: ${formatFixed(this.stepMs, 3)} ms a step (GPU)`);
             const failure = this.checkTest();
@@ -129,27 +130,27 @@ export class SandboxApp extends SandboxUI {
         if (this.sceneFile != "") {
             this.startLevel(this.readLevel(this.sceneFile));
         }
-        const device = Nri_CreateDevice(this.sample, graphicsAPI);
+        const device = this.sample.createDevice(graphicsAPI);
         if (!device) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 0;
         }
         this.device = device;
-        console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+        console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-        this.queue = Nri_GetGraphicsQueue(device);
-        this.test = Nri_IsTest(this.sample) != 0;
+        this.queue = device.getGraphicsQueue();
+        this.test = this.sample.isTest() != 0;
         // (a test's default scene is the U-tube, not a level's empty one)
         if (this.test && this.scene == 0 && !this.level) {
             this.scene = 1;
         }
         this.startQuality();
         if ((!this.test || this.soundCheck) && !this.mute) {
-            this.audio = Nri_CreateAudio();
+            this.audio = NriAudio.create();
             console.log(this.audio ? "Sound: the audio output started" : "No sound: no audio output");
         }
 
-        const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+        const queuedFrameNum = this.sample.getQueuedFrameNum();
         this.swapChain.init(this.sample, device, this.queue, false);
         this.sizeToSwapChain();
         const format = this.viewFormat;
@@ -160,10 +161,10 @@ export class SandboxApp extends SandboxUI {
         this.stateH = this.gridH;
 
         // Queued frames
-        const queryPool = Nri_CreateTimestampQueryPool(device, 2 * queuedFrameNum);
+        const queryPool = device.createTimestampQueryPool(2 * queuedFrameNum);
         this.queryPool = queryPool;
         if (queryPool) {
-            this.querySize = Nri_GetQuerySize(queryPool);
+            this.querySize = queryPool.getQuerySize();
         }
         if (this.profile) {
             const profiler = new NriGpuProfiler();
@@ -176,32 +177,32 @@ export class SandboxApp extends SandboxUI {
         }
         this.frames.init(device, this.queue, queuedFrameNum);
         for (let i = 0; i < queuedFrameNum; i++) {
-            const probeReadback = Nri_CreateReadbackBuffer(device, (PROBE_INTS + EVENT_COUNT) * 4);
+            const probeReadback = device.createReadbackBuffer((PROBE_INTS + EVENT_COUNT) * 4);
             if (!probeReadback) {
                 console.log("Cannot create the readback buffers");
                 return 0;
             }
-            const timestampReadback = queryPool ? Nri_CreateReadbackBuffer(device, 2 * this.querySize) : null;
+            const timestampReadback = queryPool ? device.createReadbackBuffer(2 * this.querySize) : null;
             this.queuedFrames.push(new QueuedFrame(probeReadback, timestampReadback));
         }
 
         // The layouts: the constants (b0) and six storage buffers (u0 .. u5) for the
         // simulation; the constants and three of the buffers read (t0 .. t2) for the display.
         // All root descriptors.
-        const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-        Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, CONSTANTS_SIZE, NriStage.Compute);
+        const computeLayoutDesc = NriPipelineLayoutDesc.create();
+        computeLayoutDesc.addRootConstants(0, CONSTANTS_SIZE, NriStage.Compute);
         for (let i = 0; i < BUFFERS; i++) {
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, i, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            computeLayoutDesc.addRange(0, i, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
         }
-        this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-        Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-        const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-        Nri_PipelineLayoutDescAddRootConstants(drawLayoutDesc, 0, CONSTANTS_SIZE, NriStage.Pixel);
+        this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+        computeLayoutDesc.destroy();
+        const drawLayoutDesc = NriPipelineLayoutDesc.create();
+        drawLayoutDesc.addRootConstants(0, CONSTANTS_SIZE, NriStage.Pixel);
         for (let i = 0; i < 3; i++) {
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, i, 1, NriDescriptorType.StructuredBuffer, NriStage.Pixel, NriRangeFlags.None);
+            drawLayoutDesc.addRange(0, i, 1, NriDescriptorType.StructuredBuffer, NriStage.Pixel, NriRangeFlags.None);
         }
-        this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-        Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+        this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+        drawLayoutDesc.destroy();
         const computeLayout = this.computeLayout;
         const drawLayout = this.drawLayout;
         if (!computeLayout || !drawLayout) {
@@ -212,24 +213,24 @@ export class SandboxApp extends SandboxUI {
         const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
         const shaders = `shaders/powder_sandbox/${folder}/powder_sandbox`;
         for (const entry of ENTRIES) {
-            const pipeline = Nri_CreateComputePipelinePermutation(device, computeLayout, `${shaders}_${entry}.bin`, entry, "SIMULATION=1");
+            const pipeline = device.createComputePipelinePermutation(computeLayout, `${shaders}_${entry}.bin`, entry, "SIMULATION=1");
             if (!pipeline) {
                 console.log(`Cannot load ${entry}`);
                 return 0;
             }
             this.pipelines.push(pipeline);
         }
-        const desc = Nri_CreatePipelineDesc();
-        let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_display_vs.bin`, "display_vs") != 0;
+        const desc = NriPipelineDesc.create();
+        let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_display_vs.bin`, "display_vs") != 0;
         if (loaded) {
-            loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_display_ps.bin`, "display_ps") != 0;
+            loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_display_ps.bin`, "display_ps") != 0;
         }
-        Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-        Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
+        desc.setCullMode(NriCullMode.None);
+        desc.setColor(format, NriColorWrite.RGBA);
         if (loaded) {
-            this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+            this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
         }
-        Nri_DestroyPipelineDesc(desc);
+        desc.destroy();
         if (!this.drawPipeline) {
             console.log("Cannot load the display shaders");
             return 0;
@@ -249,7 +250,7 @@ export class SandboxApp extends SandboxUI {
             this.stateSize += sizes[i];
         }
         for (let i = 0; i < UNDO_DEPTH; i++) {
-            const undoBuffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, this.stateSize, 4, NriBufferState.CopyDestination);
+            const undoBuffer = device.createUninitializedStorageBuffer(this.queue, this.stateSize, 4, NriBufferState.CopyDestination);
             if (!undoBuffer) {
                 console.log("Cannot create the undo buffers");
                 return 0;
@@ -259,20 +260,20 @@ export class SandboxApp extends SandboxUI {
             this.undoH.push(0);
         }
         for (let i = 0; i < BUFFERS; i++) {
-            const buffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, sizes[i], strides[i], NriBufferState.Storage);
+            const buffer = device.createUninitializedStorageBuffer(this.queue, sizes[i], strides[i], NriBufferState.Storage);
             if (!buffer) {
                 console.log("Cannot create the simulation's buffers");
                 return 0;
             }
             this.buffers.push(buffer);
-            const storageView = Nri_CreateStructuredBufferView(buffer, 1);
+            const storageView = buffer.createStructuredView(1);
             if (!storageView) {
                 console.log("Cannot create the buffer views");
                 return 0;
             }
             this.storageViews.push(storageView);
             if (i >= 1 && i <= 3) {
-                const shaderView = Nri_CreateStructuredBufferView(buffer, 0);
+                const shaderView = buffer.createStructuredView(0);
                 if (!shaderView) {
                     console.log("Cannot create the buffer views");
                     return 0;
@@ -281,14 +282,14 @@ export class SandboxApp extends SandboxUI {
             }
         }
         // The simulation's set (the six storage buffers) and the display's (three of them read).
-        const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 2, 0, 0, 0, 0, 3, BUFFERS, 0);
+        const descriptorPool = device.createDescriptorPoolWithBuffers(2, 0, 0, 0, 0, 3, BUFFERS, 0);
         if (!descriptorPool) {
             console.log("Cannot create the descriptor pool");
             return 0;
         }
         this.descriptorPool = descriptorPool;
-        const computeSet = Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0);
-        const drawSet = Nri_AllocateDescriptorSet(descriptorPool, drawLayout, 0, 0);
+        const computeSet = descriptorPool.allocateDescriptorSet(computeLayout, 0, 0);
+        const drawSet = descriptorPool.allocateDescriptorSet(drawLayout, 0, 0);
         if (!computeSet) {
             console.log("Cannot allocate the descriptor sets");
             return 0;
@@ -301,21 +302,21 @@ export class SandboxApp extends SandboxUI {
         this.drawSet = drawSet;
         this.kernels.bind(this.pipelines, computeSet, this.buffers);
         for (let i = 0; i < BUFFERS; i++) {
-            Nri_UpdateDescriptor(computeSet, i, 0, this.storageViews[i]);
+            computeSet.updateDescriptor(i, 0, this.storageViews[i]);
         }
         for (let i = 0; i < 3; i++) {
-            Nri_UpdateDescriptor(drawSet, i, 0, this.shaderViews[i]);
+            drawSet.updateDescriptor(i, 0, this.shaderViews[i]);
         }
         if (this.test) {
-            this.testReadback = Nri_CreateReadbackBuffer(device, ALL_INT_SECTIONS * GRID_CAPACITY * 4);
-            this.cellsReadback = Nri_CreateReadbackBuffer(device, GRID_CAPACITY * 4);
-            this.floatReadback = Nri_CreateReadbackBuffer(device, FLOAT_SECTIONS * GRID_CAPACITY * 4);
-            const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+            this.testReadback = device.createReadbackBuffer(ALL_INT_SECTIONS * GRID_CAPACITY * 4);
+            this.cellsReadback = device.createReadbackBuffer(GRID_CAPACITY * 4);
+            this.floatReadback = device.createReadbackBuffer(FLOAT_SECTIONS * GRID_CAPACITY * 4);
+            const alignment = device.getUploadBufferTextureRowAlignment();
             this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-            this.frameReadback = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+            this.frameReadback = device.createReadbackBuffer(this.rowPitch * this.height);
         }
 
-        if (Nri_InitImgui(this.sample, device) == 0) {
+        if (this.sample.initImgui(device) == 0) {
             console.log("Cannot initialize the user interface");
             return 0;
         }
@@ -331,7 +332,7 @@ export class SandboxApp extends SandboxUI {
         this.viewFormat = this.swapChain.viewFormat();
     }
 
-    // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once
+    // The window was resized (NriSample.useResizableWindow): the swap chain made again at its size, once
     // the GPU is done with the old one, and the toolbar and the grid's view fitted to it. The grid
     // keeps its cells (and what's in them), so a window of another shape shows it with margins;
     // but when the window turns (a phone turned: wider than tall to taller than wide, or back) the
@@ -362,31 +363,31 @@ export class SandboxApp extends SandboxUI {
         this.frames.wait(frameIndex);
     }
 
-    recordDraw(commandBuffer: NriCommandBufferHandle) {
+    recordDraw(commandBuffer: NriCommandBuffer) {
         const drawLayout = this.drawLayout;
         const drawPipeline = this.drawPipeline;
         if (!drawLayout || !drawPipeline) {
             return;
         }
-        Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-        Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-        Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-        Nri_CmdSetPipeline(commandBuffer, drawPipeline);
+        commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+        commandBuffer.setScissor(0, 0, this.width, this.height);
+        commandBuffer.setPipelineLayout(drawLayout);
+        commandBuffer.setPipeline(drawPipeline);
         this.kernels.setGraphicsConstants(commandBuffer);
-        Nri_CmdSetDescriptorPool(commandBuffer, this.descriptorPool);
-        Nri_CmdSetDescriptorSet(commandBuffer, 0, this.drawSet);
-        Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+        commandBuffer.setDescriptorPool(this.descriptorPool);
+        commandBuffer.setDescriptorSet(0, this.drawSet);
+        commandBuffer.draw(3, 1, 0, 0);
     }
 
     renderFrame(frameIndex: int) {
         this.resizeIfNeeded();
         this.frameIndex = frameIndex;
         const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
-        const frameTime = this.test ? 1.0 / 60.0 : Math.min(Nri_GetFrameTime(this.sample), 0.25);
+        const frameTime = this.test ? 1.0 / 60.0 : Math.min(this.sample.getFrameTime(), 0.25);
         this.time += frameTime;
         this.messageTime -= frameTime;
         this.fpsFrames++;
-        this.fpsTime += Nri_GetFrameTime(this.sample);
+        this.fpsTime += this.sample.getFrameTime();
         if (this.fpsTime >= 0.5) {
             this.frameRate = this.fpsFrames / this.fpsTime;
             this.fpsFrames = 0;
@@ -395,8 +396,8 @@ export class SandboxApp extends SandboxUI {
 
         // The readout this slot's last frame wrote, and its simulation's time.
         if (frameIndex >= this.queuedFrames.length) {
-            Nri_ReadBufferInts(queuedFrame.probeReadback, Ref(this.probe[0]), PROBE_INTS + EVENT_COUNT);
-            Nri_ReadBufferFloats(queuedFrame.probeReadback, Ref(this.probeFloats[0]), PROBE_INTS);
+            queuedFrame.probeReadback.readInts(Ref(this.probe[0]), PROBE_INTS + EVENT_COUNT);
+            queuedFrame.probeReadback.readFloats(Ref(this.probeFloats[0]), PROBE_INTS);
             this.playSounds(queuedFrame.steps, frameTime);
             this.checkGoal(queuedFrame.levelTime);
         } else {
@@ -443,13 +444,13 @@ export class SandboxApp extends SandboxUI {
 
             // Record: the simulation's steps, the readout, then the grid drawn and the toolbar
             // over it.
-            Nri_BeginCommandBuffer(commandBuffer);
+            commandBuffer.begin();
             this.recordStateRequests(commandBuffer);
             const queryPool = this.queryPool;
             const queryBase = (frameIndex % this.queuedFrames.length) * 2;
             if (queryPool) {
-                Nri_CmdResetQueries(commandBuffer, queryPool, queryBase, 2);
-                Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase);
+                commandBuffer.resetQueries(queryPool, queryBase, 2);
+                commandBuffer.writeTimestamp(queryPool, queryBase);
             }
             const profiler = this.profiler;
             if (profiler) {
@@ -465,9 +466,9 @@ export class SandboxApp extends SandboxUI {
             queuedFrame.levelTime = this.levelTime;
             const timestampReadback = queuedFrame.timestampReadback;
             if (queryPool) {
-                Nri_CmdWriteTimestamp(commandBuffer, queryPool, queryBase + 1);
+                commandBuffer.writeTimestamp(queryPool, queryBase + 1);
                 if (timestampReadback) {
-                    Nri_CmdCopyQueries(commandBuffer, queryPool, queryBase, 2, timestampReadback, 0);
+                    commandBuffer.copyQueries(queryPool, queryBase, 2, timestampReadback, 0);
                     queuedFrame.timedSteps = this.paused ? 0 : steps;
                 }
             }
@@ -484,65 +485,65 @@ export class SandboxApp extends SandboxUI {
                 this.kernels.setInt(8, this.tool);
             }
             const alloc = this.buffers[4];
-            Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.Storage, NriBufferState.CopySource);
-            Nri_CmdCopyBuffer(commandBuffer, queuedFrame.probeReadback, alloc, PROBE_INTS * 4);
-            Nri_CmdBufferBarrier(commandBuffer, alloc, NriBufferState.CopySource, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(alloc, NriBufferState.Storage, NriBufferState.CopySource);
+            commandBuffer.copyBuffer(queuedFrame.probeReadback, alloc, PROBE_INTS * 4);
+            commandBuffer.bufferBarrier(alloc, NriBufferState.CopySource, NriBufferState.Storage);
             // (then the last step's events)
             const gridInt = this.buffers[1];
-            Nri_CmdBufferBarrier(commandBuffer, gridInt, NriBufferState.Storage, NriBufferState.CopySource);
-            Nri_CmdCopyBufferRegion(commandBuffer, queuedFrame.probeReadback, PROBE_INTS * 4, gridInt, I_EVENTS * this.stride * 4,
+            commandBuffer.bufferBarrier(gridInt, NriBufferState.Storage, NriBufferState.CopySource);
+            commandBuffer.copyBufferRegion(queuedFrame.probeReadback, PROBE_INTS * 4, gridInt, I_EVENTS * this.stride * 4,
                 EVENT_COUNT * 4);
-            Nri_CmdBufferBarrier(commandBuffer, gridInt, NriBufferState.CopySource, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(gridInt, NriBufferState.CopySource, NriBufferState.Storage);
             const testReadback = this.testReadback;
             if (testReadback) {
                 if (frameIndex == this.testFrames - 1) {
-                    Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.Storage, NriBufferState.CopySource);
-                    Nri_CmdCopyBuffer(commandBuffer, testReadback, this.buffers[1], ALL_INT_SECTIONS * this.stride * 4);
-                    Nri_CmdBufferBarrier(commandBuffer, this.buffers[1], NriBufferState.CopySource, NriBufferState.Storage);
+                    commandBuffer.bufferBarrier(this.buffers[1], NriBufferState.Storage, NriBufferState.CopySource);
+                    commandBuffer.copyBuffer(testReadback, this.buffers[1], ALL_INT_SECTIONS * this.stride * 4);
+                    commandBuffer.bufferBarrier(this.buffers[1], NriBufferState.CopySource, NriBufferState.Storage);
                     const cellsReadback = this.cellsReadback;
                     if (cellsReadback) {
-                        Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.Storage, NriBufferState.CopySource);
-                        Nri_CmdCopyBuffer(commandBuffer, cellsReadback, this.buffers[3], this.stride * 4);
-                        Nri_CmdBufferBarrier(commandBuffer, this.buffers[3], NriBufferState.CopySource, NriBufferState.Storage);
+                        commandBuffer.bufferBarrier(this.buffers[3], NriBufferState.Storage, NriBufferState.CopySource);
+                        commandBuffer.copyBuffer(cellsReadback, this.buffers[3], this.stride * 4);
+                        commandBuffer.bufferBarrier(this.buffers[3], NriBufferState.CopySource, NriBufferState.Storage);
                     }
                     const floatReadback = this.floatReadback;
                     if (floatReadback) {
-                        Nri_CmdBufferBarrier(commandBuffer, this.buffers[2], NriBufferState.Storage, NriBufferState.CopySource);
-                        Nri_CmdCopyBuffer(commandBuffer, floatReadback, this.buffers[2], FLOAT_SECTIONS * this.stride * 4);
-                        Nri_CmdBufferBarrier(commandBuffer, this.buffers[2], NriBufferState.CopySource, NriBufferState.Storage);
+                        commandBuffer.bufferBarrier(this.buffers[2], NriBufferState.Storage, NriBufferState.CopySource);
+                        commandBuffer.copyBuffer(floatReadback, this.buffers[2], FLOAT_SECTIONS * this.stride * 4);
+                        commandBuffer.bufferBarrier(this.buffers[2], NriBufferState.CopySource, NriBufferState.Storage);
                     }
                 }
             }
             const shown = B_GRID_INT | B_GRID_FLOAT | B_CELLS;
             this.kernels.barriers(commandBuffer, shown, NriBufferState.Storage, NriBufferState.PixelShaderResource);
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
+            commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
             this.recordDraw(commandBuffer);
             if (this.imgui) {
-                Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImguiUnconverted(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
             this.kernels.barriers(commandBuffer, shown, NriBufferState.PixelShaderResource, NriBufferState.Storage);
             let presentFrom = NriTextureState.ColorAttachment;
             const frameReadback = this.frameReadback;
             if (frameReadback) {
                 if (frameIndex == this.testFrames - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, frameReadback, this.rowPitch, texture, this.width, this.height);
+                    commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(frameReadback, this.rowPitch, texture, this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -560,26 +561,26 @@ export class SandboxApp extends SandboxUI {
     destroy() {
         const audio = this.audio;
         if (audio) {
-            Nri_DestroyAudio(audio);
+            audio.destroy();
             this.audio = null;
         }
         const device = this.device;
         if (device) {
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             if (this.imgui) {
-                Nri_DestroyImgui(this.sample);
+                this.sample.destroyImgui();
             }
             this.frames.destroy();
             for (const queuedFrame of this.queuedFrames) {
-                Nri_DestroyBuffer(queuedFrame.probeReadback);
+                queuedFrame.probeReadback.destroy();
                 const timestampReadback = queuedFrame.timestampReadback;
                 if (timestampReadback) {
-                    Nri_DestroyBuffer(timestampReadback);
+                    timestampReadback.destroy();
                 }
             }
             const queryPool = this.queryPool;
             if (queryPool) {
-                Nri_DestroyQueryPool(queryPool);
+                queryPool.destroy();
             }
             const profiler = this.profiler;
             if (profiler) {
@@ -587,51 +588,51 @@ export class SandboxApp extends SandboxUI {
             }
             this.swapChain.destroy();
             for (const view of this.storageViews) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
-            Nri_DestroyDescriptorPool(this.descriptorPool);
+            this.descriptorPool.destroy();
             for (const view of this.shaderViews) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
             for (const buffer of this.buffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             const testReadback = this.testReadback;
             if (testReadback) {
-                Nri_DestroyBuffer(testReadback);
+                testReadback.destroy();
             }
             const cellsReadback = this.cellsReadback;
             if (cellsReadback) {
-                Nri_DestroyBuffer(cellsReadback);
+                cellsReadback.destroy();
             }
             const floatReadback = this.floatReadback;
             if (floatReadback) {
-                Nri_DestroyBuffer(floatReadback);
+                floatReadback.destroy();
             }
             const frameReadback = this.frameReadback;
             if (frameReadback) {
-                Nri_DestroyBuffer(frameReadback);
+                frameReadback.destroy();
             }
             for (const pipeline of this.pipelines) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
             const drawPipeline = this.drawPipeline;
             if (drawPipeline) {
-                Nri_DestroyPipeline(drawPipeline);
+                drawPipeline.destroy();
             }
             const computeLayout = this.computeLayout;
             if (computeLayout) {
-                Nri_DestroyPipelineLayout(computeLayout);
+                computeLayout.destroy();
             }
             const drawLayout = this.drawLayout;
             if (drawLayout) {
-                Nri_DestroyPipelineLayout(drawLayout);
+                drawLayout.destroy();
             }
             for (const undoBuffer of this.undoBuffers) {
-                Nri_DestroyBuffer(undoBuffer);
+                undoBuffer.destroy();
             }
-            Nri_DestroyDevice(device);
+            device.destroy();
         }
-        Nri_DestroySample(this.sample);
+        this.sample.destroy();
     }
 }

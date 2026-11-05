@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, samplePerspective } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfModel, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace MultiDrawIndirectNri {
     // multi_draw_indirect, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -27,7 +28,7 @@ namespace MultiDrawIndirectNri {
     // The shaders' texture array (TEXTURE_COUNT in multi_draw_indirect.hlsl): one per mesh.
     const TEXTURE_COUNT = 225;
 
-    // Nri_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriGltfModel.load's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_FLOATS = 8;
     const VERTEX_SIZE = VERTEX_FLOATS * 4;
     const TEXCOORD_OFFSET = 24;
@@ -149,9 +150,9 @@ namespace MultiDrawIndirectNri {
     // the culling's; the device address culling's, null without it), the CPU culling's commands it
     // uploads, and the copy of the commands it reads the instance count from.
     class QueuedFrame {
-        constructor(public constantBufferView: NriDescriptorHandle, public drawSet: NriDescriptorSetHandle,
-            public cullSet: NriDescriptorSetHandle, public addressSet: NriDescriptorSetHandle | null,
-            public hostCommands: NriBufferHandle, public readback: NriBufferHandle, public readbackValid: boolean) {
+        constructor(public constantBufferView: NriDescriptor, public drawSet: NriDescriptorSet,
+            public cullSet: NriDescriptorSet, public addressSet: NriDescriptorSet | null,
+            public hostCommands: NriBuffer, public readback: NriBuffer, public readbackValid: boolean) {
         }
     }
 
@@ -163,41 +164,41 @@ namespace MultiDrawIndirectNri {
     // (Vulkan) its device address. Each draw's first instance reads its mesh's texture index from a
     // per-instance vertex buffer.
     class MultiDrawIndirect {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         // The swap chain textures' format.
         private swapChainFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private cullLayout: NriPipelineLayoutHandle | null = null;
-        private addressLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private cullPipeline: NriPipelineHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private cullLayout: NriPipelineLayout | null = null;
+        private addressLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private cullPipeline: NriPipeline | null = null;
         // Null without buffer device addresses (then the frames' address sets are null too).
-        private addressPipeline: NriPipelineHandle | null = null;
-        private textures: NriTextureHandle[] = [];
-        private textureViews: NriDescriptorHandle[] = [];
-        private sampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
+        private addressPipeline: NriPipeline | null = null;
+        private textures: NriTexture[] = [];
+        private textureViews: NriDescriptor[] = [];
+        private sampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
         // The models' information: per instance (a vertex buffer), and for the culling (a raw buffer).
-        private modelInstanceBuffer: NriBufferHandle | null = null;
-        private modelInformationBuffer: NriBufferHandle | null = null;
-        private modelInformationView: NriDescriptorHandle | null = null;
+        private modelInstanceBuffer: NriBuffer | null = null;
+        private modelInformationBuffer: NriBuffer | null = null;
+        private modelInformationView: NriDescriptor | null = null;
         // The draws' commands, read by the indirect draws, written by the culling (a raw buffer); in
         // NriBufferState.IndirectArgument between the passes.
-        private indirectCallBuffer: NriBufferHandle | null = null;
-        private indirectCallStorage: NriDescriptorHandle | null = null;
+        private indirectCallBuffer: NriBuffer | null = null;
+        private indirectCallStorage: NriDescriptor | null = null;
         // The address of the commands' buffer, for the device address culling.
-        private addressBuffer: NriBufferHandle | null = null;
-        private addressView: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private addressBuffer: NriBuffer | null = null;
+        private addressView: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -230,11 +231,11 @@ namespace MultiDrawIndirectNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -248,13 +249,13 @@ namespace MultiDrawIndirectNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -269,18 +270,18 @@ namespace MultiDrawIndirectNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -291,7 +292,7 @@ namespace MultiDrawIndirectNri {
                 this.unsupportedReason = "This example needs D3D12 or Vulkan (225 textures in one array)";
                 return 0;
             }
-            this.multiDraw = Nri_GetDrawIndirectMaxNum(device) > 1;
+            this.multiDraw = device.getDrawIndirectMaxNum() > 1;
 
             if (!this.createDepth(device)) {
                 console.log("Cannot create the depth buffer");
@@ -299,7 +300,7 @@ namespace MultiDrawIndirectNri {
             }
 
             // The sample's linear sampler (repeat): Donut's LinearWrap.
-            this.sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            this.sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
             if (!this.sampler || !this.loadScene(device)) {
                 console.log("Cannot load the scene and its textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
@@ -307,23 +308,23 @@ namespace MultiDrawIndirectNri {
 
             // The draws' commands, all visible until culled: indirect arguments, written by the
             // culling (raw).
-            const indirectCallBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE,
+            const indirectCallBuffer = device.createStorageBufferFromInts(this.queue, Ref(this.commands[0]), this.modelCount * COMMAND_SIZE,
                 4, NriBufferState.IndirectArgument);
             this.indirectCallBuffer = indirectCallBuffer;
             if (!indirectCallBuffer) {
                 console.log("Cannot create the commands' buffer");
                 return 0;
             }
-            this.indirectCallStorage = Nri_CreateStructuredBufferView(indirectCallBuffer, 1);
+            this.indirectCallStorage = indirectCallBuffer.createStructuredView(1);
 
             // The address of the commands' buffer, in a buffer of its own, for the device address
             // culling (Vulkan).
             const address: f32[] = [0.0, 0.0];
-            if (Nri_GetBufferDeviceAddress(device, indirectCallBuffer, Ref(address[0])) != 0) {
-                const addressBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(address[0]), 8, 8);
+            if (device.getBufferAddress(indirectCallBuffer, Ref(address[0])) != 0) {
+                const addressBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(address[0]), 8, 8);
                 this.addressBuffer = addressBuffer;
                 if (addressBuffer) {
-                    this.addressView = Nri_CreateStructuredBufferView(addressBuffer, 0);
+                    this.addressView = addressBuffer.createStructuredView(0);
                 }
             }
 
@@ -349,7 +350,7 @@ namespace MultiDrawIndirectNri {
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -357,9 +358,9 @@ namespace MultiDrawIndirectNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -369,15 +370,15 @@ namespace MultiDrawIndirectNri {
         // triangles in one vertex and one index buffer. As the sample, the vertices are mirrored in y
         // (into its world), but not the bounding spheres, computed from the vertices as read: so its
         // culling tests mirrored spheres.
-        loadScene(device: NriDeviceHandle) {
-            const scene = Nri_LoadGltfModel(SCENE_PATH);
+        loadScene(device: NriDevice) {
+            const scene = NriGltfModel.load(SCENE_PATH);
             if (!scene) {
                 return false;
             }
-            this.modelCount = Nri_GetGltfModelPrimitiveCount(scene);
+            this.modelCount = scene.getPrimitiveCount();
             if (this.modelCount != TEXTURE_COUNT) {
                 console.log(`${SCENE_PATH} has ${this.modelCount} meshes, the shaders expect ${TEXTURE_COUNT}`);
-                Nri_DestroyGltfModel(scene);
+                scene.destroy();
                 return false;
             }
 
@@ -387,16 +388,16 @@ namespace MultiDrawIndirectNri {
             let loaded = true;
             for (let p = 0; p < this.modelCount; p++) {
                 // As the sample (vkb) loads KTX 1 color textures: as sRGB. One mip level, as the sample's.
-                const texture = Nri_LoadDdsTexture(device, this.queue, SCENE_DIR + Nri_GetGltfModelMeshName(scene, p) + ".dds", 1);
+                const texture = device.loadDdsTexture(this.queue, SCENE_DIR + scene.getMeshName(p) + ".dds", 1);
                 if (!texture) {
                     loaded = false;
                     break;
                 }
                 this.textures.push(texture);
-                this.textureViews.push(Nri_CreateTextureView(texture, NriFormat.RGBA8_SRGB));
+                this.textureViews.push(texture.createView(NriFormat.RGBA8_SRGB));
 
-                const vertexCount = Nri_GetGltfModelVertexCount(scene, p);
-                const indexCount = Nri_GetGltfModelIndexCount(scene, p);
+                const vertexCount = scene.getVertexCount(p);
+                const indexCount = scene.getIndexCount(p);
                 const modelVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     modelVertices.push(0.0);
@@ -405,8 +406,8 @@ namespace MultiDrawIndirectNri {
                 for (let i = 0; i < indexCount; i++) {
                     modelIndices.push(0);
                 }
-                Nri_CopyGltfModelVertices(scene, p, Ref(modelVertices[0]));
-                Nri_CopyGltfModelIndices(scene, p, Ref(modelIndices[0]));
+                scene.copyVertices(p, Ref(modelVertices[0]));
+                scene.copyIndices(p, Ref(modelIndices[0]));
 
                 const firstVertex = vertices.length / VERTEX_FLOATS;
                 const firstIndex = indices.length;
@@ -456,9 +457,9 @@ namespace MultiDrawIndirectNri {
                     modelInformation.push(0.0);
                 }
                 const info = p * MODEL_INFORMATION_FLOATS;
-                Nri_StoreInt32(Ref(modelInformation[info + 4]), p);
-                Nri_StoreInt32(Ref(modelInformation[info + 5]), firstIndex);
-                Nri_StoreInt32(Ref(modelInformation[info + 6]), indexCount / 3);
+                Nri.storeInt32(Ref(modelInformation[info + 4]), p);
+                Nri.storeInt32(Ref(modelInformation[info + 5]), firstIndex);
+                Nri.storeInt32(Ref(modelInformation[info + 6]), indexCount / 3);
 
                 // The model's draw: its triangles, one instance until culled.
                 this.commands.push(indexCount);
@@ -467,26 +468,26 @@ namespace MultiDrawIndirectNri {
                 this.commands.push(firstVertex);
                 this.commands.push(p);
             }
-            Nri_DestroyGltfModel(scene);
+            scene.destroy();
             if (!loaded) {
                 return false;
             }
             for (let i = 0; i < this.commands.length; i++) {
                 this.commandWords.push(0.0);
-                Nri_StoreInt32(Ref(this.commandWords[i]), this.commands[i]);
+                Nri.storeInt32(Ref(this.commandWords[i]), this.commands[i]);
             }
 
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
-            this.modelInstanceBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(modelInformation[0]),
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
+            this.modelInstanceBuffer = device.createUploadedBuffer(this.queue, Ref(modelInformation[0]),
                 this.modelCount * MODEL_INFORMATION_SIZE, NriBufferUsage.VertexBuffer);
-            const modelInformationBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(modelInformation[0]),
+            const modelInformationBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(modelInformation[0]),
                 this.modelCount * MODEL_INFORMATION_SIZE, 4);
             this.modelInformationBuffer = modelInformationBuffer;
             if (!this.vertexBuffer || !this.indexBuffer || !this.modelInstanceBuffer || !modelInformationBuffer) {
                 return false;
             }
-            this.modelInformationView = Nri_CreateStructuredBufferView(modelInformationBuffer, 0);
+            this.modelInformationView = modelInformationBuffer.createStructuredView(0);
             return true;
         }
 
@@ -495,21 +496,21 @@ namespace MultiDrawIndirectNri {
         // counter-clockwise front faces, in the sample's clip space); the culling (the scene uniform,
         // the models' information, the commands); with device addresses, the culling through the
         // commands' address instead of their binding.
-        createPipelines(device: NriDeviceHandle, graphicsAPI: NriGraphicsAPI) {
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, TEXTURE_COUNT, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+        createPipelines(device: NriDevice, graphicsAPI: NriGraphicsAPI) {
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            drawLayoutDesc.addRange(0, 0, TEXTURE_COUNT, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.Array);
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            const drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             this.drawLayout = drawLayout;
 
-            const cullLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(cullLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(cullLayoutDesc, 0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(cullLayoutDesc, 0, 0, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            const cullLayout = Nri_CreatePipelineLayoutFromDesc(device, cullLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(cullLayoutDesc);
+            const cullLayoutDesc = NriPipelineLayoutDesc.create();
+            cullLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
+            cullLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            cullLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            const cullLayout = device.createPipelineLayoutFromDesc(cullLayoutDesc);
+            cullLayoutDesc.destroy();
             this.cullLayout = cullLayout;
             if (!drawLayout || !cullLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -518,24 +519,24 @@ namespace MultiDrawIndirectNri {
 
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/multi_draw_indirect/${folder}/multi_draw_indirect`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_mdi_vs.bin`, "mdi_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_mdi_vs.bin`, "mdi_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_mdi_ps.bin`, "mdi_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_mdi_ps.bin`, "mdi_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
-            Nri_PipelineDescAddVertexAttributeFromStream(desc, "TEXTURE_INDEX", NriFormat.R32_UINT, TEXTURE_INDEX_OFFSET, 1);
-            Nri_PipelineDescSetInstanceStream(desc, 1);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
+            desc.addVertexAttributeFromStream("TEXTURE_INDEX", NriFormat.R32_UINT, TEXTURE_INDEX_OFFSET, 1);
+            desc.setInstanceStream(1);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
-            this.cullPipeline = Nri_CreateComputePipeline(device, cullLayout, `${shaders}_cull_cs.bin`, "cull_cs");
+            desc.destroy();
+            this.cullPipeline = device.createComputePipeline(cullLayout, `${shaders}_cull_cs.bin`, "cull_cs");
             if (!this.drawPipeline || !this.cullPipeline) {
                 console.log("Cannot load the multi-draw indirect shaders");
                 return false;
@@ -546,18 +547,18 @@ namespace MultiDrawIndirectNri {
             if (!this.addressView) {
                 return true;
             }
-            const addressLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(addressLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(addressLayoutDesc, 0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(addressLayoutDesc, 0, 1, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            const addressLayout = Nri_CreatePipelineLayoutFromDesc(device, addressLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(addressLayoutDesc);
+            const addressLayoutDesc = NriPipelineLayoutDesc.create();
+            addressLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
+            addressLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            addressLayoutDesc.addRange(0, 1, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            const addressLayout = device.createPipelineLayoutFromDesc(addressLayoutDesc);
+            addressLayoutDesc.destroy();
             this.addressLayout = addressLayout;
             if (!addressLayout) {
                 console.log("Cannot create the pipeline layouts");
                 return false;
             }
-            this.addressPipeline = Nri_CreateComputePipeline(device, addressLayout, `${shaders}_cull_address_cs.bin`, "cull_address_cs");
+            this.addressPipeline = device.createComputePipeline(addressLayout, `${shaders}_cull_address_cs.bin`, "cull_address_cs");
             if (!this.addressPipeline) {
                 console.log("Cannot load the multi-draw indirect shaders");
                 return false;
@@ -568,10 +569,10 @@ namespace MultiDrawIndirectNri {
 
         // The constants (a queued frame's each), the queued frames and their descriptor sets, the CPU
         // culling's commands to upload and the commands' readback copies.
-        createFrames(device: NriDeviceHandle, queuedFrameNum: int) {
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
+        createFrames(device: NriDevice, queuedFrameNum: int) {
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 3 * queuedFrameNum, queuedFrameNum, 3 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(3 * queuedFrameNum, queuedFrameNum, 3 * queuedFrameNum,
                 TEXTURE_COUNT * queuedFrameNum, 0, 3 * queuedFrameNum, queuedFrameNum, 0);
             this.descriptorPool = descriptorPool;
             const drawLayout = this.drawLayout;
@@ -585,23 +586,23 @@ namespace MultiDrawIndirectNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantBufferView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
-                const drawSet = Nri_AllocateDescriptorSet(descriptorPool, drawLayout, 0, 0);
-                const cullSet = Nri_AllocateDescriptorSet(descriptorPool, cullLayout, 0, 0);
-                const hostCommands = Nri_CreateHostBufferWithStride(device, this.modelCount * COMMAND_SIZE, NriBufferUsage.StructuredBuffer, 4);
-                const readback = Nri_CreateReadbackBuffer(device, this.modelCount * COMMAND_SIZE);
+                const constantBufferView = constantBuffer.createConstantView(i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
+                const drawSet = descriptorPool.allocateDescriptorSet(drawLayout, 0, 0);
+                const cullSet = descriptorPool.allocateDescriptorSet(cullLayout, 0, 0);
+                const hostCommands = device.createHostBufferWithStride(this.modelCount * COMMAND_SIZE, NriBufferUsage.StructuredBuffer, 4);
+                const readback = device.createReadbackBuffer(this.modelCount * COMMAND_SIZE);
                 if (!constantBufferView || !drawSet || !cullSet || !hostCommands || !readback) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                Nri_UpdateDescriptor(drawSet, 0, 0, constantBufferView);
+                drawSet.updateDescriptor(0, 0, constantBufferView);
                 for (let t = 0; t < TEXTURE_COUNT; t++) {
-                    Nri_UpdateDescriptor(drawSet, 1, t, this.textureViews[t]);
+                    drawSet.updateDescriptor(1, t, this.textureViews[t]);
                 }
-                Nri_UpdateDescriptor(drawSet, 2, 0, sampler);
-                Nri_UpdateDescriptor(cullSet, 0, 0, constantBufferView);
-                Nri_UpdateDescriptor(cullSet, 1, 0, modelInformationView);
-                Nri_UpdateDescriptor(cullSet, 2, 0, indirectCallStorage);
+                drawSet.updateDescriptor(2, 0, sampler);
+                cullSet.updateDescriptor(0, 0, constantBufferView);
+                cullSet.updateDescriptor(1, 0, modelInformationView);
+                cullSet.updateDescriptor(2, 0, indirectCallStorage);
                 const addressSet = this.createAddressSet(descriptorPool, constantBufferView, modelInformationView);
                 this.queuedFrames.push(new QueuedFrame(constantBufferView,
                     drawSet, cullSet, addressSet, hostCommands, readback, false));
@@ -611,20 +612,20 @@ namespace MultiDrawIndirectNri {
 
         // A queued frame's device address culling set: its constants, the models' information and
         // the commands' address; null without device addresses.
-        createAddressSet(descriptorPool: NriDescriptorPoolHandle, constantBufferView: NriDescriptorHandle,
-            modelInformationView: NriDescriptorHandle): NriDescriptorSetHandle | null {
+        createAddressSet(descriptorPool: NriDescriptorPool, constantBufferView: NriDescriptor,
+            modelInformationView: NriDescriptor): NriDescriptorSet | null {
             const addressLayout = this.addressLayout;
             const addressView = this.addressView;
             if (!addressLayout || !addressView) {
                 return null;
             }
-            const addressSet = Nri_AllocateDescriptorSet(descriptorPool, addressLayout, 0, 0);
+            const addressSet = descriptorPool.allocateDescriptorSet(addressLayout, 0, 0);
             if (!addressSet) {
                 return null;
             }
-            Nri_UpdateDescriptor(addressSet, 0, 0, constantBufferView);
-            Nri_UpdateDescriptor(addressSet, 1, 0, modelInformationView);
-            Nri_UpdateDescriptor(addressSet, 2, 0, addressView);
+            addressSet.updateDescriptor(0, 0, constantBufferView);
+            addressSet.updateDescriptor(1, 0, modelInformationView);
+            addressSet.updateDescriptor(2, 0, addressView);
             return addressSet;
         }
 
@@ -640,12 +641,12 @@ namespace MultiDrawIndirectNri {
         }
 
         // The visible models in a copy of the commands.
-        countInstances(readback: NriBufferHandle) {
+        countInstances(readback: NriBuffer) {
             const commands: int[] = [];
             for (let i = 0; i < this.modelCount * COMMAND_INTS; i++) {
                 commands.push(0);
             }
-            if (Nri_ReadBufferInts(readback, Ref(commands[0]), commands.length) == 0) {
+            if (readback.readInts(Ref(commands[0]), commands.length) == 0) {
                 return;
             }
             let visible = 0;
@@ -661,7 +662,7 @@ namespace MultiDrawIndirectNri {
             if (!device || this.renderMode == RenderPath.Cpu || this.queuedFrames.length == 0) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const queuedFrame = this.queuedFrames[(TEST_FRAMES - 1) % this.queuedFrames.length];
             if (queuedFrame.readbackValid) {
                 this.countInstances(queuedFrame.readback);
@@ -706,8 +707,8 @@ namespace MultiDrawIndirectNri {
                 }
             }
 
-            Nri_StoreInt32(Ref(c[CONST_MODEL_COUNT]), this.modelCount);
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
+            Nri.storeInt32(Ref(c[CONST_MODEL_COUNT]), this.modelCount);
+            constantBuffer.write(queuedFrameIndex * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The sample's cpu_cull: every model's draw, visible (one instance) or not (none).
@@ -720,7 +721,7 @@ namespace MultiDrawIndirectNri {
                 // we control visibility by changing the instance count
                 const word = i * COMMAND_INTS + COMMAND_INSTANCE_COUNT;
                 this.commands[word] = isVisible ? 1 : 0;
-                Nri_StoreInt32(Ref(this.commandWords[word]), this.commands[word]);
+                Nri.storeInt32(Ref(this.commandWords[word]), this.commands[word]);
                 if (isVisible) {
                     visible++;
                 }
@@ -729,21 +730,21 @@ namespace MultiDrawIndirectNri {
         }
 
         // The CPU culling's commands, uploaded into the commands' buffer (outside rendering).
-        recordUpload(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordUpload(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const indirectCallBuffer = this.indirectCallBuffer;
             if (!indirectCallBuffer) {
                 return;
             }
             const byteSize = this.modelCount * COMMAND_SIZE;
-            Nri_WriteBuffer(queuedFrame.hostCommands, 0, Ref(this.commandWords[0]), byteSize);
-            Nri_CmdBufferBarrier(commandBuffer, indirectCallBuffer, NriBufferState.IndirectArgument, NriBufferState.CopyDestination);
-            Nri_CmdCopyBuffer(commandBuffer, indirectCallBuffer, queuedFrame.hostCommands, byteSize);
-            Nri_CmdBufferBarrier(commandBuffer, indirectCallBuffer, NriBufferState.CopyDestination, NriBufferState.IndirectArgument);
+            queuedFrame.hostCommands.write(0, Ref(this.commandWords[0]), byteSize);
+            commandBuffer.bufferBarrier(indirectCallBuffer, NriBufferState.IndirectArgument, NriBufferState.CopyDestination);
+            commandBuffer.copyBuffer(indirectCallBuffer, queuedFrame.hostCommands, byteSize);
+            commandBuffer.bufferBarrier(indirectCallBuffer, NriBufferState.CopyDestination, NriBufferState.IndirectArgument);
         }
 
         // The sample's run_gpu_cull: a thread per model, writing the commands through their binding
         // or (GpuDeviceAddress) their address (outside rendering).
-        recordGpuCull(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordGpuCull(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const indirectCallBuffer = this.indirectCallBuffer;
             const cullLayout = this.cullLayout;
             const cullPipeline = this.cullPipeline;
@@ -751,47 +752,47 @@ namespace MultiDrawIndirectNri {
                 return;
             }
             const groups = Math.floor((this.modelCount + CULL_GROUP_SIZE - 1) / CULL_GROUP_SIZE);
-            Nri_CmdBufferBarrier(commandBuffer, indirectCallBuffer, NriBufferState.IndirectArgument, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(indirectCallBuffer, NriBufferState.IndirectArgument, NriBufferState.Storage);
             if (!this.recordAddressCull(commandBuffer, queuedFrame, groups)) {
-                Nri_CmdSetComputePipelineLayout(commandBuffer, cullLayout);
-                Nri_CmdSetPipeline(commandBuffer, cullPipeline);
-                Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, queuedFrame.cullSet);
-                Nri_CmdDispatch(commandBuffer, groups, 1, 1);
+                commandBuffer.setComputePipelineLayout(cullLayout);
+                commandBuffer.setPipeline(cullPipeline);
+                commandBuffer.setComputeDescriptorSet(0, queuedFrame.cullSet);
+                commandBuffer.dispatch(groups, 1, 1);
             }
-            Nri_CmdBufferBarrier(commandBuffer, indirectCallBuffer, NriBufferState.Storage, NriBufferState.IndirectArgument);
+            commandBuffer.bufferBarrier(indirectCallBuffer, NriBufferState.Storage, NriBufferState.IndirectArgument);
         }
 
         // The device address culling, in GpuDeviceAddress mode with device addresses; false if not.
-        recordAddressCull(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, groups: int) {
+        recordAddressCull(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, groups: int) {
             const addressLayout = this.addressLayout;
             const addressPipeline = this.addressPipeline;
             const addressSet = queuedFrame.addressSet;
             if (this.renderMode != RenderPath.GpuDeviceAddress || !addressLayout || !addressPipeline || !addressSet) {
                 return false;
             }
-            Nri_CmdSetComputePipelineLayout(commandBuffer, addressLayout);
-            Nri_CmdSetPipeline(commandBuffer, addressPipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, addressSet);
-            Nri_CmdDispatch(commandBuffer, groups, 1, 1);
+            commandBuffer.setComputePipelineLayout(addressLayout);
+            commandBuffer.setPipeline(addressPipeline);
+            commandBuffer.setComputeDescriptorSet(0, addressSet);
+            commandBuffer.dispatch(groups, 1, 1);
             return true;
         }
 
         // The sample's overlay counts the instances the GPU culling left: from a copy of the commands
         // the queued frame reads when its turn comes back (latencySleep).
-        recordCommandsCopy(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordCommandsCopy(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const indirectCallBuffer = this.indirectCallBuffer;
             if (!indirectCallBuffer) {
                 return;
             }
-            Nri_CmdBufferBarrier(commandBuffer, indirectCallBuffer, NriBufferState.IndirectArgument, NriBufferState.CopySource);
-            Nri_CmdCopyBuffer(commandBuffer, queuedFrame.readback, indirectCallBuffer, this.modelCount * COMMAND_SIZE);
-            Nri_CmdBufferBarrier(commandBuffer, indirectCallBuffer, NriBufferState.CopySource, NriBufferState.IndirectArgument);
+            commandBuffer.bufferBarrier(indirectCallBuffer, NriBufferState.IndirectArgument, NriBufferState.CopySource);
+            commandBuffer.copyBuffer(queuedFrame.readback, indirectCallBuffer, this.modelCount * COMMAND_SIZE);
+            commandBuffer.bufferBarrier(indirectCallBuffer, NriBufferState.CopySource, NriBufferState.IndirectArgument);
             queuedFrame.readbackValid = true;
         }
 
         // The scene: one indirect call of a draw per model, or a call per model (between
-        // Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const descriptorPool = this.descriptorPool;
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
@@ -803,42 +804,42 @@ namespace MultiDrawIndirectNri {
                 || !indirectCallBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.drawSet);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
-            Nri_CmdSetVertexBuffer(commandBuffer, 1, modelInstanceBuffer, 0, MODEL_INFORMATION_SIZE);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setDescriptorSet(0, queuedFrame.drawSet);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setVertexBuffer(1, modelInstanceBuffer, 0, MODEL_INFORMATION_SIZE);
             if (this.enableMdi && this.multiDraw) {
-                Nri_CmdDrawIndexedIndirect(commandBuffer, indirectCallBuffer, 0, this.modelCount, COMMAND_SIZE, null, 0);
+                commandBuffer.drawIndexedIndirect(indirectCallBuffer, 0, this.modelCount, COMMAND_SIZE, null, 0);
             } else {
                 for (let j = 0; j < this.modelCount; j++) {
-                    Nri_CmdDrawIndexedIndirect(commandBuffer, indirectCallBuffer, j * COMMAND_SIZE, 1, COMMAND_SIZE, null, 0);
+                    commandBuffer.drawIndexedIndirect(indirectCallBuffer, j * COMMAND_SIZE, 1, COMMAND_SIZE, null, 0);
                 }
             }
         }
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("GPU Rendering", 1) != 0) {
-                Nri_ImguiText(`Multi-Draw Indirect: ${this.multiDraw ? "Supported" : "Not supported"}`);
-                Nri_ImguiText("drawIndirectFirstInstance: Supported");
-                Nri_ImguiText(`Device buffer address: ${this.deviceAddress ? "Supported" : "Not supported"}`);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("GPU Rendering", 1) != 0) {
+                NriImgui.text(`Multi-Draw Indirect: ${this.multiDraw ? "Supported" : "Not supported"}`);
+                NriImgui.text("drawIndirectFirstInstance: Supported");
+                NriImgui.text(`Device buffer address: ${this.deviceAddress ? "Supported" : "Not supported"}`);
 
-                Nri_ImguiText("");
-                Nri_ImguiText(`Instances: ${this.instanceCount} / ${this.modelCount}`);
+                NriImgui.text("");
+                NriImgui.text(`Instances: ${this.instanceCount} / ${this.modelCount}`);
 
-                this.enableMdi = Nri_ImguiCheckbox("Enable multi-draw", this.enableMdi ? 1 : 0) != 0;
-                this.freezeCull = Nri_ImguiCheckbox("Freeze culling", this.freezeCull ? 1 : 0) != 0;
-                this.renderMode = Nri_ImguiCombo("Cull mode", this.renderMode, RENDER_MODE_NAMES);
+                this.enableMdi = NriImgui.checkbox("Enable multi-draw", this.enableMdi ? 1 : 0) != 0;
+                this.freezeCull = NriImgui.checkbox("Freeze culling", this.freezeCull ? 1 : 0) != 0;
+                this.renderMode = NriImgui.combo("Cull mode", this.renderMode, RENDER_MODE_NAMES);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -850,13 +851,13 @@ namespace MultiDrawIndirectNri {
         }
 
         // The depth buffer: D32, cleared to 1; at the stored size. False on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
@@ -864,13 +865,13 @@ namespace MultiDrawIndirectNri {
             this.destroyDescriptor(this.depthAttachment);
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthAttachment = null;
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer again at
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer again at
         // its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -896,8 +897,8 @@ namespace MultiDrawIndirectNri {
             if (this.renderMode == RenderPath.GpuDeviceAddress && !this.deviceAddress) {
                 this.renderMode = RenderPath.Gpu;
             }
-            const mouseFree = !this.imgui || Nri_ImguiWantsMouse() == 0;
-            this.camera.animate(this.sample, this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample), mouseFree);
+            const mouseFree = !this.imgui || NriImgui.wantsMouse() == 0;
+            this.camera.animate(this.sample, this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime(), mouseFree);
             this.writeConstants(queuedFrameIndex);
             if (!this.freezeCull && this.renderMode == RenderPath.Cpu) {
                 this.cpuCull();
@@ -913,12 +914,12 @@ namespace MultiDrawIndirectNri {
 
                 // Record: the culling (the CPU's commands uploaded, or the GPU's), the copy of the
                 // commands, then cleared, the scene, the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
                 if (descriptorPool) {
-                    Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                    commandBuffer.setDescriptorPool(descriptorPool);
                 }
                 if (!this.freezeCull) {
                     if (this.renderMode == RenderPath.Cpu) {
@@ -930,18 +931,18 @@ namespace MultiDrawIndirectNri {
                 if (this.renderMode != RenderPath.Cpu) {
                     this.recordCommandsCopy(commandBuffer, queuedFrame);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+                    commandBuffer.clearDepth(1.0);
                     this.recordDraw(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 if (this.imgui) {
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -949,18 +950,18 @@ namespace MultiDrawIndirectNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -976,12 +977,12 @@ namespace MultiDrawIndirectNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -991,24 +992,24 @@ namespace MultiDrawIndirectNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyDescriptor(queuedFrame.constantBufferView);
-                    Nri_DestroyBuffer(queuedFrame.hostCommands);
-                    Nri_DestroyBuffer(queuedFrame.readback);
+                    queuedFrame.constantBufferView.destroy();
+                    queuedFrame.hostCommands.destroy();
+                    queuedFrame.readback.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const view of this.textureViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const texture of this.textures) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
                 this.destroyDescriptor(this.sampler);
                 this.destroyDepth();
@@ -1031,56 +1032,56 @@ namespace MultiDrawIndirectNri {
                 this.destroyLayout(this.addressLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const mdi = new MultiDrawIndirect(sample);
         // -nomdi: a draw call per model; -freeze: culling frozen; -mode <0..2>: the cull mode (CPU,
         // GPU, GPU device address); -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-nomdi");
-        Nri_AddExampleOption(sample, "-freeze");
-        Nri_AddExampleOptionWithValues(sample, "-mode", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOption("-nomdi");
+        sample.addExampleOption("-freeze");
+        sample.addExampleOptionWithValues("-mode", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-nomdi") {
                 mdi.enableMdi = false;
             } else if (arg == "-freeze") {
                 mdi.freezeCull = true;
             } else if (arg == "-mode" && i + 1 < argc) {
                 i++;
-                mdi.renderMode = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), RenderPath.Cpu), RenderPath.GpuDeviceAddress);
+                mdi.renderMode = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), RenderPath.Cpu), RenderPath.GpuDeviceAddress);
             } else if (arg == "-noUI") {
                 mdi.noUI = true;
             }

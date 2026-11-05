@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { matrixMultiply, matrixPerspectiveFovRH, matrixTranslation, matrixTranspose } from "../../core/directx_math";
 import { SimpleCamera } from "../../core/simple_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace DynamicIndexingNri {
     // dynamic_indexing, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -156,23 +157,23 @@ namespace DynamicIndexingNri {
     // set per draw and modulating the city's diffuse texture with it. As the sample, into the swap
     // chain's UNORM texture and a D32 depth buffer.
     class DynamicIndexing {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private diffuse: NriTextureHandle | null = null;
-        private diffuseView: NriDescriptorHandle | null = null;
-        private materials: NriTextureHandle[] = [];
-        private materialViews: NriDescriptorHandle[] = [];
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private descriptorSet: NriDescriptorSetHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private diffuse: NriTexture | null = null;
+        private diffuseView: NriDescriptor | null = null;
+        private materials: NriTexture[] = [];
+        private materialViews: NriDescriptor[] = [];
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private descriptorSet: NriDescriptorSet | null = null;
         // The swap chain's size (the window's when it was made), its textures' format and their views'.
         private width: int = 0;
         private height: int = 0;
@@ -188,11 +189,11 @@ namespace DynamicIndexingNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < DRAW_CONSTANT_FLOATS; i++) {
                 this.drawConstants.push(0.0);
             }
@@ -210,13 +211,13 @@ namespace DynamicIndexingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -229,27 +230,27 @@ namespace DynamicIndexingNri {
         }
 
         // The sample's pipeline state: no culling, opaque, depth tested (less) and written.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, ps: string, colorFormat: NriFormat) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, ps: string, colorFormat: NriFormat) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
             // The vertex shader reads the positions and texture coordinates of the 44-byte vertices.
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
-            Nri_PipelineDescSetColor(desc, colorFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+            desc.setColor(colorFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
@@ -260,13 +261,13 @@ namespace DynamicIndexingNri {
                 this.unsupportedReason = "The Dynamic Indexing example can only run on D3D12 or Vulkan";
                 return 0;
             }
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: the sample's R8G8B8A8_UNORM back buffers, rendered into as they are.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -283,13 +284,13 @@ namespace DynamicIndexingNri {
             // The sample's root signature: the city's matrix and material index (b0, root constants
             // here), the diffuse texture (t0), the materials (t1 onwards) and the sampler (s0), as
             // one descriptor set.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 0, DRAW_CONSTANT_FLOATS * 4, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 1, CITY_MATERIAL_COUNT, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootConstants(0, DRAW_CONSTANT_FLOATS * 4, NriStage.VertexPixel);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 1, CITY_MATERIAL_COUNT, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.Array);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -310,9 +311,9 @@ namespace DynamicIndexingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -327,30 +328,30 @@ namespace DynamicIndexingNri {
         }
 
         // The D32 depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -360,7 +361,7 @@ namespace DynamicIndexingNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -370,28 +371,28 @@ namespace DynamicIndexingNri {
         // LoadAssets: the city's mesh and diffuse texture from the data file, the material textures,
         // the descriptor set, and the cities' positions (SetCityPositions; y raised a little per city
         // against z-fighting).
-        loadAssets(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle) {
-            const file = Nri_LoadFile(DATA_FILE);
+        loadAssets(device: NriDevice, pipelineLayout: NriPipelineLayout) {
+            const file = NriFile.load(DATA_FILE);
             if (!file) {
                 console.log(`Cannot load ${DATA_FILE} (the sample's data: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                 return false;
             }
-            this.vertexBuffer = Nri_CreateUploadedBufferFromFile(device, this.queue, file, VERTEX_DATA_OFFSET, VERTEX_DATA_SIZE,
+            this.vertexBuffer = device.createUploadedBufferFromFile(this.queue, file, VERTEX_DATA_OFFSET, VERTEX_DATA_SIZE,
                 NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromFile(device, this.queue, file, INDEX_DATA_OFFSET, INDEX_DATA_SIZE,
+            this.indexBuffer = device.createUploadedBufferFromFile(this.queue, file, INDEX_DATA_OFFSET, INDEX_DATA_SIZE,
                 NriBufferUsage.IndexBuffer);
-            const diffuse = Nri_CreateCommittedTexture(device, TEXTURE_SIZE, TEXTURE_SIZE, NriFormat.BC1_RGBA_UNORM);
+            const diffuse = device.createCommittedTexture(TEXTURE_SIZE, TEXTURE_SIZE, NriFormat.BC1_RGBA_UNORM);
             this.diffuse = diffuse;
             let uploaded = false;
             if (diffuse) {
-                uploaded = Nri_UploadTextureFromFile(this.queue, diffuse, file, 0, TEXTURE_PITCH) != 0;
+                uploaded = this.queue.uploadTextureFromFile(diffuse, file, 0, TEXTURE_PITCH) != 0;
             }
-            Nri_DestroyFile(file);
+            file.destroy();
             if (!this.vertexBuffer || !this.indexBuffer || !diffuse || !uploaded) {
                 console.log(`Cannot create the city from ${DATA_FILE}`);
                 return false;
             }
-            this.diffuseView = Nri_CreateTextureView(diffuse, NriFormat.BC1_RGBA_UNORM);
+            this.diffuseView = diffuse.createView(NriFormat.BC1_RGBA_UNORM);
 
             // The material textures: rows of a rainbow, city i spanning hues i / 120 to (i + 1) / 120
             // down its texture.
@@ -412,38 +413,38 @@ namespace DynamicIndexingNri {
                         pixels.push(pixel);
                     }
                 }
-                const material = Nri_CreateCommittedTexture(device, size, size, NriFormat.RGBA8_UNORM);
+                const material = device.createCommittedTexture(size, size, NriFormat.RGBA8_UNORM);
                 if (!material) {
                     console.log("Cannot create the material textures");
                     return false;
                 }
-                Nri_UploadTexture(this.queue, material, Ref(pixels[0]), size * 4);
+                this.queue.uploadTexture(material, Ref(pixels[0]), size * 4);
                 this.materials.push(material);
-                this.materialViews.push(Nri_CreateTextureView(material, NriFormat.RGBA8_UNORM));
+                this.materialViews.push(material.createView(NriFormat.RGBA8_UNORM));
             }
 
             // The sample's sampler: linear, wrapping. The one descriptor set: the diffuse texture,
             // the materials, the sampler.
-            const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const sampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 1, 1, 0, 1 + CITY_MATERIAL_COUNT, 0, 0);
+            const descriptorPool = device.createDescriptorPool(1, 1, 0, 1 + CITY_MATERIAL_COUNT, 0, 0);
             this.descriptorPool = descriptorPool;
             const diffuseView = this.diffuseView;
             if (!sampler || !descriptorPool || !diffuseView) {
                 console.log("Cannot create the descriptors");
                 return false;
             }
-            const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
+            const descriptorSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
             this.descriptorSet = descriptorSet;
             if (!descriptorSet) {
                 console.log("Cannot create the descriptor set");
                 return false;
             }
-            Nri_UpdateDescriptor(descriptorSet, 0, 0, diffuseView);
+            descriptorSet.updateDescriptor(0, 0, diffuseView);
             for (let i = 0; i < CITY_MATERIAL_COUNT; i++) {
-                Nri_UpdateDescriptor(descriptorSet, 1, i, this.materialViews[i]);
+                descriptorSet.updateDescriptor(1, i, this.materialViews[i]);
             }
-            Nri_UpdateDescriptor(descriptorSet, 2, 0, sampler);
+            descriptorSet.updateDescriptor(2, 0, sampler);
 
             for (let i = 0; i < CITY_ROW_COUNT; i++) {
                 const cityOffsetZ = Math.fround(i * -CITY_SPACING_INTERVAL);
@@ -464,15 +465,15 @@ namespace DynamicIndexingNri {
         // OnUpdate: the camera (its keys).
         update() {
             for (const key of CAMERA_KEYS) {
-                this.camera.onKey(key, Nri_IsKeyPressed(this.sample, key) != 0);
+                this.camera.onKey(key, this.sample.isKeyPressed(key) != 0);
             }
             // In test mode 1/60 second a frame, as Donut's test mode.
-            this.camera.update(Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample)));
+            this.camera.update(Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime()));
         }
 
         // The bundle's draws (recorded every frame: NRI has no bundles): each city with its
         // model-view-projection matrix and material index.
-        recordCities(commandBuffer: NriCommandBufferHandle) {
+        recordCities(commandBuffer: NriCommandBuffer) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipeline;
             const vertexBuffer = this.vertexBuffer;
@@ -485,14 +486,14 @@ namespace DynamicIndexingNri {
             if (!indexBuffer || !descriptorPool || !descriptorSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_STRIDE);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_STRIDE);
 
             const view = this.camera.viewMatrix();
             const projection = matrixPerspectiveFovRH(Math.fround(0.8), Math.fround(this.width / this.height), 1.0, 1000.0);
@@ -503,8 +504,8 @@ namespace DynamicIndexingNri {
                     this.drawConstants[k] = mvp[k];
                 }
                 this.drawConstants[16] = i;
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.drawConstants[0]), DRAW_CONSTANT_FLOATS * 4);
-                Nri_CmdDrawIndexed(commandBuffer, INDEX_DATA_SIZE / 4, 1, 0, 0, 0);
+                commandBuffer.setRootConstants(0, Ref(this.drawConstants[0]), DRAW_CONSTANT_FLOATS * 4);
+                commandBuffer.drawIndexed(INDEX_DATA_SIZE / 4, 1, 0, 0, 0);
             }
         }
 
@@ -520,15 +521,15 @@ namespace DynamicIndexingNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 const depthAttachment = this.depthAttachment;
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
+                    commandBuffer.clearDepth(1.0);
                     this.recordCities(commandBuffer);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -536,13 +537,13 @@ namespace DynamicIndexingNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -560,12 +561,12 @@ namespace DynamicIndexingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -575,63 +576,63 @@ namespace DynamicIndexingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 for (const materialView of this.materialViews) {
-                    Nri_DestroyDescriptor(materialView);
+                    materialView.destroy();
                 }
                 for (const material of this.materials) {
-                    Nri_DestroyTexture(material);
+                    material.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 const sampler = this.sampler;
                 if (sampler) {
-                    Nri_DestroyDescriptor(sampler);
+                    sampler.destroy();
                 }
                 const diffuseView = this.diffuseView;
                 if (diffuseView) {
-                    Nri_DestroyDescriptor(diffuseView);
+                    diffuseView.destroy();
                 }
                 const diffuse = this.diffuse;
                 if (diffuse) {
-                    Nri_DestroyTexture(diffuse);
+                    diffuse.destroy();
                 }
                 const vertexBuffer = this.vertexBuffer;
                 if (vertexBuffer) {
-                    Nri_DestroyBuffer(vertexBuffer);
+                    vertexBuffer.destroy();
                 }
                 const indexBuffer = this.indexBuffer;
                 if (indexBuffer) {
-                    Nri_DestroyBuffer(indexBuffer);
+                    indexBuffer.destroy();
                 }
                 this.destroyDepth();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 if (this.unsupportedReason == "") {
                     this.frames.destroy();
                     this.swapChain.destroy();
                 }
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const dynamicIndexing = new DynamicIndexing(sample);
         return dynamicIndexing.run(argc, argv);
     }

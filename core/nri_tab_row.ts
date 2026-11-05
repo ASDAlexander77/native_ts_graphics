@@ -4,10 +4,11 @@
 //
 // Imported with `import { NriTabRow } from "../core/nri_tab_row";`, and listed in the app's
 // add_tslang_nri_example sources. Each frame, layout (it measures the labels: between the app's
-// Nri_ImguiNewFrame and Nri_ImguiRender) and draw; tabAt, offset and scrollTo read where it was
+// NriSample.imguiNewFrame and NriSample.imguiRender) and draw; tabAt, offset and scrollTo read where it was
 // last laid out.
 
 /// <reference path="nri/nri_interop.d.ts" />
+import { NriImgui } from "./nri";
 
 @final
 export class NriTabRow {
@@ -35,17 +36,17 @@ export class NriTabRow {
             this.markB.push(0.0);
         }
         this.width = width;
-        const gap = Nri_ImguiCalcTextWidth("  ");
+        const gap = NriImgui.calcTextWidth("  ");
         let total = 0.0;
         for (const name of this.names) {
-            total += Nri_ImguiCalcTextWidth(name) + gap;
+            total += NriImgui.calcTextWidth(name) + gap;
         }
         const spread = total < width ? (width - total) / this.names.length : 0.0;
         this.edges = [];
         let edge = 0.0;
         for (const name of this.names) {
             this.edges.push(edge);
-            edge += Nri_ImguiCalcTextWidth(name) + gap + spread;
+            edge += NriImgui.calcTextWidth(name) + gap + spread;
         }
         this.end = edge;
         this.scrollTo(this.scroll);
@@ -114,18 +115,18 @@ export class NriTabRow {
             }
             const lit = k == selected;
             if (lit) {
-                Nri_ImguiDrawRect(x0 + 1.0, top + 1.0, x1 - 1.0, bottom, 0.95, 0.95, 0.95, 1.0);
+                NriImgui.drawRect(x0 + 1.0, top + 1.0, x1 - 1.0, bottom, 0.95, 0.95, 0.95, 1.0);
             }
             if (this.markR[k] >= 0.0) {
-                Nri_ImguiDrawRect(x0 + pad, bottom - 4.0, x1 - pad, bottom - 1.0, this.markR[k], this.markG[k], this.markB[k], 1.0);
+                NriImgui.drawRect(x0 + pad, bottom - 4.0, x1 - pad, bottom - 1.0, this.markR[k], this.markG[k], this.markB[k], 1.0);
             }
             const name = this.names[k];
             const gray = lit ? 0.0 : 0.65;
-            Nri_ImguiDrawText((x0 + x1 - Nri_ImguiCalcTextWidth(name)) * 0.5, top + (height - labelHeight) * 0.5 + 2.0, name,
+            NriImgui.drawText((x0 + x1 - NriImgui.calcTextWidth(name)) * 0.5, top + (height - labelHeight) * 0.5 + 2.0, name,
                 gray, gray, gray, 1.0, 0);
         }
         if (this.maxScroll() > 0.0) {
-            Nri_ImguiDrawRect(this.scroll / this.end * this.width, top, (this.scroll + this.width) / this.end * this.width,
+            NriImgui.drawRect(this.scroll / this.end * this.width, top, (this.scroll + this.width) / this.end * this.width,
                 top + 3.0, 0.7, 0.7, 0.75, 1.0);
         }
     }

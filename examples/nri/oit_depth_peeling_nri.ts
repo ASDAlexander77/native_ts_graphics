@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, scale, radians, samplePerspective } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace OitDepthPeelingNri {
     // oit_depth_peeling, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -20,7 +21,7 @@ namespace OitDepthPeelingNri {
     const OBJECT_PATH = "media/oit_depth_peeling/torusknot.gltf";
     const BACKGROUND_PATH = "media/oit_depth_peeling/vulkan_logo_full.dds";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
     const TEXCOORD_OFFSET = 24;
 
@@ -62,16 +63,16 @@ namespace OitDepthPeelingNri {
     // passes', one per depth target drawn into, reading the other; the background and combine
     // passes') and the view of its slice of the constants.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public gatherSets: NriDescriptorSetHandle[], public combineSet: NriDescriptorSetHandle | null,
-            public constantBufferView: NriDescriptorHandle | null) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public gatherSets: NriDescriptorSet[], public combineSet: NriDescriptorSet | null,
+            public constantBufferView: NriDescriptor | null) {
         }
     }
 
     // A render target and its views: rendered into (a layer's color, a depth target's depth) and
     // read by shaders.
     class Target {
-        constructor(public texture: NriTextureHandle, public attachment: NriDescriptorHandle, public shaderResource: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public attachment: NriDescriptor, public shaderResource: NriDescriptor) {
         }
     }
 
@@ -117,28 +118,28 @@ namespace OitDepthPeelingNri {
     // pass blends the layers back to front over the background. Drawn straight into the sRGB swap
     // chain view, where the Donut example draws into an sRGB color buffer and blits it.
     class OitDepthPeeling {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private gatherLayout: NriPipelineLayoutHandle | null = null;
-        private combineLayout: NriPipelineLayoutHandle | null = null;
-        private gatherFirstPipeline: NriPipelineHandle | null = null;
-        private gatherPipeline: NriPipelineHandle | null = null;
-        private backgroundPipeline: NriPipelineHandle | null = null;
-        private combinePipeline: NriPipelineHandle | null = null;
-        private object: NriGltfMeshHandle | null = null;
-        private background: NriTextureHandle | null = null;
-        private backgroundView: NriDescriptorHandle | null = null;
-        private pointSampler: NriDescriptorHandle | null = null;
-        private anisotropicSampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
+        private gatherLayout: NriPipelineLayout | null = null;
+        private combineLayout: NriPipelineLayout | null = null;
+        private gatherFirstPipeline: NriPipeline | null = null;
+        private gatherPipeline: NriPipeline | null = null;
+        private backgroundPipeline: NriPipeline | null = null;
+        private combinePipeline: NriPipeline | null = null;
+        private object: NriGltfMesh | null = null;
+        private background: NriTexture | null = null;
+        private backgroundView: NriDescriptor | null = null;
+        private pointSampler: NriDescriptor | null = null;
+        private anisotropicSampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
         // The layers and the depth targets, for the window's size.
         private layers: Target[] = [];
         private depths: Target[] = [];
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -169,11 +170,11 @@ namespace OitDepthPeelingNri {
         private test: boolean = false;
         // Whether the layers and the depth targets have been cleared once (initializeTargets).
         private targetsInitialized: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -187,11 +188,11 @@ namespace OitDepthPeelingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -202,20 +203,20 @@ namespace OitDepthPeelingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the
             // Donut example blits into its back buffer).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -223,41 +224,41 @@ namespace OitDepthPeelingNri {
 
             // The model and the background (KTX 1 files have no color space: the framework takes
             // color textures as sRGB).
-            this.object = Nri_LoadGltfMesh(device, this.queue, OBJECT_PATH);
-            const background = Nri_LoadDdsTexture(device, this.queue, BACKGROUND_PATH, 1);
+            this.object = device.loadGltfMesh(this.queue, OBJECT_PATH);
+            const background = device.loadDdsTexture(this.queue, BACKGROUND_PATH, 1);
             this.background = background;
             if (!this.object || !background) {
                 console.log("Cannot load the model and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const backgroundView = Nri_CreateTextureView(background, NriFormat.RGBA8_SRGB);
+            const backgroundView = background.createView(NriFormat.RGBA8_SRGB);
             this.backgroundView = backgroundView;
             // Donut's PointClamp, for the layers; its AnisotropicWrap (trilinear, the device's
             // maximum anisotropy), for the background.
-            const pointSampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Nearest, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
-            const anisotropicSampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
-                Nri_GetMaxSamplerAnisotropy(device));
+            const pointSampler = device.createSamplerWithMipFilter(NriFilter.Nearest, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
+            const anisotropicSampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
+                device.getMaxSamplerAnisotropy());
             this.pointSampler = pointSampler;
             this.anisotropicSampler = anisotropicSampler;
 
             // The gather passes: the constants and the other depth target. The background and
             // combine passes: the constants, the background texture and its sampler, the layers and
             // their sampler.
-            const gatherLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(gatherLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            this.gatherLayout = Nri_CreatePipelineLayoutFromDesc(device, gatherLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(gatherLayoutDesc);
+            const gatherLayoutDesc = NriPipelineLayoutDesc.create();
+            gatherLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            gatherLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            this.gatherLayout = device.createPipelineLayoutFromDesc(gatherLayoutDesc);
+            gatherLayoutDesc.destroy();
 
-            const combineLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 1, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 1, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 2, LAYER_MAX_COUNT, NriDescriptorType.Texture, NriStage.VertexPixel,
+            const combineLayoutDesc = NriPipelineLayoutDesc.create();
+            combineLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            combineLayoutDesc.addRange(0, 1, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            combineLayoutDesc.addRange(0, 1, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            combineLayoutDesc.addRange(0, 2, LAYER_MAX_COUNT, NriDescriptorType.Texture, NriStage.VertexPixel,
                 NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(combineLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            this.combineLayout = Nri_CreatePipelineLayoutFromDesc(device, combineLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(combineLayoutDesc);
+            combineLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            this.combineLayout = device.createPipelineLayoutFromDesc(combineLayoutDesc);
+            combineLayoutDesc.destroy();
 
             const gatherLayout = this.gatherLayout;
             const combineLayout = this.combineLayout;
@@ -287,10 +288,10 @@ namespace OitDepthPeelingNri {
             }
 
             // The constants, a queued frame's each; a queued frame's descriptor sets.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setNum = DEPTH_COUNT + 1;
-            const descriptorPool = Nri_CreateDescriptorPool(device, setNum * queuedFrameNum, 2 * queuedFrameNum, setNum * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPool(setNum * queuedFrameNum, 2 * queuedFrameNum, setNum * queuedFrameNum,
                 (DEPTH_COUNT + 1 + LAYER_MAX_COUNT) * queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
@@ -299,9 +300,9 @@ namespace OitDepthPeelingNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantBufferView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_STRIDE, CONST_STRIDE);
-                const gatherSets: NriDescriptorSetHandle[] = [];
-                const combineSet = Nri_AllocateDescriptorSet(descriptorPool, combineLayout, 0, 0);
+                const constantBufferView = constantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
+                const gatherSets: NriDescriptorSet[] = [];
+                const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
                 const queuedFrame = new QueuedFrame(this.frames.commandBuffer(i), gatherSets, combineSet,
                     constantBufferView);
                 this.queuedFrames.push(queuedFrame);
@@ -311,27 +312,27 @@ namespace OitDepthPeelingNri {
                 }
                 // The pass drawing into depth target d reads the other one.
                 for (let d = 0; d < DEPTH_COUNT; d++) {
-                    const gatherSet = Nri_AllocateDescriptorSet(descriptorPool, gatherLayout, 0, 0);
+                    const gatherSet = descriptorPool.allocateDescriptorSet(gatherLayout, 0, 0);
                     if (!gatherSet) {
                         console.log("Cannot create the descriptor sets");
                         return 0;
                     }
-                    Nri_UpdateDescriptor(gatherSet, 0, 0, constantBufferView);
-                    Nri_UpdateDescriptor(gatherSet, 1, 0, this.depths[(d + 1) % DEPTH_COUNT].shaderResource);
+                    gatherSet.updateDescriptor(0, 0, constantBufferView);
+                    gatherSet.updateDescriptor(1, 0, this.depths[(d + 1) % DEPTH_COUNT].shaderResource);
                     gatherSets.push(gatherSet);
                 }
-                Nri_UpdateDescriptor(combineSet, 0, 0, constantBufferView);
-                Nri_UpdateDescriptor(combineSet, 1, 0, backgroundView);
-                Nri_UpdateDescriptor(combineSet, 2, 0, anisotropicSampler);
+                combineSet.updateDescriptor(0, 0, constantBufferView);
+                combineSet.updateDescriptor(1, 0, backgroundView);
+                combineSet.updateDescriptor(2, 0, anisotropicSampler);
                 for (let l = 0; l < LAYER_MAX_COUNT; l++) {
-                    Nri_UpdateDescriptor(combineSet, 3, l, this.layers[l].shaderResource);
+                    combineSet.updateDescriptor(3, l, this.layers[l].shaderResource);
                 }
-                Nri_UpdateDescriptor(combineSet, 4, 0, pointSampler);
+                combineSet.updateDescriptor(4, 0, pointSampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -339,9 +340,9 @@ namespace OitDepthPeelingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -349,43 +350,43 @@ namespace OitDepthPeelingNri {
 
         // A gather pass's pipeline (gather_vs and the pixel shader ps): positions and texture
         // coordinates, into a layer (RGBA8) and a depth target (greater passes, written).
-        createGatherPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, ps: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_gather_vs.bin`, "gather_vs") != 0;
+        createGatherPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, ps: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_gather_vs.bin`, "gather_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
+            desc.setColor(NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // A fullscreen pass's pipeline (fullscreen_vs and the pixel shader ps) into the swap chain
         // view: blended (AlphaBlend) or not; no depth.
-        createFullscreenPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, ps: string,
+        createFullscreenPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, ps: string,
             blend: boolean) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_fullscreen_vs.bin`, "fullscreen_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_fullscreen_vs.bin`, "fullscreen_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
             if (blend) {
-                Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+                desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                     NriBlendFactor.OneMinusSrcAlpha, NriBlendFactor.Zero, NriBlendOp.Add);
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -397,15 +398,15 @@ namespace OitDepthPeelingNri {
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: dragging with the left
         // button rotates the camera, with the right one zooms, with the middle one pans.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (!pressed || !overlay) {
                     this.buttons[button] = pressed;
                 }
             }
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.buttons[0]) {
@@ -428,27 +429,27 @@ namespace OitDepthPeelingNri {
             if (!this.cameraAutoRotation) {
                 return;
             }
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             this.cameraRotation[0] += elapsedSeconds * AUTO_ROTATION_SPEED;
             this.cameraRotation[1] += elapsedSeconds * AUTO_ROTATION_SPEED;
         }
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            this.cameraAutoRotation = Nri_ImguiCheckbox("Camera auto-rotation", this.cameraAutoRotation ? 1 : 0) != 0;
-            this.backgroundGrayscale = Nri_ImguiSliderFloat("Background grayscale", this.backgroundGrayscale, 0.0, 1.0);
-            this.objectAlpha = Nri_ImguiSliderFloat("Object opacity", this.objectAlpha, 0.0, 1.0);
-            this.frontLayerIndex = Nri_ImguiSliderInt("Front layer index", this.frontLayerIndex, 0, this.backLayerIndex);
-            this.backLayerIndex = Nri_ImguiSliderInt("Back layer index", this.backLayerIndex, this.frontLayerIndex, LAYER_MAX_COUNT - 1);
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            this.cameraAutoRotation = NriImgui.checkbox("Camera auto-rotation", this.cameraAutoRotation ? 1 : 0) != 0;
+            this.backgroundGrayscale = NriImgui.sliderFloat("Background grayscale", this.backgroundGrayscale, 0.0, 1.0);
+            this.objectAlpha = NriImgui.sliderFloat("Object opacity", this.objectAlpha, 0.0, 1.0);
+            this.frontLayerIndex = NriImgui.sliderInt("Front layer index", this.frontLayerIndex, 0, this.backLayerIndex);
+            this.backLayerIndex = NriImgui.sliderInt("Back layer index", this.backLayerIndex, this.frontLayerIndex, LAYER_MAX_COUNT - 1);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_scene_constants, into this frame's slice.
-        updateConstants(constantBuffer: NriBufferHandle, offset: int) {
+        updateConstants(constantBuffer: NriBuffer, offset: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -463,26 +464,26 @@ namespace OitDepthPeelingNri {
             }
             c[CONST_BACKGROUND_GRAYSCALE] = this.backgroundGrayscale;
             c[CONST_OBJECT_ALPHA] = this.objectAlpha;
-            Nri_StoreInt32(Ref(c[CONST_FRONT_LAYER_INDEX]), this.frontLayerIndex);
-            Nri_StoreInt32(Ref(c[CONST_BACK_LAYER_INDEX]), this.backLayerIndex);
-            Nri_WriteBuffer(constantBuffer, offset, Ref(c[0]), CONST_FLOATS * 4);
+            Nri.storeInt32(Ref(c[CONST_FRONT_LAYER_INDEX]), this.frontLayerIndex);
+            Nri.storeInt32(Ref(c[CONST_BACK_LAYER_INDEX]), this.backLayerIndex);
+            constantBuffer.write(offset, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // Clears every layer and both depth targets, once: a gather pass binds the other depth target
         // and the combine pass all the layers before they're all rendered into, and D3D12 rejects
         // reading a render target or depth texture (not zeroed at creation) before a clear.
-        initializeTargets(commandBuffer: NriCommandBufferHandle) {
+        initializeTargets(commandBuffer: NriCommandBuffer) {
             for (let l = 0; l < LAYER_MAX_COUNT; l++) {
                 const layer = this.layers[l];
                 const depth = this.depths[l % DEPTH_COUNT];
-                Nri_CmdTextureBarrier(commandBuffer, layer.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-                Nri_CmdTextureBarrier(commandBuffer, depth.texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-                Nri_CmdBeginRenderingWithDepth(commandBuffer, layer.attachment, depth.attachment);
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-                Nri_CmdClearDepth(commandBuffer, 0.0);
-                Nri_CmdEndRendering(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, layer.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-                Nri_CmdTextureBarrier(commandBuffer, depth.texture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+                commandBuffer.textureBarrier(layer.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(depth.texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+                commandBuffer.beginRenderingWithDepth(layer.attachment, depth.attachment);
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+                commandBuffer.clearDepth(0.0);
+                commandBuffer.endRendering();
+                commandBuffer.textureBarrier(layer.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+                commandBuffer.textureBarrier(depth.texture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
             }
             this.targetsInitialized = true;
         }
@@ -491,7 +492,7 @@ namespace OitDepthPeelingNri {
         // take turns: depth target l % 2 for the fixed-function depth test, the other one the
         // previous gather pass's result, read in the shader to discard the fragments of the
         // previous layers.
-        recordGather(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, l: int) {
+        recordGather(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, l: int) {
             const gatherLayout = this.gatherLayout;
             const pipeline = l == 0 ? this.gatherFirstPipeline : this.gatherPipeline;
             const object = this.object;
@@ -500,35 +501,35 @@ namespace OitDepthPeelingNri {
             }
             const layer = this.layers[l];
             const depth = this.depths[l % DEPTH_COUNT];
-            Nri_CmdTextureBarrier(commandBuffer, layer.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdTextureBarrier(commandBuffer, depth.texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, layer.attachment, depth.attachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, gatherLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.gatherSets[l % DEPTH_COUNT]);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(object), 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(object), 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(object), 1, 0, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, layer.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-            Nri_CmdTextureBarrier(commandBuffer, depth.texture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(layer.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.textureBarrier(depth.texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+            commandBuffer.beginRenderingWithDepth(layer.attachment, depth.attachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.clearDepth(0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(gatherLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.gatherSets[l % DEPTH_COUNT]);
+            commandBuffer.setVertexBuffer(0, object.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(object.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(object.getIndexCount(), 1, 0, 0, 0);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(layer.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(depth.texture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
         }
 
-        // A fullscreen triangle of the pipeline with the combine set (between Nri_CmdBeginRendering
-        // and Nri_CmdEndRendering).
-        drawFullscreen(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, combineSet: NriDescriptorSetHandle | null) {
+        // A fullscreen triangle of the pipeline with the combine set (between NriCommandBuffer.beginRendering
+        // and NriCommandBuffer.endRendering).
+        drawFullscreen(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, combineSet: NriDescriptorSet | null) {
             const combineLayout = this.combineLayout;
             if (!combineLayout || !pipeline || !combineSet) {
                 return;
             }
-            Nri_CmdSetPipelineLayout(commandBuffer, combineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, combineSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setPipelineLayout(combineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, combineSet);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -542,24 +543,24 @@ namespace OitDepthPeelingNri {
 
         // The sample's create_sized_objects: the layers and the depth targets at the window's size,
         // read by shaders (both left as shader resources between the passes); false on failure.
-        createTargets(device: NriDeviceHandle): boolean {
+        createTargets(device: NriDevice): boolean {
             for (let i = 0; i < LAYER_MAX_COUNT; i++) {
-                const layer = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+                const layer = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
                 if (!layer) {
                     console.log("Cannot create the layers");
                     return false;
                 }
-                this.layers.push(new Target(layer, Nri_CreateColorAttachmentView(layer, NriFormat.RGBA8_UNORM),
-                    Nri_CreateTextureView(layer, NriFormat.RGBA8_UNORM)));
+                this.layers.push(new Target(layer, layer.createColorAttachmentView(NriFormat.RGBA8_UNORM),
+                    layer.createView(NriFormat.RGBA8_UNORM)));
             }
             for (let i = 0; i < DEPTH_COUNT; i++) {
-                const depth = Nri_CreateSampledDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+                const depth = device.createSampledDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
                 if (!depth) {
                     console.log("Cannot create the depth targets");
                     return false;
                 }
-                this.depths.push(new Target(depth, Nri_CreateDepthAttachmentView(depth, NriFormat.D32_SFLOAT),
-                    Nri_CreateTextureView(depth, NriFormat.D32_SFLOAT)));
+                this.depths.push(new Target(depth, depth.createDepthAttachmentView(NriFormat.D32_SFLOAT),
+                    depth.createView(NriFormat.D32_SFLOAT)));
             }
             return true;
         }
@@ -583,18 +584,18 @@ namespace OitDepthPeelingNri {
             }
             for (const queuedFrame of this.queuedFrames) {
                 for (let d = 0; d < queuedFrame.gatherSets.length; d++) {
-                    Nri_UpdateDescriptor(queuedFrame.gatherSets[d], 1, 0, this.depths[(d + 1) % DEPTH_COUNT].shaderResource);
+                    queuedFrame.gatherSets[d].updateDescriptor(1, 0, this.depths[(d + 1) % DEPTH_COUNT].shaderResource);
                 }
                 const combineSet = queuedFrame.combineSet;
                 if (combineSet) {
                     for (let l = 0; l < LAYER_MAX_COUNT; l++) {
-                        Nri_UpdateDescriptor(combineSet, 3, l, this.layers[l].shaderResource);
+                        combineSet.updateDescriptor(3, l, this.layers[l].shaderResource);
                     }
                 }
             }
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain, the layers and the depth
+        // The window was resized (NriSample.useResizableWindow): the swap chain, the layers and the depth
         // targets made again at its size (the sets pointed at the new targets, cleared again before
         // they're read), once the GPU is done with the old ones.
         resizeIfNeeded() {
@@ -605,7 +606,7 @@ namespace OitDepthPeelingNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyTargets();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -644,11 +645,11 @@ namespace OitDepthPeelingNri {
             const commandBuffer = queuedFrame.commandBuffer;
             this.updateConstants(constantBuffer, queuedFrameIndex * CONST_STRIDE);
 
-            Nri_BeginCommandBuffer(commandBuffer);
+            commandBuffer.begin();
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.setDescriptorPool(descriptorPool);
             if (!this.targetsInitialized) {
                 this.initializeTargets(commandBuffer);
             }
@@ -660,35 +661,35 @@ namespace OitDepthPeelingNri {
 
             // Combine pass: the layers blended into the final transparent color, alpha blended over
             // the background; the overlay over them.
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
             this.drawFullscreen(commandBuffer, this.backgroundPipeline, queuedFrame.combineSet);
             this.drawFullscreen(commandBuffer, this.combinePipeline, queuedFrame.combineSet);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImgui(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -700,12 +701,12 @@ namespace OitDepthPeelingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -715,16 +716,16 @@ namespace OitDepthPeelingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.constantBufferView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyTargets();
                 this.destroyDescriptor(this.backgroundView);
@@ -732,19 +733,19 @@ namespace OitDepthPeelingNri {
                 this.destroyDescriptor(this.anisotropicSampler);
                 const background = this.background;
                 if (background) {
-                    Nri_DestroyTexture(background);
+                    background.destroy();
                 }
                 const object = this.object;
                 if (object) {
-                    Nri_DestroyGltfMesh(object);
+                    object.destroy();
                 }
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.destroyPipeline(this.gatherFirstPipeline);
                 this.destroyPipeline(this.gatherPipeline);
@@ -754,63 +755,63 @@ namespace OitDepthPeelingNri {
                 this.destroyPipelineLayout(this.combineLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyTarget(target: Target) {
-            Nri_DestroyDescriptor(target.attachment);
-            Nri_DestroyDescriptor(target.shaderResource);
-            Nri_DestroyTexture(target.texture);
+            target.attachment.destroy();
+            target.shaderResource.destroy();
+            target.texture.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyPipelineLayout(pipelineLayout: NriPipelineLayoutHandle | null) {
+        destroyPipelineLayout(pipelineLayout: NriPipelineLayout | null) {
             if (pipelineLayout) {
-                Nri_DestroyPipelineLayout(pipelineLayout);
+                pipelineLayout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const oit = new OitDepthPeeling(sample);
         // -layers <front> <back>: the layers combined (0..7); -alpha <value>, -grayscale <value>: the
         // object's opacity, the background's brightness; -rotate: start with the camera's
         // auto-rotation on; -noUI: no overlay.
-        Nri_AddExampleOptionWithValues(sample, "-layers", 2);
-        Nri_AddExampleOptionWithValues(sample, "-alpha", 1);
-        Nri_AddExampleOptionWithValues(sample, "-grayscale", 1);
-        Nri_AddExampleOption(sample, "-rotate");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-layers", 2);
+        sample.addExampleOptionWithValues("-alpha", 1);
+        sample.addExampleOptionWithValues("-grayscale", 1);
+        sample.addExampleOption("-rotate");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-rotate") {
                 oit.cameraAutoRotation = true;
             } else if (arg == "-layers" && i + 2 < argc) {
-                oit.backLayerIndex = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 2)), 0), LAYER_MAX_COUNT - 1);
-                oit.frontLayerIndex = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i + 1)), 0), oit.backLayerIndex);
+                oit.backLayerIndex = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i + 2)), 0), LAYER_MAX_COUNT - 1);
+                oit.frontLayerIndex = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i + 1)), 0), oit.backLayerIndex);
                 i += 2;
             } else if (arg == "-alpha" && i + 1 < argc) {
                 i++;
-                oit.objectAlpha = parseFloat(Nri_GetArg(argc, argv, i));
+                oit.objectAlpha = parseFloat(Nri.getArg(argc, argv, i));
             } else if (arg == "-grayscale" && i + 1 < argc) {
                 i++;
-                oit.backgroundGrayscale = parseFloat(Nri_GetArg(argc, argv, i));
+                oit.backgroundGrayscale = parseFloat(Nri.getArg(argc, argv, i));
             } else if (arg == "-noUI") {
                 oit.noUI = true;
             }

@@ -36,6 +36,18 @@ RENAMES = {
 }
 
 
+# More words a class's methods drop (once), after its own noun: asyncLoop.acquireTexture, not
+# acquireAsyncComputeTexture.
+EXTRA_NOUNS = {
+    'AsyncComputeLoop': ['AsyncCompute'],
+    'CalibratedTimestamps': ['Calibrated'],
+    'DonutAnimatedScene': ['Donut'],
+    'DonutAnimatedSceneAccelStructs': ['DonutAnimatedScene'],
+    'DonutSceneAccelStructs': ['DonutScene'],
+    'ImguiFont': ['Imgui'],
+}
+
+
 def core_class_names():
     names = set()
     for f in os.listdir(os.path.join(ROOT, 'core')):
@@ -143,6 +155,8 @@ def assign(handles, functions):
                 name = name[3:]
             else:
                 name = strip_noun(name, noun)
+            for extra in EXTRA_NOUNS.get(noun, []):
+                name = strip_noun(name, extra)
             name = RENAMES.get(f.name, name)
         elif name.startswith('Imgui'):
             f.cls, f.static = 'NriImgui', True

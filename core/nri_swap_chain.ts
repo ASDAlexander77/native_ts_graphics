@@ -1,4 +1,4 @@
-// The swap chain of an NRI app: made at the window's size (Nri_GetQueuedFrameNum + 1 textures), a
+// The swap chain of an NRI app: made at the window's size (NriSample.getQueuedFrameNum + 1 textures), a
 // color attachment view and a pair of semaphores for each texture, made again when the window's
 // resized, and the acquire, submit and present of a frame.
 //
@@ -33,20 +33,20 @@ export class NriSwapChain {
 
     // srgb: the views are the texture format's sRGB form (the GPU encodes the colors); else the
     // texture's own format (the app writes its colors as they are).
-    init(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, srgb: boolean) {
-        this.sample = new NriSample(sample);
-        this.device = new NriDevice(device);
-        this.queue = new NriQueue(queue);
+    init(sample: NriSample, device: NriDevice, queue: NriQueue, srgb: boolean) {
+        this.sample = sample;
+        this.device = device;
+        this.queue = queue;
         this.srgb = srgb;
         this.create();
     }
 
     // A swap chain of format (NriSwapChainFormat: BT709_G22_10BIT, BT2020_G2084_10BIT, ...), its
     // views in its textures' format.
-    initWithFormat(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, format: NriSwapChainFormat) {
-        this.sample = new NriSample(sample);
-        this.device = new NriDevice(device);
-        this.queue = new NriQueue(queue);
+    initWithFormat(sample: NriSample, device: NriDevice, queue: NriQueue, format: NriSwapChainFormat) {
+        this.sample = sample;
+        this.device = device;
+        this.queue = queue;
         this.srgb = false;
         this.chainFormat = format;
         this.create();
@@ -99,9 +99,9 @@ export class NriSwapChain {
         return this.created;
     }
 
-    // The NRI swap chain itself (for Nri_IsDisplayHdr, say).
-    handle(): NriSwapChainHandle {
-        return this.swapChain.handle;
+    // The NRI swap chain itself (for isDisplayHdr, say).
+    object(): NriSwapChainObject {
+        return this.swapChain;
     }
 
     // Whether the window's size is no longer the swap chain's.
@@ -129,17 +129,17 @@ export class NriSwapChain {
         return this.swapChain.acquireNextTexture(this.acquireSemaphores[this.acquired]);
     }
 
-    texture(index: int): NriTextureHandle {
-        return this.textures[index].handle;
+    texture(index: int): NriTexture {
+        return this.textures[index];
     }
 
-    colorAttachment(index: int): NriDescriptorHandle {
-        return this.views[index].handle;
+    colorAttachment(index: int): NriDescriptor {
+        return this.views[index];
     }
 
     // The command buffer submitted, waiting for the acquired texture and signaling its present.
-    submit(commandBuffer: NriCommandBufferHandle, index: int) {
-        this.queue.submit(new NriCommandBuffer(commandBuffer), this.acquireSemaphores[this.acquired], this.releaseSemaphores[index]);
+    submit(commandBuffer: NriCommandBuffer, index: int) {
+        this.queue.submit(commandBuffer, this.acquireSemaphores[this.acquired], this.releaseSemaphores[index]);
     }
 
     present(index: int) {

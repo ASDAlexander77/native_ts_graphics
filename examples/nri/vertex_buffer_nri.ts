@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { perspProjD3DStyle, radiansF32, translation } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace VertexBufferNri {
     // vertex_buffer, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -87,8 +88,8 @@ namespace VertexBufferNri {
     // A frame in flight's own data: the descriptor sets of its part of the constant
     // buffer (one per view: its constants, the texture, the sampler).
     class QueuedFrame {
-        descriptorSets: NriDescriptorSetHandle[] = [];
-        constantViews: NriDescriptorHandle[] = [];
+        descriptorSets: NriDescriptorSet[] = [];
+        constantViews: NriDescriptor[] = [];
     }
 
     // --- Math ---------------------------------------------------------------------------------
@@ -193,20 +194,20 @@ namespace VertexBufferNri {
     // Port of Donut-Samples' vertex_buffer.cpp (as examples/vertex_buffer.ts ports it) to NRI: a
     // textured cube drawn in four viewports, each turning around its own axis.
     class VertexBuffer {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private texture: NriTextureHandle | null = null;
-        private textureView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private texture: NriTexture | null = null;
+        private textureView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private width: int = 0;
         private height: int = 0;
         // The swap chain textures' format and their views' (the swap chain's).
@@ -219,11 +220,11 @@ namespace VertexBufferNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < NUM_VIEWS * CONSTANT_BUFFER_ENTRY_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -237,11 +238,11 @@ namespace VertexBufferNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -252,19 +253,19 @@ namespace VertexBufferNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -278,31 +279,31 @@ namespace VertexBufferNri {
 
             // The binding layout: the view's constants (b0), the texture (t0), the sampler (s0), as
             // one descriptor set.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
                 return 0;
             }
 
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(g_Vertices[0]), 24 * VERTEX_SIZE, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(g_Indices[0]), INDEX_COUNT * 4, NriBufferUsage.IndexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(g_Vertices[0]), 24 * VERTEX_SIZE, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(g_Indices[0]), INDEX_COUNT * 4, NriBufferUsage.IndexBuffer);
             if (!this.vertexBuffer || !this.indexBuffer) {
                 console.log("Cannot create the cube's buffers");
                 return 0;
             }
-            const texture = Nri_LoadImageTexture(device, this.queue, "media/nvidia-logo.png", 1);
+            const texture = device.loadImageTexture(this.queue, "media/nvidia-logo.png", 1);
             this.texture = texture;
             if (!texture) {
                 console.log("Couldn't load the texture");
                 return 0;
             }
-            this.textureView = Nri_CreateTextureView(texture, NriFormat.RGBA8_SRGB);
+            this.textureView = texture.createView(NriFormat.RGBA8_SRGB);
             if (!this.createDescriptorSets(device, pipelineLayout)) {
                 console.log("Couldn't create the descriptor sets");
                 return 0;
@@ -313,28 +314,28 @@ namespace VertexBufferNri {
             // default raster state).
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/vertex_buffer/${folder}/vertex_buffer`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttributeFromStream(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0, 0);
-            Nri_PipelineDescAddVertexAttributeFromStream(desc, "UV", NriFormat.RG32_SFLOAT, 0, 1);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
+            desc.addVertexAttributeFromStream("POSITION", NriFormat.RGB32_SFLOAT, 0, 0);
+            desc.addVertexAttributeFromStream("UV", NriFormat.RG32_SFLOAT, 0, 1);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                this.pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the vertex buffer shaders");
                 return 0;
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -343,14 +344,14 @@ namespace VertexBufferNri {
         // A descriptor set per view per frame in flight: the view's slice of the frame's part of the
         // constant buffer, and the texture and the sampler, the same for all views (Donut's
         // anisotropic wrap sampler: 16 times).
-        createDescriptorSets(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle) {
+        createDescriptorSets(device: NriDevice, pipelineLayout: NriPipelineLayout) {
             const queuedFrameNum = this.queuedFrames.length;
-            const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 16);
+            const sampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 16);
             this.sampler = sampler;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setNum = queuedFrameNum * NUM_VIEWS;
-            const descriptorPool = Nri_CreateDescriptorPool(device, setNum, setNum, setNum, setNum, 0, 0);
+            const descriptorPool = device.createDescriptorPool(setNum, setNum, setNum, setNum, 0, 0);
             this.descriptorPool = descriptorPool;
             const textureView = this.textureView;
             if (!sampler || !constantBuffer || !descriptorPool || !textureView) {
@@ -359,15 +360,15 @@ namespace VertexBufferNri {
             for (let f = 0; f < queuedFrameNum; f++) {
                 const queuedFrame = this.queuedFrames[f];
                 for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
-                    const constantView = Nri_CreateConstantBufferView(constantBuffer,
+                    const constantView = constantBuffer.createConstantView(
                         f * FRAME_CONSTANTS_SIZE + viewIndex * CONSTANT_BUFFER_ENTRY_SIZE, CONSTANT_BUFFER_ENTRY_SIZE);
-                    const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
+                    const descriptorSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
                     if (!constantView || !descriptorSet) {
                         return false;
                     }
-                    Nri_UpdateDescriptor(descriptorSet, 0, 0, constantView);
-                    Nri_UpdateDescriptor(descriptorSet, 1, 0, textureView);
-                    Nri_UpdateDescriptor(descriptorSet, 2, 0, sampler);
+                    descriptorSet.updateDescriptor(0, 0, constantView);
+                    descriptorSet.updateDescriptor(1, 0, textureView);
+                    descriptorSet.updateDescriptor(2, 0, sampler);
                     queuedFrame.constantViews.push(constantView);
                     queuedFrame.descriptorSets.push(descriptorSet);
                 }
@@ -381,9 +382,9 @@ namespace VertexBufferNri {
         }
 
         // Animate, and the constant buffer slices for the views of the model, into this frame's part.
-        updateConstants(frameOffset: int, constantBuffer: NriBufferHandle) {
+        updateConstants(frameOffset: int, constantBuffer: NriBuffer) {
             // In test mode 1/60 second a frame, as Donut's test mode.
-            this.rotation += (this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample)) * 1.1;
+            this.rotation += (this.test ? 1.0 / 60.0 : this.sample.getFrameTime()) * 1.1;
             for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
                 const viewMatrix = mul(mul(
                     rotation(g_RotationAxes[viewIndex * 3], g_RotationAxes[viewIndex * 3 + 1], g_RotationAxes[viewIndex * 3 + 2], this.rotation),
@@ -395,12 +396,12 @@ namespace VertexBufferNri {
                     this.constants[viewIndex * CONSTANT_BUFFER_ENTRY_FLOATS + i] = viewProjMatrix[i];
                 }
             }
-            Nri_WriteBuffer(constantBuffer, frameOffset, Ref(this.constants[0]), FRAME_CONSTANTS_SIZE);
+            constantBuffer.write(frameOffset, Ref(this.constants[0]), FRAME_CONSTANTS_SIZE);
         }
 
         // The model in each view: the view's descriptor set, the vertex buffer bound to its two slots
         // (in reverse order, as the Donut sample tests NVRHI's binding slots), its viewport.
-        recordViews(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordViews(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipeline;
             const vertexBuffer = this.vertexBuffer;
@@ -412,24 +413,24 @@ namespace VertexBufferNri {
             if (!indexBuffer || !descriptorPool) {
                 return;
             }
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
             for (let viewIndex = 0; viewIndex < NUM_VIEWS; viewIndex++) {
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.descriptorSets[viewIndex]);
-                Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-                Nri_CmdSetVertexBuffer(commandBuffer, 1, vertexBuffer, UV_OFFSET, VERTEX_SIZE);
-                Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+                commandBuffer.setDescriptorSet(0, queuedFrame.descriptorSets[viewIndex]);
+                commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+                commandBuffer.setVertexBuffer(1, vertexBuffer, UV_OFFSET, VERTEX_SIZE);
+                commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
 
                 // Construct the viewport so that all viewports form a grid.
                 const viewWidth = this.width * 0.5;
                 const viewHeight = this.height * 0.5;
                 const left = viewWidth * (viewIndex % 2);
                 const top = viewHeight * Math.floor(viewIndex / 2);
-                Nri_CmdSetViewport(commandBuffer, left, top, viewWidth, viewHeight);
+                commandBuffer.setViewport(left, top, viewWidth, viewHeight);
 
-                Nri_CmdDrawIndexed(commandBuffer, INDEX_COUNT, 1, 0, 0, 0);
+                commandBuffer.drawIndexed(INDEX_COUNT, 1, 0, 0, 0);
             }
         }
 
@@ -441,7 +442,7 @@ namespace VertexBufferNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // The window was resized (NriSample.useResizableWindow): the swap chain made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -471,25 +472,25 @@ namespace VertexBufferNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
                 this.recordViews(commandBuffer, queuedFrame);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -507,12 +508,12 @@ namespace VertexBufferNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -522,63 +523,63 @@ namespace VertexBufferNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const queuedFrame of this.queuedFrames) {
                     for (const constantView of queuedFrame.constantViews) {
-                        Nri_DestroyDescriptor(constantView);
+                        constantView.destroy();
                     }
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 const sampler = this.sampler;
                 if (sampler) {
-                    Nri_DestroyDescriptor(sampler);
+                    sampler.destroy();
                 }
                 const textureView = this.textureView;
                 if (textureView) {
-                    Nri_DestroyDescriptor(textureView);
+                    textureView.destroy();
                 }
                 const texture = this.texture;
                 if (texture) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 const vertexBuffer = this.vertexBuffer;
                 if (vertexBuffer) {
-                    Nri_DestroyBuffer(vertexBuffer);
+                    vertexBuffer.destroy();
                 }
                 const indexBuffer = this.indexBuffer;
                 if (indexBuffer) {
-                    Nri_DestroyBuffer(indexBuffer);
+                    indexBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const vertexBuffer = new VertexBuffer(sample);
         return vertexBuffer.run(argc, argv);
     }

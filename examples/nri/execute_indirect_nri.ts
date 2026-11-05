@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { matrixPerspectiveFovLH, matrixTranspose } from "../../core/directx_math";
 import { MsvcRandom } from "../../core/random";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace ExecuteIndirectNri {
     // execute_indirect, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -51,8 +52,8 @@ namespace ExecuteIndirectNri {
 
     // A sample frame's culling outputs: the commands kept and their count, and their views.
     class CulledCommands {
-        constructor(public commands: NriBufferHandle, public count: NriBufferHandle, public commandsStorage: NriDescriptorHandle | null,
-            public countStorage: NriDescriptorHandle | null) {
+        constructor(public commands: NriBuffer, public count: NriBuffer, public commandsStorage: NriDescriptor | null,
+            public countStorage: NriDescriptor | null) {
         }
     }
 
@@ -104,25 +105,25 @@ namespace ExecuteIndirectNri {
     // an instance index (see execute_indirect.hlsl). The sample's R8G8B8A8_UNORM back buffer is the
     // swap chain's (rendered through its UNORM view), with a D32_FLOAT depth buffer.
     class ExecuteIndirect {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private computePipeline: NriPipelineHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private triangleIndexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private computePipeline: NriPipeline | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private triangleIndexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
         // The triangles' constants, every sample frame's copy, written by the CPU.
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantsView: NriDescriptorHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantsView: NriDescriptor | null = null;
         // Every sample frame's commands, and each frame's culling outputs.
-        private commandBuffer: NriBufferHandle | null = null;
-        private commandsView: NriDescriptorHandle | null = null;
+        private commandBuffer: NriBuffer | null = null;
+        private commandsView: NriDescriptor | null = null;
         private culledCommands: CulledCommands[] = [];
         // The swap chain's size (the window's when it was made), its textures' format and their views'.
         private width: int = 0;
@@ -142,11 +143,11 @@ namespace ExecuteIndirectNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -157,13 +158,13 @@ namespace ExecuteIndirectNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -176,20 +177,20 @@ namespace ExecuteIndirectNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through its UNORM views, as the sample's R8G8B8A8_UNORM back
             // buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -202,7 +203,7 @@ namespace ExecuteIndirectNri {
                 this.unsupportedReason = "No D3D11 shaders (execute_indirect.hlsl is compiled for D3D12 and Vulkan)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.DrawIndirectCount) == 0) {
+            if (device.isFeatureSupported(NriFeature.DrawIndirectCount) == 0) {
                 this.unsupportedReason = "The graphics device can't take indirect draw counts from a buffer";
                 return 0;
             }
@@ -215,18 +216,18 @@ namespace ExecuteIndirectNri {
 
             // The layouts: the vertex shader's constants (t0); the culling's push constants (b0),
             // constants (t0), commands (t1) and outputs (u0, u1). All root descriptors.
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, ROOT_CONSTANTS_SIZE, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootConstants(0, ROOT_CONSTANTS_SIZE, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(1, NriDescriptorType.StructuredBuffer, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
             const drawLayout = this.drawLayout;
             const computeLayout = this.computeLayout;
             if (!drawLayout || !computeLayout) {
@@ -239,23 +240,23 @@ namespace ExecuteIndirectNri {
             // (stream 1, per instance), triangle strips, back faces culled, opaque, depth less.
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/execute_indirect/${folder}/execute_indirect`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
             }
-            Nri_PipelineDescAddVertexAttributeFromStream(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0, 0);
-            Nri_PipelineDescAddVertexAttributeFromStream(desc, "TRIANGLE", NriFormat.R32_UINT, 0, 1);
-            Nri_PipelineDescSetInstanceStream(desc, 1);
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+            desc.addVertexAttributeFromStream("POSITION", NriFormat.RGB32_SFLOAT, 0, 0);
+            desc.addVertexAttributeFromStream("TRIANGLE", NriFormat.R32_UINT, 0, 1);
+            desc.setInstanceStream(1);
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(format, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
-            this.computePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_CSMain.bin`, "CSMain");
+            desc.destroy();
+            this.computePipeline = device.createComputePipeline(computeLayout, `${shaders}_CSMain.bin`, "CSMain");
             if (!this.drawPipeline || !this.computePipeline) {
                 console.log("Cannot load the execute indirect shaders");
                 return 0;
@@ -267,9 +268,9 @@ namespace ExecuteIndirectNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -278,21 +279,21 @@ namespace ExecuteIndirectNri {
         // LoadAssets: the triangle, its indices (the strip's three), the triangles' indices for the
         // instance attribute, their constants (random speeds, positions, colors), the commands of
         // every frame and the buffers the culling writes.
-        createResources(device: NriDeviceHandle): boolean {
+        createResources(device: NriDevice): boolean {
             const h = TRIANGLE_HALF_WIDTH;
             const vertices: f32[] = [
                 0.0, h, TRIANGLE_DEPTH,
                 h, -h, TRIANGLE_DEPTH,
                 -h, -h, TRIANGLE_DEPTH,
             ];
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
             const indices: int[] = [0, 1, 2];
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), 12, NriBufferUsage.IndexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), 12, NriBufferUsage.IndexBuffer);
             const triangleIndices: int[] = [];
             for (let i = 0; i < TRIANGLE_RESOURCE_COUNT; i++) {
                 triangleIndices.push(i);
             }
-            this.triangleIndexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(triangleIndices[0]), TRIANGLE_RESOURCE_COUNT * 4,
+            this.triangleIndexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(triangleIndices[0]), TRIANGLE_RESOURCE_COUNT * 4,
                 NriBufferUsage.VertexBuffer);
 
             // The constant buffers: velocity, offset and color from GetRandomFloat, in the order the
@@ -319,7 +320,7 @@ namespace ExecuteIndirectNri {
                     this.constants.push(0.0);
                 }
             }
-            const constantBuffer = Nri_CreateHostBufferWithStride(device, TRIANGLE_RESOURCE_COUNT * CONSTANTS_STRIDE, NriBufferUsage.StructuredBuffer,
+            const constantBuffer = device.createHostBufferWithStride(TRIANGLE_RESOURCE_COUNT * CONSTANTS_STRIDE, NriBufferUsage.StructuredBuffer,
                 CONSTANTS_STRIDE);
             this.constantBuffer = constantBuffer;
 
@@ -333,28 +334,28 @@ namespace ExecuteIndirectNri {
                 commands.push(0);
                 commands.push(i);
             }
-            const commandBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(commands[0]), TRIANGLE_RESOURCE_COUNT * COMMAND_SIZE, 4,
+            const commandBuffer = device.createStorageBufferFromInts(this.queue, Ref(commands[0]), TRIANGLE_RESOURCE_COUNT * COMMAND_SIZE, 4,
                 NriBufferState.IndirectArgumentAndComputeResource);
             this.commandBuffer = commandBuffer;
             if (!constantBuffer || !commandBuffer) {
                 return false;
             }
-            this.constantsView = Nri_CreateStructuredBufferView(constantBuffer, 0);
-            this.commandsView = Nri_CreateStructuredBufferView(commandBuffer, 0);
+            this.constantsView = constantBuffer.createStructuredView(0);
+            this.commandsView = commandBuffer.createStructuredView(0);
 
             const zeros: int[] = [];
             for (let i = 0; i < TRIANGLE_COUNT * COMMAND_SIZE / 4; i++) {
                 zeros.push(0);
             }
             for (let f = 0; f < FRAME_COUNT; f++) {
-                const processed = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), TRIANGLE_COUNT * COMMAND_SIZE, 4,
+                const processed = device.createStorageBufferFromInts(this.queue, Ref(zeros[0]), TRIANGLE_COUNT * COMMAND_SIZE, 4,
                     NriBufferState.IndirectArgument);
-                const count = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), 4, 4, NriBufferState.IndirectArgument);
+                const count = device.createStorageBufferFromInts(this.queue, Ref(zeros[0]), 4, 4, NriBufferState.IndirectArgument);
                 if (!processed || !count) {
                     return false;
                 }
-                this.culledCommands.push(new CulledCommands(processed, count, Nri_CreateStructuredBufferView(processed, 1),
-                    Nri_CreateStructuredBufferView(count, 1)));
+                this.culledCommands.push(new CulledCommands(processed, count, processed.createStructuredView(1),
+                    count.createStructuredView(1)));
             }
             return this.created();
         }
@@ -377,7 +378,7 @@ namespace ExecuteIndirectNri {
         // bounds; the sample frame's copy of their constants is written (the GPU is done with it:
         // NRIFramework's frames in flight are fewer than the sample's). Space toggles the culling.
         update() {
-            if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+            if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                 this.enableCulling = !this.enableCulling;
             }
             const offsetBounds = 2.5;
@@ -392,14 +393,14 @@ namespace ExecuteIndirectNri {
             }
             const constantBuffer = this.constantBuffer;
             if (constantBuffer) {
-                Nri_WriteBuffer(constantBuffer, this.frameIndex * TRIANGLE_COUNT * CONSTANTS_STRIDE, Ref(this.constants[0]),
+                constantBuffer.write(this.frameIndex * TRIANGLE_COUNT * CONSTANTS_STRIDE, Ref(this.constants[0]),
                     TRIANGLE_COUNT * CONSTANTS_STRIDE);
             }
         }
 
         // The culling: the frame's count reset, then the compute shader keeps the commands of the
         // triangles in the culling band; the outputs then go to the indirect draw.
-        recordCulling(commandBuffer: NriCommandBufferHandle) {
+        recordCulling(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const computePipeline = this.computePipeline;
             const constantsView = this.constantsView;
@@ -410,29 +411,29 @@ namespace ExecuteIndirectNri {
             if (!computeLayout || !computePipeline || !constantsView || !commandsView || !commandsStorage || !countStorage) {
                 return;
             }
-            Nri_CmdBufferBarrier(commandBuffer, culled.count, NriBufferState.IndirectArgument, NriBufferState.CopyDestination);
-            Nri_CmdZeroBuffer(commandBuffer, culled.count);
-            Nri_CmdBufferBarrier(commandBuffer, culled.count, NriBufferState.CopyDestination, NriBufferState.Storage);
-            Nri_CmdBufferBarrier(commandBuffer, culled.commands, NriBufferState.IndirectArgument, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(culled.count, NriBufferState.IndirectArgument, NriBufferState.CopyDestination);
+            commandBuffer.zeroBuffer(culled.count);
+            commandBuffer.bufferBarrier(culled.count, NriBufferState.CopyDestination, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(culled.commands, NriBufferState.IndirectArgument, NriBufferState.Storage);
 
             // xOffset, zOffset, cullOffset, commandCount, and the frame's offset (a float here).
             this.rootConstants[4] = this.frameIndex * TRIANGLE_COUNT;
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, computePipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.rootConstants[0]), ROOT_CONSTANTS_SIZE);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 0, constantsView);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 1, commandsView);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 2, commandsStorage);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 3, countStorage);
-            Nri_CmdDispatch(commandBuffer, Math.ceil(TRIANGLE_COUNT / COMPUTE_THREAD_BLOCK_SIZE), 1, 1);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(computePipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.rootConstants[0]), ROOT_CONSTANTS_SIZE);
+            commandBuffer.setComputeRootDescriptor(0, constantsView);
+            commandBuffer.setComputeRootDescriptor(1, commandsView);
+            commandBuffer.setComputeRootDescriptor(2, commandsStorage);
+            commandBuffer.setComputeRootDescriptor(3, countStorage);
+            commandBuffer.dispatch(Math.ceil(TRIANGLE_COUNT / COMPUTE_THREAD_BLOCK_SIZE), 1, 1);
 
-            Nri_CmdBufferBarrier(commandBuffer, culled.commands, NriBufferState.Storage, NriBufferState.IndirectArgument);
-            Nri_CmdBufferBarrier(commandBuffer, culled.count, NriBufferState.Storage, NriBufferState.IndirectArgument);
+            commandBuffer.bufferBarrier(culled.commands, NriBufferState.Storage, NriBufferState.IndirectArgument);
+            commandBuffer.bufferBarrier(culled.count, NriBufferState.Storage, NriBufferState.IndirectArgument);
         }
 
         // The indirect draw of all or (with culling, scissored to the culling band) the kept commands
-        // (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle) {
+        // (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const constantsView = this.constantsView;
@@ -443,24 +444,24 @@ namespace ExecuteIndirectNri {
             if (!drawLayout || !drawPipeline || !constantsView || !vertexBuffer || !triangleIndexBuffer || !indexBuffer || !allCommands) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, constantsView, 0);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, 12);
-            Nri_CmdSetVertexBuffer(commandBuffer, 1, triangleIndexBuffer, 0, 4);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setRootDescriptor(0, constantsView, 0);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, 12);
+            commandBuffer.setVertexBuffer(1, triangleIndexBuffer, 0, 4);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
             if (this.enableCulling) {
                 // m_cullingScissorRect: the middle half of the screen, as the culling planes.
                 const center = Math.fround(this.width / 2.0);
                 const left: int = Math.floor(Math.fround(center - Math.fround(center * CULLING_CUTOFF)));
                 const right: int = Math.floor(Math.fround(center + Math.fround(center * CULLING_CUTOFF)));
-                Nri_CmdSetScissor(commandBuffer, left, 0, right - left, this.height);
+                commandBuffer.setScissor(left, 0, right - left, this.height);
                 const culled = this.culledCommands[this.frameIndex];
-                Nri_CmdDrawIndexedIndirect(commandBuffer, culled.commands, 0, TRIANGLE_COUNT, COMMAND_SIZE, culled.count, 0);
+                commandBuffer.drawIndexedIndirect(culled.commands, 0, TRIANGLE_COUNT, COMMAND_SIZE, culled.count, 0);
             } else {
-                Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-                Nri_CmdDrawIndexedIndirect(commandBuffer, allCommands, this.frameIndex * TRIANGLE_COUNT * COMMAND_SIZE, TRIANGLE_COUNT, COMMAND_SIZE,
+                commandBuffer.setScissor(0, 0, this.width, this.height);
+                commandBuffer.drawIndexedIndirect(allCommands, this.frameIndex * TRIANGLE_COUNT * COMMAND_SIZE, TRIANGLE_COUNT, COMMAND_SIZE,
                     null, 0);
             }
         }
@@ -474,25 +475,25 @@ namespace ExecuteIndirectNri {
         }
 
         // The D32 depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
@@ -509,7 +510,7 @@ namespace ExecuteIndirectNri {
             }
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain, the depth buffer and the projection made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain, the depth buffer and the projection made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -519,7 +520,7 @@ namespace ExecuteIndirectNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -540,17 +541,17 @@ namespace ExecuteIndirectNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.enableCulling) {
                     this.recordCulling(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
+                    commandBuffer.clearDepth(1.0);
                     this.recordDraw(commandBuffer);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -558,13 +559,13 @@ namespace ExecuteIndirectNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -583,12 +584,12 @@ namespace ExecuteIndirectNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -598,12 +599,12 @@ namespace ExecuteIndirectNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const culled of this.culledCommands) {
                     this.destroyDescriptor(culled.commandsStorage);
                     this.destroyDescriptor(culled.countStorage);
-                    Nri_DestroyBuffer(culled.commands);
-                    Nri_DestroyBuffer(culled.count);
+                    culled.commands.destroy();
+                    culled.count.destroy();
                 }
                 this.destroyDescriptor(this.constantsView);
                 this.destroyDescriptor(this.commandsView);
@@ -618,41 +619,41 @@ namespace ExecuteIndirectNri {
                 this.destroyPipeline(this.computePipeline);
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const executeIndirect = new ExecuteIndirect(sample);
         return executeIndirect.run(argc, argv);
     }

@@ -6,6 +6,7 @@
 // (from examples/nri/), and listed in the example's add_tslang_nri_example sources.
 
 /// <reference path="nri/nri_interop.d.ts" />
+import { NriSample } from "./nri";
 
 // GLFW's key codes: Donut's camera keys.
 const KEY_Q = 81;
@@ -100,14 +101,14 @@ export class DonutFirstPersonCamera {
     // FirstPersonCamera::Animate: the left button's drag turns the camera (yaw around the world's
     // up, pitch around its right), the keys move it (Shift: 3 times faster, Control: a tenth).
     // mouseFree: the overlay doesn't have the mouse.
-    animate(sample: NriSampleHandle, elapsedSeconds: number, mouseFree: boolean) {
+    animate(sample: NriSample, elapsedSeconds: number, mouseFree: boolean) {
         let changed = false;
-        const dragging = mouseFree && Nri_IsButtonPressed(sample, 0) != 0;
+        const dragging = mouseFree && sample.isButtonPressed(0) != 0;
         let dir = this.dir;
         let up = this.up;
         if (dragging && this.dragging) {
-            const yaw = f(this.rotateSpeed * Nri_GetMouseDeltaX(sample));
-            const pitch = f(this.rotateSpeed * Nri_GetMouseDeltaY(sample));
+            const yaw = f(this.rotateSpeed * sample.getMouseDeltaX());
+            const pitch = f(this.rotateSpeed * sample.getMouseDeltaY());
             if (yaw != 0.0 || pitch != 0.0) {
                 // rotation(right, -pitch) * rotation(up, -yaw): pitch first.
                 const worldUp = [0.0, 1.0, 0.0];
@@ -119,10 +120,10 @@ export class DonutFirstPersonCamera {
         this.dragging = dragging;
 
         let step = f(elapsedSeconds * this.moveSpeed);
-        if (Nri_IsKeyPressed(sample, KEY_LEFT_SHIFT) != 0) {
+        if (sample.isKeyPressed(KEY_LEFT_SHIFT) != 0) {
             step = f(step * 3.0);
         }
-        if (Nri_IsKeyPressed(sample, KEY_LEFT_CONTROL) != 0) {
+        if (sample.isKeyPressed(KEY_LEFT_CONTROL) != 0) {
             step = f(step * 0.1);
         }
         const move = [0.0, 0.0, 0.0];
@@ -130,7 +131,7 @@ export class DonutFirstPersonCamera {
         const directions = [this.dir, this.dir, this.right, this.right, this.up, this.up];
         const signs = [1.0, -1.0, -1.0, 1.0, 1.0, -1.0];
         for (let k = 0; k < keys.length; k++) {
-            if (Nri_IsKeyPressed(sample, keys[k]) != 0) {
+            if (sample.isKeyPressed(keys[k]) != 0) {
                 for (let i = 0; i < 3; i++) {
                     move[i] = f(move[i] + f(signs[k] * f(directions[k][i] * step)));
                 }

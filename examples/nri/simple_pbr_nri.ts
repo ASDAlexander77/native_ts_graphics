@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { SdkMesh } from "../../core/sdk_mesh";
 import { rotationY, transpose, inverse, cross3, dot3, multiplyF32 } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriImgui, NriImguiFont, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace SimplePbrNri {
     // simple_pbr, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -204,8 +205,8 @@ namespace SimplePbrNri {
     // Model, drawn with one effect, the frames' transforms not applied) and the textures named after
     // it: albedo (forced to sRGB), normal and roughness / metallic / ambient occlusion.
     class Model {
-        vertexBuffers: NriBufferHandle[] = [];
-        indexBuffers: NriBufferHandle[] = [];
+        vertexBuffers: NriBuffer[] = [];
+        indexBuffers: NriBuffer[] = [];
         // 1 for 32-bit indices, 0 for 16-bit (an int array: tslang reads bool arrays wrong).
         index32: int[] = [];
         partVertexBuffers: int[] = [];
@@ -214,22 +215,22 @@ namespace SimplePbrNri {
         partStartIndices: int[] = [];
         partVertexOffsets: int[] = [];
         vertexStride: int = 0;
-        albedo: NriTextureHandle | null = null;
-        normal: NriTextureHandle | null = null;
-        rma: NriTextureHandle | null = null;
-        albedoView: NriDescriptorHandle | null = null;
-        normalView: NriDescriptorHandle | null = null;
-        rmaView: NriDescriptorHandle | null = null;
+        albedo: NriTexture | null = null;
+        normal: NriTexture | null = null;
+        rma: NriTexture | null = null;
+        albedoView: NriDescriptor | null = null;
+        normalView: NriDescriptor | null = null;
+        rmaView: NriDescriptor | null = null;
 
         // False (after printing why) on failure.
-        load(device: NriDeviceHandle, queue: NriQueueHandle, name: string) {
-            const file = Nri_LoadFile(MEDIA_DIR + name + ".sdkmesh");
+        load(device: NriDevice, queue: NriQueue, name: string) {
+            const file = NriFile.load(MEDIA_DIR + name + ".sdkmesh");
             if (!file) {
                 return false;
             }
-            const mesh = SdkMesh.load(Nri_GetFileData(file), Nri_GetFileSize(file));
+            const mesh = SdkMesh.load(file.getData(), file.getSize());
             if (mesh.isNull()) {
-                Nri_DestroyFile(file);
+                file.destroy();
                 return false;
             }
             let ok = true;
@@ -241,7 +242,7 @@ namespace SimplePbrNri {
                     console.log(`${name}: unexpected vertex layout`);
                     ok = false;
                 }
-                const buffer = Nri_CreateUploadedBufferFromPointer(device, queue, mesh.getVertexBufferData(i), mesh.getVertexBufferSize(i),
+                const buffer = device.createUploadedBufferFromPointer(queue, mesh.getVertexBufferData(i), mesh.getVertexBufferSize(i),
                     NriBufferUsage.VertexBuffer);
                 if (!buffer) {
                     ok = false;
@@ -250,7 +251,7 @@ namespace SimplePbrNri {
                 }
             }
             for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
-                const buffer = Nri_CreateUploadedBufferFromPointer(device, queue, mesh.getIndexBufferData(i), mesh.getIndexBufferSize(i),
+                const buffer = device.createUploadedBufferFromPointer(queue, mesh.getIndexBufferData(i), mesh.getIndexBufferSize(i),
                     NriBufferUsage.IndexBuffer);
                 if (!buffer) {
                     ok = false;
@@ -274,31 +275,31 @@ namespace SimplePbrNri {
                 }
             }
             mesh.destroy();
-            Nri_DestroyFile(file);
+            file.destroy();
 
             // DDS files: the albedo (BC1) as sRGB, as Donut's loadTexture(..., sRGB) loads it; the
             // normals (BC5) and RMA (BC7) as they are; all their mips.
-            const albedo = Nri_LoadDdsTexture(device, queue, MEDIA_DIR + name + "_BaseColor.dds", 1);
-            const normal = Nri_LoadDdsTexture(device, queue, MEDIA_DIR + name + "_Normal.dds", 0);
-            const rma = Nri_LoadDdsTexture(device, queue, MEDIA_DIR + name + "_RMA.dds", 0);
+            const albedo = device.loadDdsTexture(queue, MEDIA_DIR + name + "_BaseColor.dds", 1);
+            const normal = device.loadDdsTexture(queue, MEDIA_DIR + name + "_Normal.dds", 0);
+            const rma = device.loadDdsTexture(queue, MEDIA_DIR + name + "_RMA.dds", 0);
             this.albedo = albedo;
             this.normal = normal;
             this.rma = rma;
             if (!albedo || !normal || !rma) {
                 return false;
             }
-            this.albedoView = Nri_CreateTextureView(albedo, Nri_GetTextureFormat(albedo));
-            this.normalView = Nri_CreateTextureView(normal, Nri_GetTextureFormat(normal));
-            this.rmaView = Nri_CreateTextureView(rma, Nri_GetTextureFormat(rma));
+            this.albedoView = albedo.createView(albedo.getFormat());
+            this.normalView = normal.createView(normal.getFormat());
+            this.rmaView = rma.createView(rma.getFormat());
             return ok;
         }
 
         destroy() {
             for (const buffer of this.vertexBuffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             for (const buffer of this.indexBuffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             destroyDescriptor(this.albedoView);
             destroyDescriptor(this.normalView);
@@ -309,33 +310,33 @@ namespace SimplePbrNri {
         }
     }
 
-    function destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+    function destroyDescriptor(descriptor: NriDescriptor | null) {
         if (descriptor) {
-            Nri_DestroyDescriptor(descriptor);
+            descriptor.destroy();
         }
     }
 
-    function destroyTexture(texture: NriTextureHandle | null) {
+    function destroyTexture(texture: NriTexture | null) {
         if (texture) {
-            Nri_DestroyTexture(texture);
+            texture.destroy();
         }
     }
 
-    function destroyBuffer(buffer: NriBufferHandle | null) {
+    function destroyBuffer(buffer: NriBuffer | null) {
         if (buffer) {
-            Nri_DestroyBuffer(buffer);
+            buffer.destroy();
         }
     }
 
-    function destroyPipeline(pipeline: NriPipelineHandle | null) {
+    function destroyPipeline(pipeline: NriPipeline | null) {
         if (pipeline) {
-            Nri_DestroyPipeline(pipeline);
+            pipeline.destroy();
         }
     }
 
-    function destroyLayout(layout: NriPipelineLayoutHandle | null) {
+    function destroyLayout(layout: NriPipelineLayout | null) {
         if (layout) {
-            Nri_DestroyPipelineLayout(layout);
+            layout.destroy();
         }
     }
 
@@ -533,12 +534,12 @@ namespace SimplePbrNri {
     // A frame in flight's own data: its descriptor sets (over its constants): one per
     // model, the sky box's and the tone mapping's.
     class QueuedFrame {
-        modelSets: NriDescriptorSetHandle[] = [];
-        skySet: NriDescriptorSetHandle | null = null;
-        toneMapSet: NriDescriptorSetHandle | null = null;
-        pbrView: NriDescriptorHandle | null = null;
-        skyView: NriDescriptorHandle | null = null;
-        toneMapView: NriDescriptorHandle | null = null;
+        modelSets: NriDescriptorSet[] = [];
+        skySet: NriDescriptorSet | null = null;
+        toneMapSet: NriDescriptorSet | null = null;
+        pbrView: NriDescriptor | null = null;
+        skyView: NriDescriptor | null = null;
+        toneMapView: NriDescriptor | null = null;
     }
 
     // -test: checks the last frame, read back (R10G10B10A2 back buffers, SDR; the channels' top 8
@@ -586,41 +587,41 @@ namespace SimplePbrNri {
     // and the estimated sRGB curve) into a 10-bit swap chain, or sent as HDR10 (Rec.2020, ST.2084,
     // paper white at 200 nits) when the display is in HDR mode.
     class SimplePbr {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private hdr10: boolean = false;
         private queuedFrames: QueuedFrame[] = [];
         private models: Model[] = [];
-        private radianceTexture: NriTextureHandle | null = null;
-        private irradianceTexture: NriTextureHandle | null = null;
-        private radianceView: NriDescriptorHandle | null = null;
-        private irradianceView: NriDescriptorHandle | null = null;
+        private radianceTexture: NriTexture | null = null;
+        private irradianceTexture: NriTexture | null = null;
+        private radianceView: NriDescriptor | null = null;
+        private irradianceView: NriDescriptor | null = null;
         private numRadianceMips: int = 1;
-        private surfaceSampler: NriDescriptorHandle | null = null;
-        private linearWrapSampler: NriDescriptorHandle | null = null;
-        private pointClampSampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private pbrLayout: NriPipelineLayoutHandle | null = null;
-        private skyLayout: NriPipelineLayoutHandle | null = null;
-        private toneMapLayout: NriPipelineLayoutHandle | null = null;
-        private pbrPipeline: NriPipelineHandle | null = null;
-        private skyPipeline: NriPipelineHandle | null = null;
-        private acesPipeline: NriPipelineHandle | null = null;
-        private hdr10Pipeline: NriPipelineHandle | null = null;
-        private skyVertices: NriBufferHandle | null = null;
-        private skyIndices: NriBufferHandle | null = null;
+        private surfaceSampler: NriDescriptor | null = null;
+        private linearWrapSampler: NriDescriptor | null = null;
+        private pointClampSampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private pbrLayout: NriPipelineLayout | null = null;
+        private skyLayout: NriPipelineLayout | null = null;
+        private toneMapLayout: NriPipelineLayout | null = null;
+        private pbrPipeline: NriPipeline | null = null;
+        private skyPipeline: NriPipeline | null = null;
+        private acesPipeline: NriPipeline | null = null;
+        private hdr10Pipeline: NriPipeline | null = null;
+        private skyVertices: NriBuffer | null = null;
+        private skyIndices: NriBuffer | null = null;
         private skyIndexCount: int = 0;
-        private hdrScene: NriTextureHandle | null = null;
-        private hdrSceneAttachment: NriDescriptorHandle | null = null;
-        private hdrSceneView: NriDescriptorHandle | null = null;
-        private depth: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private hdrScene: NriTexture | null = null;
+        private hdrSceneAttachment: NriDescriptor | null = null;
+        private hdrSceneView: NriDescriptor | null = null;
+        private depth: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
-        private font: NriImguiFontHandle | null = null;
+        private font: NriImguiFont | null = null;
         private width: int = 0;
         private height: int = 0;
         private colorSpaceCheck: number = 0.0;
@@ -638,10 +639,10 @@ namespace SimplePbrNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < PBR_FLOATS; i++) {
                 this.pbrConstants.push(0.0);
             }
@@ -680,11 +681,11 @@ namespace SimplePbrNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -696,18 +697,18 @@ namespace SimplePbrNri {
 
         // SharedSimplePBR::CreateDeviceDependentResources and CreateWindowSizeDependentResources.
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.width = this.sample.getOutputWidth();
+            this.height = this.sample.getOutputHeight();
+            this.test = this.sample.isTest() != 0;
             // Donut's -test runs without a window, so its display is never in HDR mode: SDR, as there.
             if (this.test) {
                 this.forceSdr = true;
@@ -720,26 +721,26 @@ namespace SimplePbrNri {
                 console.log("Cannot create the swap chain");
                 return 0;
             }
-            if (Nri_IsDisplayHdr(this.swapChain.handle()) != 0 && !this.forceSdr) {
+            if (this.swapChain.object().isDisplayHdr() != 0 && !this.forceSdr) {
                 this.createSwapChain(NriSwapChainFormat.BT2020_G2084_10BIT);
             }
 
             // CommonStates::AnisotropicClamp (16 samples), LinearWrap, and Donut's point clamp sampler.
-            this.surfaceSampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge,
-                Math.min(16, Nri_GetMaxSamplerAnisotropy(device)));
-            this.linearWrapSampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
-            this.pointClampSampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
+            this.surfaceSampler = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge,
+                Math.min(16, device.getMaxSamplerAnisotropy()));
+            this.linearWrapSampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
+            this.pointClampSampler = device.createSampler(NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
 
             // The radiance map's levels: the sample uses three fewer ("The current map has too much
             // detail removed at last mips, scale back down to match reference."); the count is in the
             // DDS header.
-            const radianceFile = Nri_LoadFile(MEDIA_DIR + "Stonewall_Ref_radiance.dds");
+            const radianceFile = NriFile.load(MEDIA_DIR + "Stonewall_Ref_radiance.dds");
             if (radianceFile) {
                 const header: int[] = [0, 0, 0, 0];
-                Nri_CopyFileBytes(radianceFile, 28, 4, Ref(header[0]));
+                radianceFile.copyBytes(28, 4, Ref(header[0]));
                 const mips = header[0] + header[1] * 256 + header[2] * 65536 + header[3] * 16777216;
                 this.numRadianceMips = Math.max(mips, 1) - 3;
-                Nri_DestroyFile(radianceFile);
+                radianceFile.destroy();
             }
 
             let loaded = true;
@@ -750,23 +751,23 @@ namespace SimplePbrNri {
                 }
                 this.models.push(model);
             }
-            const radiance = Nri_LoadDdsTexture(device, this.queue, MEDIA_DIR + "Stonewall_Ref_radiance.dds", 0);
-            const irradiance = Nri_LoadDdsTexture(device, this.queue, MEDIA_DIR + "Stonewall_Ref_irradiance.dds", 0);
+            const radiance = device.loadDdsTexture(this.queue, MEDIA_DIR + "Stonewall_Ref_radiance.dds", 0);
+            const irradiance = device.loadDdsTexture(this.queue, MEDIA_DIR + "Stonewall_Ref_irradiance.dds", 0);
             this.radianceTexture = radiance;
             this.irradianceTexture = irradiance;
             if (!loaded || !radiance || !irradiance) {
                 console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
                 return 0;
             }
-            this.radianceView = Nri_CreateTextureCubeView(radiance, Nri_GetTextureFormat(radiance));
-            this.irradianceView = Nri_CreateTextureCubeView(irradiance, Nri_GetTextureFormat(irradiance));
+            this.radianceView = radiance.createCubeView(radiance.getFormat());
+            this.irradianceView = irradiance.createCubeView(irradiance.getFormat());
 
             // The sky box's geosphere (GeometricPrimitive::CreateGeoSphere(2.f): tessellation 3).
             const skyPositions: f32[] = [];
             const skyIndices: int[] = [];
             geoSphere(2.0, 3, skyPositions, skyIndices);
-            this.skyVertices = Nri_CreateUploadedBuffer(device, this.queue, Ref(skyPositions[0]), skyPositions.length * 4, NriBufferUsage.VertexBuffer);
-            this.skyIndices = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(skyIndices[0]), skyIndices.length * 4, NriBufferUsage.IndexBuffer);
+            this.skyVertices = device.createUploadedBuffer(this.queue, Ref(skyPositions[0]), skyPositions.length * 4, NriBufferUsage.VertexBuffer);
+            this.skyIndices = device.createUploadedBufferFromInts(this.queue, Ref(skyIndices[0]), skyIndices.length * 4, NriBufferUsage.IndexBuffer);
             this.skyIndexCount = skyIndices.length;
 
             if (!this.createSizedTargets(device)) {
@@ -777,12 +778,12 @@ namespace SimplePbrNri {
             // The layouts (set 0 each): PBR_Constants (b0), the five textures (t0 to t4), the surface
             // and IBL samplers (s0, s1); the sky box's constants, cube map and sampler; the tone
             // mapping's constants, HDR scene and sampler.
-            const pbrLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(pbrLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(pbrLayoutDesc, 0, 0, 5, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(pbrLayoutDesc, 0, 0, 2, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            this.pbrLayout = Nri_CreatePipelineLayoutFromDesc(device, pbrLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(pbrLayoutDesc);
+            const pbrLayoutDesc = NriPipelineLayoutDesc.create();
+            pbrLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            pbrLayoutDesc.addRange(0, 0, 5, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            pbrLayoutDesc.addRange(0, 0, 2, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            this.pbrLayout = device.createPipelineLayoutFromDesc(pbrLayoutDesc);
+            pbrLayoutDesc.destroy();
             this.skyLayout = this.createSimpleLayout();
             this.toneMapLayout = this.createSimpleLayout();
             const pbrLayout = this.pbrLayout;
@@ -799,41 +800,41 @@ namespace SimplePbrNri {
             // PBRModel::Create: Opaque, DepthDefault (less or equal), CullClockwise (counter-clockwise
             // triangles are front faces); ATG::VertexPositionNormalTextureTangent's input layout.
             const stride = this.models[0].vertexStride;
-            const pbrDesc = Nri_CreatePipelineDesc();
-            let pbrLoaded = Nri_PipelineDescAddShader(pbrDesc, NriShaderStage.Vertex, `${shaders}simple_pbr_pbr_vs.bin`, "pbr_vs") != 0;
+            const pbrDesc = NriPipelineDesc.create();
+            let pbrLoaded = pbrDesc.addShader(NriShaderStage.Vertex, `${shaders}simple_pbr_pbr_vs.bin`, "pbr_vs") != 0;
             if (pbrLoaded) {
-                pbrLoaded = Nri_PipelineDescAddShader(pbrDesc, NriShaderStage.Pixel, `${shaders}simple_pbr_pbr_ps.bin`, "pbr_ps") != 0;
+                pbrLoaded = pbrDesc.addShader(NriShaderStage.Pixel, `${shaders}simple_pbr_pbr_ps.bin`, "pbr_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(pbrDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(pbrDesc, "NORMAL", NriFormat.RGB32_SFLOAT, 12);
-            Nri_PipelineDescAddVertexAttribute(pbrDesc, "TANGENT", NriFormat.RGB32_SFLOAT, VERTEX_TANGENT);
-            Nri_PipelineDescAddVertexAttribute(pbrDesc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
-            Nri_PipelineDescSetCullMode(pbrDesc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(pbrDesc, 1);
-            Nri_PipelineDescSetDepthClip(pbrDesc, 0);
-            Nri_PipelineDescSetColor(pbrDesc, NriFormat.R11_G11_B10_UFLOAT, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(pbrDesc, NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
+            pbrDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            pbrDesc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, 12);
+            pbrDesc.addVertexAttribute("TANGENT", NriFormat.RGB32_SFLOAT, VERTEX_TANGENT);
+            pbrDesc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+            pbrDesc.setCullMode(NriCullMode.Back);
+            pbrDesc.setFrontCounterClockwise(1);
+            pbrDesc.setDepthClip(0);
+            pbrDesc.setColor(NriFormat.R11_G11_B10_UFLOAT, NriColorWrite.RGBA);
+            pbrDesc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
             if (pbrLoaded) {
-                this.pbrPipeline = Nri_CreatePipelineFromDesc(device, pbrLayout, pbrDesc);
+                this.pbrPipeline = device.createPipelineFromDesc(pbrLayout, pbrDesc);
             }
-            Nri_DestroyPipelineDesc(pbrDesc);
+            pbrDesc.destroy();
 
             // DX::Skybox: DepthRead (less or equal, no writes), CullClockwise; positions only.
-            const skyDesc = Nri_CreatePipelineDesc();
-            let skyLoaded = Nri_PipelineDescAddShader(skyDesc, NriShaderStage.Vertex, `${shaders}simple_pbr_sky_sky_vs.bin`, "sky_vs") != 0;
+            const skyDesc = NriPipelineDesc.create();
+            let skyLoaded = skyDesc.addShader(NriShaderStage.Vertex, `${shaders}simple_pbr_sky_sky_vs.bin`, "sky_vs") != 0;
             if (skyLoaded) {
-                skyLoaded = Nri_PipelineDescAddShader(skyDesc, NriShaderStage.Pixel, `${shaders}simple_pbr_sky_sky_ps.bin`, "sky_ps") != 0;
+                skyLoaded = skyDesc.addShader(NriShaderStage.Pixel, `${shaders}simple_pbr_sky_sky_ps.bin`, "sky_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(skyDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetCullMode(skyDesc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(skyDesc, 1);
-            Nri_PipelineDescSetDepthClip(skyDesc, 0);
-            Nri_PipelineDescSetColor(skyDesc, NriFormat.R11_G11_B10_UFLOAT, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(skyDesc, NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 0, 0);
+            skyDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            skyDesc.setCullMode(NriCullMode.Back);
+            skyDesc.setFrontCounterClockwise(1);
+            skyDesc.setDepthClip(0);
+            skyDesc.setColor(NriFormat.R11_G11_B10_UFLOAT, NriColorWrite.RGBA);
+            skyDesc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 0, 0);
             if (skyLoaded) {
-                this.skyPipeline = Nri_CreatePipelineFromDesc(device, skyLayout, skyDesc);
+                this.skyPipeline = device.createPipelineFromDesc(skyLayout, skyDesc);
             }
-            Nri_DestroyPipelineDesc(skyDesc);
+            skyDesc.destroy();
 
             // The tone mapping into the swap chain texture: a triangle over it, no depth.
             this.acesPipeline = this.createToneMapPipeline(toneMapLayout, `${shaders}simple_pbr_tonemap`, "aces_filmic_srgb_ps");
@@ -845,11 +846,11 @@ namespace SimplePbrNri {
 
             // A queued frame's constants (the host constant buffer's part of it) and its sets: one per
             // model, the sky box's, the tone mapping's.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             const setsPerFrame = this.models.length + 2;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum * setsPerFrame,
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum * setsPerFrame,
                 queuedFrameNum * (this.models.length * 2 + 2), queuedFrameNum * setsPerFrame,
                 queuedFrameNum * (this.models.length * 5 + 2), 0, 0);
             this.descriptorPool = descriptorPool;
@@ -869,9 +870,9 @@ namespace SimplePbrNri {
                 const queuedFrame = new QueuedFrame();
                 this.queuedFrames.push(queuedFrame);
                 const base = i * FRAME_CONSTANTS_STRIDE;
-                const pbrView = Nri_CreateConstantBufferView(constantBuffer, base + PBR_OFFSET, PBR_FLOATS * 4);
-                const skyView = Nri_CreateConstantBufferView(constantBuffer, base + SKY_OFFSET, 256);
-                const toneMapView = Nri_CreateConstantBufferView(constantBuffer, base + TONE_MAP_OFFSET, 256);
+                const pbrView = constantBuffer.createConstantView(base + PBR_OFFSET, PBR_FLOATS * 4);
+                const skyView = constantBuffer.createConstantView(base + SKY_OFFSET, 256);
+                const toneMapView = constantBuffer.createConstantView(base + TONE_MAP_OFFSET, 256);
                 queuedFrame.pbrView = pbrView;
                 queuedFrame.skyView = skyView;
                 queuedFrame.toneMapView = toneMapView;
@@ -880,7 +881,7 @@ namespace SimplePbrNri {
                     return 0;
                 }
                 for (const model of this.models) {
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, pbrLayout, 0, 0);
+                    const set = descriptorPool.allocateDescriptorSet(pbrLayout, 0, 0);
                     const albedoView = model.albedoView;
                     const normalView = model.normalView;
                     const rmaView = model.rmaView;
@@ -888,83 +889,83 @@ namespace SimplePbrNri {
                         console.log("Cannot create the descriptor sets");
                         return 0;
                     }
-                    Nri_UpdateDescriptor(set, 0, 0, pbrView);
-                    Nri_UpdateDescriptor(set, 1, 0, albedoView);
-                    Nri_UpdateDescriptor(set, 1, 1, normalView);
-                    Nri_UpdateDescriptor(set, 1, 2, rmaView);
-                    Nri_UpdateDescriptor(set, 1, 3, radianceView);
-                    Nri_UpdateDescriptor(set, 1, 4, irradianceView);
-                    Nri_UpdateDescriptor(set, 2, 0, surfaceSampler);
-                    Nri_UpdateDescriptor(set, 2, 1, linearWrapSampler);
+                    set.updateDescriptor(0, 0, pbrView);
+                    set.updateDescriptor(1, 0, albedoView);
+                    set.updateDescriptor(1, 1, normalView);
+                    set.updateDescriptor(1, 2, rmaView);
+                    set.updateDescriptor(1, 3, radianceView);
+                    set.updateDescriptor(1, 4, irradianceView);
+                    set.updateDescriptor(2, 0, surfaceSampler);
+                    set.updateDescriptor(2, 1, linearWrapSampler);
                     queuedFrame.modelSets.push(set);
                 }
-                const skySet = Nri_AllocateDescriptorSet(descriptorPool, skyLayout, 0, 0);
-                const toneMapSet = Nri_AllocateDescriptorSet(descriptorPool, toneMapLayout, 0, 0);
+                const skySet = descriptorPool.allocateDescriptorSet(skyLayout, 0, 0);
+                const toneMapSet = descriptorPool.allocateDescriptorSet(toneMapLayout, 0, 0);
                 queuedFrame.skySet = skySet;
                 queuedFrame.toneMapSet = toneMapSet;
                 if (!skySet || !toneMapSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(skySet, 0, 0, skyView);
-                Nri_UpdateDescriptor(skySet, 1, 0, radianceView);
-                Nri_UpdateDescriptor(skySet, 2, 0, linearWrapSampler);
-                Nri_UpdateDescriptor(toneMapSet, 0, 0, toneMapView);
-                Nri_UpdateDescriptor(toneMapSet, 1, 0, hdrSceneView);
-                Nri_UpdateDescriptor(toneMapSet, 2, 0, pointClampSampler);
+                skySet.updateDescriptor(0, 0, skyView);
+                skySet.updateDescriptor(1, 0, radianceView);
+                skySet.updateDescriptor(2, 0, linearWrapSampler);
+                toneMapSet.updateDescriptor(0, 0, toneMapView);
+                toneMapSet.updateDescriptor(1, 0, hdrSceneView);
+                toneMapSet.updateDescriptor(2, 0, pointClampSampler);
             }
 
             // The HUD's text.
-            if (Nri_InitImgui(this.sample, device) == 0) {
+            if (this.sample.initImgui(device) == 0) {
                 console.log("Cannot initialize the user interface");
                 return 0;
             }
             this.imgui = true;
-            this.font = Nri_ImguiCreateFont(FONT_PATH, FONT_SIZE);
+            this.font = NriImgui.createFont(FONT_PATH, FONT_SIZE);
             if (!this.font) {
                 console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
                 return 0;
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
             }
             return 1;
         }
 
         // A layout of a constant buffer (b0), a texture (t0) and a sampler (s0) in set 0.
-        createSimpleLayout(): NriPipelineLayoutHandle | null {
+        createSimpleLayout(): NriPipelineLayout | null {
             const device = this.device;
             if (!device) {
                 return null;
             }
-            const desc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, desc);
-            Nri_DestroyPipelineLayoutDesc(desc);
+            const desc = NriPipelineLayoutDesc.create();
+            desc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            desc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            desc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(desc);
+            desc.destroy();
             return layout;
         }
 
-        createToneMapPipeline(layout: NriPipelineLayoutHandle, shaders: string, psEntry: string): NriPipelineHandle | null {
+        createToneMapPipeline(layout: NriPipelineLayout, shaders: string, psEntry: string): NriPipeline | null {
             const device = this.device;
             if (!device) {
                 return null;
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_quad_vs.bin`, "quad_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_quad_vs.bin`, "quad_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${psEntry}.bin`, psEntry) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${psEntry}.bin`, psEntry) != 0;
             }
-            Nri_PipelineDescSetColor(desc, this.swapChainFormat, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setColor(this.swapChainFormat, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -985,17 +986,17 @@ namespace SimplePbrNri {
         }
 
         // The frame-sized targets: the R11G11B10 HDR scene, the D32 depth buffer.
-        createSizedTargets(device: NriDeviceHandle): boolean {
-            const hdrScene = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.R11_G11_B10_UFLOAT);
+        createSizedTargets(device: NriDevice): boolean {
+            const hdrScene = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.R11_G11_B10_UFLOAT);
             this.hdrScene = hdrScene;
-            const depth = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            const depth = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depth = depth;
             if (!hdrScene || !depth) {
                 return false;
             }
-            this.hdrSceneAttachment = Nri_CreateColorAttachmentView(hdrScene, NriFormat.R11_G11_B10_UFLOAT);
-            this.hdrSceneView = Nri_CreateTextureView(hdrScene, NriFormat.R11_G11_B10_UFLOAT);
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D32_SFLOAT);
+            this.hdrSceneAttachment = hdrScene.createColorAttachmentView(NriFormat.R11_G11_B10_UFLOAT);
+            this.hdrSceneView = hdrScene.createView(NriFormat.R11_G11_B10_UFLOAT);
+            this.depthAttachment = depth.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
@@ -1012,7 +1013,7 @@ namespace SimplePbrNri {
             this.depth = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with them, the swap
         // chain (its color space as before) and the frame-sized targets made again at its size, and
         // the queued frames' tone mapping sets pointed at the new HDR scene. The camera, the HUD's
         // layout and the viewports read the size every frame.
@@ -1021,12 +1022,12 @@ namespace SimplePbrNri {
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (this.sample.getOutputWidth() == this.width && this.sample.getOutputHeight() == this.height) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
+            device.waitIdle();
+            this.width = this.sample.getOutputWidth();
+            this.height = this.sample.getOutputHeight();
             this.createSwapChain(this.hdr10 ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
             this.destroySizedTargets();
             if (!this.createSizedTargets(device)) {
@@ -1037,7 +1038,7 @@ namespace SimplePbrNri {
                 for (const queuedFrame of this.queuedFrames) {
                     const toneMapSet = queuedFrame.toneMapSet;
                     if (toneMapSet) {
-                        Nri_UpdateDescriptor(toneMapSet, 1, 0, hdrSceneView);
+                        toneMapSet.updateDescriptor(1, 0, hdrSceneView);
                     }
                 }
             }
@@ -1050,7 +1051,7 @@ namespace SimplePbrNri {
             if (!device || !this.swapChain.exists()) {
                 return;
             }
-            const wanted = Nri_IsDisplayHdr(this.swapChain.handle()) != 0 && !this.forceSdr;
+            const wanted = this.swapChain.object().isDisplayHdr() != 0 && !this.forceSdr;
             if (wanted != this.hdr10) {
                 this.createSwapChain(wanted ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
             }
@@ -1068,19 +1069,19 @@ namespace SimplePbrNri {
             const keys = [KEY_A, KEY_D, KEY_S, KEY_W, KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_END,
                 KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT];
             for (const key of keys) {
-                input.held[key] = Nri_IsKeyPressed(this.sample, key);
+                input.held[key] = this.sample.isKeyPressed(key);
             }
-            input.leftButton = Nri_IsButtonPressed(this.sample, 0) != 0;
-            input.rightButton = Nri_IsButtonPressed(this.sample, 1) != 0;
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            input.leftButton = this.sample.isButtonPressed(0) != 0;
+            input.rightButton = this.sample.isButtonPressed(1) != 0;
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             if (input.relative) {
                 input.deltaX += x - input.x;
                 input.deltaY += y - input.y;
             }
             input.x = x;
             input.y = y;
-            input.scrollWheel += Nri_GetMouseWheel(this.sample) * 120.0;
+            input.scrollWheel += this.sample.getMouseWheel() * 120.0;
         }
 
         // SharedSimplePBR::Update: the camera; and the display's mode.
@@ -1142,7 +1143,7 @@ namespace SimplePbrNri {
             c[PBR_CONSTANT_ALBEDO + 2] = 1.0;
             c[PBR_CONSTANT_METALLIC] = 0.5;
             c[PBR_CONSTANT_METALLIC + 1] = 0.2;
-            Nri_StoreInt32(Ref(c[PBR_NUM_RADIANCE_MIPS]), this.numRadianceMips);
+            Nri.storeInt32(Ref(c[PBR_NUM_RADIANCE_MIPS]), this.numRadianceMips);
 
             // SkyboxEffect::SetMatrices: the view without its translation, no world.
             const skyView = [view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], view[8], view[9], view[10], view[11],
@@ -1153,16 +1154,16 @@ namespace SimplePbrNri {
             }
 
             const base = queuedFrameIndex * FRAME_CONSTANTS_STRIDE;
-            Nri_WriteBuffer(constantBuffer, base + PBR_OFFSET, Ref(this.pbrConstants[0]), PBR_FLOATS * 4);
-            Nri_WriteBuffer(constantBuffer, base + SKY_OFFSET, Ref(this.skyConstants[0]), 256);
-            Nri_WriteBuffer(constantBuffer, base + TONE_MAP_OFFSET, Ref(this.toneMapConstants[0]), 256);
+            constantBuffer.write(base + PBR_OFFSET, Ref(this.pbrConstants[0]), PBR_FLOATS * 4);
+            constantBuffer.write(base + SKY_OFFSET, Ref(this.skyConstants[0]), 256);
+            constantBuffer.write(base + TONE_MAP_OFFSET, Ref(this.toneMapConstants[0]), 256);
         }
 
         // The sample's HUD (SpriteFont text in the title-safe area, in the HDR scene): its name at the
         // top, the keyboard and mouse legend at the bottom.
         buildUI() {
             const font = this.font;
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             if (font) {
                 // SimpleMath::Viewport::ComputeTitleSafeArea
                 const safeW = Math.fround((this.width + 19.0) / 20.0);
@@ -1170,17 +1171,17 @@ namespace SimplePbrNri {
                 const left: int = Math.floor(safeW);
                 const top: int = Math.floor(safeH);
                 const bottom: int = Math.floor(this.height - safeH + 0.5);
-                Nri_ImguiPushFont(font);
-                Nri_ImguiDrawText(left, top, "SimplePBR Sample", LIGHT_GREY_HDR, LIGHT_GREY_HDR, LIGHT_GREY_HDR, 1.0, 0);
-                Nri_ImguiDrawText(left, bottom - LINE_SPACING, "Mouse, W,A,S,D: Move Camera   Esc: Exit ", LIGHT_GREY_HDR, LIGHT_GREY_HDR,
+                font.pushFont();
+                NriImgui.drawText(left, top, "SimplePBR Sample", LIGHT_GREY_HDR, LIGHT_GREY_HDR, LIGHT_GREY_HDR, 1.0, 0);
+                NriImgui.drawText(left, bottom - LINE_SPACING, "Mouse, W,A,S,D: Move Camera   Esc: Exit ", LIGHT_GREY_HDR, LIGHT_GREY_HDR,
                     LIGHT_GREY_HDR, 1.0, 0);
-                Nri_ImguiPopFont();
+                NriImgui.popFont();
             }
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
         // SharedSimplePBR::Render, the HDR scene: the models, then the sky box, then the HUD's text.
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordScene(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const hdrScene = this.hdrScene;
             const hdrSceneAttachment = this.hdrSceneAttachment;
             const depthAttachment = this.depthAttachment;
@@ -1196,54 +1197,54 @@ namespace SimplePbrNri {
                 || !skyPipeline || !skySet || !skyVertices || !skyIndices) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, hdrScene, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, hdrSceneAttachment, depthAttachment);
+            commandBuffer.textureBarrier(hdrScene, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRenderingWithDepth(hdrSceneAttachment, depthAttachment);
             // Sample::Clear clears the depth (the sky box covers the scene's background; the color is
             // cleared too, which it overdraws, for D3D12's never-written render targets).
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdClearDepth(commandBuffer, 1.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.clearDepth(1.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
 
             // Model Draw
-            Nri_CmdSetPipelineLayout(commandBuffer, pbrLayout);
-            Nri_CmdSetPipeline(commandBuffer, pbrPipeline);
+            commandBuffer.setPipelineLayout(pbrLayout);
+            commandBuffer.setPipeline(pbrPipeline);
             for (let m = 0; m < this.models.length; m++) {
                 const model = this.models[m];
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.modelSets[m]);
+                commandBuffer.setDescriptorSet(0, queuedFrame.modelSets[m]);
                 for (let p = 0; p < model.partIndexCounts.length; p++) {
-                    Nri_CmdSetVertexBuffer(commandBuffer, 0, model.vertexBuffers[model.partVertexBuffers[p]], 0, model.vertexStride);
+                    commandBuffer.setVertexBuffer(0, model.vertexBuffers[model.partVertexBuffers[p]], 0, model.vertexStride);
                     const ib = model.partIndexBuffers[p];
                     let indexType = NriIndexType.UInt16;
                     if (model.index32[ib] != 0) {
                         indexType = NriIndexType.UInt32;
                     }
-                    Nri_CmdSetIndexBuffer(commandBuffer, model.indexBuffers[ib], 0, indexType);
-                    Nri_CmdDrawIndexed(commandBuffer, model.partIndexCounts[p], 1, model.partStartIndices[p], model.partVertexOffsets[p], 0);
+                    commandBuffer.setIndexBuffer(model.indexBuffers[ib], 0, indexType);
+                    commandBuffer.drawIndexed(model.partIndexCounts[p], 1, model.partStartIndices[p], model.partVertexOffsets[p], 0);
                 }
             }
 
             // Sky box
-            Nri_CmdSetPipelineLayout(commandBuffer, skyLayout);
-            Nri_CmdSetPipeline(commandBuffer, skyPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, skySet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, skyVertices, 0, 12);
-            Nri_CmdSetIndexBuffer(commandBuffer, skyIndices, 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, this.skyIndexCount, 1, 0, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.setPipelineLayout(skyLayout);
+            commandBuffer.setPipeline(skyPipeline);
+            commandBuffer.setDescriptorSet(0, skySet);
+            commandBuffer.setVertexBuffer(0, skyVertices, 0, 12);
+            commandBuffer.setIndexBuffer(skyIndices, 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(this.skyIndexCount, 1, 0, 0, 0);
+            commandBuffer.endRendering();
 
             // The text (a pass of its own: the UI's pipeline has no depth attachment).
             if (this.imgui) {
-                Nri_CmdBeginRendering(commandBuffer, hdrSceneAttachment);
-                Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, NriFormat.R11_G11_B10_UFLOAT);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.beginRendering(hdrSceneAttachment);
+                this.sample.drawImguiUnconverted(commandBuffer, NriFormat.R11_G11_B10_UFLOAT);
+                commandBuffer.endRendering();
             }
-            Nri_CmdTextureBarrier(commandBuffer, hdrScene, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(hdrScene, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
         }
 
         // The tone mapping into the swap chain texture: HDR10 or SDR by the swap chain's color space.
-        recordToneMap(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, colorAttachment: NriDescriptorHandle) {
+        recordToneMap(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, colorAttachment: NriDescriptor) {
             const descriptorPool = this.descriptorPool;
             const toneMapLayout = this.toneMapLayout;
             const toneMapSet = queuedFrame.toneMapSet;
@@ -1251,16 +1252,16 @@ namespace SimplePbrNri {
             if (!descriptorPool || !toneMapLayout || !toneMapSet || !pipeline) {
                 return;
             }
-            Nri_CmdBeginRendering(commandBuffer, colorAttachment);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+            commandBuffer.beginRendering(colorAttachment);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
             // (ImGui's draw bound its own pool.)
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, toneMapLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, toneMapSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(toneMapLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, toneMapSet);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.endRendering();
         }
 
         renderFrame(frameIndex: int) {
@@ -1268,7 +1269,7 @@ namespace SimplePbrNri {
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             // The Donut example's test mode steps 1/60 s (a float) a frame.
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             this.update(elapsedSeconds);
             if (this.imgui) {
                 this.buildUI();
@@ -1285,12 +1286,12 @@ namespace SimplePbrNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the HDR scene and its text, then the tone mapping into the swap chain texture.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
                 this.recordScene(commandBuffer, queuedFrame);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 this.recordToneMap(commandBuffer, queuedFrame, this.swapChain.colorAttachment(index));
 
                 // The test's last frame: read back
@@ -1298,18 +1299,18 @@ namespace SimplePbrNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -1326,12 +1327,12 @@ namespace SimplePbrNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.swapChainFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.swapChainFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1341,9 +1342,9 @@ namespace SimplePbrNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     destroyDescriptor(queuedFrame.pbrView);
@@ -1353,7 +1354,7 @@ namespace SimplePbrNri {
                 this.swapChain.destroy();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const model of this.models) {
                     model.destroy();
@@ -1378,23 +1379,23 @@ namespace SimplePbrNri {
                 destroyLayout(this.skyLayout);
                 destroyLayout(this.toneMapLayout);
                 this.frames.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const simplePbr = new SimplePbr(sample);
         // -sdr: the tone mapped SDR signal even on an HDR display. -noUI: accepted (the HUD is the
         // scene's, drawn as the Donut example draws it with -noUI).
-        Nri_AddExampleOption(sample, "-sdr");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-sdr");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "-sdr") {
+            if (Nri.getArg(argc, argv, i) == "-sdr") {
                 simplePbr.forceSdr = true;
             }
         }

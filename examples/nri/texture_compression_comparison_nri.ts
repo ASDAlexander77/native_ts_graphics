@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { TranscodedTexture } from "../../core/transcoded_texture";
 import { multiply, reversedPerspective, vulkanStyleProjection, toDonutClip } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriGltfModel, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture, NriTextureLevels } from "../../core/nri";
 
 namespace TextureCompressionComparisonNri {
     // texture_compression_comparison, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -24,7 +25,7 @@ namespace TextureCompressionComparisonNri {
     const SCENE_DIR = "media/texture_compression_comparison/sponza/";
     const SCENE_PATH = SCENE_DIR + "Sponza01.gltf";
 
-    // Nri_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriGltfModel.load's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_FLOATS = 8;
     const VERTEX_SIZE = VERTEX_FLOATS * 4;
     const NORMAL_OFFSET = 12;
@@ -148,7 +149,7 @@ namespace TextureCompressionComparisonNri {
     // A frame in flight's own data: its command buffer, its slice of the scene constants and
     // the scene pass's descriptor sets (one per scene image, with that slice).
     class QueuedFrame {
-        constructor(public sceneView: NriDescriptorHandle | null, public sceneSets: NriDescriptorSetHandle[]) {
+        constructor(public sceneView: NriDescriptor | null, public sceneSets: NriDescriptorSet[]) {
         }
     }
 
@@ -158,8 +159,8 @@ namespace TextureCompressionComparisonNri {
     // format picked in the UI (RGBA8, BC7, BC3), the transcoding timed and the texture bytes counted,
     // as the sample's update_textures. Donut's FirstPersonCamera's controls.
     class TextureCompressionComparison {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
@@ -180,21 +181,21 @@ namespace TextureCompressionComparisonNri {
         // The combo's items: "<short name> " or "<short name> (not supported)".
         private items: string = "";
 
-        private sceneLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private sceneBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private linearWrap: NriDescriptorHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
+        private sceneLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private sceneBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private linearWrap: NriDescriptor | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
 
         // The scene's images (by URI) and, for the current format, their textures and views (all of
         // them, or none: textureViews.length == imageNames.length when drawable).
         private imageNames: string[] = [];
-        private textures: NriTextureHandle[] = [];
-        private textureViews: NriDescriptorHandle[] = [];
+        private textures: NriTexture[] = [];
+        private textureViews: NriDescriptor[] = [];
 
         // The draws, a node's primitive each: index range and base vertex, image (imageNames index),
         // node transform (MODEL_FLOATS each, from models), and world bounds center (3 each), in the
@@ -223,11 +224,11 @@ namespace TextureCompressionComparisonNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -241,11 +242,11 @@ namespace TextureCompressionComparisonNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -256,16 +257,16 @@ namespace TextureCompressionComparisonNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // The format: -format's if the device has it, as the Donut example applies it.
             this.guiFormat = this.requestedFormat;
@@ -276,7 +277,7 @@ namespace TextureCompressionComparisonNri {
             }
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -289,7 +290,7 @@ namespace TextureCompressionComparisonNri {
 
             // The framework's glTF sampler without a sampler in the file: linear, repeating (Donut's
             // LinearWrap).
-            const linearWrap = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const linearWrap = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.linearWrap = linearWrap;
             if (!linearWrap || !this.loadScene(device)) {
                 console.log("Cannot load the scene: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
@@ -298,13 +299,13 @@ namespace TextureCompressionComparisonNri {
 
             // The scene's layout: the scene constants b0, the base color texture t0 and its sampler s0,
             // the node transform as root constants b1.
-            const sceneDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(sceneDesc, 1, MODEL_SIZE, NriStage.VertexPixel);
-            const sceneLayout = Nri_CreatePipelineLayoutFromDesc(device, sceneDesc);
-            Nri_DestroyPipelineLayoutDesc(sceneDesc);
+            const sceneDesc = NriPipelineLayoutDesc.create();
+            sceneDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            sceneDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            sceneDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            sceneDesc.addRootConstants(1, MODEL_SIZE, NriStage.VertexPixel);
+            const sceneLayout = device.createPipelineLayoutFromDesc(sceneDesc);
+            sceneDesc.destroy();
             this.sceneLayout = sceneLayout;
             if (!sceneLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -315,22 +316,22 @@ namespace TextureCompressionComparisonNri {
             // example; reversed depth (greater), back faces culled, counter-clockwise front faces.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/texture_compression_comparison/${folder}/msaa`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_scene_vs.bin`, "scene_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_scene_vs.bin`, "scene_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_scene_ps.bin`, "scene_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_scene_ps.bin`, "scene_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, DEPTH_FORMAT, NriCompareOp.Greater, 1, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(DEPTH_FORMAT, NriCompareOp.Greater, 1, 0);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, sceneLayout, desc);
+                this.pipeline = device.createPipelineFromDesc(sceneLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the texture compression comparison shaders");
                 return 0;
@@ -338,11 +339,11 @@ namespace TextureCompressionComparisonNri {
 
             // The scene constants, a queued frame's each, and per queued frame a set per scene image
             // (its view set once the images are transcoded).
-            const sceneBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
+            const sceneBuffer = device.createHostBuffer(queuedFrameNum * CONST_VIEW_SIZE, NriBufferUsage.ConstantBuffer);
             this.sceneBuffer = sceneBuffer;
             const imageCount = this.imageNames.length;
             const sceneSetNum = queuedFrameNum * imageCount;
-            const descriptorPool = Nri_CreateDescriptorPool(device, sceneSetNum, sceneSetNum, sceneSetNum, sceneSetNum, 0, 0);
+            const descriptorPool = device.createDescriptorPool(sceneSetNum, sceneSetNum, sceneSetNum, sceneSetNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!sceneBuffer || !descriptorPool) {
                 console.log("Cannot create the descriptors");
@@ -350,21 +351,21 @@ namespace TextureCompressionComparisonNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const sceneView = Nri_CreateConstantBufferView(sceneBuffer, i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
-                const sceneSets: NriDescriptorSetHandle[] = [];
+                const sceneView = sceneBuffer.createConstantView(i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
+                const sceneSets: NriDescriptorSet[] = [];
                 this.queuedFrames.push(new QueuedFrame(sceneView, sceneSets));
                 if (!sceneView) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
                 }
                 for (let t = 0; t < imageCount; t++) {
-                    const sceneSet = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
+                    const sceneSet = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
                     if (!sceneSet) {
                         console.log("Cannot create the descriptor sets");
                         return 0;
                     }
-                    Nri_UpdateDescriptor(sceneSet, 0, 0, sceneView);
-                    Nri_UpdateDescriptor(sceneSet, 2, 0, linearWrap);
+                    sceneSet.updateDescriptor(0, 0, sceneView);
+                    sceneSet.updateDescriptor(2, 0, linearWrap);
                     sceneSets.push(sceneSet);
                 }
             }
@@ -378,7 +379,7 @@ namespace TextureCompressionComparisonNri {
 
             // The sample's options window.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -386,9 +387,9 @@ namespace TextureCompressionComparisonNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -402,7 +403,7 @@ namespace TextureCompressionComparisonNri {
             if (!device || format == NriFormat.Unknown) {
                 return false;
             }
-            return (Nri_GetFormatSupport(device, format) & FORMAT_SUPPORT_TEXTURE) != 0;
+            return (device.getFormatSupport(format) & FORMAT_SUPPORT_TEXTURE) != 0;
         }
 
         // Waits for the frame that last used this frame's command allocator (and its constants).
@@ -413,10 +414,10 @@ namespace TextureCompressionComparisonNri {
         // The textures of the current format, and their views, gone.
         destroyTextures() {
             for (const view of this.textureViews) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
             for (const texture of this.textures) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
             this.textureViews = [];
             this.textures = [];
@@ -430,21 +431,21 @@ namespace TextureCompressionComparisonNri {
             if (!device) {
                 return false;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyTextures();
 
             let time = 0.0;
             let bytes = 0.0;
             let loaded = true;
             for (const name of this.imageNames) {
-                const file = Nri_LoadFile(SCENE_DIR + "ktx2/" + name + "2");
+                const file = NriFile.load(SCENE_DIR + "ktx2/" + name + "2");
                 if (!file) {
                     loaded = false;
                     break;
                 }
-                const transcoded = TranscodedTexture.transcodeKtx2(Nri_GetFileData(file), Nri_GetFileSize(file), TRANSCODE_FORMATS[formatIndex],
+                const transcoded = TranscodedTexture.transcodeKtx2(file.getData(), file.getSize(), TRANSCODE_FORMATS[formatIndex],
                     Ref(this.stats[0]));
-                Nri_DestroyFile(file);
+                file.destroy();
                 if (transcoded.isNull()) {
                     loaded = false;
                     break;
@@ -454,19 +455,19 @@ namespace TextureCompressionComparisonNri {
                 bytes += this.stats[1];
 
                 const levelNum = image.getLevelCount();
-                const levels = Nri_CreateTextureLevels(image.getWidth(), image.getHeight(), levelNum, TEXTURE_FORMATS[formatIndex]);
+                const levels = NriTextureLevels.create(image.getWidth(), image.getHeight(), levelNum, TEXTURE_FORMATS[formatIndex]);
                 for (let level = 0; level < levelNum; level++) {
-                    Nri_SetTextureLevel(levels, level, image.getLevelData(level), image.getLevelRowPitch(level));
+                    levels.setTextureLevel(level, image.getLevelData(level), image.getLevelRowPitch(level));
                 }
                 image.destroy();
-                const texture = Nri_CreateTextureFromLevels(device, this.queue, levels);
-                Nri_DestroyTextureLevels(levels);
+                const texture = device.createTextureFromLevels(this.queue, levels);
+                levels.destroy();
                 if (!texture) {
                     loaded = false;
                     break;
                 }
                 this.textures.push(texture);
-                this.textureViews.push(Nri_CreateTextureView(texture, TEXTURE_FORMATS[formatIndex]));
+                this.textureViews.push(texture.createView(TEXTURE_FORMATS[formatIndex]));
             }
 
             this.compressTimeMs = time;
@@ -477,7 +478,7 @@ namespace TextureCompressionComparisonNri {
             }
             for (const queuedFrame of this.queuedFrames) {
                 for (let t = 0; t < this.textureViews.length; t++) {
-                    Nri_UpdateDescriptor(queuedFrame.sceneSets[t], 1, 0, this.textureViews[t]);
+                    queuedFrame.sceneSets[t].updateDescriptor(1, 0, this.textureViews[t]);
                 }
             }
             return true;
@@ -485,15 +486,15 @@ namespace TextureCompressionComparisonNri {
 
         // The sample's options window.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             if (this.items == "") {
                 for (let i = 0; i < SHORT_NAMES.length; i++) {
                     this.items += (i > 0 ? "|" : "") + SHORT_NAMES[i] + " " + (this.isFormatSupported(i) ? "" : "(not supported)");
                 }
             }
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
-            const selection = Nri_ImguiCombo("Compressed Format", this.guiFormat, this.items);
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
+            const selection = NriImgui.combo("Compressed Format", this.guiFormat, this.items);
             if (selection != this.guiFormat) {
                 this.guiFormat = selection;
                 this.requireRedraw = true;
@@ -502,14 +503,14 @@ namespace TextureCompressionComparisonNri {
                 }
             }
             if (this.isFormatSupported(this.guiFormat)) {
-                Nri_ImguiText(`Format name: ${FORMAT_NAMES[this.guiFormat]}`);
-                Nri_ImguiText(`Bytes: ${(this.totalBytes / 1024.0 / 1024.0).toFixed(6)} MB`);
-                Nri_ImguiText(`Compression Time: ${this.compressTimeMs.toFixed(6)} (ms)`);
+                NriImgui.text(`Format name: ${FORMAT_NAMES[this.guiFormat]}`);
+                NriImgui.text(`Bytes: ${(this.totalBytes / 1024.0 / 1024.0).toFixed(6)} MB`);
+                NriImgui.text(`Compression Time: ${this.compressTimeMs.toFixed(6)} (ms)`);
             } else {
-                Nri_ImguiText(`${SHORT_NAMES[this.guiFormat]} not supported on this GPU.`);
+                NriImgui.text(`${SHORT_NAMES[this.guiFormat]} not supported on this GPU.`);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The scene uniforms: the camera's view-projection in Donut's clip space, and the light (its
@@ -540,7 +541,7 @@ namespace TextureCompressionComparisonNri {
                 c[CONST_LIGHT_DIRECTION + i] = direction[i];
             }
             c[CONST_LIGHT_DIRECTION + 3] = 0.0;
-            Nri_WriteBuffer(sceneBuffer, queuedFrameIndex * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
+            sceneBuffer.write(queuedFrameIndex * CONST_VIEW_SIZE, Ref(c[0]), CONST_FLOATS * 4);
 
             // The camera's position: -R^T t of its view [R t].
             const position: number[] = [0.0, 0.0, 0.0];
@@ -573,8 +574,8 @@ namespace TextureCompressionComparisonNri {
         }
 
         // The draws in their order, each with its image's set and its node's transform (between
-        // Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering), once the textures are there.
-        recordDraws(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering), once the textures are there.
+        recordDraws(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.sceneLayout;
             const pipeline = this.pipeline;
             const vertexBuffer = this.vertexBuffer;
@@ -582,21 +583,21 @@ namespace TextureCompressionComparisonNri {
             if (this.textureViews.length != this.imageNames.length || !layout || !pipeline || !vertexBuffer || !indexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
             let currentTexture = -1;
             for (const d of this.order) {
                 const texture = this.drawTexture[d];
                 if (texture != currentTexture) {
-                    Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.sceneSets[texture]);
+                    commandBuffer.setDescriptorSet(0, queuedFrame.sceneSets[texture]);
                     currentTexture = texture;
                 }
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.models[d * MODEL_FLOATS]), MODEL_SIZE);
-                Nri_CmdDrawIndexed(commandBuffer, this.drawIndexCount[d], 1, this.drawFirstIndex[d], this.drawBaseVertex[d], 0);
+                commandBuffer.setRootConstants(0, Ref(this.models[d * MODEL_FLOATS]), MODEL_SIZE);
+                commandBuffer.drawIndexed(this.drawIndexCount[d], 1, this.drawFirstIndex[d], this.drawBaseVertex[d], 0);
             }
         }
 
@@ -610,31 +611,31 @@ namespace TextureCompressionComparisonNri {
         }
 
         // The depth buffer at the swap chain's size.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, DEPTH_FORMAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, DEPTH_FORMAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 console.log("Cannot create the depth buffer");
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, DEPTH_FORMAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(DEPTH_FORMAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -644,7 +645,7 @@ namespace TextureCompressionComparisonNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -658,8 +659,8 @@ namespace TextureCompressionComparisonNri {
             if (this.imgui) {
                 this.buildUI();
             }
-            const mouseFree = !this.imgui || Nri_ImguiWantsMouse() == 0;
-            this.camera.animate(this.sample, this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample), mouseFree);
+            const mouseFree = !this.imgui || NriImgui.wantsMouse() == 0;
+            this.camera.animate(this.sample, this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime(), mouseFree);
 
             // The sample's update: the textures transcoded again when the UI asks.
             if (this.requireRedraw) {
@@ -680,25 +681,25 @@ namespace TextureCompressionComparisonNri {
 
                 // Record: the forward pass (cleared to black, depth to 0), then the options window over
                 // it (a pass of its own: without depth).
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
                 if (descriptorPool) {
-                    Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                    commandBuffer.setDescriptorPool(descriptorPool);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraws(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 if (this.imgui) {
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -706,18 +707,18 @@ namespace TextureCompressionComparisonNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -728,18 +729,18 @@ namespace TextureCompressionComparisonNri {
 
         // The scene's draws: every node's primitives, their vertices and indices in one vertex and one
         // index buffer; false on failure.
-        loadScene(device: NriDeviceHandle): boolean {
-            const scene = Nri_LoadGltfModel(SCENE_PATH);
+        loadScene(device: NriDevice): boolean {
+            const scene = NriGltfModel.load(SCENE_PATH);
             if (!scene) {
                 return false;
             }
             const loaded = this.loadSceneFrom(device, scene);
-            Nri_DestroyGltfModel(scene);
+            scene.destroy();
             return loaded;
         }
 
-        loadSceneFrom(device: NriDeviceHandle, scene: NriGltfModelHandle): boolean {
-            const primitiveCount = Nri_GetGltfModelPrimitiveCount(scene);
+        loadSceneFrom(device: NriDevice, scene: NriGltfModel): boolean {
+            const primitiveCount = scene.getPrimitiveCount();
 
             // The primitives' images (by URI) and vertices.
             const primitiveTexture: int[] = [];
@@ -751,7 +752,7 @@ namespace TextureCompressionComparisonNri {
             const meshBounds: number[] = [];
             const meshFirstPrimitive: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
-                const image = Nri_GetGltfModelBaseColorImage(scene, p);
+                const image = scene.getBaseColorImage(p);
                 let texture = -1;
                 for (let t = 0; t < this.imageNames.length; t++) {
                     if (this.imageNames[t] == image) {
@@ -764,7 +765,7 @@ namespace TextureCompressionComparisonNri {
                 }
                 primitiveTexture.push(texture);
 
-                const mesh = Nri_GetGltfModelPrimitiveMesh(scene, p);
+                const mesh = scene.getPrimitiveMesh(p);
                 if (mesh == meshFirstPrimitive.length) {
                     meshFirstPrimitive.push(p);
                     for (let k = 0; k < 3; k++) {
@@ -775,8 +776,8 @@ namespace TextureCompressionComparisonNri {
                     }
                 }
 
-                const vertexCount = Nri_GetGltfModelVertexCount(scene, p);
-                const indexCount = Nri_GetGltfModelIndexCount(scene, p);
+                const vertexCount = scene.getVertexCount(p);
+                const indexCount = scene.getIndexCount(p);
                 const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
@@ -785,8 +786,8 @@ namespace TextureCompressionComparisonNri {
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
-                Nri_CopyGltfModelVertices(scene, p, Ref(primitiveVertices[0]));
-                Nri_CopyGltfModelIndices(scene, p, Ref(primitiveIndices[0]));
+                scene.copyVertices(p, Ref(primitiveVertices[0]));
+                scene.copyIndices(p, Ref(primitiveIndices[0]));
 
                 primitiveBaseVertex.push(vertices.length / VERTEX_FLOATS);
                 primitiveFirstIndex.push(indices.length);
@@ -810,17 +811,17 @@ namespace TextureCompressionComparisonNri {
 
             // The draws: by mesh, then node, then primitive, as the framework's meshes list their
             // nodes and submeshes.
-            const nodeCount = Nri_GetGltfModelNodeCount(scene);
+            const nodeCount = scene.getNodeCount();
             const transform: f32[] = [];
             for (let i = 0; i < 16; i++) {
                 transform.push(0.0);
             }
             for (let mesh = 0; mesh + 1 < meshFirstPrimitive.length; mesh++) {
                 for (let node = 0; node < nodeCount; node++) {
-                    if (Nri_GetGltfModelNodeMesh(scene, node) != mesh) {
+                    if (scene.getNodeMesh(node) != mesh) {
                         continue;
                     }
-                    Nri_CopyGltfModelNodeTransform(scene, node, Ref(transform[0]));
+                    scene.copyNodeTransform(node, Ref(transform[0]));
                     // The mesh's bounds, transformed (their corners), and their center.
                     const low = [HUGE, HUGE, HUGE];
                     const high = [-HUGE, -HUGE, -HUGE];
@@ -836,7 +837,7 @@ namespace TextureCompressionComparisonNri {
                     }
                     for (let p = meshFirstPrimitive[mesh]; p < meshFirstPrimitive[mesh + 1]; p++) {
                         this.drawFirstIndex.push(primitiveFirstIndex[p]);
-                        this.drawIndexCount.push(Nri_GetGltfModelIndexCount(scene, p));
+                        this.drawIndexCount.push(scene.getIndexCount(p));
                         this.drawBaseVertex.push(primitiveBaseVertex[p]);
                         this.drawTexture.push(primitiveTexture[p]);
                         for (let k = 0; k < 3; k++) {
@@ -851,8 +852,8 @@ namespace TextureCompressionComparisonNri {
                 }
             }
 
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4,
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4,
                 NriBufferUsage.IndexBuffer);
             return this.buffersCreated();
         }
@@ -871,12 +872,12 @@ namespace TextureCompressionComparisonNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -886,30 +887,30 @@ namespace TextureCompressionComparisonNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.sceneView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const sceneLayout = this.sceneLayout;
                 if (sceneLayout) {
-                    Nri_DestroyPipelineLayout(sceneLayout);
+                    sceneLayout.destroy();
                 }
                 this.destroyTextures();
                 this.destroyDescriptor(this.depthAttachment);
                 const depthTexture = this.depthTexture;
                 if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
+                    depthTexture.destroy();
                 }
                 this.destroyDescriptor(this.linearWrap);
                 this.destroyBuffer(this.vertexBuffer);
@@ -918,37 +919,37 @@ namespace TextureCompressionComparisonNri {
                 this.destroyBuffer(this.readbackBuffer);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const comparison = new TextureCompressionComparison(sample);
         // -format <n>: 0 RGBA 32 (the default), 1 BC7, 2 BC3, 3 ASTC 4x4, 4 ETC2; -noUI: no options
         // window.
-        Nri_AddExampleOptionWithValues(sample, "-format", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-format", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-format" && i + 1 < argc) {
-                comparison.requestedFormat = Math.min(4, Math.max(0, parseInt(Nri_GetArg(argc, argv, i + 1))));
+                comparison.requestedFormat = Math.min(4, Math.max(0, parseInt(Nri.getArg(argc, argv, i + 1))));
                 i++;
             } else if (arg == "-noUI") {
                 comparison.noUI = true;

@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiplyF32, inverse } from "../../core/matrix";
 import { DirectXCollision, Rotation } from "../../core/directx_collision";
+import { Nri, NriBuffer, NriCommandBuffer, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample } from "../../core/nri";
 
 namespace CollisionNri {
     // collision, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
@@ -410,15 +411,15 @@ namespace CollisionNri {
     // a group, the orbit camera turns around it. The objects are drawn as the sample's DebugDraw
     // lines: 1 pixel wide (NRI has no line width or line rasterization mode).
     class Collision {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
         // The lines' vertices, a queued frame's each, MAX_VERTICES * VERTEX_FLOATS floats apart.
-        private vertexBuffer: NriBufferHandle | null = null;
+        private vertexBuffer: NriBuffer | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -459,11 +460,11 @@ namespace CollisionNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < 512; i++) {
                 this.held.push(false);
             }
@@ -488,11 +489,11 @@ namespace CollisionNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -503,19 +504,19 @@ namespace CollisionNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's B8G8R8A8_UNORM back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.viewFormat;
@@ -524,10 +525,10 @@ namespace CollisionNri {
             this.frames.init(device, this.queue, queuedFrameNum);
 
             // The layout: the view-projection matrix (push constants, b0).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 0, 64, NriStage.Vertex);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootConstants(0, 64, NriStage.Vertex);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -538,25 +539,25 @@ namespace CollisionNri {
             // VertexPositionColor vertices, opaque, no depth, no culling.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
             const shaders = `shaders/collision/${folder}/collision`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_line_vs.bin`, "line_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_line_vs.bin`, "line_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_line_ps.bin`, "line_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_line_ps.bin`, "line_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "COLOR", NriFormat.RGBA32_SFLOAT, 12);
-            Nri_PipelineDescSetTopology(desc, NriTopology.LineList);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("COLOR", NriFormat.RGBA32_SFLOAT, 12);
+            desc.setTopology(NriTopology.LineList);
+            desc.setColor(format, NriColorWrite.RGBA);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                this.pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the collision shaders");
                 return 0;
             }
 
-            this.vertexBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * MAX_VERTICES * VERTEX_FLOATS * 4, NriBufferUsage.VertexBuffer);
+            this.vertexBuffer = device.createHostBuffer(queuedFrameNum * MAX_VERTICES * VERTEX_FLOATS * 4, NriBufferUsage.VertexBuffer);
             if (!this.vertexBuffer) {
                 console.log("Cannot create the vertex buffer");
                 return 0;
@@ -564,7 +565,7 @@ namespace CollisionNri {
 
             // The sample's HUD.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -572,9 +573,9 @@ namespace CollisionNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -818,13 +819,13 @@ namespace CollisionNri {
         // Sample::Update: the keys, then the objects move and are tested, then the camera follows
         // the input (none in the test, which takes 1/60 second a frame, as Donut's test mode).
         update() {
-            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             if (!this.test) {
                 for (const key of CAMERA_KEYS) {
-                    this.held[key] = Nri_IsKeyPressed(this.sample, key) != 0;
+                    this.held[key] = this.sample.isKeyPressed(key) != 0;
                 }
                 for (let i = 0; i < PRESS_KEYS.length; i++) {
-                    const down = Nri_IsKeyPressed(this.sample, PRESS_KEYS[i]) != 0;
+                    const down = this.sample.isKeyPressed(PRESS_KEYS[i]) != 0;
                     if (down && !this.wasDown[i]) {
                         this.onKeyPressed(PRESS_KEYS[i]);
                     }
@@ -840,13 +841,13 @@ namespace CollisionNri {
             this.collide();
 
             if (!this.showHelp && !this.test) {
-                const leftButton = Nri_IsButtonPressed(this.sample, 0) != 0;
-                const rightButton = Nri_IsButtonPressed(this.sample, 1) != 0;
-                const relative = this.camera.update(f(elapsedSeconds), Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample),
+                const leftButton = this.sample.isButtonPressed(0) != 0;
+                const rightButton = this.sample.isButtonPressed(1) != 0;
+                const relative = this.camera.update(f(elapsedSeconds), this.sample.getMouseX(), this.sample.getMouseY(),
                     leftButton, rightButton, this.held);
                 if (relative != this.relativeMouse) {
                     this.relativeMouse = relative;
-                    Nri_SetCursorDisabled(this.sample, relative ? 1 : 0);
+                    this.sample.setCursorDisabled(relative ? 1 : 0);
                 }
             }
         }
@@ -1007,7 +1008,7 @@ namespace CollisionNri {
 
         // The scene's lines into this frame's part of the vertex buffer (from vertexOffset bytes):
         // none on the help screen.
-        buildLines(vertexBuffer: NriBufferHandle, vertexOffset: int) {
+        buildLines(vertexBuffer: NriBuffer, vertexOffset: int) {
             this.vertexCount = 0;
             if (this.showHelp) {
                 return;
@@ -1046,25 +1047,25 @@ namespace CollisionNri {
                 this.constants[i] = viewProjection[i];
             }
             if (this.vertexCount > 0) {
-                Nri_WriteBuffer(vertexBuffer, vertexOffset, Ref(this.vertices[0]), this.vertexCount * VERTEX_FLOATS * 4);
+                vertexBuffer.write(vertexOffset, Ref(this.vertices[0]), this.vertexCount * VERTEX_FLOATS * 4);
             }
         }
 
-        // Sample::Render's lines (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, vertexOffset: int) {
+        // Sample::Render's lines (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, vertexOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipeline;
             const vertexBuffer = this.vertexBuffer;
             if (this.vertexCount == 0 || !pipelineLayout || !pipeline || !vertexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.constants[0]), 64);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, vertexOffset, VERTEX_FLOATS * 4);
-            Nri_CmdDraw(commandBuffer, this.vertexCount, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootConstants(0, Ref(this.constants[0]), 64);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, vertexOffset, VERTEX_FLOATS * 4);
+            commandBuffer.draw(this.vertexCount, 1, 0, 0);
         }
 
         // The sample's HUD (SpriteFont text in the title-safe area): the group's name at the top, the
@@ -1079,11 +1080,11 @@ namespace CollisionNri {
             const top: int = Math.floor(safeH);
             const bottom: int = Math.floor(this.height - safeH + 0.5);
 
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             if (this.showHelp) {
-                Nri_ImguiDrawText(left, top, "Collision sample", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                NriImgui.drawText(left, top, "Collision sample", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
                 const y = top + TITLE_FONT_SIZE + LINE_SPACING;
-                Nri_ImguiDrawText(left, y, "This sample demonstrates DirectXMath's collision types", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                NriImgui.drawText(left, y, "This sample demonstrates DirectXMath's collision types", WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
                 const controls = [
                     "1: Frustum",
                     "2: Axis-aligned box",
@@ -1095,13 +1096,13 @@ namespace CollisionNri {
                     "Esc: Hide this help",
                 ];
                 for (let i = 0; i < controls.length; i++) {
-                    Nri_ImguiDrawText(left, y + (i + 2) * LINE_SPACING, controls[i], WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                    NriImgui.drawText(left, y + (i + 2) * LINE_SPACING, controls[i], WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
                 }
             } else {
-                Nri_ImguiDrawText(left, top, this.name, WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
-                Nri_ImguiDrawText(left, bottom - LINE_SPACING, "F1 - Help", LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0, 0);
+                NriImgui.drawText(left, top, this.name, WHITE[0], WHITE[1], WHITE[2], 1.0, 0);
+                NriImgui.drawText(left, bottom - LINE_SPACING, "F1 - Help", LIGHT_GREY[0], LIGHT_GREY[1], LIGHT_GREY[2], 1.0, 0);
             }
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
         // The swap chain's size and formats (its views in the textures' format).
@@ -1112,7 +1113,7 @@ namespace CollisionNri {
             this.camera.setWindow(this.width, this.height);
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with it, the swap chain
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with it, the swap chain
         // made again at its size. The projection and the HUD read the size every frame.
         resizeIfNeeded() {
             const device = this.device;
@@ -1146,36 +1147,36 @@ namespace CollisionNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: Sample::Clear, the lines, the HUD over them.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, BACKGROUND, BACKGROUND, BACKGROUND, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(BACKGROUND, BACKGROUND, BACKGROUND, 1.0);
                 this.recordDraw(commandBuffer, vertexOffset);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -1191,12 +1192,12 @@ namespace CollisionNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1206,53 +1207,53 @@ namespace CollisionNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 this.swapChain.destroy();
                 const vertexBuffer = this.vertexBuffer;
                 if (vertexBuffer) {
-                    Nri_DestroyBuffer(vertexBuffer);
+                    vertexBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const collision = new Collision(sample);
         // -group <1..4>: the group looked at first; -time <seconds>: the objects frozen at that time;
         // -help: start with the help screen; -noUI: no HUD.
-        Nri_AddExampleOptionWithValues(sample, "-group", 1);
-        Nri_AddExampleOptionWithValues(sample, "-time", 1);
-        Nri_AddExampleOption(sample, "-help");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-group", 1);
+        sample.addExampleOptionWithValues("-time", 1);
+        sample.addExampleOption("-help");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-group" && i + 1 < argc) {
                 i++;
-                collision.setViewForGroup(Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), 1), GROUP_COUNT) - 1);
+                collision.setViewForGroup(Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), 1), GROUP_COUNT) - 1);
             } else if (arg == "-time" && i + 1 < argc) {
                 i++;
-                collision.fixedTime = parseFloat(Nri_GetArg(argc, argv, i));
+                collision.fixedTime = parseFloat(Nri.getArg(argc, argv, i));
             } else if (arg == "-help") {
                 collision.showHelp = true;
             } else if (arg == "-noUI") {

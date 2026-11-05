@@ -30,12 +30,12 @@ export class PowderSandbox extends SandboxApp {
         if (!device || !testReadback) {
             return "cannot read the grid back";
         }
-        Nri_DeviceWaitIdle(device);
+        device.waitIdle();
         const grid: int[] = [];
         for (let i = 0; i < ALL_INT_SECTIONS * this.stride; i++) {
             grid.push(0);
         }
-        if (Nri_ReadBufferInts(testReadback, Ref(grid[0]), grid.length) == 0) {
+        if (testReadback.readInts(Ref(grid[0]), grid.length) == 0) {
             return "cannot read the grid back";
         }
         this.logResidual(grid);
@@ -48,7 +48,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < this.width * this.height; i++) {
             pixels.push(0);
         }
-        if (Nri_ReadBufferRGBA8(frameReadback, this.rowPitch, this.width, this.height, this.viewFormat, Ref(pixels[0]), pixels.length) == 0) {
+        if (frameReadback.readRGBA8(this.rowPitch, this.width, this.height, this.viewFormat, Ref(pixels[0]), pixels.length) == 0) {
             return "cannot read the frame back";
         }
 
@@ -266,7 +266,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < this.gridW * this.gridH; i++) {
             cells.push(0);
         }
-        if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+        if (cellsReadback.readInts(Ref(cells[0]), cells.length) == 0) {
             return "cannot read the cells back";
         }
         let stone = 0;
@@ -317,8 +317,8 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < this.gridW * this.gridH; i++) {
             cells.push(0);
         }
-        if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0
-            || Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+        if (floatReadback.readFloats(Ref(floats[0]), floats.length) == 0
+            || cellsReadback.readInts(Ref(cells[0]), cells.length) == 0) {
             return;
         }
         const w = this.gridW;
@@ -386,7 +386,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < this.gridW * this.gridH; i++) {
             cells.push(0);
         }
-        if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+        if (cellsReadback.readInts(Ref(cells[0]), cells.length) == 0) {
             return "cannot read the cells back";
         }
         let inSolid = 0;
@@ -461,7 +461,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
             floats.push(0.0);
         }
-        if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0) {
+        if (floatReadback.readFloats(Ref(floats[0]), floats.length) == 0) {
             return "cannot read the grid back";
         }
         if (this.scene == 10) {
@@ -581,7 +581,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < this.gridW * this.gridH; i++) {
             cells.push(0);
         }
-        if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+        if (cellsReadback.readInts(Ref(cells[0]), cells.length) == 0) {
             return [];
         }
         return cells;
@@ -627,7 +627,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
             floats.push(0.0);
         }
-        if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0) {
+        if (floatReadback.readFloats(Ref(floats[0]), floats.length) == 0) {
             return temps;
         }
         for (let i = 0; i < this.gridW * this.gridH; i++) {
@@ -874,8 +874,8 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < FLOAT_SECTIONS * this.stride; i++) {
             floats.push(0.0);
         }
-        if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0
-            || Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0) {
+        if (cellsReadback.readInts(Ref(cells[0]), cells.length) == 0
+            || floatReadback.readFloats(Ref(floats[0]), floats.length) == 0) {
             return "cannot read the grid back";
         }
         // The bars' temperature (F_TCELL, section 10) in the column BAR_PROBE across.
@@ -989,8 +989,8 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < w * h; i++) {
             cells.push(0);
         }
-        if (Nri_ReadBufferFloats(floatReadback, Ref(floats[0]), floats.length) == 0
-            || Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+        if (floatReadback.readFloats(Ref(floats[0]), floats.length) == 0
+            || cellsReadback.readInts(Ref(cells[0]), cells.length) == 0) {
             return "cannot read the grid back";
         }
         // (bodies 0 and 1: the strokes made them in that order)
@@ -1151,7 +1151,7 @@ export class PowderSandbox extends SandboxApp {
         for (let i = 0; i < w * h; i++) {
             cells.push(0);
         }
-        if (Nri_ReadBufferInts(cellsReadback, Ref(cells[0]), cells.length) == 0) {
+        if (cellsReadback.readInts(Ref(cells[0]), cells.length) == 0) {
             return "cannot read the cells back";
         }
         let gunpowder = 0;

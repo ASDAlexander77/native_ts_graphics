@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, radians, perspective, inverseGaussJordan } from "../../core/matrix";
 import { comboItems } from "../../core/text_format";
 import { LookAtCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample } from "../../core/nri";
 
 namespace DynamicLineRasterizationNri {
     // dynamic_line_rasterization, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -138,23 +139,23 @@ namespace DynamicLineRasterizationNri {
     // in use is a pipeline of its own, made when first drawn, as in the Donut example. D3D has its own
     // three kinds of lines (quadrilateral, aliased, alpha antialiased) and no width or stipple.
     class DynamicLineRasterization {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
         private shaders: string = "";
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private gridPipeline: NriPipelineHandle | null = null;
-        private fillPipeline: NriPipelineHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private gridPipeline: NriPipeline | null = null;
+        private fillPipeline: NriPipeline | null = null;
         // The edges' pipelines made so far, by their line state (edgeKey).
         private edgeKeys: string[] = [];
-        private edgePipelines: NriPipelineHandle[] = [];
-        private vertexBuffer: NriBufferHandle | null = null;
-        private cubeIndexBuffer: NriBufferHandle | null = null;
-        private edgeIndexBuffer: NriBufferHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantBufferView: NriDescriptorHandle | null = null;
+        private edgePipelines: NriPipeline[] = [];
+        private vertexBuffer: NriBuffer | null = null;
+        private cubeIndexBuffer: NriBuffer | null = null;
+        private edgeIndexBuffer: NriBuffer | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantBufferView: NriDescriptor | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -190,11 +191,11 @@ namespace DynamicLineRasterizationNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < 16; i++) {
                 this.stipplePattern.push(i < 8);
             }
@@ -211,11 +212,11 @@ namespace DynamicLineRasterizationNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -226,20 +227,20 @@ namespace DynamicLineRasterizationNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // The line rasterization modes and the widest line, and the options' settings within them.
-            this.modes = Nri_GetLineRasterizationModes(device);
-            this.maxLineWidth = Nri_GetMaxLineWidth(device);
+            this.modes = device.getLineRasterizationModes();
+            this.maxLineWidth = device.getMaxLineWidth();
             const mode = this.requestedMode;
             if (mode > 0 && mode < MODE_NAMES.length && (this.modes & MODE_BITS[mode]) != 0) {
                 this.rasterizationMode = mode;
@@ -249,7 +250,7 @@ namespace DynamicLineRasterizationNri {
             this.lineWidth = Math.max(1.0, Math.min(this.requestedLineWidth, this.maxLineWidth));
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -261,11 +262,11 @@ namespace DynamicLineRasterizationNri {
 
             // The layout: CameraUbo (b0) and the color (b1), root descriptors bound at the frame's
             // slices, for every stage (the grid's pixel shader reads the camera too).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
+            layoutDesc.addRootDescriptor(1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -287,24 +288,24 @@ namespace DynamicLineRasterizationNri {
             let vertices = VERTICES.map((v): f32 => v);
             let cubeIndices = CUBE_INDICES.map((v): int => v);
             let edgeIndices = EDGE_INDICES.map((v): int => v);
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.cubeIndexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(cubeIndices[0]), cubeIndices.length * 4,
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.cubeIndexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(cubeIndices[0]), cubeIndices.length * 4,
                 NriBufferUsage.IndexBuffer);
-            this.edgeIndexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(edgeIndices[0]), edgeIndices.length * 4,
+            this.edgeIndexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(edgeIndices[0]), edgeIndices.length * 4,
                 NriBufferUsage.IndexBuffer);
 
             // The constants, a queued frame's each.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!this.vertexBuffer || !this.cubeIndexBuffer || !this.edgeIndexBuffer || !constantBuffer) {
                 console.log("Cannot create the buffers");
                 return 0;
             }
-            this.constantBufferView = Nri_CreateConstantBufferView(constantBuffer, 0, CONST_SLICE);
+            this.constantBufferView = constantBuffer.createConstantView(0, CONST_SLICE);
 
             // The sample's options.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -312,9 +313,9 @@ namespace DynamicLineRasterizationNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -324,31 +325,31 @@ namespace DynamicLineRasterizationNri {
         // clipping off (NVRHI's default), blending by the source's alpha (the alpha written as is).
         // name: "grid" (no vertices) or "base" (the cube's positions); lines with the line settings
         // (stipple 0 or 1), triangles with mode -1.
-        createPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, name: string, topology: NriTopology, withVertices: boolean,
+        createPipeline(device: NriDevice, layout: NriPipelineLayout, name: string, topology: NriTopology, withVertices: boolean,
             stipple: int) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_${name}_vs.bin`, `${name}_vs`) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_${name}_vs.bin`, `${name}_vs`) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${this.shaders}_${name}_ps.bin`, `${name}_ps`) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${this.shaders}_${name}_ps.bin`, `${name}_ps`) != 0;
             }
             if (withVertices) {
-                Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
+                desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
             }
-            Nri_PipelineDescSetTopology(desc, topology);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetDepthClip(desc, 0);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+            desc.setTopology(topology);
+            desc.setFrontCounterClockwise(1);
+            desc.setDepthClip(0);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                 NriBlendFactor.One, NriBlendFactor.Zero, NriBlendOp.Add);
             if (stipple >= 0) {
-                Nri_PipelineDescSetLineRasterization(desc, <NriLineRasterizationMode>this.rasterizationMode, Math.fround(this.lineWidth), stipple,
+                desc.setLineRasterization(<NriLineRasterizationMode>this.rasterizationMode, Math.fround(this.lineWidth), stipple,
                     this.stippleFactor, this.pattern());
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -369,7 +370,7 @@ namespace DynamicLineRasterizationNri {
         }
 
         // The edges' pipeline for the line settings; null if it can't be made.
-        edgePipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle): NriPipelineHandle | null {
+        edgePipeline(device: NriDevice, layout: NriPipelineLayout): NriPipeline | null {
             const stipple = this.stippleEnabled && this.canStipple();
             const key = `${this.rasterizationMode} ${this.lineWidth} ${stipple ? 1 : 0} ${this.stippleFactor} ${this.pattern()}`;
             for (let i = 0; i < this.edgeKeys.length; i++) {
@@ -387,13 +388,13 @@ namespace DynamicLineRasterizationNri {
 
         // Keeps a handful of edge pipelines: drops them all now and then (after the frames in flight
         // that may draw with them).
-        trimEdgePipelines(device: NriDeviceHandle) {
+        trimEdgePipelines(device: NriDevice) {
             if (this.edgePipelines.length <= MAX_EDGE_PIPELINES) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             for (const edgePipeline of this.edgePipelines) {
-                Nri_DestroyPipeline(edgePipeline);
+                edgePipeline.destroy();
             }
             this.edgeKeys = [];
             this.edgePipelines = [];
@@ -407,9 +408,9 @@ namespace DynamicLineRasterizationNri {
         // The camera's mouse handling (ApiVulkanSample's), unless the options window has the mouse:
         // the buttons' changes, then the cursor's position.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -417,48 +418,48 @@ namespace DynamicLineRasterizationNri {
                     this.buttons[button] = pressed;
                 }
             }
-            this.camera.mouseMove(Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample));
+            this.camera.mouseMove(this.sample.getMouseX(), this.sample.getMouseY());
         }
 
         // The sample's options.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
-            if (Nri_ImguiCollapsingHeader("Primitive options", 1) != 0) {
-                this.fillEnabled = Nri_ImguiCheckbox("Fill", this.fillEnabled ? 1 : 0) != 0;
-                this.gridEnabled = Nri_ImguiCheckbox("Grid", this.gridEnabled ? 1 : 0) != 0;
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
+            if (NriImgui.collapsingHeader("Primitive options", 1) != 0) {
+                this.fillEnabled = NriImgui.checkbox("Fill", this.fillEnabled ? 1 : 0) != 0;
+                this.gridEnabled = NriImgui.checkbox("Grid", this.gridEnabled ? 1 : 0) != 0;
                 // Only the modes the device has (DEFAULT always).
-                const mode = Nri_ImguiCombo("Rasterization mode", this.rasterizationMode, comboItems(MODE_NAMES));
+                const mode = NriImgui.combo("Rasterization mode", this.rasterizationMode, comboItems(MODE_NAMES));
                 if (mode == 0 || (this.modes & MODE_BITS[mode]) != 0) {
                     this.rasterizationMode = mode;
                 }
                 // Wide lines and stipple: Vulkan's only.
                 if (this.maxLineWidth > 1.0) {
-                    this.lineWidth = Nri_ImguiSliderFloat("Line width", this.lineWidth, 1.0, Math.min(64.0, this.maxLineWidth));
+                    this.lineWidth = NriImgui.sliderFloat("Line width", this.lineWidth, 1.0, Math.min(64.0, this.maxLineWidth));
                 }
                 if (this.canStipple()) {
-                    this.stippleEnabled = Nri_ImguiCheckbox("Stipple enabled", this.stippleEnabled ? 1 : 0) != 0;
+                    this.stippleEnabled = NriImgui.checkbox("Stipple enabled", this.stippleEnabled ? 1 : 0) != 0;
                     // The stipple factor has a maximum value of 256. Here, a limit of 64 has been chosen to achieve a scroll step equal to 1.
-                    this.stippleFactor = Nri_ImguiSliderInt("Stipple factor", this.stippleFactor, 1, 64);
-                    Nri_ImguiText(`Stipple pattern: ${hex(this.pattern())}`);
+                    this.stippleFactor = NriImgui.sliderInt("Stipple factor", this.stippleFactor, 1, 64);
+                    NriImgui.text(`Stipple pattern: ${hex(this.pattern())}`);
                     for (let i = 0; i < 16; i++) {
-                        Nri_ImguiPushID(i);
-                        this.stipplePattern[i] = Nri_ImguiCheckbox("", this.stipplePattern[i] ? 1 : 0) != 0;
-                        Nri_ImguiPopID();
+                        NriImgui.pushID(i);
+                        this.stipplePattern[i] = NriImgui.checkbox("", this.stipplePattern[i] ? 1 : 0) != 0;
+                        NriImgui.popID();
                         if (i % 8 != 7) {
-                            Nri_ImguiSameLine();
+                            NriImgui.sameLine();
                         }
                     }
                 }
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers (projection * view, into Donut's clip space: y negated,
         // and its inverse) and the colors, into this queued frame's slices from offset.
-        writeConstants(constantBuffer: NriBufferHandle, offset: int) {
+        writeConstants(constantBuffer: NriBuffer, offset: int) {
             const view = this.camera.view();
             let viewProj = multiply(perspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR), view);
             for (let i = 1; i < 16; i += 4) {
@@ -469,22 +470,22 @@ namespace DynamicLineRasterizationNri {
                 this.cameraConstants[i] = viewProj[i];
                 this.cameraConstants[16 + i] = viewProjInverse[i];
             }
-            Nri_WriteBuffer(constantBuffer, offset + CAMERA_OFFSET, Ref(this.cameraConstants[0]), CAMERA_FLOATS * 4);
+            constantBuffer.write(offset + CAMERA_OFFSET, Ref(this.cameraConstants[0]), CAMERA_FLOATS * 4);
             this.writeColor(constantBuffer, offset + FILL_COLOR_OFFSET, FILL_COLOR);
             this.writeColor(constantBuffer, offset + EDGE_COLOR_OFFSET, EDGE_COLOR);
         }
 
         // The sample's push constant.
-        writeColor(constantBuffer: NriBufferHandle, offset: int, color: number[]) {
+        writeColor(constantBuffer: NriBuffer, offset: int, color: number[]) {
             for (let i = 0; i < 4; i++) {
                 this.colorConstants[i] = color[i];
             }
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.colorConstants[0]), 4 * 4);
+            constantBuffer.write(offset, Ref(this.colorConstants[0]), 4 * 4);
         }
 
-        // The grid, the cube's faces and its edges (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering); this queued frame's constants from frameOffset.
-        recordDraw(device: NriDeviceHandle, commandBuffer: NriCommandBufferHandle, frameOffset: int) {
+        // The grid, the cube's faces and its edges (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering); this queued frame's constants from frameOffset.
+        recordDraw(device: NriDevice, commandBuffer: NriCommandBuffer, frameOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const gridPipeline = this.gridPipeline;
             const fillPipeline = this.fillPipeline;
@@ -498,32 +499,32 @@ namespace DynamicLineRasterizationNri {
             }
             const edgePipeline = this.edgePipeline(device, pipelineLayout);
 
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, constantBufferView, frameOffset + CAMERA_OFFSET);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, constantBufferView, frameOffset + FILL_COLOR_OFFSET);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setRootDescriptor(0, constantBufferView, frameOffset + CAMERA_OFFSET);
+            commandBuffer.setRootDescriptor(1, constantBufferView, frameOffset + FILL_COLOR_OFFSET);
 
             // The grid.
             if (this.gridEnabled) {
-                Nri_CmdSetPipeline(commandBuffer, gridPipeline);
-                Nri_CmdDraw(commandBuffer, 6, 1, 0, 0);
+                commandBuffer.setPipeline(gridPipeline);
+                commandBuffer.draw(6, 1, 0, 0);
             }
 
             // The cube's faces.
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
             if (this.fillEnabled) {
-                Nri_CmdSetPipeline(commandBuffer, fillPipeline);
-                Nri_CmdSetIndexBuffer(commandBuffer, cubeIndexBuffer, 0, NriIndexType.UInt32);
-                Nri_CmdDrawIndexed(commandBuffer, CUBE_INDICES.length, 1, 0, 0, 0);
+                commandBuffer.setPipeline(fillPipeline);
+                commandBuffer.setIndexBuffer(cubeIndexBuffer, 0, NriIndexType.UInt32);
+                commandBuffer.drawIndexed(CUBE_INDICES.length, 1, 0, 0, 0);
             }
 
             // Its edges.
             if (edgePipeline) {
-                Nri_CmdSetRootDescriptor(commandBuffer, 1, constantBufferView, frameOffset + EDGE_COLOR_OFFSET);
-                Nri_CmdSetPipeline(commandBuffer, edgePipeline);
-                Nri_CmdSetIndexBuffer(commandBuffer, edgeIndexBuffer, 0, NriIndexType.UInt32);
-                Nri_CmdDrawIndexed(commandBuffer, EDGE_INDICES.length, 1, 0, 0, 0);
+                commandBuffer.setRootDescriptor(1, constantBufferView, frameOffset + EDGE_COLOR_OFFSET);
+                commandBuffer.setPipeline(edgePipeline);
+                commandBuffer.setIndexBuffer(edgeIndexBuffer, 0, NriIndexType.UInt32);
+                commandBuffer.drawIndexed(EDGE_INDICES.length, 1, 0, 0, 0);
             }
         }
 
@@ -535,7 +536,7 @@ namespace DynamicLineRasterizationNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -574,36 +575,36 @@ namespace DynamicLineRasterizationNri {
                 // Record: cleared to dark gray, the grid, the cube; the options window over them (the
                 // pass has no depth attachment, which NRIFramework's ImGui pipeline doesn't have
                 // either).
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], CLEAR_COLOR[3]);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], CLEAR_COLOR[3]);
                 this.recordDraw(device, commandBuffer, frameOffset);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -619,12 +620,12 @@ namespace DynamicLineRasterizationNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -634,13 +635,13 @@ namespace DynamicLineRasterizationNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 const constantBufferView = this.constantBufferView;
                 if (constantBufferView) {
-                    Nri_DestroyDescriptor(constantBufferView);
+                    constantBufferView.destroy();
                 }
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.vertexBuffer);
@@ -650,53 +651,53 @@ namespace DynamicLineRasterizationNri {
                 this.destroyPipeline(this.gridPipeline);
                 this.destroyPipeline(this.fillPipeline);
                 for (const edgePipeline of this.edgePipelines) {
-                    Nri_DestroyPipeline(edgePipeline);
+                    edgePipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const lines = new DynamicLineRasterization(sample);
         // -mode <n>: the rasterization mode (0 DEFAULT, 1 RECT, 2 BRESENHAM, 3 SMOOTH); -width <w>: the
         // line width; -nostipple: stipple off; -nofill: fill off; -nogrid: grid off; -noUI: no options
         // window.
-        Nri_AddExampleOptionWithValues(sample, "-mode", 1);
-        Nri_AddExampleOptionWithValues(sample, "-width", 1);
-        Nri_AddExampleOption(sample, "-nostipple");
-        Nri_AddExampleOption(sample, "-nofill");
-        Nri_AddExampleOption(sample, "-nogrid");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-mode", 1);
+        sample.addExampleOptionWithValues("-width", 1);
+        sample.addExampleOption("-nostipple");
+        sample.addExampleOption("-nofill");
+        sample.addExampleOption("-nogrid");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-mode" && i + 1 < argc) {
-                lines.requestedMode = parseInt(Nri_GetArg(argc, argv, i + 1));
+                lines.requestedMode = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-width" && i + 1 < argc) {
-                lines.requestedLineWidth = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                lines.requestedLineWidth = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-nostipple") {
                 lines.stippleEnabled = false;

@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriAccelerationStructure, NriBlasDesc, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriRayTracingPipelineDesc, NriSample, NriShaderTable, NriTexture, NriTopLevelAS } from "../../core/nri";
 
 namespace DxrRefitNri {
     // dxr_refit, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
@@ -65,7 +66,7 @@ namespace DxrRefitNri {
     // A constant buffer view's size is a multiple of 256 bytes (D3D12).
     const COLOR_BUFFER_SIZE = 256;
 
-    // The pipeline's shader groups (Nri_RayTracingPipelineDescAddGroup's order).
+    // The pipeline's shader groups (NriRayTracingPipelineDesc.addGroup's order).
     const RAYGEN_GROUP = 0;
     const MISS_GROUP = 1;
     const SHADOW_MISS_GROUP = 2;
@@ -124,23 +125,23 @@ namespace DxrRefitNri {
     // updated in the frame's command buffer) every frame as instances 1 and 2 rotate. The rays write
     // the back buffer's format, copied into it.
     class DxrRefit {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private shaderTable: NriShaderTableHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private shaderTable: NriShaderTable | null = null;
         // The triangle and the plane, the triangle alone.
-        private blases: NriAccelerationStructureHandle[] = [];
-        private topLevelAS: NriTopLevelASHandle | null = null;
-        private topLevelASView: NriDescriptorHandle | null = null;
-        private colorBuffer: NriBufferHandle | null = null;
-        private colorBufferView: NriDescriptorHandle | null = null;
-        private output: NriTextureHandle | null = null;
-        private outputStorage: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private set: NriDescriptorSetHandle | null = null;
+        private blases: NriAccelerationStructure[] = [];
+        private topLevelAS: NriTopLevelAS | null = null;
+        private topLevelASView: NriDescriptor | null = null;
+        private colorBuffer: NriBuffer | null = null;
+        private colorBufferView: NriDescriptor | null = null;
+        private output: NriTexture | null = null;
+        private outputStorage: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private set: NriDescriptorSet | null = null;
         // The output was copied from (after the first frame).
         private outputCopied: boolean = false;
         // A row-major 3x4 instance transform.
@@ -160,11 +161,11 @@ namespace DxrRefitNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < 12; i++) {
                 this.transform.push(0.0);
             }
@@ -178,14 +179,14 @@ namespace DxrRefitNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
-            Nri_SetWindowSize(this.sample, WINDOW_WIDTH, WINDOW_HEIGHT);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
+            this.sample.setWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -198,20 +199,20 @@ namespace DxrRefitNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: copied into, in its own (UNORM) format: the shader writes sRGB-encoded
             // values, as the tutorial's CopyResource into its sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -224,19 +225,19 @@ namespace DxrRefitNri {
                 this.unsupportedReason = "No D3D11 shaders (ray tracing needs D3D12 or Vulkan)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.RayTracing) == 0) {
+            if (device.isFeatureSupported(NriFeature.RayTracing) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Tracing Pipelines";
                 return 0;
             }
 
             // The layout: the scene (t0), the output (u0) and the instances' colors (b0), for every
             // ray tracing stage (the plane's closest hit shader traces shadow rays).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.RayTracing, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.RayTracing, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -250,39 +251,39 @@ namespace DxrRefitNri {
             }
 
             // The instances' colors, written once.
-            const colorBuffer = Nri_CreateHostBuffer(device, COLOR_BUFFER_SIZE, NriBufferUsage.ConstantBuffer);
+            const colorBuffer = device.createHostBuffer(COLOR_BUFFER_SIZE, NriBufferUsage.ConstantBuffer);
             this.colorBuffer = colorBuffer;
             if (!colorBuffer) {
                 console.log("Cannot create the color buffer");
                 return 0;
             }
-            Nri_WriteBuffer(colorBuffer, 0, Ref(INSTANCE_COLORS[0]), INSTANCE_COLORS.length * 4);
-            const colorBufferView = Nri_CreateConstantBufferView(colorBuffer, 0, COLOR_BUFFER_SIZE);
+            colorBuffer.write(0, Ref(INSTANCE_COLORS[0]), INSTANCE_COLORS.length * 4);
+            const colorBufferView = colorBuffer.createConstantView(0, COLOR_BUFFER_SIZE);
             this.colorBufferView = colorBufferView;
 
             // The output the ray generation shader writes, in the back buffer's format, for the copy.
             const outputCreated = this.createOutput(device);
-            const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, 1, 0, 1, 0, 1, 0, 1);
+            const descriptorPool = device.createDescriptorPoolWithAccelerationStructures(1, 0, 1, 0, 1, 0, 1);
             this.descriptorPool = descriptorPool;
             const topLevelASView = this.topLevelASView;
             if (!outputCreated || !descriptorPool || !topLevelASView || !colorBufferView) {
                 console.log("Cannot create the output");
                 return 0;
             }
-            const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+            const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
             this.set = set;
             if (!set) {
                 console.log("Cannot create the descriptor set");
                 return 0;
             }
-            Nri_UpdateDescriptor(set, 0, 0, topLevelASView);
+            set.updateDescriptor(0, 0, topLevelASView);
             this.updateOutputDescriptor();
-            Nri_UpdateDescriptor(set, 2, 0, colorBufferView);
+            set.updateDescriptor(2, 0, colorBufferView);
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -297,14 +298,14 @@ namespace DxrRefitNri {
 
         // The output at the swap chain's size and format and its storage view, not written yet (in
         // NriTextureState.Storage, as created: no barrier before its first rays). False on failure.
-        createOutput(device: NriDeviceHandle): boolean {
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+        createOutput(device: NriDevice): boolean {
+            const output = device.createStorageTexture(this.queue, this.width, this.height, this.swapChainFormat);
             this.output = output;
             this.outputCopied = false;
             if (!output) {
                 return false;
             }
-            this.outputStorage = Nri_CreateStorageTextureView(output, this.swapChainFormat);
+            this.outputStorage = output.createStorageView(this.swapChainFormat);
             return true;
         }
 
@@ -313,7 +314,7 @@ namespace DxrRefitNri {
             this.outputStorage = null;
             const output = this.output;
             if (output) {
-                Nri_DestroyTexture(output);
+                output.destroy();
             }
             this.output = null;
         }
@@ -323,12 +324,12 @@ namespace DxrRefitNri {
             const outputStorage = this.outputStorage;
             if (set) {
                 if (outputStorage) {
-                    Nri_UpdateDescriptor(set, 1, 0, outputStorage);
+                    set.updateDescriptor(1, 0, outputStorage);
                 }
             }
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the output made again at
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the output made again at
         // its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -338,7 +339,7 @@ namespace DxrRefitNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyOutput();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -350,17 +351,17 @@ namespace DxrRefitNri {
         // primary and shadow miss shaders, the triangle, plane and shadow hit groups; the hit entries
         // two per geometry (primary ray, shadow ray): the triangle and the plane of instance 0, then
         // the triangles of instances 1 and 2. False (after printing why) on failure.
-        createRayTracingPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, folder: string): boolean {
-            const desc = Nri_CreateRayTracingPipelineDesc();
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.RayGen, "rayGen"), -1, -1);
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.Miss, "miss"), -1, -1);
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.Miss, "shadowMiss"), -1, -1);
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, "triangleChs"), -1, -1);
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, "planeChs"), -1, -1);
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, "shadowChs"), -1, -1);
-            const pipeline = Nri_CreateRayTracingPipelineFromDesc(device, layout, `shaders/dxr_refit/${folder}/dxr_refit.bin`, desc,
+        createRayTracingPipeline(device: NriDevice, layout: NriPipelineLayout, folder: string): boolean {
+            const desc = NriRayTracingPipelineDesc.create();
+            desc.addGroup(desc.addShader(NriStage.RayGen, "rayGen"), -1, -1);
+            desc.addGroup(desc.addShader(NriStage.Miss, "miss"), -1, -1);
+            desc.addGroup(desc.addShader(NriStage.Miss, "shadowMiss"), -1, -1);
+            desc.addGroup(desc.addShader(NriStage.ClosestHit, "triangleChs"), -1, -1);
+            desc.addGroup(desc.addShader(NriStage.ClosestHit, "planeChs"), -1, -1);
+            desc.addGroup(desc.addShader(NriStage.ClosestHit, "shadowChs"), -1, -1);
+            const pipeline = device.createRayTracingPipelineFromDesc(layout, `shaders/dxr_refit/${folder}/dxr_refit.bin`, desc,
                 PAYLOAD_SIZE, ATTRIBUTE_SIZE, MAX_RECURSION_DEPTH);
-            Nri_DestroyRayTracingPipelineDesc(desc);
+            desc.destroy();
             this.pipeline = pipeline;
             if (!pipeline) {
                 console.log("Cannot initialize the ray tracing pipeline");
@@ -374,7 +375,7 @@ namespace DxrRefitNri {
                 TRIANGLE_HIT_GROUP, SHADOW_HIT_GROUP,
                 TRIANGLE_HIT_GROUP, SHADOW_HIT_GROUP,
             ];
-            this.shaderTable = Nri_CreateShaderTableFromGroups(device, this.queue, pipeline, RAYGEN_GROUP, Ref(missGroups[0]), missGroups.length,
+            this.shaderTable = device.createShaderTableFromGroups(this.queue, pipeline, RAYGEN_GROUP, Ref(missGroups[0]), missGroups.length,
                 Ref(hitGroups[0]), hitGroups.length);
             if (!this.shaderTable) {
                 console.log("Cannot create the shader table");
@@ -387,7 +388,7 @@ namespace DxrRefitNri {
         // the triangle alone (the tutorial's geometries have no index buffers; here they index their
         // vertices in order); the refittable TLAS (built with AllowUpdate), its instances written to a
         // buffer per frame in flight. False (after printing why) on failure.
-        createAccelerationStructures(device: NriDeviceHandle, queuedFrameNum: int): boolean {
+        createAccelerationStructures(device: NriDevice, queuedFrameNum: int): boolean {
             const triangleVertexCount = TRIANGLE_VERTICES.length / 3;
             const planeVertexCount = PLANE_VERTICES.length / 3;
             const triangleIndices: int[] = [];
@@ -399,13 +400,13 @@ namespace DxrRefitNri {
                 planeIndices.push(i);
             }
             for (let b = 0; b < 2; b++) {
-                const desc = Nri_CreateBlasDesc();
-                Nri_BlasDescAddTriangles(desc, Ref(TRIANGLE_VERTICES[0]), triangleVertexCount, Ref(triangleIndices[0]), triangleVertexCount);
+                const desc = NriBlasDesc.create();
+                desc.addTriangles(Ref(TRIANGLE_VERTICES[0]), triangleVertexCount, Ref(triangleIndices[0]), triangleVertexCount);
                 if (b == 0) {
-                    Nri_BlasDescAddTriangles(desc, Ref(PLANE_VERTICES[0]), planeVertexCount, Ref(planeIndices[0]), planeVertexCount);
+                    desc.addTriangles(Ref(PLANE_VERTICES[0]), planeVertexCount, Ref(planeIndices[0]), planeVertexCount);
                 }
-                const blas = Nri_BuildBlasFromDesc(device, this.queue, desc, NriAccelerationStructureFlags.None);
-                Nri_DestroyBlasDesc(desc);
+                const blas = device.buildBlasFromDesc(this.queue, desc, NriAccelerationStructureFlags.None);
+                desc.destroy();
                 if (!blas) {
                     console.log("Cannot build the bottom level acceleration structures");
                     return false;
@@ -413,13 +414,13 @@ namespace DxrRefitNri {
                 this.blases.push(blas);
             }
 
-            const topLevelAS = Nri_CreateTopLevelAS(device, INSTANCE_X.length, NriAccelerationStructureFlags.AllowUpdate, queuedFrameNum);
+            const topLevelAS = device.createTopLevelAS(INSTANCE_X.length, NriAccelerationStructureFlags.AllowUpdate, queuedFrameNum);
             this.topLevelAS = topLevelAS;
             if (!topLevelAS) {
                 console.log("Cannot create the top level acceleration structure");
                 return false;
             }
-            this.topLevelASView = Nri_CreateAccelerationStructureDescriptor(Nri_GetTopLevelAccelerationStructure(topLevelAS));
+            this.topLevelASView = topLevelAS.getTopLevelAccelerationStructure().createDescriptor();
             return true;
         }
 
@@ -432,8 +433,8 @@ namespace DxrRefitNri {
         // and 2 (the triangle) rotated about y by `rotation`, then moved to x = -2 and 2;
         // translate(x) * eulerAngleY(rotation) in rows. The instance ID picks the instance's colors in
         // the triangle's closest hit shader.
-        addInstances(topLevelAS: NriTopLevelASHandle) {
-            Nri_TopLevelASClearInstances(topLevelAS);
+        addInstances(topLevelAS: NriTopLevelAS) {
+            topLevelAS.clearInstances();
             const c = Math.cos(this.rotation);
             const s = Math.sin(this.rotation);
             for (let i = 0; i < INSTANCE_X.length; i++) {
@@ -447,13 +448,13 @@ namespace DxrRefitNri {
                 this.transform[5] = 1.0;
                 this.transform[8] = rotated ? -s : 0.0;
                 this.transform[10] = rotated ? c : 1.0;
-                Nri_TopLevelASAddInstance(topLevelAS, this.blases[rotated ? 1 : 0], Ref(this.transform[0]), i, 0xFF, INSTANCE_HIT_GROUPS[i], 0);
+                topLevelAS.addInstance(this.blases[rotated ? 1 : 0], Ref(this.transform[0]), i, 0xFF, INSTANCE_HIT_GROUPS[i], 0);
             }
         }
 
         // The tutorial's onFrameRender: refit the TLAS (built on the first frame), then step the
         // rotation; the rays into the output, which then goes to the copy.
-        recordRays(commandBuffer: NriCommandBufferHandle, frameIndex: int) {
+        recordRays(commandBuffer: NriCommandBuffer, frameIndex: int) {
             const layout = this.layout;
             const pipeline = this.pipeline;
             const shaderTable = this.shaderTable;
@@ -465,29 +466,29 @@ namespace DxrRefitNri {
                 return;
             }
             // Donut's test mode animates by float(1/60) a frame; -benchmark by a fixed step.
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             const rotationStep = this.benchmark ? ROTATION_STEP : ROTATION_STEP * STEPS_PER_SECOND * elapsedSeconds;
             this.addInstances(topLevelAS);
-            Nri_CmdBuildTopLevelAS(commandBuffer, topLevelAS, frameIndex % this.frames.size(), this.rebuild ? 0 : 1);
+            commandBuffer.buildTopLevelAS(topLevelAS, frameIndex % this.frames.size(), this.rebuild ? 0 : 1);
             this.rotation = Math.fround(this.rotation + Math.fround(rotationStep));
 
             if (this.outputCopied) {
-                Nri_CmdTextureBarrier(commandBuffer, output, NriTextureState.CopySource, NriTextureState.RayTracingStorage);
+                commandBuffer.textureBarrier(output, NriTextureState.CopySource, NriTextureState.RayTracingStorage);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetRayTracingPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRayTracingDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdDispatchRays(commandBuffer, shaderTable, this.width, this.height);
-            Nri_CmdTextureBarrier(commandBuffer, output, NriTextureState.RayTracingStorage, NriTextureState.CopySource);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setRayTracingPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRayTracingDescriptorSet(0, set);
+            commandBuffer.dispatchRays(shaderTable, this.width, this.height);
+            commandBuffer.textureBarrier(output, NriTextureState.RayTracingStorage, NriTextureState.CopySource);
             this.outputCopied = true;
         }
 
         // The output copied into the frame without conversion, as the tutorial's CopyResource.
-        recordCopy(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle) {
+        recordCopy(commandBuffer: NriCommandBuffer, texture: NriTexture) {
             const output = this.output;
             if (output) {
-                Nri_CmdCopyTexture(commandBuffer, texture, output);
+                commandBuffer.copyTexture(texture, output);
             }
         }
 
@@ -501,9 +502,9 @@ namespace DxrRefitNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the refit and the rays, then their output copied into the frame.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordRays(commandBuffer, frameIndex);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
                 this.recordCopy(commandBuffer, texture);
 
                 // The test's last frame: read back
@@ -511,13 +512,13 @@ namespace DxrRefitNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -535,12 +536,12 @@ namespace DxrRefitNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -550,64 +551,64 @@ namespace DxrRefitNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyOutput();
                 this.destroyDescriptor(this.colorBufferView);
                 this.destroyDescriptor(this.topLevelASView);
                 const colorBuffer = this.colorBuffer;
                 if (colorBuffer) {
-                    Nri_DestroyBuffer(colorBuffer);
+                    colorBuffer.destroy();
                 }
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
-                    Nri_DestroyTopLevelAS(topLevelAS);
+                    topLevelAS.destroy();
                 }
                 for (const blas of this.blases) {
-                    Nri_DestroyAccelerationStructure(blas);
+                    blas.destroy();
                 }
                 const shaderTable = this.shaderTable;
                 if (shaderTable) {
-                    Nri_DestroyShaderTable(shaderTable);
+                    shaderTable.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const dxrRefit = new DxrRefit(sample);
         // -benchmark: 0.005 radians a frame; -rebuild: the TLAS built anew every frame.
-        Nri_AddExampleOption(sample, "-benchmark");
-        Nri_AddExampleOption(sample, "-rebuild");
+        sample.addExampleOption("-benchmark");
+        sample.addExampleOption("-rebuild");
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-benchmark") {
                 dxrRefit.benchmark = true;
             } else if (arg == "-rebuild") {

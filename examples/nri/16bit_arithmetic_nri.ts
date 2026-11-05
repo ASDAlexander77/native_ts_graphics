@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace Khr16BitArithmeticNri {
     // 16bit_arithmetic, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -133,27 +134,27 @@ namespace Khr16BitArithmeticNri {
     // constants 16-bit values too where the device takes them. The Donut example's GPU time isn't
     // shown: nri_interop has no timer queries.
     class ArithmeticSample {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private computeLayoutFP16: NriPipelineLayoutHandle | null = null;
-        private computeFP32: NriPipelineHandle | null = null;
-        private computeFP16: NriPipelineHandle | null = null;
-        private visualizeLayout: NriPipelineLayoutHandle | null = null;
-        private visualizePipeline: NriPipelineHandle | null = null;
-        private blobBuffer: NriBufferHandle | null = null;
-        private blobView: NriDescriptorHandle | null = null;
-        private image: NriTextureHandle | null = null;
-        private imageStorage: NriDescriptorHandle | null = null;
-        private imageView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private computeSet: NriDescriptorSetHandle | null = null;
-        private computeSetFP16: NriDescriptorSetHandle | null = null;
-        private visualizeSet: NriDescriptorSetHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private computeLayoutFP16: NriPipelineLayout | null = null;
+        private computeFP32: NriPipeline | null = null;
+        private computeFP16: NriPipeline | null = null;
+        private visualizeLayout: NriPipelineLayout | null = null;
+        private visualizePipeline: NriPipeline | null = null;
+        private blobBuffer: NriBuffer | null = null;
+        private blobView: NriDescriptor | null = null;
+        private image: NriTexture | null = null;
+        private imageStorage: NriDescriptor | null = null;
+        private imageView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private computeSet: NriDescriptorSet | null = null;
+        private computeSetFP16: NriDescriptorSet | null = null;
+        private visualizeSet: NriDescriptorSet | null = null;
         // The image is read by the draw (after the first frame).
         private imageDrawn: boolean = false;
         private imgui: boolean = false;
@@ -178,11 +179,11 @@ namespace Khr16BitArithmeticNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -193,11 +194,11 @@ namespace Khr16BitArithmeticNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -208,20 +209,20 @@ namespace Khr16BitArithmeticNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the
             // Donut example blits into its back buffer).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -232,18 +233,18 @@ namespace Khr16BitArithmeticNri {
             this.frames.init(device, this.queue, queuedFrameNum);
 
             // 16-bit types need shader model 6.2 (no D3D11 shaders for them).
-            this.native16Bit = graphicsAPI != NriGraphicsAPI.D3D11 && Nri_IsFeatureSupported(device, NriFeature.Native16Bit) != 0;
-            this.native16BitConstants = this.native16Bit && Nri_IsFeatureSupported(device, NriFeature.Native16BitConstants) != 0;
+            this.native16Bit = graphicsAPI != NriGraphicsAPI.D3D11 && device.isFeatureSupported(NriFeature.Native16Bit) != 0;
+            this.native16BitConstants = this.native16Bit && device.isFeatureSupported(NriFeature.Native16BitConstants) != 0;
             this.fp16Enabled = this.fp16Enabled && this.native16Bit;
 
             // The layouts: the compute shaders' push constants (b0), blobs (t0) and image (u0); the
             // visualization's image (t0) and sampler (s0).
             this.computeLayout = this.createComputeLayout(device, PUSH32_SIZE);
-            const visualizeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(visualizeLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(visualizeLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.visualizeLayout = Nri_CreatePipelineLayoutFromDesc(device, visualizeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(visualizeLayoutDesc);
+            const visualizeLayoutDesc = NriPipelineLayoutDesc.create();
+            visualizeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            visualizeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.visualizeLayout = device.createPipelineLayoutFromDesc(visualizeLayoutDesc);
+            visualizeLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const visualizeLayout = this.visualizeLayout;
             if (!computeLayout || !visualizeLayout) {
@@ -256,25 +257,25 @@ namespace Khr16BitArithmeticNri {
             // the triangle over the screen, no culling, no depth.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
             const shaders = `shaders/16bit_arithmetic/${folder}/16bit_arithmetic`;
-            this.computeFP32 = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_compute_fp32.bin`, "compute_fp32");
+            this.computeFP32 = device.createComputePipeline(computeLayout, `${shaders}_compute_fp32.bin`, "compute_fp32");
             if (this.native16Bit) {
                 const computeLayoutFP16 = this.createComputeLayout(device, this.native16BitConstants ? PUSH16_SIZE : PUSH32_SIZE);
                 this.computeLayoutFP16 = computeLayoutFP16;
                 if (computeLayoutFP16) {
-                    this.computeFP16 = Nri_CreateComputePipelinePermutation(device, computeLayoutFP16,
+                    this.computeFP16 = device.createComputePipelinePermutation(computeLayoutFP16,
                         `${shaders}_fp16_compute_fp16.bin`, "compute_fp16", this.native16BitConstants ? "PUSH_CONSTANT_16=1" : "PUSH_CONSTANT_16=0");
                 }
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_visualize_vs.bin`, "visualize_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_visualize_vs.bin`, "visualize_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_visualize_ps.bin`, "visualize_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_visualize_ps.bin`, "visualize_ps") != 0;
             }
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.visualizePipeline = Nri_CreatePipelineFromDesc(device, visualizeLayout, desc);
+                this.visualizePipeline = device.createPipelineFromDesc(visualizeLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.computeFP32 || !this.visualizePipeline || !this.fp16PipelineMade()) {
                 console.log("Cannot load the 16-bit arithmetic shaders");
                 return 0;
@@ -285,29 +286,29 @@ namespace Khr16BitArithmeticNri {
             const blobs: f32[] = [];
             for (let i = 0; i < BLOBS.length; i += 2) {
                 blobs.push(0.0);
-                Nri_StoreInt32(Ref(blobs[blobs.length - 1]), BLOBS[i] | (BLOBS[i + 1] << 16));
+                Nri.storeInt32(Ref(blobs[blobs.length - 1]), BLOBS[i] | (BLOBS[i + 1] << 16));
             }
-            const blobBuffer = Nri_CreateHostBufferWithStride(device, NUM_BLOBS * BLOB_STRIDE, NriBufferUsage.StructuredBuffer, BLOB_STRIDE);
+            const blobBuffer = device.createHostBufferWithStride(NUM_BLOBS * BLOB_STRIDE, NriBufferUsage.StructuredBuffer, BLOB_STRIDE);
             this.blobBuffer = blobBuffer;
-            const image = Nri_CreateStorageTexture(device, this.queue, WIDTH, HEIGHT, NriFormat.RGBA16_SFLOAT);
+            const image = device.createStorageTexture(this.queue, WIDTH, HEIGHT, NriFormat.RGBA16_SFLOAT);
             this.image = image;
-            this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 3, 1, 0, 1, 2, 2, 0, 0);
+            this.sampler = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            const descriptorPool = device.createDescriptorPoolWithBuffers(3, 1, 0, 1, 2, 2, 0, 0);
             this.descriptorPool = descriptorPool;
             const sampler = this.sampler;
             if (!blobBuffer || !image || !sampler || !descriptorPool) {
                 console.log("Cannot create the resources");
                 return 0;
             }
-            Nri_WriteBuffer(blobBuffer, 0, Ref(blobs[0]), NUM_BLOBS * BLOB_STRIDE);
-            const blobView = Nri_CreateStructuredBufferView(blobBuffer, 0);
+            blobBuffer.write(0, Ref(blobs[0]), NUM_BLOBS * BLOB_STRIDE);
+            const blobView = blobBuffer.createStructuredView(0);
             this.blobView = blobView;
-            const imageStorage = Nri_CreateStorageTextureView(image, NriFormat.RGBA16_SFLOAT);
-            const imageView = Nri_CreateTextureView(image, NriFormat.RGBA16_SFLOAT);
+            const imageStorage = image.createStorageView(NriFormat.RGBA16_SFLOAT);
+            const imageView = image.createView(NriFormat.RGBA16_SFLOAT);
             this.imageStorage = imageStorage;
             this.imageView = imageView;
-            const computeSet = Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0);
-            const visualizeSet = Nri_AllocateDescriptorSet(descriptorPool, visualizeLayout, 0, 0);
+            const computeSet = descriptorPool.allocateDescriptorSet(computeLayout, 0, 0);
+            const visualizeSet = descriptorPool.allocateDescriptorSet(visualizeLayout, 0, 0);
             this.computeSet = computeSet;
             this.visualizeSet = visualizeSet;
             if (!blobView || !computeSet || !visualizeSet) {
@@ -315,11 +316,11 @@ namespace Khr16BitArithmeticNri {
                 return 0;
             }
             this.updateComputeSet(computeSet);
-            Nri_UpdateDescriptor(visualizeSet, 0, 0, imageView);
-            Nri_UpdateDescriptor(visualizeSet, 1, 0, sampler);
+            visualizeSet.updateDescriptor(0, 0, imageView);
+            visualizeSet.updateDescriptor(1, 0, sampler);
             const computeLayoutFP16 = this.computeLayoutFP16;
             if (computeLayoutFP16) {
-                const computeSetFP16 = Nri_AllocateDescriptorSet(descriptorPool, computeLayoutFP16, 0, 0);
+                const computeSetFP16 = descriptorPool.allocateDescriptorSet(computeLayoutFP16, 0, 0);
                 this.computeSetFP16 = computeSetFP16;
                 if (!computeSetFP16) {
                     console.log("Cannot create the descriptor sets");
@@ -330,7 +331,7 @@ namespace Khr16BitArithmeticNri {
 
             // The sample's options window.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -338,9 +339,9 @@ namespace Khr16BitArithmeticNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -355,24 +356,24 @@ namespace Khr16BitArithmeticNri {
         }
 
         // A compute layout with pushConstantsSize bytes of push constants.
-        createComputeLayout(device: NriDeviceHandle, pushConstantsSize: int) {
-            const desc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(desc, 0, pushConstantsSize, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, desc);
-            Nri_DestroyPipelineLayoutDesc(desc);
+        createComputeLayout(device: NriDevice, pushConstantsSize: int) {
+            const desc = NriPipelineLayoutDesc.create();
+            desc.addRootConstants(0, pushConstantsSize, NriStage.Compute);
+            desc.addRange(0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            desc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(desc);
+            desc.destroy();
             return layout;
         }
 
-        updateComputeSet(set: NriDescriptorSetHandle) {
+        updateComputeSet(set: NriDescriptorSet) {
             const blobView = this.blobView;
             const imageStorage = this.imageStorage;
             if (!blobView || !imageStorage) {
                 return;
             }
-            Nri_UpdateDescriptor(set, 0, 0, blobView);
-            Nri_UpdateDescriptor(set, 1, 0, imageStorage);
+            set.updateDescriptor(0, 0, blobView);
+            set.updateDescriptor(1, 0, imageStorage);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -383,7 +384,7 @@ namespace Khr16BitArithmeticNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -404,28 +405,28 @@ namespace Khr16BitArithmeticNri {
 
         // The sample's options window.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("16-bit arithmetic", 1);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("16-bit arithmetic", 1);
             if (this.native16Bit) {
-                this.fp16Enabled = Nri_ImguiCheckbox("Enable 16-bit arithmetic", this.fp16Enabled ? 1 : 0) != 0;
+                this.fp16Enabled = NriImgui.checkbox("Enable 16-bit arithmetic", this.fp16Enabled ? 1 : 0) != 0;
             } else {
-                Nri_ImguiText("16-bit arithmetic (unsupported features)");
+                NriImgui.text("16-bit arithmetic (unsupported features)");
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         writePush32(seedValue: number) {
-            Nri_StoreInt32(Ref(this.push32[0]), NUM_BLOBS);
+            Nri.storeInt32(Ref(this.push32[0]), NUM_BLOBS);
             this.push32[1] = seedValue;
-            Nri_StoreInt32(Ref(this.push32[2]), RANGE_X);
-            Nri_StoreInt32(Ref(this.push32[3]), RANGE_Y);
+            Nri.storeInt32(Ref(this.push32[2]), RANGE_X);
+            Nri.storeInt32(Ref(this.push32[3]), RANGE_Y);
         }
 
         // The compute shader over the image (1024 x 1024 in 8 x 8 groups), then the image goes to
         // the draw.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const descriptorPool = this.descriptorPool;
             const image = this.image;
             if (!descriptorPool || !image) {
@@ -451,8 +452,8 @@ namespace Khr16BitArithmeticNri {
                 // 16-bit push constants are supported by VK_KHR_16bit_storage, which is handy for
                 // conserving space without using many "unpack" instructions in the shader.
                 const seed16 = packHalf(seedValue);
-                Nri_StoreInt32(Ref(this.push16[0]), NUM_BLOBS | (seed16 << 16));
-                Nri_StoreInt32(Ref(this.push16[1]), (RANGE_X & 0xFFFF) | ((RANGE_Y & 0xFFFF) << 16));
+                Nri.storeInt32(Ref(this.push16[0]), NUM_BLOBS | (seed16 << 16));
+                Nri.storeInt32(Ref(this.push16[1]), (RANGE_X & 0xFFFF) | ((RANGE_Y & 0xFFFF) << 16));
                 pushConstants = PUSH16_SIZE;
             } else {
                 this.writePush32(seedValue);
@@ -462,24 +463,24 @@ namespace Khr16BitArithmeticNri {
             }
 
             if (this.imageDrawn) {
-                Nri_CmdTextureBarrier(commandBuffer, image, NriTextureState.ShaderResource, NriTextureState.Storage);
+                commandBuffer.textureBarrier(image, NriTextureState.ShaderResource, NriTextureState.Storage);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setComputePipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
             if (pushConstants == PUSH16_SIZE) {
-                Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.push16[0]), PUSH16_SIZE);
+                commandBuffer.setComputeRootConstants(0, Ref(this.push16[0]), PUSH16_SIZE);
             } else {
-                Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.push32[0]), PUSH32_SIZE);
+                commandBuffer.setComputeRootConstants(0, Ref(this.push32[0]), PUSH32_SIZE);
             }
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdDispatch(commandBuffer, WIDTH / GROUP_SIZE, HEIGHT / GROUP_SIZE, 1);
-            Nri_CmdTextureBarrier(commandBuffer, image, NriTextureState.Storage, NriTextureState.ShaderResource);
+            commandBuffer.setComputeDescriptorSet(0, set);
+            commandBuffer.dispatch(WIDTH / GROUP_SIZE, HEIGHT / GROUP_SIZE, 1);
+            commandBuffer.textureBarrier(image, NriTextureState.Storage, NriTextureState.ShaderResource);
             this.imageDrawn = true;
         }
 
-        // The image over the frame (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle) {
+        // The image over the frame (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer) {
             const visualizeLayout = this.visualizeLayout;
             const visualizePipeline = this.visualizePipeline;
             const descriptorPool = this.descriptorPool;
@@ -487,13 +488,13 @@ namespace Khr16BitArithmeticNri {
             if (!visualizeLayout || !visualizePipeline || !descriptorPool || !visualizeSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, visualizeLayout);
-            Nri_CmdSetPipeline(commandBuffer, visualizePipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, visualizeSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(visualizeLayout);
+            commandBuffer.setPipeline(visualizePipeline);
+            commandBuffer.setDescriptorSet(0, visualizeSet);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
@@ -510,37 +511,37 @@ namespace Khr16BitArithmeticNri {
 
                 // Record: the compute pass; cleared to black, the image over the frame, the options
                 // window over it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordCompute(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
                 this.recordDraw(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -556,12 +557,12 @@ namespace Khr16BitArithmeticNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -571,13 +572,13 @@ namespace Khr16BitArithmeticNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.blobView);
                 this.destroyDescriptor(this.imageStorage);
@@ -585,15 +586,15 @@ namespace Khr16BitArithmeticNri {
                 this.destroyDescriptor(this.sampler);
                 const blobBuffer = this.blobBuffer;
                 if (blobBuffer) {
-                    Nri_DestroyBuffer(blobBuffer);
+                    blobBuffer.destroy();
                 }
                 const image = this.image;
                 if (image) {
-                    Nri_DestroyTexture(image);
+                    image.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.destroyPipeline(this.computeFP32);
                 this.destroyPipeline(this.computeFP16);
@@ -603,41 +604,41 @@ namespace Khr16BitArithmeticNri {
                 this.destroyLayout(this.visualizeLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const arithmetic = new ArithmeticSample(sample);
         // -fp16: start with 16-bit arithmetic enabled (where the device has it); -noUI: no options
         // window.
-        Nri_AddExampleOption(sample, "-fp16");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-fp16");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-fp16") {
                 arithmetic.fp16Enabled = true;
             } else if (arg == "-noUI") {

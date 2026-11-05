@@ -2,12 +2,13 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { formatFixed } from "../../core/text_format";
+import { Nri, NriAsyncComputeLoop, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace SimpleComputeNri {
     // simple_compute, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
     // Donut and NVRHI: the same compute shader (simple_compute.hlsl's), through the NRI calls
     // core/nri/nri_interop.d.ts binds, with NRIFramework's ImGui for the sample's HUD. The worker
-    // thread is C++ (Nri_CreateAsyncComputeLoop), as Donut's: tslang code can't run on threads its
+    // thread is C++ (NriQueue.createAsyncComputeLoop), as Donut's: tslang code can't run on threads its
     // GC doesn't know about. The fractal is stretched over the window by 16bit_arithmetic.hlsl's
     // visualize shaders (a triangle over the screen sampling a texture), as Donut's blit does. This
     // example creates everything it runs, and does the rendering.
@@ -39,7 +40,7 @@ namespace SimpleComputeNri {
     // ATG::Colors::Background (#414141), stored as is in the UNORM back buffer as the sample's.
     const BACKGROUND = 0.254901975;
 
-    // GLFW's key codes (Nri_IsKeyPressed's).
+    // GLFW's key codes (NriSample.isKeyPressed's).
     const KEY_SPACE = 32;
     const KEY_A = 65;
     const KEY_D = 68;
@@ -57,8 +58,8 @@ namespace SimpleComputeNri {
 
     // A fractal texture: its views, and the draw's descriptor set that shows it.
     class FractalTexture {
-        constructor(public texture: NriTextureHandle, public storageView: NriDescriptorHandle, public view: NriDescriptorHandle,
-            public drawSet: NriDescriptorSetHandle) {
+        constructor(public texture: NriTexture, public storageView: NriDescriptor, public view: NriDescriptor,
+            public drawSet: NriDescriptorSet) {
         }
     }
 
@@ -129,30 +130,30 @@ namespace SimpleComputeNri {
     // switches between the two. As in the Donut example, the synchronous path has a texture of its
     // own, shown until the worker's first run after a switch to async compute.
     class SimpleCompute {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private computePipeline: NriPipelineHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private gradient: NriTextureHandle | null = null;
-        private rainbow: NriTextureHandle | null = null;
-        private gradientView: NriDescriptorHandle | null = null;
-        private rainbowView: NriDescriptorHandle | null = null;
-        private pointSampler: NriDescriptorHandle | null = null;
-        private linearSampler: NriDescriptorHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private computePipeline: NriPipeline | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private gradient: NriTexture | null = null;
+        private rainbow: NriTexture | null = null;
+        private gradientView: NriDescriptor | null = null;
+        private rainbowView: NriDescriptor | null = null;
+        private pointSampler: NriDescriptor | null = null;
+        private linearSampler: NriDescriptor | null = null;
         // The render thread's descriptor sets (the synchronous dispatch's, the draws'), and the
         // compute loop's (only its worker uses them).
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private asyncPool: NriDescriptorPoolHandle | null = null;
-        private syncSet: NriDescriptorSetHandle | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private asyncPool: NriDescriptorPool | null = null;
+        private syncSet: NriDescriptorSet | null = null;
         // The synchronous path's texture, then the worker's.
         private syncTexture: FractalTexture | null = null;
         private asyncTextures: FractalTexture[] = [];
-        private computeLoop: NriAsyncComputeLoopHandle | null = null;
+        private computeLoop: NriAsyncComputeLoop | null = null;
         // The synchronous texture is read by the draw (after its first dispatch).
         private syncDrawn: boolean = false;
         // The worker's texture held by the render thread (-1: none yet).
@@ -191,11 +192,11 @@ namespace SimpleComputeNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             this.resetWindow();
         }
 
@@ -222,15 +223,15 @@ namespace SimpleComputeNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             // The worker thread stops first: then the GPU is done with everything.
             const computeLoop = this.computeLoop;
             if (computeLoop) {
-                Nri_DestroyAsyncComputeLoop(computeLoop);
+                computeLoop.destroy();
                 this.computeLoop = null;
             }
             if (result == 0 && this.test) {
@@ -243,19 +244,19 @@ namespace SimpleComputeNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's B8G8R8A8_UNORM back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -266,18 +267,18 @@ namespace SimpleComputeNri {
 
             // The layouts: the compute shader's constants (push constants, b0), fractal (u0), color
             // map (t0) and sampler (s0); the draw's texture (t0) and sampler (s0).
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, PUSH_CONSTANTS_SIZE, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootConstants(0, PUSH_CONSTANTS_SIZE, NriStage.Compute);
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout) {
@@ -288,20 +289,20 @@ namespace SimpleComputeNri {
             // The pipelines: fractal_cs as compiled for the Donut example; the blit, a triangle over
             // the screen (16bit_arithmetic.hlsl's visualize shaders), no culling, no depth.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
-            const computePipeline = Nri_CreateComputePipeline(device, computeLayout,
+            const computePipeline = device.createComputePipeline(computeLayout,
                 `shaders/simple_compute/${folder}/simple_compute_fractal_cs.bin`, "fractal_cs");
             this.computePipeline = computePipeline;
             const blit = `shaders/16bit_arithmetic/${folder}/16bit_arithmetic`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${blit}_visualize_vs.bin`, "visualize_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${blit}_visualize_vs.bin`, "visualize_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${blit}_visualize_ps.bin`, "visualize_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${blit}_visualize_ps.bin`, "visualize_ps") != 0;
             }
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
+            desc.setColor(format, NriColorWrite.RGBA);
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!computePipeline || !this.drawPipeline) {
                 console.log("Cannot load the simple compute shaders");
                 return 0;
@@ -317,19 +318,19 @@ namespace SimpleComputeNri {
                 texel(0xFF, 0x00, 0x00), texel(0xFF, 0x80, 0x00), texel(0xFF, 0xFF, 0x00), texel(0x00, 0xFF, 0x00),
                 texel(0x00, 0xFF, 0xFF), texel(0x00, 0x00, 0xFF), texel(0x00, 0x00, 0x80), texel(0xFF, 0x00, 0xFF),
             ];
-            const gradient = Nri_CreateUploadedComputeTexture(device, this.queue, COLOR_MAP_SIZE, 1, NriFormat.RGBA8_UNORM,
+            const gradient = device.createUploadedComputeTexture(this.queue, COLOR_MAP_SIZE, 1, NriFormat.RGBA8_UNORM,
                 Ref(gradientTexels[0]), COLOR_MAP_SIZE * 4);
-            const rainbow = Nri_CreateUploadedComputeTexture(device, this.queue, COLOR_MAP_SIZE, 1, NriFormat.RGBA8_UNORM,
+            const rainbow = device.createUploadedComputeTexture(this.queue, COLOR_MAP_SIZE, 1, NriFormat.RGBA8_UNORM,
                 Ref(rainbowTexels[0]), COLOR_MAP_SIZE * 4);
             this.gradient = gradient;
             this.rainbow = rainbow;
-            const pointSampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
-            const linearSampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            const pointSampler = device.createSampler(NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
+            const linearSampler = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
             this.pointSampler = pointSampler;
             this.linearSampler = linearSampler;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 1 + 1 + NUM_ASYNC_TEXTURES, 2 + NUM_ASYNC_TEXTURES, 0,
+            const descriptorPool = device.createDescriptorPool(1 + 1 + NUM_ASYNC_TEXTURES, 2 + NUM_ASYNC_TEXTURES, 0,
                 2 + NUM_ASYNC_TEXTURES, 1, 0);
-            const asyncPool = Nri_CreateDescriptorPool(device, NUM_ASYNC_TEXTURES, NUM_ASYNC_TEXTURES, 0, NUM_ASYNC_TEXTURES,
+            const asyncPool = device.createDescriptorPool(NUM_ASYNC_TEXTURES, NUM_ASYNC_TEXTURES, 0, NUM_ASYNC_TEXTURES,
                 NUM_ASYNC_TEXTURES, 0);
             this.descriptorPool = descriptorPool;
             this.asyncPool = asyncPool;
@@ -337,28 +338,28 @@ namespace SimpleComputeNri {
                 console.log("Cannot create the color maps and descriptors");
                 return 0;
             }
-            const gradientView = Nri_CreateTextureView(gradient, NriFormat.RGBA8_UNORM);
-            const rainbowView = Nri_CreateTextureView(rainbow, NriFormat.RGBA8_UNORM);
+            const gradientView = gradient.createView(NriFormat.RGBA8_UNORM);
+            const rainbowView = rainbow.createView(NriFormat.RGBA8_UNORM);
             this.gradientView = gradientView;
             this.rainbowView = rainbowView;
 
             // The synchronous path's texture and set.
             const syncTexture = this.createFractalTexture(device, descriptorPool, drawLayout, linearSampler);
-            const syncSet = Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0);
+            const syncSet = descriptorPool.allocateDescriptorSet(computeLayout, 0, 0);
             this.syncTexture = syncTexture;
             this.syncSet = syncSet;
             if (!syncTexture || !syncSet) {
                 console.log("Cannot create the fractal texture");
                 return 0;
             }
-            Nri_UpdateDescriptor(syncSet, 0, 0, syncTexture.storageView);
-            Nri_UpdateDescriptor(syncSet, 1, 0, gradientView);
-            Nri_UpdateDescriptor(syncSet, 2, 0, pointSampler);
+            syncSet.updateDescriptor(0, 0, syncTexture.storageView);
+            syncSet.updateDescriptor(1, 0, gradientView);
+            syncSet.updateDescriptor(2, 0, pointSampler);
 
             // The worker, where there's a compute queue. On D3D11 with the HUD, NRI's command buffer
-            // emulation (which NRIFramework's ImGui needs there: Nri_UseImgui) breaks the compute
+            // emulation (which NRIFramework's ImGui needs there: NriSample.useImgui) breaks the compute
             // queue: synchronous compute only then.
-            const computeQueue = Nri_GetComputeQueue(device);
+            const computeQueue = device.getComputeQueue();
             if (!computeQueue) {
                 console.log("The graphics device has no compute queue: synchronous compute only");
             } else if (graphicsAPI == NriGraphicsAPI.D3D11 && !this.noUI) {
@@ -371,7 +372,7 @@ namespace SimpleComputeNri {
 
             // The sample's HUD.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -379,9 +380,9 @@ namespace SimpleComputeNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -389,32 +390,32 @@ namespace SimpleComputeNri {
 
         // A fractal texture (in NriTextureState.Storage) and the draw's set showing it; null on
         // failure.
-        createFractalTexture(device: NriDeviceHandle, descriptorPool: NriDescriptorPoolHandle, drawLayout: NriPipelineLayoutHandle,
-            sampler: NriDescriptorHandle): FractalTexture | null {
-            const texture = Nri_CreateStorageTexture(device, this.queue, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
+        createFractalTexture(device: NriDevice, descriptorPool: NriDescriptorPool, drawLayout: NriPipelineLayout,
+            sampler: NriDescriptor): FractalTexture | null {
+            const texture = device.createStorageTexture(this.queue, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
             if (!texture) {
                 return null;
             }
-            const drawSet = Nri_AllocateDescriptorSet(descriptorPool, drawLayout, 0, 0);
+            const drawSet = descriptorPool.allocateDescriptorSet(drawLayout, 0, 0);
             if (!drawSet) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
                 return null;
             }
-            const view = Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM);
-            Nri_UpdateDescriptor(drawSet, 0, 0, view);
-            Nri_UpdateDescriptor(drawSet, 1, 0, sampler);
-            return new FractalTexture(texture, Nri_CreateStorageTextureView(texture, NriFormat.RGBA8_UNORM), view, drawSet);
+            const view = texture.createView(NriFormat.RGBA8_UNORM);
+            drawSet.updateDescriptor(0, 0, view);
+            drawSet.updateDescriptor(1, 0, sampler);
+            return new FractalTexture(texture, texture.createStorageView(NriFormat.RGBA8_UNORM), view, drawSet);
         }
 
         // The worker: its textures (with the rainbow color map), paused until async compute is on.
-        startComputeLoop(device: NriDeviceHandle, computeQueue: NriQueueHandle, computeLayout: NriPipelineLayoutHandle,
-            computePipeline: NriPipelineHandle, asyncPool: NriDescriptorPoolHandle, drawLayout: NriPipelineLayoutHandle,
-            linearSampler: NriDescriptorHandle, pointSampler: NriDescriptorHandle, rainbowView: NriDescriptorHandle): boolean {
+        startComputeLoop(device: NriDevice, computeQueue: NriQueue, computeLayout: NriPipelineLayout,
+            computePipeline: NriPipeline, asyncPool: NriDescriptorPool, drawLayout: NriPipelineLayout,
+            linearSampler: NriDescriptor, pointSampler: NriDescriptor, rainbowView: NriDescriptor): boolean {
             const descriptorPool = this.descriptorPool;
             if (!descriptorPool) {
                 return false;
             }
-            const computeLoop = Nri_CreateAsyncComputeLoop(computeQueue, device, this.frames.fence(), computeLayout, computePipeline, asyncPool,
+            const computeLoop = computeQueue.createAsyncComputeLoop(device, this.frames.fence(), computeLayout, computePipeline, asyncPool,
                 TEXTURE_WIDTH / NUM_SHADER_THREADS, TEXTURE_HEIGHT / NUM_SHADER_THREADS, 0);
             this.computeLoop = computeLoop;
             if (!computeLoop) {
@@ -423,20 +424,20 @@ namespace SimpleComputeNri {
             }
             for (let i = 0; i < NUM_ASYNC_TEXTURES; i++) {
                 const texture = this.createFractalTexture(device, descriptorPool, drawLayout, linearSampler);
-                const computeSet = Nri_AllocateDescriptorSet(asyncPool, computeLayout, 0, 0);
+                const computeSet = asyncPool.allocateDescriptorSet(computeLayout, 0, 0);
                 if (!texture || !computeSet) {
                     console.log("Cannot create the async fractal textures");
                     return false;
                 }
-                Nri_UpdateDescriptor(computeSet, 0, 0, texture.storageView);
-                Nri_UpdateDescriptor(computeSet, 1, 0, rainbowView);
-                Nri_UpdateDescriptor(computeSet, 2, 0, pointSampler);
+                computeSet.updateDescriptor(0, 0, texture.storageView);
+                computeSet.updateDescriptor(1, 0, rainbowView);
+                computeSet.updateDescriptor(2, 0, pointSampler);
                 this.asyncTextures.push(texture);
-                Nri_AddAsyncComputeTexture(computeLoop, computeSet);
+                computeLoop.addTexture(computeSet);
             }
-            Nri_SetAsyncComputeConstants(computeLoop, Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
-            Nri_SetAsyncComputePaused(computeLoop, 1);
-            Nri_StartAsyncComputeLoop(computeLoop);
+            computeLoop.setConstants(Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
+            computeLoop.setPaused(1);
+            computeLoop.start();
             this.hasAsyncCompute = true;
             return true;
         }
@@ -448,10 +449,10 @@ namespace SimpleComputeNri {
             }
             this.usingAsyncCompute = value;
             if (value) {
-                this.runsAtResume = Nri_GetAsyncComputeRunCount(computeLoop);
+                this.runsAtResume = computeLoop.getRunCount();
                 this.lastRunCount = this.runsAtResume;
             }
-            Nri_SetAsyncComputePaused(computeLoop, value ? 0 : 1);
+            computeLoop.setPaused(value ? 0 : 1);
         }
 
         // The swap chain's size and formats (its views in the textures' format).
@@ -462,7 +463,7 @@ namespace SimpleComputeNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -482,13 +483,13 @@ namespace SimpleComputeNri {
         }
 
         pressed(key: int): boolean {
-            return Nri_IsKeyPressed(this.sample, key) != 0;
+            return this.sample.isKeyPressed(key) != 0;
         }
 
         // Sample::Update: Space and Home, the smoothed rates, then the held keys pan and zoom the
         // window (none of them in the test, which takes 1/60 second a frame, as Donut's test mode).
         update() {
-            const elapsedTime = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const elapsedTime = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             if (!this.test) {
                 const spaceDown = this.pressed(KEY_SPACE);
                 if (spaceDown && !this.spaceWasDown) {
@@ -512,7 +513,7 @@ namespace SimpleComputeNri {
             const computeLoop = this.computeLoop;
             if (computeLoop) {
                 if (this.usingAsyncCompute) {
-                    const runCount = Nri_GetAsyncComputeRunCount(computeLoop);
+                    const runCount = computeLoop.getRunCount();
                     this.computeRuns += runCount - this.lastRunCount;
                     this.lastRunCount = runCount;
                     this.computeTime += elapsedTime;
@@ -576,23 +577,23 @@ namespace SimpleComputeNri {
             const top: int = Math.floor(safeH);
             const bottom: int = Math.floor(this.height - safeH + 0.5);
 
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiDrawText(left, top, `Simple Compute Context ${formatFixed(this.renderFPS, 2)} fps`, 1.0, 1.0, 1.0, 1.0, 0);
+            this.sample.imguiNewFrame();
+            NriImgui.drawText(left, top, `Simple Compute Context ${formatFixed(this.renderFPS, 2)} fps`, 1.0, 1.0, 1.0, 1.0, 0);
             if (this.usingAsyncCompute) {
-                Nri_ImguiDrawText(left, top + LINE_SPACING, `Asynchronous compute ${formatFixed(this.computeFPS, 2)} fps`,
+                NriImgui.drawText(left, top + LINE_SPACING, `Asynchronous compute ${formatFixed(this.computeFPS, 2)} fps`,
                     1.0, 1.0, 1.0, 1.0, 0);
             } else {
-                Nri_ImguiDrawText(left, top + LINE_SPACING, `Synchronous compute ${formatFixed(this.renderFPS, 2)} fps`,
+                NriImgui.drawText(left, top + LINE_SPACING, `Synchronous compute ${formatFixed(this.renderFPS, 2)} fps`,
                     1.0, 1.0, 1.0, 1.0, 0);
             }
-            Nri_ImguiDrawText(left, bottom - LINE_SPACING,
+            NriImgui.drawText(left, bottom - LINE_SPACING,
                 "WASD: Pan viewport   PageUp/Down: Zoom viewport    Space: Toggle async   Esc: Exit", 1.0, 1.0, 1.0, 1.0, 0);
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
         // The synchronous dispatch (the window is updated every frame: the sample never clears
         // m_windowUpdated), then the texture goes to the draw.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const computePipeline = this.computePipeline;
             const descriptorPool = this.descriptorPool;
@@ -602,34 +603,34 @@ namespace SimpleComputeNri {
                 return;
             }
             if (this.syncDrawn) {
-                Nri_CmdTextureBarrier(commandBuffer, syncTexture.texture, NriTextureState.ShaderResource, NriTextureState.Storage);
+                commandBuffer.textureBarrier(syncTexture.texture, NriTextureState.ShaderResource, NriTextureState.Storage);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, computePipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, syncSet);
-            Nri_CmdDispatch(commandBuffer, TEXTURE_WIDTH / NUM_SHADER_THREADS, TEXTURE_HEIGHT / NUM_SHADER_THREADS, 1);
-            Nri_CmdTextureBarrier(commandBuffer, syncTexture.texture, NriTextureState.Storage, NriTextureState.ShaderResource);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(computePipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
+            commandBuffer.setComputeDescriptorSet(0, syncSet);
+            commandBuffer.dispatch(TEXTURE_WIDTH / NUM_SHADER_THREADS, TEXTURE_HEIGHT / NUM_SHADER_THREADS, 1);
+            commandBuffer.textureBarrier(syncTexture.texture, NriTextureState.Storage, NriTextureState.ShaderResource);
             this.syncDrawn = true;
         }
 
         // The texture over the frame, stretched by a linear clamped blit (between
-        // Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, texture: FractalTexture) {
+        // NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, texture: FractalTexture) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const descriptorPool = this.descriptorPool;
             if (!drawLayout || !drawPipeline || !descriptorPool) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, texture.drawSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setDescriptorSet(0, texture.drawSet);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The texture shown: the worker's newest (once it has run since async compute went on), or
@@ -639,7 +640,7 @@ namespace SimpleComputeNri {
             if (!computeLoop || !this.usingAsyncCompute || this.asyncCurrent < 0) {
                 return this.syncTexture;
             }
-            if (Nri_GetAsyncComputeRunCount(computeLoop) <= this.runsAtResume) {
+            if (computeLoop.getRunCount() <= this.runsAtResume) {
                 return this.syncTexture;
             }
             return this.asyncTextures[this.asyncCurrent];
@@ -660,8 +661,8 @@ namespace SimpleComputeNri {
             const computeLoop = this.computeLoop;
             if (computeLoop) {
                 if (this.usingAsyncCompute) {
-                    Nri_SetAsyncComputeConstants(computeLoop, Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
-                    const next = Nri_AcquireAsyncComputeTexture(computeLoop, this.queue);
+                    computeLoop.setConstants(Ref(this.constants[0]), PUSH_CONSTANTS_SIZE);
+                    const next = computeLoop.acquireTexture(this.queue);
                     if (next >= 0) {
                         switched = true;
                         previous = this.asyncCurrent;
@@ -679,50 +680,50 @@ namespace SimpleComputeNri {
                 // Record: the fractal (computed now, or the worker's: the new one from the compute
                 // queue's state, the previous one back), then the background and the fractal over
                 // it, the HUD over that.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (!this.usingAsyncCompute) {
                     this.recordCompute(commandBuffer);
                 }
                 if (switched) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.asyncTextures[this.asyncCurrent].texture, NriTextureState.Storage,
+                    commandBuffer.textureBarrier(this.asyncTextures[this.asyncCurrent].texture, NriTextureState.Storage,
                         NriTextureState.ShaderResource);
                 }
                 if (previous >= 0) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.asyncTextures[previous].texture, NriTextureState.ShaderResource,
+                    commandBuffer.textureBarrier(this.asyncTextures[previous].texture, NriTextureState.ShaderResource,
                         NriTextureState.Storage);
                 }
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, backBuffer, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, BACKGROUND, BACKGROUND, BACKGROUND, 1.0);
+                commandBuffer.textureBarrier(backBuffer, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(BACKGROUND, BACKGROUND, BACKGROUND, 1.0);
                 const texture = this.shownTexture();
                 if (texture) {
                     this.recordDraw(commandBuffer, texture);
                 }
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, backBuffer, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, backBuffer, this.width, this.height);
+                        commandBuffer.textureBarrier(backBuffer, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, backBuffer, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, backBuffer, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(backBuffer, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -731,7 +732,7 @@ namespace SimpleComputeNri {
             this.frames.signal(frameIndex);
             if (previous >= 0) {
                 if (computeLoop) {
-                    Nri_ReleaseAsyncComputeTexture(computeLoop, previous, 1 + frameIndex);
+                    computeLoop.releaseTexture(previous, 1 + frameIndex);
                 }
             }
         }
@@ -743,12 +744,12 @@ namespace SimpleComputeNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -758,9 +759,9 @@ namespace SimpleComputeNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 this.destroyFractalTexture(this.syncTexture);
                 for (const texture of this.asyncTextures) {
@@ -776,7 +777,7 @@ namespace SimpleComputeNri {
                 this.destroyTexture(this.rainbow);
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.destroyPipeline(this.computePipeline);
                 this.destroyPipeline(this.drawPipeline);
@@ -784,66 +785,66 @@ namespace SimpleComputeNri {
                 this.destroyLayout(this.drawLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyFractalTexture(texture: FractalTexture | null) {
             if (texture) {
-                Nri_DestroyDescriptor(texture.storageView);
-                Nri_DestroyDescriptor(texture.view);
-                Nri_DestroyTexture(texture.texture);
+                texture.storageView.destroy();
+                texture.view.destroy();
+                texture.texture.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyPool(pool: NriDescriptorPoolHandle | null) {
+        destroyPool(pool: NriDescriptorPool | null) {
             if (pool) {
-                Nri_DestroyDescriptorPool(pool);
+                pool.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const simpleCompute = new SimpleCompute(sample);
         // -async: start with asynchronous compute (Space toggles it); -window X Y CX CY: the fractal
         // window's size and center instead of the default (Home); -noUI: no HUD.
-        Nri_AddExampleOption(sample, "-async");
-        Nri_AddExampleOptionWithValues(sample, "-window", 4);
-        Nri_AddExampleOption(sample, "-noUI");
+        sample.addExampleOption("-async");
+        sample.addExampleOptionWithValues("-window", 4);
+        sample.addExampleOption("-noUI");
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-async") {
                 simpleCompute.startAsync = true;
             } else if (arg == "-window" && i + 4 < argc) {
-                simpleCompute.setWindow(parseFloat(Nri_GetArg(argc, argv, i + 1)), parseFloat(Nri_GetArg(argc, argv, i + 2)),
-                    parseFloat(Nri_GetArg(argc, argv, i + 3)), parseFloat(Nri_GetArg(argc, argv, i + 4)));
+                simpleCompute.setWindow(parseFloat(Nri.getArg(argc, argv, i + 1)), parseFloat(Nri.getArg(argc, argv, i + 2)),
+                    parseFloat(Nri.getArg(argc, argv, i + 3)), parseFloat(Nri.getArg(argc, argv, i + 4)));
                 i += 4;
             } else if (arg == "-noUI") {
                 simpleCompute.noUI = true;
@@ -852,7 +853,7 @@ namespace SimpleComputeNri {
         // The HUD's ImGui (on D3D11, with NRI's command buffer emulation, which the compute queue
         // doesn't work with): not with -noUI.
         if (!simpleCompute.noUI) {
-            Nri_UseImgui(sample);
+            sample.useImgui();
         }
         return simpleCompute.run(argc, argv);
     }

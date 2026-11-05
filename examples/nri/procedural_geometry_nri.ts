@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriAccelerationStructure, NriBlasDesc, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriRayTracingPipelineDesc, NriSample, NriShaderTable, NriTexture, NriTopLevelAS } from "../../core/nri";
 import {
     cross3, matrixIdentity, matrixInverse, matrixLookAtLH, matrixMultiply, matrixPerspectiveFovLH,
     matrixRotationY, matrixScaling, matrixTranslation, normalize3, normalize4, radians, transform3, vsub,
@@ -122,8 +123,8 @@ namespace ProceduralGeometryNri {
     // A frame in flight's own data: its scene constants' and AABB transforms' copies (written
     // while the frames before it may still be reading theirs) and its set.
     class QueuedFrame {
-        constructor(public sceneConstantsView: NriDescriptorHandle | null, public aabbAttributeBuffer: NriBufferHandle | null,
-            public aabbAttributeView: NriDescriptorHandle | null, public set: NriDescriptorSetHandle | null) {
+        constructor(public sceneConstantsView: NriDescriptor | null, public aabbAttributeBuffer: NriBuffer | null,
+            public aabbAttributeView: NriDescriptor | null, public set: NriDescriptorSet | null) {
         }
     }
 
@@ -223,32 +224,32 @@ namespace ProceduralGeometryNri {
     // G and L toggle the camera's, the geometry's and the light's animations. The output, in the back
     // buffer's format, is copied into it.
     class ProceduralGeometry {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format (UNORM), the output's.
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private queuedFrames: QueuedFrame[] = [];
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private shaderTable: NriShaderTableHandle | null = null;
-        private planeBlas: NriAccelerationStructureHandle | null = null;
-        private aabbBlas: NriAccelerationStructureHandle | null = null;
-        private topLevelAS: NriTopLevelASHandle | null = null;
-        private topLevelASView: NriDescriptorHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private shaderTable: NriShaderTable | null = null;
+        private planeBlas: NriAccelerationStructure | null = null;
+        private aabbBlas: NriAccelerationStructure | null = null;
+        private topLevelAS: NriTopLevelAS | null = null;
+        private topLevelASView: NriDescriptor | null = null;
         // The plane's indices and vertices (the closest hit shader's g_indices, g_vertices: 4-byte
         // elements), the materials, the AABBs' PrimitiveInstanceConstantBuffers.
-        private indexBuffer: NriBufferHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private materialBuffer: NriBufferHandle | null = null;
-        private aabbConstantBuffer: NriBufferHandle | null = null;
-        private bufferViews: NriDescriptorHandle[] = [];
+        private indexBuffer: NriBuffer | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private materialBuffer: NriBuffer | null = null;
+        private aabbConstantBuffer: NriBuffer | null = null;
+        private bufferViews: NriDescriptor[] = [];
         // The scene constants, SCENE_CB_SIZE bytes a frame in flight.
-        private sceneConstantBuffer: NriBufferHandle | null = null;
-        private output: NriTextureHandle | null = null;
-        private outputStorage: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private sceneConstantBuffer: NriBuffer | null = null;
+        private output: NriTexture | null = null;
+        private outputStorage: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // The output was copied from (after the first frame).
         private outputCopied: boolean = false;
         private width: int = 0;
@@ -280,11 +281,11 @@ namespace ProceduralGeometryNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < SCENE_CB_SIZE / 4; i++) {
                 this.sceneData.push(0.0);
             }
@@ -301,13 +302,13 @@ namespace ProceduralGeometryNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -320,19 +321,19 @@ namespace ProceduralGeometryNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: copied into, in its own (UNORM) format, as the sample's CopyResource.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -348,7 +349,7 @@ namespace ProceduralGeometryNri {
                 this.unsupportedReason = "No D3D11 shaders (ray tracing needs D3D12 or Vulkan)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.RayTracing) == 0) {
+            if (device.isFeatureSupported(NriFeature.RayTracing) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Tracing Pipelines";
                 return 0;
             }
@@ -356,13 +357,13 @@ namespace ProceduralGeometryNri {
             // CreateRootSignatures' global root signature (the local ones' constants are in t4, t5):
             // the scene (t0), the output (u0), the scene constants (b0), the plane's indices and
             // vertices, the AABBs' transforms, the materials, the AABBs' constants (t1 to t5).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 1, 5, NriDescriptorType.StructuredBuffer, NriStage.RayTracing, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 1, 5, NriDescriptorType.StructuredBuffer, NriStage.RayTracing, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -388,13 +389,13 @@ namespace ProceduralGeometryNri {
             }
 
             // The scene constants, written every frame into the frame's part.
-            const sceneConstantBuffer = Nri_CreateHostBuffer(device, SCENE_CB_SIZE * queuedFrameNum, NriBufferUsage.ConstantBuffer);
+            const sceneConstantBuffer = device.createHostBuffer(SCENE_CB_SIZE * queuedFrameNum, NriBufferUsage.ConstantBuffer);
             this.sceneConstantBuffer = sceneConstantBuffer;
 
             // The output the ray generation shader writes, in the back buffer's format, for the copy.
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, format);
+            const output = device.createStorageTexture(this.queue, this.width, this.height, format);
             this.output = output;
-            const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, queuedFrameNum, 0, queuedFrameNum, 0,
+            const descriptorPool = device.createDescriptorPoolWithAccelerationStructures(queuedFrameNum, 0, queuedFrameNum, 0,
                 queuedFrameNum, 5 * queuedFrameNum, queuedFrameNum);
             this.descriptorPool = descriptorPool;
             const topLevelASView = this.topLevelASView;
@@ -402,7 +403,7 @@ namespace ProceduralGeometryNri {
                 console.log("Cannot create the output");
                 return 0;
             }
-            const outputStorage = Nri_CreateStorageTextureView(output, format);
+            const outputStorage = output.createStorageView(format);
             this.outputStorage = outputStorage;
             if (!outputStorage) {
                 console.log("Cannot create the output's view");
@@ -412,33 +413,33 @@ namespace ProceduralGeometryNri {
             // A set per frame in flight: its own part of the scene constants, its own AABB transforms.
             for (let i = 0; i < queuedFrameNum; i++) {
                 const queuedFrame = this.queuedFrames[i];
-                const sceneConstantsView = Nri_CreateConstantBufferView(sceneConstantBuffer, i * SCENE_CB_SIZE, SCENE_CB_SIZE);
+                const sceneConstantsView = sceneConstantBuffer.createConstantView(i * SCENE_CB_SIZE, SCENE_CB_SIZE);
                 queuedFrame.sceneConstantsView = sceneConstantsView;
-                const aabbAttributeBuffer = Nri_CreateHostBufferWithStride(device, this.aabbAttributes.length * 4,
+                const aabbAttributeBuffer = device.createHostBufferWithStride(this.aabbAttributes.length * 4,
                     NriBufferUsage.StructuredBuffer, AABB_ATTRIBUTE_FLOATS * 4);
                 queuedFrame.aabbAttributeBuffer = aabbAttributeBuffer;
-                const aabbAttributeView = aabbAttributeBuffer ? Nri_CreateStructuredBufferView(aabbAttributeBuffer, 0) : null;
+                const aabbAttributeView = aabbAttributeBuffer ? aabbAttributeBuffer.createStructuredView(0) : null;
                 queuedFrame.aabbAttributeView = aabbAttributeView;
-                const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+                const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
                 queuedFrame.set = set;
                 if (!set || !sceneConstantsView || !aabbAttributeView) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(set, 0, 0, topLevelASView);
-                Nri_UpdateDescriptor(set, 1, 0, outputStorage);
-                Nri_UpdateDescriptor(set, 2, 0, sceneConstantsView);
-                Nri_UpdateDescriptor(set, 3, 0, this.bufferViews[0]);
-                Nri_UpdateDescriptor(set, 3, 1, this.bufferViews[1]);
-                Nri_UpdateDescriptor(set, 3, 2, aabbAttributeView);
-                Nri_UpdateDescriptor(set, 3, 3, this.bufferViews[2]);
-                Nri_UpdateDescriptor(set, 3, 4, this.bufferViews[3]);
+                set.updateDescriptor(0, 0, topLevelASView);
+                set.updateDescriptor(1, 0, outputStorage);
+                set.updateDescriptor(2, 0, sceneConstantsView);
+                set.updateDescriptor(3, 0, this.bufferViews[0]);
+                set.updateDescriptor(3, 1, this.bufferViews[1]);
+                set.updateDescriptor(3, 2, aabbAttributeView);
+                set.updateDescriptor(3, 3, this.bufferViews[2]);
+                set.updateDescriptor(3, 4, this.bufferViews[3]);
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -451,7 +452,7 @@ namespace ProceduralGeometryNri {
             this.swapChainFormat = this.swapChain.format();
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with them, the swap
         // chain and the output made again at its size, every frame's set pointed at the new output.
         // The new output starts in Storage, as the first frame's does (no barrier from CopySource).
         resizeIfNeeded() {
@@ -469,16 +470,16 @@ namespace ProceduralGeometryNri {
                 return;
             }
             this.destroyDescriptor(this.outputStorage);
-            Nri_DestroyTexture(output);
+            output.destroy();
             this.outputStorage = null;
             this.output = null;
             this.outputCopied = false;
-            const newOutput = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+            const newOutput = device.createStorageTexture(this.queue, this.width, this.height, this.swapChainFormat);
             this.output = newOutput;
             if (!newOutput) {
                 return;
             }
-            const outputStorage = Nri_CreateStorageTextureView(newOutput, this.swapChainFormat);
+            const outputStorage = newOutput.createStorageView(this.swapChainFormat);
             this.outputStorage = outputStorage;
             if (!outputStorage) {
                 return;
@@ -486,7 +487,7 @@ namespace ProceduralGeometryNri {
             for (const queuedFrame of this.queuedFrames) {
                 const set = queuedFrame.set;
                 if (set) {
-                    Nri_UpdateDescriptor(set, 1, 0, outputStorage);
+                    set.updateDescriptor(1, 0, outputStorage);
                 }
             }
         }
@@ -496,27 +497,27 @@ namespace ProceduralGeometryNri {
         // rays, nothing for shadow rays: they skip closest hit shaders, so a null record), and each
         // intersection shader's (with the AABB closest hit shader for radiance rays); in the hit group
         // table the plane's two, then each AABB's two. False (after printing why) on failure.
-        createRayTracingPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, folder: string): boolean {
-            const desc = Nri_CreateRayTracingPipelineDesc();
-            const raygenGroup = Nri_RayTracingPipelineDescAddGroup(desc,
-                Nri_RayTracingPipelineDescAddShader(desc, NriStage.RayGen, "MyRaygenShader"), -1, -1);
-            const missGroup = Nri_RayTracingPipelineDescAddGroup(desc,
-                Nri_RayTracingPipelineDescAddShader(desc, NriStage.Miss, "MyMissShader"), -1, -1);
-            const shadowMissGroup = Nri_RayTracingPipelineDescAddGroup(desc,
-                Nri_RayTracingPipelineDescAddShader(desc, NriStage.Miss, "MyMissShader_ShadowRay"), -1, -1);
-            const triangleGroup = Nri_RayTracingPipelineDescAddGroup(desc,
-                Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, "MyClosestHitShader_Triangle"), -1, -1);
-            const aabbClosestHit = Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, "MyClosestHitShader_AABB");
+        createRayTracingPipeline(device: NriDevice, layout: NriPipelineLayout, folder: string): boolean {
+            const desc = NriRayTracingPipelineDesc.create();
+            const raygenGroup = desc.addGroup(
+                desc.addShader(NriStage.RayGen, "MyRaygenShader"), -1, -1);
+            const missGroup = desc.addGroup(
+                desc.addShader(NriStage.Miss, "MyMissShader"), -1, -1);
+            const shadowMissGroup = desc.addGroup(
+                desc.addShader(NriStage.Miss, "MyMissShader_ShadowRay"), -1, -1);
+            const triangleGroup = desc.addGroup(
+                desc.addShader(NriStage.ClosestHit, "MyClosestHitShader_Triangle"), -1, -1);
+            const aabbClosestHit = desc.addShader(NriStage.ClosestHit, "MyClosestHitShader_AABB");
             // Each intersection shader's radiance and shadow ray hit groups.
             const aabbGroups: int[] = [];
             for (const name of INTERSECTION_SHADER_NAMES) {
-                const intersection = Nri_RayTracingPipelineDescAddShader(desc, NriStage.Intersection, `MyIntersectionShader_${name}`);
-                aabbGroups.push(Nri_RayTracingPipelineDescAddGroup(desc, aabbClosestHit, intersection, -1));
-                aabbGroups.push(Nri_RayTracingPipelineDescAddGroup(desc, intersection, -1, -1));
+                const intersection = desc.addShader(NriStage.Intersection, `MyIntersectionShader_${name}`);
+                aabbGroups.push(desc.addGroup(aabbClosestHit, intersection, -1));
+                aabbGroups.push(desc.addGroup(intersection, -1, -1));
             }
-            const pipeline = Nri_CreateRayTracingPipelineFromDesc(device, layout,
+            const pipeline = device.createRayTracingPipelineFromDesc(layout,
                 `shaders/procedural_geometry/${folder}/procedural_geometry.bin`, desc, PAYLOAD_SIZE, ATTRIBUTE_SIZE, MAX_RECURSION_DEPTH);
-            Nri_DestroyRayTracingPipelineDesc(desc);
+            desc.destroy();
             this.pipeline = pipeline;
             if (!pipeline) {
                 console.log("Cannot initialize the ray tracing pipeline");
@@ -531,7 +532,7 @@ namespace ProceduralGeometryNri {
                     hitGroups.push(aabbGroups[t * 2 + 1]);
                 }
             }
-            this.shaderTable = Nri_CreateShaderTableFromGroups(device, this.queue, pipeline, raygenGroup, Ref(missGroups[0]), missGroups.length,
+            this.shaderTable = device.createShaderTableFromGroups(this.queue, pipeline, raygenGroup, Ref(missGroups[0]), missGroups.length,
                 Ref(hitGroups[0]), hitGroups.length);
             if (!this.shaderTable) {
                 console.log("Cannot create the shader table");
@@ -576,7 +577,7 @@ namespace ProceduralGeometryNri {
         // geometry order) then the plane's; each AABB geometry's PrimitiveInstanceConstantBuffer
         // (BuildShaderTables' rootArgs.aabbCB: the AABB's index, and its primitive type within its
         // intersection shader's). Uploaded once. False (after printing why) on failure.
-        createBuffers(device: NriDeviceHandle): boolean {
+        createBuffers(device: NriDevice): boolean {
             const materials: f32[] = [];
             // SetAttributes' defaults: reflectanceCoef 0, diffuseCoef 0.9, specularCoef 0.7,
             // specularPower 50, stepScale 1.
@@ -602,15 +603,15 @@ namespace ProceduralGeometryNri {
                 }
             }
 
-            const indexBuffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(PLANE_INDICES[0]),
+            const indexBuffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(PLANE_INDICES[0]),
                 PLANE_INDICES.length * 4, 4);
             this.indexBuffer = indexBuffer;
-            const vertexBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(PLANE_VERTICES[0]), PLANE_VERTICES.length * 4, 4);
+            const vertexBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(PLANE_VERTICES[0]), PLANE_VERTICES.length * 4, 4);
             this.vertexBuffer = vertexBuffer;
-            const materialBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(materials[0]), materials.length * 4,
+            const materialBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(materials[0]), materials.length * 4,
                 MATERIAL_FLOATS * 4);
             this.materialBuffer = materialBuffer;
-            const aabbConstantBuffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(aabbConstants[0]),
+            const aabbConstantBuffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(aabbConstants[0]),
                 aabbConstants.length * 4, AABB_CONSTANTS_STRIDE);
             this.aabbConstantBuffer = aabbConstantBuffer;
             if (!indexBuffer || !vertexBuffer || !materialBuffer || !aabbConstantBuffer) {
@@ -618,10 +619,10 @@ namespace ProceduralGeometryNri {
                 return false;
             }
             const views = [
-                Nri_CreateStructuredBufferView(indexBuffer, 0),
-                Nri_CreateStructuredBufferView(vertexBuffer, 0),
-                Nri_CreateStructuredBufferView(materialBuffer, 0),
-                Nri_CreateStructuredBufferView(aabbConstantBuffer, 0),
+                indexBuffer.createStructuredView(0),
+                vertexBuffer.createStructuredView(0),
+                materialBuffer.createStructuredView(0),
+                aabbConstantBuffer.createStructuredView(0),
             ];
             for (const view of views) {
                 if (!view) {
@@ -636,7 +637,7 @@ namespace ProceduralGeometryNri {
         // BuildGeometry and BuildAccelerationStructures: the plane's BLAS, the AABBs' (one geometry per
         // AABB, for a hit group per AABB), opaque, built preferring fast tracing; the TLAS's two
         // instances, built once: they don't move. False (after printing why) on failure.
-        createAccelerationStructures(device: NriDeviceHandle): boolean {
+        createAccelerationStructures(device: NriDevice): boolean {
             const vertexCount = PLANE_VERTICES.length / 6;
             const positions: f32[] = [];
             for (let v = 0; v < vertexCount; v++) {
@@ -644,18 +645,18 @@ namespace ProceduralGeometryNri {
                     positions.push(PLANE_VERTICES[v * 6 + c]);
                 }
             }
-            const planeDesc = Nri_CreateBlasDesc();
-            Nri_BlasDescAddTriangles(planeDesc, Ref(positions[0]), vertexCount, Ref(PLANE_INDICES[0]), PLANE_INDICES.length);
-            const planeBlas = Nri_BuildBlasFromDesc(device, this.queue, planeDesc, NriAccelerationStructureFlags.PreferFastTrace);
-            Nri_DestroyBlasDesc(planeDesc);
+            const planeDesc = NriBlasDesc.create();
+            planeDesc.addTriangles(Ref(positions[0]), vertexCount, Ref(PLANE_INDICES[0]), PLANE_INDICES.length);
+            const planeBlas = device.buildBlasFromDesc(this.queue, planeDesc, NriAccelerationStructureFlags.PreferFastTrace);
+            planeDesc.destroy();
             this.planeBlas = planeBlas;
 
-            const aabbDesc = Nri_CreateBlasDesc();
+            const aabbDesc = NriBlasDesc.create();
             for (let i = 0; i < PRIMITIVE_COUNT; i++) {
-                Nri_BlasDescAddAabbs(aabbDesc, Ref(this.aabbs[i * 6]), 1);
+                aabbDesc.addAabbs(Ref(this.aabbs[i * 6]), 1);
             }
-            const aabbBlas = Nri_BuildBlasFromDesc(device, this.queue, aabbDesc, NriAccelerationStructureFlags.PreferFastTrace);
-            Nri_DestroyBlasDesc(aabbDesc);
+            const aabbBlas = device.buildBlasFromDesc(this.queue, aabbDesc, NriAccelerationStructureFlags.PreferFastTrace);
+            aabbDesc.destroy();
             this.aabbBlas = aabbBlas;
             if (!planeBlas || !aabbBlas) {
                 console.log("Cannot build the bottom level acceleration structures");
@@ -665,7 +666,7 @@ namespace ProceduralGeometryNri {
             // BuildBotomLevelASInstanceDescs: the plane, a little larger than a 700 x 700 grid of AABBs,
             // from -0.35 of its width; the AABBs moved up onto it, their hit groups after the plane's
             // two.
-            const topLevelAS = Nri_CreateTopLevelAS(device, 2, NriAccelerationStructureFlags.PreferFastTrace, 1);
+            const topLevelAS = device.createTopLevelAS(2, NriAccelerationStructureFlags.PreferFastTrace, 1);
             this.topLevelAS = topLevelAS;
             if (!topLevelAS) {
                 console.log("Cannot create the top level acceleration structure");
@@ -679,18 +680,18 @@ namespace ProceduralGeometryNri {
                 0.0, planeWidthY, 0.0, 0.0,
                 0.0, 0.0, planeWidthZ, Math.fround(planeWidthZ * Math.fround(-0.35)),
             ];
-            Nri_TopLevelASAddInstance(topLevelAS, planeBlas, Ref(transform[0]), 0, 1, 0, 0);
+            topLevelAS.addInstance(planeBlas, Ref(transform[0]), 0, 1, 0, 0);
             const aabbTransform: f32[] = [
                 1.0, 0.0, 0.0, 0.0,
                 0.0, 1.0, 0.0, AABB_WIDTH / 2.0,
                 0.0, 0.0, 1.0, 0.0,
             ];
-            Nri_TopLevelASAddInstance(topLevelAS, aabbBlas, Ref(aabbTransform[0]), 0, 1, RAY_TYPE_COUNT, 0);
-            if (Nri_BuildTopLevelASOnQueue(this.queue, topLevelAS) == 0) {
+            topLevelAS.addInstance(aabbBlas, Ref(aabbTransform[0]), 0, 1, RAY_TYPE_COUNT, 0);
+            if (this.queue.buildTopLevelAS(topLevelAS) == 0) {
                 console.log("Cannot build the top level acceleration structure");
                 return false;
             }
-            this.topLevelASView = Nri_CreateAccelerationStructureDescriptor(Nri_GetTopLevelAccelerationStructure(topLevelAS));
+            this.topLevelASView = topLevelAS.getTopLevelAccelerationStructure().createDescriptor();
             return true;
         }
 
@@ -701,7 +702,7 @@ namespace ProceduralGeometryNri {
 
         // Whether the toggle key (keysDown's index) went down since the last frame.
         keyPressed(index: int, key: int): boolean {
-            const down = Nri_IsKeyPressed(this.sample, key) != 0;
+            const down = this.sample.isKeyPressed(key) != 0;
             const pressed = down && !this.keysDown[index];
             this.keysDown[index] = down;
             return pressed;
@@ -800,7 +801,7 @@ namespace ProceduralGeometryNri {
 
         // The sample's DoRaytracing: the scene constants and the AABBs' transforms (into the frame's
         // copies), then the rays into the output, which then goes to the copy.
-        recordRays(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, frameIndex: int) {
+        recordRays(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, frameIndex: int) {
             const layout = this.layout;
             const pipeline = this.pipeline;
             const shaderTable = this.shaderTable;
@@ -814,27 +815,27 @@ namespace ProceduralGeometryNri {
             }
             this.writeSceneConstants(this.width, this.height);
             this.writeAabbAttributes(this.animateGeometryTime);
-            Nri_WriteBuffer(sceneConstantBuffer, (frameIndex % this.queuedFrames.length) * SCENE_CB_SIZE, Ref(this.sceneData[0]), SCENE_CB_SIZE);
-            Nri_WriteBuffer(aabbAttributeBuffer, 0, Ref(this.aabbAttributes[0]), this.aabbAttributes.length * 4);
+            sceneConstantBuffer.write((frameIndex % this.queuedFrames.length) * SCENE_CB_SIZE, Ref(this.sceneData[0]), SCENE_CB_SIZE);
+            aabbAttributeBuffer.write(0, Ref(this.aabbAttributes[0]), this.aabbAttributes.length * 4);
 
             if (this.outputCopied) {
-                Nri_CmdTextureBarrier(commandBuffer, output, NriTextureState.CopySource, NriTextureState.RayTracingStorage);
+                commandBuffer.textureBarrier(output, NriTextureState.CopySource, NriTextureState.RayTracingStorage);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetRayTracingPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRayTracingDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdDispatchRays(commandBuffer, shaderTable, this.width, this.height);
-            Nri_CmdTextureBarrier(commandBuffer, output, NriTextureState.RayTracingStorage, NriTextureState.CopySource);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setRayTracingPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRayTracingDescriptorSet(0, set);
+            commandBuffer.dispatchRays(shaderTable, this.width, this.height);
+            commandBuffer.textureBarrier(output, NriTextureState.RayTracingStorage, NriTextureState.CopySource);
             this.outputCopied = true;
         }
 
         // CopyRaytracingOutputToBackbuffer: without conversion, as the sample's CopyResource into its
         // UNORM back buffer.
-        recordCopy(commandBuffer: NriCommandBufferHandle, texture: NriTextureHandle) {
+        recordCopy(commandBuffer: NriCommandBuffer, texture: NriTexture) {
             const output = this.output;
             if (output) {
-                Nri_CmdCopyTexture(commandBuffer, texture, output);
+                commandBuffer.copyTexture(texture, output);
             }
         }
 
@@ -843,7 +844,7 @@ namespace ProceduralGeometryNri {
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
 
             // Animate first, as Donut's onAnimate before onRender (its test mode steps float(1/60) s).
-            this.animate(this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample));
+            this.animate(this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime());
 
             // Acquire a swap chain texture
             const index = this.swapChain.acquire(frameIndex);
@@ -852,9 +853,9 @@ namespace ProceduralGeometryNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the rays, then their output copied into the frame.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordRays(commandBuffer, queuedFrame, frameIndex);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
                 this.recordCopy(commandBuffer, texture);
 
                 // The test's last frame: read back
@@ -862,13 +863,13 @@ namespace ProceduralGeometryNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.CopyDestination, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -886,12 +887,12 @@ namespace ProceduralGeometryNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -901,7 +902,7 @@ namespace ProceduralGeometryNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.sceneConstantsView);
                     this.destroyDescriptor(queuedFrame.aabbAttributeView);
@@ -909,16 +910,16 @@ namespace ProceduralGeometryNri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.outputStorage);
                 for (const view of this.bufferViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 this.destroyDescriptor(this.topLevelASView);
                 const output = this.output;
                 if (output) {
-                    Nri_DestroyTexture(output);
+                    output.destroy();
                 }
                 this.destroyBuffer(this.sceneConstantBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -927,63 +928,63 @@ namespace ProceduralGeometryNri {
                 this.destroyBuffer(this.aabbConstantBuffer);
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
-                    Nri_DestroyTopLevelAS(topLevelAS);
+                    topLevelAS.destroy();
                 }
                 const planeBlas = this.planeBlas;
                 if (planeBlas) {
-                    Nri_DestroyAccelerationStructure(planeBlas);
+                    planeBlas.destroy();
                 }
                 const aabbBlas = this.aabbBlas;
                 if (aabbBlas) {
-                    Nri_DestroyAccelerationStructure(aabbBlas);
+                    aabbBlas.destroy();
                 }
                 const shaderTable = this.shaderTable;
                 if (shaderTable) {
-                    Nri_DestroyShaderTable(shaderTable);
+                    shaderTable.destroy();
                 }
                 this.destroyBuffer(this.readbackBuffer);
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const proceduralGeometry = new ProceduralGeometry(sample);
         // -benchmark: 1/60 s per frame; -time <seconds>: the geometry animation's time, fixed.
-        Nri_AddExampleOption(sample, "-benchmark");
-        Nri_AddExampleOptionWithValues(sample, "-time", 1);
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOption("-benchmark");
+        sample.addExampleOptionWithValues("-time", 1);
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-benchmark") {
                 proceduralGeometry.benchmark = true;
             } else if (arg == "-time" && i + 1 < argc) {
                 i++;
-                proceduralGeometry.fixedTime = parseFloat(Nri_GetArg(argc, argv, i));
+                proceduralGeometry.fixedTime = parseFloat(Nri.getArg(argc, argv, i));
             }
         }
         return proceduralGeometry.run(argc, argv);

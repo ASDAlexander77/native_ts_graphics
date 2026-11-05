@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspective } from "../../core/matrix";
 import { comboItems } from "../../core/text_format";
 import { LookAtCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriGltfModel, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace ExtendedDynamicState2Nri {
     // extended_dynamic_state2, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead
@@ -28,7 +29,7 @@ namespace ExtendedDynamicState2Nri {
     const TESSELLATED = "Geosphere";
     const MOVING = "Cube_1";
 
-    // Nri_LoadGltfModel's vertices (and Nri_LoadGltfMesh's): position, normal, texture coordinates.
+    // NriGltfModel.load's vertices (and NriDevice.loadGltfMesh's): position, normal, texture coordinates.
     const VERTEX_FLOATS = 8;
     const VERTEX_SIZE = VERTEX_FLOATS * 4;
     const NORMAL_OFFSET = 12;
@@ -81,8 +82,8 @@ namespace ExtendedDynamicState2Nri {
     // A frame in flight's own data: its descriptor set (its slices of the uniform buffers,
     // the cube map and its sampler) with the slices' views.
     class QueuedFrame {
-        constructor(public descriptorSet: NriDescriptorSetHandle | null, public commonView: NriDescriptorHandle | null,
-            public baselineView: NriDescriptorHandle | null, public tessView: NriDescriptorHandle | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public commonView: NriDescriptor | null,
+            public baselineView: NriDescriptor | null, public tessView: NriDescriptor | null) {
         }
     }
 
@@ -132,30 +133,30 @@ namespace ExtendedDynamicState2Nri {
     // and rasterizer discard skips the draw (discarding every primitive draws nothing either). Drawn
     // straight into the sRGB swap chain view (Donut's sRGB back buffer), with a D32 depth buffer.
     class ExtendedDynamicState2 {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private backgroundPipeline: NriPipelineHandle | null = null;
-        private baselinePipeline: NriPipelineHandle | null = null;
-        private biasedPipeline: NriPipelineHandle | null = null;
-        private restartPipeline: NriPipelineHandle | null = null;
-        private tessPipeline: NriPipelineHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private restartVertexBuffer: NriBufferHandle | null = null;
-        private restartIndexBuffer: NriBufferHandle | null = null;
-        private background: NriGltfMeshHandle | null = null;
-        private envmap: NriTextureHandle | null = null;
-        private envmapView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private backgroundPipeline: NriPipeline | null = null;
+        private baselinePipeline: NriPipeline | null = null;
+        private biasedPipeline: NriPipeline | null = null;
+        private restartPipeline: NriPipeline | null = null;
+        private tessPipeline: NriPipeline | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private restartVertexBuffer: NriBuffer | null = null;
+        private restartIndexBuffer: NriBuffer | null = null;
+        private background: NriGltfMesh | null = null;
+        private envmap: NriTexture | null = null;
+        private envmapView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -202,11 +203,11 @@ namespace ExtendedDynamicState2Nri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < COMMON_FLOATS; i++) {
                 this.commonConstants.push(0.0);
             }
@@ -226,11 +227,11 @@ namespace ExtendedDynamicState2Nri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -241,19 +242,19 @@ namespace ExtendedDynamicState2Nri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -267,16 +268,16 @@ namespace ExtendedDynamicState2Nri {
             // The models and the cube map, its sampler as the sample's: trilinear and anisotropic,
             // clamped.
             const loaded = this.loadModels(device);
-            const envmap = Nri_LoadDdsTexture(device, this.queue, ENVMAP_PATH, 0);
+            const envmap = device.loadDdsTexture(this.queue, ENVMAP_PATH, 0);
             this.envmap = envmap;
             if (!loaded || !envmap) {
                 console.log("Cannot load the models and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const envmapView = Nri_CreateTextureCubeView(envmap, NriFormat.RGBA16_SFLOAT);
+            const envmapView = envmap.createCubeView(NriFormat.RGBA16_SFLOAT);
             this.envmapView = envmapView;
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge,
-                Nri_GetMaxSamplerAnisotropy(device));
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge,
+                device.getMaxSamplerAnisotropy());
             this.sampler = sampler;
             if (!sampler) {
                 console.log("Cannot create the sampler");
@@ -296,14 +297,14 @@ namespace ExtendedDynamicState2Nri {
             // The layout: the uniform buffers (b0, b1; b3), the push constants (b2: root constants),
             // the cube map (t0) and its sampler (s0), seen by every stage.
             const stages = NriStage.VertexTessellationPixel;
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 2, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 3, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, PUSH_REGISTER, NODE_FLOATS * 4, stages);
-            const pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 2, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 3, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, stages, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
+            layoutDesc.addRootConstants(PUSH_REGISTER, NODE_FLOATS * 4, stages);
+            const pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.pipelineLayout = pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -325,9 +326,9 @@ namespace ExtendedDynamicState2Nri {
 
             // A queued frame's uniform buffers, in its own descriptor set with the cube map and
             // sampler.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * SLICES * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * SLICES * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum, queuedFrameNum, SLICES * queuedFrameNum, queuedFrameNum,
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum, queuedFrameNum, SLICES * queuedFrameNum, queuedFrameNum,
                 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
@@ -336,27 +337,27 @@ namespace ExtendedDynamicState2Nri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
-                const commonView = Nri_CreateConstantBufferView(constantBuffer, (SLICES * i + COMMON_SLICE) * CONST_STRIDE, CONST_STRIDE);
-                const baselineView = Nri_CreateConstantBufferView(constantBuffer, (SLICES * i + BASELINE_SLICE) * CONST_STRIDE,
+                const descriptorSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
+                const commonView = constantBuffer.createConstantView((SLICES * i + COMMON_SLICE) * CONST_STRIDE, CONST_STRIDE);
+                const baselineView = constantBuffer.createConstantView((SLICES * i + BASELINE_SLICE) * CONST_STRIDE,
                     CONST_STRIDE);
-                const tessView = Nri_CreateConstantBufferView(constantBuffer, (SLICES * i + TESS_SLICE) * CONST_STRIDE, CONST_STRIDE);
+                const tessView = constantBuffer.createConstantView((SLICES * i + TESS_SLICE) * CONST_STRIDE, CONST_STRIDE);
                 this.queuedFrames.push(new QueuedFrame(descriptorSet,
                     commonView, baselineView, tessView));
                 if (!descriptorSet || !commonView || !baselineView || !tessView) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, commonView);
-                Nri_UpdateDescriptor(descriptorSet, 0, 1, baselineView);
-                Nri_UpdateDescriptor(descriptorSet, 1, 0, tessView);
-                Nri_UpdateDescriptor(descriptorSet, 2, 0, envmapView);
-                Nri_UpdateDescriptor(descriptorSet, 3, 0, sampler);
+                descriptorSet.updateDescriptor(0, 0, commonView);
+                descriptorSet.updateDescriptor(0, 1, baselineView);
+                descriptorSet.updateDescriptor(1, 0, tessView);
+                descriptorSet.updateDescriptor(2, 0, envmapView);
+                descriptorSet.updateDescriptor(3, 0, sampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -364,9 +365,9 @@ namespace ExtendedDynamicState2Nri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -378,69 +379,69 @@ namespace ExtendedDynamicState2Nri {
         // (positions and normals), 2 with depth bias (1, slope 1), 3 triangle strips restarting at
         // 0xFFFFFFFF, 4 the tessellation (positions; patches of 3 control points, as a wireframe,
         // front faces culled, counter-clockwise ones).
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, kind: int) {
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, kind: int) {
             const prefix = kind == 0 ? "background" : kind == 4 ? "tess" : "baseline";
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${prefix}_vs.bin`, `${prefix}_vs`) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${prefix}_vs.bin`, `${prefix}_vs`) != 0;
             if (loaded && kind == 4) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Hull, `${shaders}_tess_hs.bin`, "tess_hs") != 0;
+                loaded = desc.addShader(NriShaderStage.Hull, `${shaders}_tess_hs.bin`, "tess_hs") != 0;
                 if (loaded) {
-                    loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Domain, `${shaders}_tess_ds.bin`, "tess_ds") != 0;
+                    loaded = desc.addShader(NriShaderStage.Domain, `${shaders}_tess_ds.bin`, "tess_ds") != 0;
                 }
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${prefix}_ps.bin`, `${prefix}_ps`) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${prefix}_ps.bin`, `${prefix}_ps`) != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
             if (kind >= 1 && kind <= 3) {
-                Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
+                desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
             }
-            Nri_PipelineDescSetCullMode(desc, kind == 4 ? NriCullMode.Front : NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, kind == 0 || kind == 4 ? 1 : 0);
+            desc.setCullMode(kind == 4 ? NriCullMode.Front : NriCullMode.Back);
+            desc.setFrontCounterClockwise(kind == 0 || kind == 4 ? 1 : 0);
             if (kind == 2) {
-                Nri_PipelineDescSetDepthBias(desc, 1.0, 0.0, 1.0);
+                desc.setDepthBias(1.0, 0.0, 1.0);
             } else if (kind == 3) {
-                Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-                Nri_PipelineDescSetPrimitiveRestart(desc, NriIndexType.UInt32);
+                desc.setTopology(NriTopology.TriangleStrip);
+                desc.setPrimitiveRestart(NriIndexType.UInt32);
             } else if (kind == 4) {
-                Nri_PipelineDescSetTopology(desc, NriTopology.PatchList);
-                Nri_PipelineDescSetPatchControlPoints(desc, 3);
-                Nri_PipelineDescSetWireframe(desc, 1);
+                desc.setTopology(NriTopology.PatchList);
+                desc.setPatchControlPoints(3);
+                desc.setWireframe(1);
             }
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                 NriBlendFactor.One, NriBlendFactor.Zero, NriBlendOp.Add);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The sample's load_assets and model_data_creation: every primitive of the scene in shared
         // buffers, the nodes in the framework's order; the background cube; the restarting cube.
-        loadModels(device: NriDeviceHandle) {
-            const model = Nri_LoadGltfModel(SCENE_PATH);
-            this.background = Nri_LoadGltfMesh(device, this.queue, BACKGROUND_PATH);
+        loadModels(device: NriDevice) {
+            const model = NriGltfModel.load(SCENE_PATH);
+            this.background = device.loadGltfMesh(this.queue, BACKGROUND_PATH);
             if (!model) {
                 return false;
             }
             if (!this.background) {
-                Nri_DestroyGltfModel(model);
+                model.destroy();
                 return false;
             }
 
-            const primitiveCount = Nri_GetGltfModelPrimitiveCount(model);
+            const primitiveCount = model.getPrimitiveCount();
             const vertices: f32[] = [];
             const indices: int[] = [];
             const firstIndex: int[] = [];
             const indexCounts: int[] = [];
             const baseVertex: int[] = [];
             for (let p = 0; p < primitiveCount; p++) {
-                const vertexCount = Nri_GetGltfModelVertexCount(model, p);
-                const indexCount = Nri_GetGltfModelIndexCount(model, p);
+                const vertexCount = model.getVertexCount(p);
+                const indexCount = model.getIndexCount(p);
                 const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
@@ -449,8 +450,8 @@ namespace ExtendedDynamicState2Nri {
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
-                Nri_CopyGltfModelVertices(model, p, Ref(primitiveVertices[0]));
-                Nri_CopyGltfModelIndices(model, p, Ref(primitiveIndices[0]));
+                model.copyVertices(p, Ref(primitiveVertices[0]));
+                model.copyIndices(p, Ref(primitiveIndices[0]));
                 baseVertex.push(vertices.length / VERTEX_FLOATS);
                 firstIndex.push(indices.length);
                 indexCounts.push(indexCount);
@@ -467,18 +468,18 @@ namespace ExtendedDynamicState2Nri {
                 transform.push(0.0);
             }
             const color: f32[] = [0.0, 0.0, 0.0, 0.0];
-            const nodeCount = Nri_GetGltfModelNodeCount(model);
+            const nodeCount = model.getNodeCount();
             for (let o = 0; o < SCENE_ORDER.length; o++) {
                 for (let p = 0; p < primitiveCount; p++) {
-                    if (Nri_GetGltfModelMeshName(model, p) != SCENE_ORDER[o]) {
+                    if (model.getMeshName(p) != SCENE_ORDER[o]) {
                         continue;
                     }
                     for (let n = 0; n < nodeCount; n++) {
-                        if (Nri_GetGltfModelNodeMesh(model, n) != Nri_GetGltfModelPrimitiveMesh(model, p)) {
+                        if (model.getNodeMesh(n) != model.getPrimitiveMesh(p)) {
                             continue;
                         }
-                        Nri_CopyGltfModelNodeTransform(model, n, Ref(transform[0]));
-                        Nri_CopyGltfModelBaseColorFactor(model, p, Ref(color[0]));
+                        model.copyNodeTransform(n, Ref(transform[0]));
+                        model.copyBaseColorFactor(p, Ref(color[0]));
                         const t: number[] = [];
                         for (let i = 0; i < 16; i++) {
                             t.push(transform[i]);
@@ -500,14 +501,14 @@ namespace ExtendedDynamicState2Nri {
                     }
                 }
             }
-            Nri_DestroyGltfModel(model);
+            model.destroy();
             const names: string[] = [];
             for (const node of this.baselineNodes) {
                 names.push(node.name);
             }
             this.nodeNames = comboItems(names);
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4,
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4,
                 NriBufferUsage.IndexBuffer);
 
             // The restarting cube: its 8 corners, normals the sum of their faces'.
@@ -527,8 +528,8 @@ namespace ExtendedDynamicState2Nri {
                 cube.push(0.0);
             }
             let restartIndices = RESTART_INDICES.map((v): int => v);
-            this.restartVertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(cube[0]), cube.length * 4, NriBufferUsage.VertexBuffer);
-            this.restartIndexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(restartIndices[0]), restartIndices.length * 4,
+            this.restartVertexBuffer = device.createUploadedBuffer(this.queue, Ref(cube[0]), cube.length * 4, NriBufferUsage.VertexBuffer);
+            this.restartIndexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(restartIndices[0]), restartIndices.length * 4,
                 NriBufferUsage.IndexBuffer);
             if (!this.vertexBuffer || !this.indexBuffer || !this.restartVertexBuffer || !this.restartIndexBuffer) {
                 return false;
@@ -543,9 +544,9 @@ namespace ExtendedDynamicState2Nri {
 
         // The camera's mouse input, unless the overlay has the mouse.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -554,7 +555,7 @@ namespace ExtendedDynamicState2Nri {
                 }
             }
             if (!overlay) {
-                this.camera.mouseMove(Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample));
+                this.camera.mouseMove(this.sample.getMouseX(), this.sample.getMouseY());
             }
         }
 
@@ -562,7 +563,7 @@ namespace ExtendedDynamicState2Nri {
         // forth by up to 0.05), and the selection effect's alpha steps too. The frame's time: Donut's
         // test mode's (1/60 s, as a float), -benchmark's (the same), or the clock's.
         animate() {
-            const delta = Math.fround(this.test || this.benchmark ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const delta = Math.fround(this.test || this.benchmark ? 1.0 / 60.0 : this.sample.getFrameTime());
             this.timePass = Math.fround(this.timePass + delta);
             if (this.timePass > Math.fround(TICK)) {
                 if (this.difference < -Math.fround(MOVE_DELTA)) {
@@ -610,28 +611,28 @@ namespace ExtendedDynamicState2Nri {
 
         // The sample's options.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.tessellation = Nri_ImguiCheckbox("Tessellation Enable", this.tessellation ? 1 : 0) != 0;
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.tessellation = NriImgui.checkbox("Tessellation Enable", this.tessellation ? 1 : 0) != 0;
                 // Maximum tessellation factor is set to 4.0
-                this.tessFactor = Nri_ImguiSliderFloat("Tessellation Factor", this.tessFactor, 1.0, 4.0);
+                this.tessFactor = NriImgui.sliderFloat("Tessellation Factor", this.tessFactor, 1.0, 4.0);
             }
-            if (Nri_ImguiCollapsingHeader("Models", 1) != 0) {
-                this.selectionActive = Nri_ImguiCheckbox("Selection effect active", this.selectionActive ? 1 : 0) != 0;
-                this.selectedObject = Nri_ImguiCombo("Name", this.selectedObject, this.nodeNames);
+            if (NriImgui.collapsingHeader("Models", 1) != 0) {
+                this.selectionActive = NriImgui.checkbox("Selection effect active", this.selectionActive ? 1 : 0) != 0;
+                this.selectedObject = NriImgui.combo("Name", this.selectedObject, this.nodeNames);
                 const node = this.baselineNodes[this.selectedObject];
-                node.depthBias = Nri_ImguiCheckbox("Depth Bias Enable", node.depthBias ? 1 : 0) != 0;
-                node.rasterizerDiscard = Nri_ImguiCheckbox("Rasterizer Discard", node.rasterizerDiscard ? 1 : 0) != 0;
+                node.depthBias = NriImgui.checkbox("Depth Bias Enable", node.depthBias ? 1 : 0) != 0;
+                node.rasterizerDiscard = NriImgui.checkbox("Rasterizer Discard", node.rasterizerDiscard ? 1 : 0) != 0;
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: its projection, into Donut's clip space (y negated),
         // and view; the baseline's lights; the tessellation factor (0 when off: factors of 1).
-        writeConstants(constantBuffer: NriBufferHandle, queuedFrameIndex: int) {
+        writeConstants(constantBuffer: NriBuffer, queuedFrameIndex: int) {
             const projection = perspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             const view = this.camera.view();
             for (let i = 0; i < 16; i++) {
@@ -640,14 +641,14 @@ namespace ExtendedDynamicState2Nri {
             }
             this.tessConstants[0] = this.tessellation ? this.tessFactor : 0.0;
             const base = SLICES * queuedFrameIndex;
-            Nri_WriteBuffer(constantBuffer, (base + COMMON_SLICE) * CONST_STRIDE, Ref(this.commonConstants[0]), COMMON_FLOATS * 4);
-            Nri_WriteBuffer(constantBuffer, (base + BASELINE_SLICE) * CONST_STRIDE, Ref(this.baselineConstants[0]),
+            constantBuffer.write((base + COMMON_SLICE) * CONST_STRIDE, Ref(this.commonConstants[0]), COMMON_FLOATS * 4);
+            constantBuffer.write((base + BASELINE_SLICE) * CONST_STRIDE, Ref(this.baselineConstants[0]),
                 BASELINE_CONSTANTS.length * 4);
-            Nri_WriteBuffer(constantBuffer, (base + TESS_SLICE) * CONST_STRIDE, Ref(this.tessConstants[0]), TESS_FLOATS * 4);
+            constantBuffer.write((base + TESS_SLICE) * CONST_STRIDE, Ref(this.tessConstants[0]), TESS_FLOATS * 4);
         }
 
         // A draw of the shared buffers' range with a node's push constants.
-        drawNode(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, node: SceneNode, alpha: number) {
+        drawNode(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, node: SceneNode, alpha: number) {
             if (!pipeline) {
                 return;
             }
@@ -658,17 +659,17 @@ namespace ExtendedDynamicState2Nri {
                 this.nodeConstants[16 + i] = node.color[i];
             }
             this.nodeConstants[19] = alpha;
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
-            Nri_CmdDrawIndexed(commandBuffer, node.indexCount, 1, node.firstIndex, node.baseVertex, 0);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootConstants(0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
+            commandBuffer.drawIndexed(node.indexCount, 1, node.firstIndex, node.baseVertex, 0);
         }
 
         // The background, the baseline scene (each node's depth bias and rasterizer discard, the
         // selected node blinking), the restarting cube, the tessellated scene (between
-        // Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering). The push constants carry over
+        // NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering). The push constants carry over
         // between draws as the Donut example's do (the background's color, the restarting cube's
         // matrix: the last ones set).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const pipelineLayout = this.pipelineLayout;
             const descriptorPool = this.descriptorPool;
             const descriptorSet = queuedFrame.descriptorSet;
@@ -683,26 +684,26 @@ namespace ExtendedDynamicState2Nri {
                 || !vertexBuffer || !indexBuffer || !restartVertexBuffer || !restartIndexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
 
             // The background.
             for (let i = 0; i < 16; i++) {
                 this.nodeConstants[i] = i % 5 == 0 ? 1.0 : 0.0;
             }
-            Nri_CmdSetPipeline(commandBuffer, backgroundPipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(background), 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(background), 0, VERTEX_SIZE);
-            Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(background), 1, 0, 0, 0);
+            commandBuffer.setPipeline(backgroundPipeline);
+            commandBuffer.setRootConstants(0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
+            commandBuffer.setIndexBuffer(background.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, background.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.drawIndexed(background.getIndexCount(), 1, 0, 0, 0);
 
             // The baseline scene.
             this.updateAlphaDirection();
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
             for (let i = 0; i < this.baselineNodes.length; i++) {
                 const node = this.baselineNodes[i];
                 if (node.rasterizerDiscard) {
@@ -716,15 +717,15 @@ namespace ExtendedDynamicState2Nri {
             for (let i = 0; i < 4; i++) {
                 this.nodeConstants[16 + i] = RESTART_COLOR[i];
             }
-            Nri_CmdSetPipeline(commandBuffer, restartPipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
-            Nri_CmdSetIndexBuffer(commandBuffer, restartIndexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, restartVertexBuffer, 0, VERTEX_SIZE);
-            Nri_CmdDrawIndexed(commandBuffer, RESTART_INDICES.length, 1, 0, 0, 0);
+            commandBuffer.setPipeline(restartPipeline);
+            commandBuffer.setRootConstants(0, Ref(this.nodeConstants[0]), NODE_FLOATS * 4);
+            commandBuffer.setIndexBuffer(restartIndexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, restartVertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.drawIndexed(RESTART_INDICES.length, 1, 0, 0, 0);
 
             // The tessellated scene.
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
             for (const node of this.tessNodes) {
                 this.drawNode(commandBuffer, this.tessPipeline, node, node.color[3]);
             }
@@ -740,31 +741,31 @@ namespace ExtendedDynamicState2Nri {
         }
 
         // The depth buffer at the swap chain's size.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 console.log("Cannot create the depth buffer");
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -774,7 +775,7 @@ namespace ExtendedDynamicState2Nri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -804,21 +805,21 @@ namespace ExtendedDynamicState2Nri {
 
                 // Record: color cleared to transparent black, depth to 0 (reversed), the scene; then
                 // the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraw(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -826,18 +827,18 @@ namespace ExtendedDynamicState2Nri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -853,12 +854,12 @@ namespace ExtendedDynamicState2Nri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -868,9 +869,9 @@ namespace ExtendedDynamicState2Nri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.commonView);
@@ -879,7 +880,7 @@ namespace ExtendedDynamicState2Nri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.depthAttachment);
                 this.destroyDescriptor(this.envmapView);
@@ -888,7 +889,7 @@ namespace ExtendedDynamicState2Nri {
                 this.destroyTexture(this.envmap);
                 const background = this.background;
                 if (background) {
-                    Nri_DestroyGltfMesh(background);
+                    background.destroy();
                 }
                 this.destroyBuffer(this.vertexBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -903,69 +904,69 @@ namespace ExtendedDynamicState2Nri {
                 this.destroyPipeline(this.tessPipeline);
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const extended = new ExtendedDynamicState2(sample);
         // -tessellation <factor>: tessellation on; -bias <object>, -discard <object>: depth bias or
         // rasterizer discard for an object of the UI's list; -noselection: the selection effect off;
         // -benchmark: 1/60 second per frame; -noUI: no overlay.
-        Nri_AddExampleOptionWithValues(sample, "-tessellation", 1);
-        Nri_AddExampleOptionWithValues(sample, "-bias", 1);
-        Nri_AddExampleOptionWithValues(sample, "-discard", 1);
-        Nri_AddExampleOption(sample, "-noselection");
-        Nri_AddExampleOption(sample, "-benchmark");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-tessellation", 1);
+        sample.addExampleOptionWithValues("-bias", 1);
+        sample.addExampleOptionWithValues("-discard", 1);
+        sample.addExampleOption("-noselection");
+        sample.addExampleOption("-benchmark");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-tessellation" && i + 1 < argc) {
                 i++;
-                const factor = parseFloat(Nri_GetArg(argc, argv, i));
+                const factor = parseFloat(Nri.getArg(argc, argv, i));
                 if (factor > 0.0) {
                     extended.tessellation = true;
                     extended.tessFactor = Math.min(factor, 4.0);
                 }
             } else if (arg == "-bias" && i + 1 < argc) {
                 i++;
-                extended.biasObject = parseInt(Nri_GetArg(argc, argv, i));
+                extended.biasObject = parseInt(Nri.getArg(argc, argv, i));
             } else if (arg == "-discard" && i + 1 < argc) {
                 i++;
-                extended.discardObject = parseInt(Nri_GetArg(argc, argv, i));
+                extended.discardObject = parseInt(Nri.getArg(argc, argv, i));
             } else if (arg == "-noselection") {
                 extended.selectionActive = false;
             } else if (arg == "-benchmark") {

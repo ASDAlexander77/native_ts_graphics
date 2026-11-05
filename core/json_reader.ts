@@ -3,7 +3,7 @@
 //
 // Imported with `import { JsonReader } from "../../core/json_reader";` (from examples/nri/), and
 // listed in the example's sources. It depends on nothing: the caller copies the bytes in (one per
-// int, e.g. with Nri_CopyFileBytes into bytes[0] after resize).
+// int, e.g. with NriFile.copyBytes into bytes[0] after resize).
 //
 //     if (reader.beginObject()) {
 //         while (reader.nextKey()) {

@@ -5,12 +5,13 @@ import { perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
 import { DonutSceneTextures } from "../../core/nri_donut_textures";
 import { DonutBlit } from "../../core/nri_donut_blit";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriDonutAnimatedScene, NriDonutAnimatedSceneAccelStructs, NriPipeline, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriRayTracingPipelineDesc, NriSample, NriShaderTable, NriTexture } from "../../core/nri";
 
 namespace RtBindlessNri {
     // rt_bindless, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
     // NVRHI: the same shaders (rt_bindless.hlsl's library, or with -rayQuery its compute shader), Donut's
     // skinning and blit shaders (as Donut compiles them), the scene loaded and animated as Donut's engine
-    // does it (core/nri/nri_donut_scene.cpp's Nri_LoadDonutAnimatedScene: the scene file's models and
+    // does it (core/nri/nri_donut_scene.cpp's NriDonutAnimatedScene.load: the scene file's models and
     // node graph, skins and animations; core/nri_donut_textures.ts), its acceleration structures as
     // Donut builds them every frame, the constants filled as Donut fills them
     // (core/nri/nri_donut_constants.cpp), through the NRI calls core/nri/nri_interop.d.ts binds. This
@@ -118,8 +119,8 @@ namespace RtBindlessNri {
     // lighting constants and the instances in the trace's set, the joint matrices in the skinning
     // sets, one per skinned instance).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public traceSet: NriDescriptorSetHandle, public skinningSets: NriDescriptorSetHandle[]) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public traceSet: NriDescriptorSet, public skinningSets: NriDescriptorSet[]) {
         }
     }
 
@@ -131,8 +132,8 @@ namespace RtBindlessNri {
     // built again and the TLAS is built. Space pauses the animations; WASD/QE and the left mouse button
     // move the camera (Donut's FirstPersonCamera).
     class RtBindless {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format (the readback's) and their views' (sRGB).
@@ -151,19 +152,19 @@ namespace RtBindlessNri {
         // The animated scene and its static data (a Donut scene), its buffers and their views: the
         // bindless buffers (vertices, indices, the skinned vertices, also written by the skinning
         // shader), the GeometryData and MaterialConstants; its textures; its acceleration structures.
-        private scene: NriDonutAnimatedSceneHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private skinnedVertexBuffer: NriBufferHandle | null = null;
-        private geometryBuffer: NriBufferHandle | null = null;
-        private materialBuffer: NriBufferHandle | null = null;
-        private bindlessViews: NriDescriptorHandle[] = [];
-        private skinnedStorageView: NriDescriptorHandle | null = null;
-        private geometryView: NriDescriptorHandle | null = null;
-        private materialView: NriDescriptorHandle | null = null;
+        private scene: NriDonutAnimatedScene | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private skinnedVertexBuffer: NriBuffer | null = null;
+        private geometryBuffer: NriBuffer | null = null;
+        private materialBuffer: NriBuffer | null = null;
+        private bindlessViews: NriDescriptor[] = [];
+        private skinnedStorageView: NriDescriptor | null = null;
+        private geometryView: NriDescriptor | null = null;
+        private materialView: NriDescriptor | null = null;
         private textures: DonutSceneTextures = new DonutSceneTextures();
-        private accelStructs: NriDonutAnimatedSceneAccelStructsHandle | null = null;
-        private topLevelASView: NriDescriptorHandle | null = null;
+        private accelStructs: NriDonutAnimatedSceneAccelStructs | null = null;
+        private topLevelASView: NriDescriptor | null = null;
         private skinnedCount: int = 0;
         // The skinned vertices: in AccelerationStructureInput once skinned (the first skinning finds
         // them in Storage).
@@ -171,10 +172,10 @@ namespace RtBindlessNri {
 
         // The per-frame data: the lighting constants, the instances' InstanceData, the joint matrices
         // (host buffers, a slot per frame in flight, and per skinned instance), and their views.
-        private constantBuffer: NriBufferHandle | null = null;
-        private instanceBuffer: NriBufferHandle | null = null;
-        private jointBuffer: NriBufferHandle | null = null;
-        private perFrameViews: NriDescriptorHandle[] = [];
+        private constantBuffer: NriBuffer | null = null;
+        private instanceBuffer: NriBuffer | null = null;
+        private jointBuffer: NriBuffer | null = null;
+        private perFrameViews: NriDescriptor[] = [];
         private constantsStride: int = 0;
         private instanceStride: int = 0;
         private jointStrides: int[] = [];
@@ -182,26 +183,26 @@ namespace RtBindlessNri {
         private jointFrameStride: int = 0;
 
         // The shaded color (RGBA16F, written by the rays) and its state between frames.
-        private colorBuffer: NriTextureHandle | null = null;
-        private colorBufferStorage: NriDescriptorHandle | null = null;
-        private colorBufferView: NriDescriptorHandle | null = null;
+        private colorBuffer: NriTexture | null = null;
+        private colorBufferStorage: NriDescriptor | null = null;
+        private colorBufferView: NriDescriptor | null = null;
         private colorBufferState: NriTextureState = NriTextureState.Storage;
 
         // The trace's layout (the ray tracing pipeline's, or the compute shader's) and pipeline, its
         // shader table; the skinning shader's; the blit.
-        private traceLayout: NriPipelineLayoutHandle | null = null;
-        private tracePipeline: NriPipelineHandle | null = null;
-        private shaderTable: NriShaderTableHandle | null = null;
-        private skinningLayout: NriPipelineLayoutHandle | null = null;
-        private skinningPipeline: NriPipelineHandle | null = null;
+        private traceLayout: NriPipelineLayout | null = null;
+        private tracePipeline: NriPipeline | null = null;
+        private shaderTable: NriShaderTable | null = null;
+        private skinningLayout: NriPipelineLayout | null = null;
+        private skinningPipeline: NriPipeline | null = null;
         private blit: DonutBlit = new DonutBlit();
-        private blitSet: NriDescriptorSetHandle | null = null;
+        private blitSet: NriDescriptorSet | null = null;
         // CommonRenderPasses' anisotropic wrap sampler.
-        private anisotropicWrap: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private anisotropicWrap: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // The bindless arrays' sets: one on Vulkan (the shader's set 1, bindings 0 and 1), the buffers'
         // and the textures' on D3D12 (spaces 1 and 2).
-        private bindlessSets: NriDescriptorSetHandle[] = [];
+        private bindlessSets: NriDescriptorSet[] = [];
 
         private camera: DonutFirstPersonCamera = new DonutFirstPersonCamera(MOVE_SPEED, ROTATE_SPEED);
         private viewMatrix: f32[] = zeros(16);
@@ -219,11 +220,11 @@ namespace RtBindlessNri {
         private spaceDown: boolean = false;
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -234,13 +235,13 @@ namespace RtBindlessNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -253,20 +254,20 @@ namespace RtBindlessNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
             this.vulkan = graphicsAPI == NriGraphicsAPI.VK;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -277,11 +278,11 @@ namespace RtBindlessNri {
                 this.unsupportedReason = "No D3D11 shaders (ray tracing needs D3D12 or Vulkan)";
                 return 0;
             }
-            if (!this.useRayQuery && Nri_IsFeatureSupported(device, NriFeature.RayTracing) == 0) {
+            if (!this.useRayQuery && device.isFeatureSupported(NriFeature.RayTracing) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Tracing Pipelines";
                 return 0;
             }
-            if (this.useRayQuery && Nri_IsFeatureSupported(device, NriFeature.RayQuery) == 0) {
+            if (this.useRayQuery && device.isFeatureSupported(NriFeature.RayQuery) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Queries";
                 return 0;
             }
@@ -295,9 +296,9 @@ namespace RtBindlessNri {
             this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -305,22 +306,22 @@ namespace RtBindlessNri {
 
         // The scene, as Donut's engine loads it, its buffers, its textures; its acceleration structures,
         // as Donut_CreateAnimatedSceneAccelStructs creates them; the shaded color.
-        loadScene(device: NriDeviceHandle, folder: string) {
-            const scene = Nri_LoadDonutAnimatedScene(this.scenePath);
+        loadScene(device: NriDevice, folder: string) {
+            const scene = NriDonutAnimatedScene.load(this.scenePath);
             this.scene = scene;
             if (!scene) {
                 console.log(`Cannot load the scene ${this.scenePath}`);
                 return false;
             }
-            const sceneData = Nri_GetDonutAnimatedSceneScene(scene);
-            this.skinnedCount = Nri_GetDonutSkinnedInstanceCount(scene);
-            const vertexBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, sceneData, 0);
-            const indexBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, sceneData, 1);
-            const geometryBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, sceneData, 3);
-            const materialBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, sceneData, 4);
+            const sceneData = scene.getScene();
+            this.skinnedCount = scene.getSkinnedInstanceCount();
+            const vertexBuffer = device.createDonutSceneBuffer(this.queue, sceneData, 0);
+            const indexBuffer = device.createDonutSceneBuffer(this.queue, sceneData, 1);
+            const geometryBuffer = device.createDonutSceneBuffer(this.queue, sceneData, 3);
+            const materialBuffer = device.createDonutSceneBuffer(this.queue, sceneData, 4);
             // (At least a structure: a scene without skinned instances still binds it.)
-            const skinnedVertexBuffer = Nri_CreateAccelerationStructureInputStorageBuffer(device, this.queue,
-                Math.max(Nri_GetDonutSkinnedVertexBufferSize(scene), 16), 4);
+            const skinnedVertexBuffer = device.createAccelerationStructureInputStorageBuffer(this.queue,
+                Math.max(scene.getSkinnedVertexBufferSize(), 16), 4);
             this.vertexBuffer = vertexBuffer;
             this.indexBuffer = indexBuffer;
             this.geometryBuffer = geometryBuffer;
@@ -331,9 +332,9 @@ namespace RtBindlessNri {
                 return false;
             }
             const views = [
-                Nri_CreateStructuredBufferView(vertexBuffer, 0),
-                Nri_CreateStructuredBufferView(indexBuffer, 0),
-                Nri_CreateStructuredBufferView(skinnedVertexBuffer, 0),
+                vertexBuffer.createStructuredView(0),
+                indexBuffer.createStructuredView(0),
+                skinnedVertexBuffer.createStructuredView(0),
             ];
             for (const view of views) {
                 if (!view) {
@@ -342,23 +343,22 @@ namespace RtBindlessNri {
                 }
                 this.bindlessViews.push(view);
             }
-            this.skinnedStorageView = Nri_CreateStructuredBufferView(skinnedVertexBuffer, 1);
-            this.geometryView = Nri_CreateStructuredBufferView(geometryBuffer, 0);
-            this.materialView = Nri_CreateStructuredBufferView(materialBuffer, 0);
+            this.skinnedStorageView = skinnedVertexBuffer.createStructuredView(1);
+            this.geometryView = geometryBuffer.createStructuredView(0);
+            this.materialView = materialBuffer.createStructuredView(0);
             if (!this.skinnedStorageView || !this.geometryView || !this.materialView) {
                 console.log("Cannot create the scene's buffer views");
                 return false;
             }
 
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            const accelStructs = Nri_CreateDonutAnimatedSceneAccelStructs(device, this.queue, scene, queuedFrameNum);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
+            const accelStructs = device.createDonutAnimatedSceneAccelStructs(this.queue, scene, queuedFrameNum);
             this.accelStructs = accelStructs;
             if (!accelStructs) {
                 console.log("Cannot build the scene's acceleration structures");
                 return false;
             }
-            this.topLevelASView = Nri_CreateAccelerationStructureDescriptor(
-                Nri_GetTopLevelAccelerationStructure(Nri_GetDonutAnimatedSceneTopLevelAS(accelStructs)));
+            this.topLevelASView = accelStructs.getTopLevelAS().getTopLevelAccelerationStructure().createDescriptor();
 
             if (!this.createColorBuffer(device) || !this.topLevelASView) {
                 console.log("Cannot create the color buffer");
@@ -369,15 +369,15 @@ namespace RtBindlessNri {
         }
 
         // The shaded color at the window's size (in Storage, as made) and its storage and texture views.
-        createColorBuffer(device: NriDeviceHandle): boolean {
-            const colorBuffer = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+        createColorBuffer(device: NriDevice): boolean {
+            const colorBuffer = device.createStorageTexture(this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
             this.colorBuffer = colorBuffer;
             this.colorBufferState = NriTextureState.Storage;
             if (!colorBuffer) {
                 return false;
             }
-            this.colorBufferStorage = Nri_CreateStorageTextureView(colorBuffer, NriFormat.RGBA16_SFLOAT);
-            this.colorBufferView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA16_SFLOAT);
+            this.colorBufferStorage = colorBuffer.createStorageView(NriFormat.RGBA16_SFLOAT);
+            this.colorBufferView = colorBuffer.createView(NriFormat.RGBA16_SFLOAT);
             return true;
         }
 
@@ -386,7 +386,7 @@ namespace RtBindlessNri {
             this.destroyDescriptor(this.colorBufferView);
             const colorBuffer = this.colorBuffer;
             if (colorBuffer) {
-                Nri_DestroyTexture(colorBuffer);
+                colorBuffer.destroy();
             }
             this.colorBufferStorage = null;
             this.colorBufferView = null;
@@ -401,7 +401,7 @@ namespace RtBindlessNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with them, the swap
         // chain and the shaded color made again at its size, every frame's trace set and the blit's
         // set pointed at the new color. (Only once initialize got that far: the color exists.)
         resizeIfNeeded() {
@@ -427,11 +427,11 @@ namespace RtBindlessNri {
                 return;
             }
             for (const queuedFrame of this.queuedFrames) {
-                Nri_UpdateDescriptor(queuedFrame.traceSet, 4, 0, colorBufferStorage);
+                queuedFrame.traceSet.updateDescriptor(4, 0, colorBufferStorage);
             }
             const blitSet = this.blitSet;
             if (blitSet) {
-                Nri_UpdateDescriptor(blitSet, 0, 0, colorBufferView);
+                blitSet.updateDescriptor(0, 0, colorBufferView);
             }
         }
 
@@ -441,32 +441,32 @@ namespace RtBindlessNri {
         // binding 0 and the textures at 1; D3D12: spaces 1 and 2). The skinning shader's
         // (skinning_cs.hlsl): set 0 the source vertices and the joint matrices (t0, t1), the skinned
         // vertices (u0); its SkinningConstants (b0) as root constants.
-        createLayouts(device: NriDeviceHandle) {
+        createLayouts(device: NriDevice) {
             const stages = this.useRayQuery ? NriStage.Compute : NriStage.RayTracing;
             const textureCount = this.textures.views.length;
-            const traceDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(traceDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(traceDesc, 0, 0, 1, NriDescriptorType.AccelerationStructure, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(traceDesc, 0, 1, 3, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(traceDesc, 0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(traceDesc, 0, 0, 1, NriDescriptorType.StorageTexture, stages, NriRangeFlags.None);
+            const traceDesc = NriPipelineLayoutDesc.create();
+            traceDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            traceDesc.addRange(0, 0, 1, NriDescriptorType.AccelerationStructure, stages, NriRangeFlags.None);
+            traceDesc.addRange(0, 1, 3, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
+            traceDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
+            traceDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, stages, NriRangeFlags.None);
             const arrayFlags = NriRangeFlags.PartiallyBound | NriRangeFlags.Array;
-            Nri_PipelineLayoutDescAddRange(traceDesc, 1, 0, BINDLESS_BUFFER_COUNT, NriDescriptorType.StructuredBuffer, stages, arrayFlags);
+            traceDesc.addRange(1, 0, BINDLESS_BUFFER_COUNT, NriDescriptorType.StructuredBuffer, stages, arrayFlags);
             if (this.vulkan) {
-                Nri_PipelineLayoutDescAddRange(traceDesc, 1, 1, textureCount, NriDescriptorType.Texture, stages, arrayFlags);
+                traceDesc.addRange(1, 1, textureCount, NriDescriptorType.Texture, stages, arrayFlags);
             } else {
-                Nri_PipelineLayoutDescAddRange(traceDesc, 2, 0, textureCount, NriDescriptorType.Texture, stages, arrayFlags);
+                traceDesc.addRange(2, 0, textureCount, NriDescriptorType.Texture, stages, arrayFlags);
             }
-            this.traceLayout = Nri_CreatePipelineLayoutFromDesc(device, traceDesc);
-            Nri_DestroyPipelineLayoutDesc(traceDesc);
+            this.traceLayout = device.createPipelineLayoutFromDesc(traceDesc);
+            traceDesc.destroy();
 
-            const skinningDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(skinningDesc, 0, 0, 2, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(skinningDesc, 0, 0, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute,
+            const skinningDesc = NriPipelineLayoutDesc.create();
+            skinningDesc.addRange(0, 0, 2, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            skinningDesc.addRange(0, 0, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute,
                 NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(skinningDesc, 0, SKINNING_CONSTANTS_WORDS * 4, NriStage.Compute);
-            this.skinningLayout = Nri_CreatePipelineLayoutFromDesc(device, skinningDesc);
-            Nri_DestroyPipelineLayoutDesc(skinningDesc);
+            skinningDesc.addRootConstants(0, SKINNING_CONSTANTS_WORDS * 4, NriStage.Compute);
+            this.skinningLayout = device.createPipelineLayoutFromDesc(skinningDesc);
+            skinningDesc.destroy();
 
             if (!this.traceLayout || !this.skinningLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -478,7 +478,7 @@ namespace RtBindlessNri {
         // The trace's pipeline (the ray tracing pipeline of the ray generation shader, the miss shader
         // and the hit group of the closest hit and any hit shaders, its shader table: every geometry's
         // hits run the one hit group; or the ray query compute shader) and Donut's skinning shader's.
-        createPipelines(device: NriDeviceHandle, folder: string) {
+        createPipelines(device: NriDevice, folder: string) {
             const traceLayout = this.traceLayout;
             const skinningLayout = this.skinningLayout;
             if (!traceLayout || !skinningLayout) {
@@ -486,22 +486,22 @@ namespace RtBindlessNri {
             }
             const shaders = `shaders/rt_bindless/${folder}/rt_bindless.bin`;
             if (this.useRayQuery) {
-                this.tracePipeline = Nri_CreateComputePipelinePermutation(device, traceLayout, shaders, "main", "USE_RAY_QUERY=1");
+                this.tracePipeline = device.createComputePipelinePermutation(traceLayout, shaders, "main", "USE_RAY_QUERY=1");
                 if (!this.tracePipeline) {
                     console.log("Cannot create the ray query pipeline");
                     return false;
                 }
             } else {
-                const desc = Nri_CreateRayTracingPipelineDesc();
-                const raygenGroup = Nri_RayTracingPipelineDescAddGroup(desc,
-                    Nri_RayTracingPipelineDescAddShader(desc, NriStage.RayGen, "RayGen"), -1, -1);
-                const missGroup = Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.Miss, "Miss"), -1, -1);
-                const closestHit = Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, "ClosestHit");
-                const anyHit = Nri_RayTracingPipelineDescAddShader(desc, NriStage.AnyHit, "AnyHit");
-                const hitGroup = Nri_RayTracingPipelineDescAddGroup(desc, closestHit, anyHit, -1);
-                const pipeline = Nri_CreateRayTracingPipelineFromDescPermutation(device, traceLayout, shaders, "USE_RAY_QUERY=0", desc,
+                const desc = NriRayTracingPipelineDesc.create();
+                const raygenGroup = desc.addGroup(
+                    desc.addShader(NriStage.RayGen, "RayGen"), -1, -1);
+                const missGroup = desc.addGroup(desc.addShader(NriStage.Miss, "Miss"), -1, -1);
+                const closestHit = desc.addShader(NriStage.ClosestHit, "ClosestHit");
+                const anyHit = desc.addShader(NriStage.AnyHit, "AnyHit");
+                const hitGroup = desc.addGroup(closestHit, anyHit, -1);
+                const pipeline = device.createRayTracingPipelineFromDescPermutation(traceLayout, shaders, "USE_RAY_QUERY=0", desc,
                     PAYLOAD_SIZE, ATTRIBUTE_SIZE, 1);
-                Nri_DestroyRayTracingPipelineDesc(desc);
+                desc.destroy();
                 this.tracePipeline = pipeline;
                 if (!pipeline) {
                     console.log("Cannot create the ray tracing pipeline");
@@ -509,7 +509,7 @@ namespace RtBindlessNri {
                 }
                 const missGroups: int[] = [missGroup];
                 const hitGroups: int[] = [hitGroup];
-                this.shaderTable = Nri_CreateShaderTableFromGroups(device, this.queue, pipeline, raygenGroup, Ref(missGroups[0]), 1,
+                this.shaderTable = device.createShaderTableFromGroups(this.queue, pipeline, raygenGroup, Ref(missGroups[0]), 1,
                     Ref(hitGroups[0]), 1);
                 if (!this.shaderTable) {
                     console.log("Cannot create the shader table");
@@ -517,7 +517,7 @@ namespace RtBindlessNri {
                 }
             }
 
-            this.skinningPipeline = Nri_CreateComputePipeline(device, skinningLayout, `shaders/framework/${folder}/skinning_cs.bin`, "main");
+            this.skinningPipeline = device.createComputePipeline(skinningLayout, `shaders/framework/${folder}/skinning_cs.bin`, "main");
             if (!this.skinningPipeline) {
                 console.log("Cannot load Donut's skinning shader");
                 return false;
@@ -526,7 +526,7 @@ namespace RtBindlessNri {
         }
 
         // A view kept for destruction (null passes through).
-        keepView(view: NriDescriptorHandle | null): NriDescriptorHandle | null {
+        keepView(view: NriDescriptor | null): NriDescriptor | null {
             if (view) {
                 this.perFrameViews.push(view);
             }
@@ -535,7 +535,7 @@ namespace RtBindlessNri {
 
         // The sampler; the per-frame buffers (a slot per frame in flight); the queued frames and their
         // sets (the trace's, the skinning's per skinned instance); the bindless arrays' sets, the blits'.
-        createDescriptorSets(device: NriDeviceHandle, queuedFrameNum: int) {
+        createDescriptorSets(device: NriDevice, queuedFrameNum: int) {
             const scene = this.scene;
             const traceLayout = this.traceLayout;
             const skinningLayout = this.skinningLayout;
@@ -551,46 +551,46 @@ namespace RtBindlessNri {
             if (!geometryView || !materialView || !skinnedStorageView) {
                 return false;
             }
-            const anisotropicWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 16);
+            const anisotropicWrap = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 16);
             this.anisotropicWrap = anisotropicWrap;
 
             // The lighting constants: the sun's LightConstants and the ambient color don't change.
-            const viewSize = Nri_GetDonutConstantsSize(0);
-            const lightSize = Nri_GetDonutConstantsSize(2);
+            const viewSize = Nri.getDonutConstantsSize(0);
+            const lightSize = Nri.getDonutConstantsSize(2);
             this.lightingViewOffset = this.lightOffset + lightSize / 4;
             this.lightingConstants = zeros(this.lightingViewOffset + viewSize / 4);
             for (let i = 0; i < 4; i++) {
                 this.lightingConstants[i] = AMBIENT;
             }
-            Nri_FillDonutDirectionalLightConstants(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2], SUN_ANGULAR_SIZE, SUN_IRRADIANCE,
+            Nri.fillDonutDirectionalLightConstants(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2], SUN_ANGULAR_SIZE, SUN_IRRADIANCE,
                 Ref(this.lightingConstants[this.lightOffset]));
             this.constantsStride = align(this.lightingConstants.length * 4, CONSTANTS_ALIGNMENT);
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.constantsStride, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * this.constantsStride, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
 
             // The instances (StructuredBuffer<InstanceData>), the joint matrices (ByteAddressBuffer:
             // 4-byte structures).
-            const instanceDataStride = Nri_GetDonutAnimatedSceneInstanceDataStride(scene);
-            const instanceDataSize = Nri_GetDonutAnimatedSceneInstanceDataSize(scene);
+            const instanceDataStride = scene.getInstanceDataStride();
+            const instanceDataSize = scene.getInstanceDataSize();
             this.instanceStride = slotSize(instanceDataSize, instanceDataStride);
-            const instanceBuffer = Nri_CreateHostBufferWithStride(device, queuedFrameNum * this.instanceStride, NriBufferUsage.StructuredBuffer,
+            const instanceBuffer = device.createHostBufferWithStride(queuedFrameNum * this.instanceStride, NriBufferUsage.StructuredBuffer,
                 instanceDataStride);
             this.instanceBuffer = instanceBuffer;
             let jointFrameStride = 0;
             for (let k = 0; k < this.skinnedCount; k++) {
-                const stride = slotSize(Nri_GetDonutSkinnedJointCount(scene, k) * JOINT_MATRIX_SIZE, 4);
+                const stride = slotSize(scene.getSkinnedJointCount(k) * JOINT_MATRIX_SIZE, 4);
                 this.jointOffsets.push(jointFrameStride);
                 this.jointStrides.push(stride);
                 jointFrameStride += stride;
             }
             this.jointFrameStride = Math.max(jointFrameStride, CONSTANTS_ALIGNMENT);
-            const jointBuffer = Nri_CreateHostBufferWithStride(device, queuedFrameNum * this.jointFrameStride, NriBufferUsage.StructuredBuffer, 4);
+            const jointBuffer = device.createHostBufferWithStride(queuedFrameNum * this.jointFrameStride, NriBufferUsage.StructuredBuffer, 4);
             this.jointBuffer = jointBuffer;
 
             const textureCount = this.textures.views.length;
             const blitCount = this.textures.blitSetCount();
             const skinningSetCount = queuedFrameNum * this.skinnedCount;
-            const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructuresAndStorageBuffers(device,
+            const descriptorPool = device.createDescriptorPoolWithAccelerationStructuresAndStorageBuffers(
                 queuedFrameNum + 2 + skinningSetCount + 1 + blitCount,
                 queuedFrameNum + 1 + blitCount,
                 queuedFrameNum,
@@ -607,54 +607,54 @@ namespace RtBindlessNri {
 
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const traceSet = Nri_AllocateDescriptorSet(descriptorPool, traceLayout, 0, 0);
-                const constantsView = this.keepView(Nri_CreateConstantBufferView(constantBuffer, i * this.constantsStride, this.constantsStride));
-                const instanceView = this.keepView(Nri_CreateStructuredBufferRangeView(instanceBuffer, i * this.instanceStride,
+                const traceSet = descriptorPool.allocateDescriptorSet(traceLayout, 0, 0);
+                const constantsView = this.keepView(constantBuffer.createConstantView(i * this.constantsStride, this.constantsStride));
+                const instanceView = this.keepView(instanceBuffer.createStructuredRangeView(i * this.instanceStride,
                     this.instanceStride, 0));
                 if (!traceSet || !constantsView || !instanceView) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                Nri_UpdateDescriptor(traceSet, 0, 0, constantsView);
-                Nri_UpdateDescriptor(traceSet, 1, 0, topLevelASView);
-                Nri_UpdateDescriptor(traceSet, 2, 0, instanceView);
-                Nri_UpdateDescriptor(traceSet, 2, 1, geometryView);
-                Nri_UpdateDescriptor(traceSet, 2, 2, materialView);
-                Nri_UpdateDescriptor(traceSet, 3, 0, anisotropicWrap);
-                Nri_UpdateDescriptor(traceSet, 4, 0, colorBufferStorage);
+                traceSet.updateDescriptor(0, 0, constantsView);
+                traceSet.updateDescriptor(1, 0, topLevelASView);
+                traceSet.updateDescriptor(2, 0, instanceView);
+                traceSet.updateDescriptor(2, 1, geometryView);
+                traceSet.updateDescriptor(2, 2, materialView);
+                traceSet.updateDescriptor(3, 0, anisotropicWrap);
+                traceSet.updateDescriptor(4, 0, colorBufferStorage);
 
                 // A skinned instance's set: the scene's vertices, its joint matrices, the skinned vertices.
-                const skinningSets: NriDescriptorSetHandle[] = [];
+                const skinningSets: NriDescriptorSet[] = [];
                 for (let k = 0; k < this.skinnedCount; k++) {
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, skinningLayout, 0, 0);
-                    const jointView = this.keepView(Nri_CreateStructuredBufferRangeView(jointBuffer,
+                    const set = descriptorPool.allocateDescriptorSet(skinningLayout, 0, 0);
+                    const jointView = this.keepView(jointBuffer.createStructuredRangeView(
                         i * this.jointFrameStride + this.jointOffsets[k], this.jointStrides[k], 0));
                     if (!set || !jointView) {
                         console.log("Cannot create the descriptor sets");
                         return false;
                     }
-                    Nri_UpdateDescriptor(set, 0, 0, this.bindlessViews[0]);
-                    Nri_UpdateDescriptor(set, 0, 1, jointView);
-                    Nri_UpdateDescriptor(set, 1, 0, skinnedStorageView);
+                    set.updateDescriptor(0, 0, this.bindlessViews[0]);
+                    set.updateDescriptor(0, 1, jointView);
+                    set.updateDescriptor(1, 0, skinnedStorageView);
                     skinningSets.push(set);
                 }
                 this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), traceSet, skinningSets));
             }
 
             // The bindless arrays: the buffers by GeometryData's numbers; the textures by number.
-            const bufferSet = Nri_AllocateDescriptorSet(descriptorPool, traceLayout, 1, 0);
+            const bufferSet = descriptorPool.allocateDescriptorSet(traceLayout, 1, 0);
             if (!bufferSet) {
                 console.log("Cannot create the descriptor sets");
                 return false;
             }
             this.bindlessSets.push(bufferSet);
             for (let b = 0; b < BINDLESS_BUFFER_COUNT; b++) {
-                Nri_UpdateDescriptor(bufferSet, 0, b, this.bindlessViews[b]);
+                bufferSet.updateDescriptor(0, b, this.bindlessViews[b]);
             }
             let textureSet = bufferSet;
             let textureRange = 1;
             if (!this.vulkan) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, traceLayout, 2, 0);
+                const set = descriptorPool.allocateDescriptorSet(traceLayout, 2, 0);
                 if (!set) {
                     console.log("Cannot create the descriptor sets");
                     return false;
@@ -664,7 +664,7 @@ namespace RtBindlessNri {
                 textureRange = 0;
             }
             for (let t = 0; t < textureCount; t++) {
-                Nri_UpdateDescriptor(textureSet, textureRange, t, this.textures.views[t]);
+                textureSet.updateDescriptor(textureRange, t, this.textures.views[t]);
             }
 
             this.blitSet = this.blit.createSet(descriptorPool, colorBufferView);
@@ -685,10 +685,10 @@ namespace RtBindlessNri {
         // previous one. True if they posed the scene.
         animate(): boolean {
             // Donut's test mode animates every frame by 1/60 s (a float).
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             if (!this.test) {
                 this.camera.animate(this.sample, elapsedSeconds, true);
-                const spaceDown = Nri_IsKeyPressed(this.sample, NriKey.Space) != 0;
+                const spaceDown = this.sample.isKeyPressed(NriKey.Space) != 0;
                 if (spaceDown && !this.spaceDown) {
                     this.enableAnimations = !this.enableAnimations;
                 }
@@ -700,12 +700,12 @@ namespace RtBindlessNri {
             }
             this.wallclockTime += elapsedSeconds;
             let offset = 0.0;
-            const animationCount = Nri_GetDonutAnimationCount(scene);
+            const animationCount = scene.getAnimationCount();
             for (let i = 0; i < animationCount; i++) {
-                const duration = Nri_GetDonutAnimationDuration(scene, i);
+                const duration = scene.getAnimationDuration(i);
                 const cycles = (this.wallclockTime + offset) / duration;
                 const animationTime = (cycles - Math.floor(cycles)) * duration;
-                Nri_ApplyDonutAnimation(scene, i, animationTime);
+                scene.applyAnimation(i, animationTime);
                 offset += 1.0;
             }
             return true;
@@ -721,10 +721,10 @@ namespace RtBindlessNri {
             if (!scene || !constantBuffer || !instanceBuffer || !jointBuffer) {
                 return;
             }
-            Nri_RefreshDonutAnimatedScene(scene);
-            Nri_WriteDonutAnimatedSceneInstances(scene, instanceBuffer, queuedFrameIndex * this.instanceStride);
+            scene.refresh();
+            scene.writeInstances(instanceBuffer, queuedFrameIndex * this.instanceStride);
             for (let k = 0; k < this.skinnedCount; k++) {
-                Nri_WriteDonutSkinnedJoints(scene, k, jointBuffer, queuedFrameIndex * this.jointFrameStride + this.jointOffsets[k]);
+                scene.writeSkinnedJoints(k, jointBuffer, queuedFrameIndex * this.jointFrameStride + this.jointOffsets[k]);
             }
 
             const worldToView = this.camera.worldToView();
@@ -733,15 +733,15 @@ namespace RtBindlessNri {
                 this.viewMatrix[i] = worldToView[i];
                 this.projMatrix[i] = projection[i];
             }
-            Nri_FillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
+            Nri.fillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
                 Ref(this.lightingConstants[this.lightingViewOffset]));
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * this.constantsStride, Ref(this.lightingConstants[0]),
+            constantBuffer.write(queuedFrameIndex * this.constantsStride, Ref(this.lightingConstants[0]),
                 this.lightingConstants.length * 4);
         }
 
         // Scene::UpdateSkinnedMeshes: each skinned instance's vertices skinned by Donut's skinning shader
         // into the skinned vertex buffer, which the BLAS builds and the trace then read.
-        recordSkinning(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordSkinning(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const scene = this.scene;
             const layout = this.skinningLayout;
             const pipeline = this.skinningPipeline;
@@ -750,24 +750,24 @@ namespace RtBindlessNri {
                 return;
             }
             if (this.skinned) {
-                Nri_CmdBufferBarrier(commandBuffer, skinnedVertexBuffer, NriBufferState.AccelerationStructureInput, NriBufferState.Storage);
+                commandBuffer.bufferBarrier(skinnedVertexBuffer, NriBufferState.AccelerationStructureInput, NriBufferState.Storage);
             }
-            Nri_CmdSetComputePipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
+            commandBuffer.setComputePipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
             for (let k = 0; k < this.skinnedCount; k++) {
-                Nri_GetDonutSkinningConstants(scene, k, Ref(this.skinningConstants[0]));
-                Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, queuedFrame.skinningSets[k]);
-                Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.skinningConstants[0]), SKINNING_CONSTANTS_WORDS * 4);
-                const vertexCount = Nri_GetDonutSkinnedVertexCount(scene, k);
-                Nri_CmdDispatch(commandBuffer, Math.floor((vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE), 1, 1);
+                scene.getSkinningConstants(k, Ref(this.skinningConstants[0]));
+                commandBuffer.setComputeDescriptorSet(0, queuedFrame.skinningSets[k]);
+                commandBuffer.setComputeRootConstants(0, Ref(this.skinningConstants[0]), SKINNING_CONSTANTS_WORDS * 4);
+                const vertexCount = scene.getSkinnedVertexCount(k);
+                commandBuffer.dispatch(Math.floor((vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE), 1, 1);
             }
-            Nri_CmdBufferBarrier(commandBuffer, skinnedVertexBuffer, NriBufferState.Storage, NriBufferState.AccelerationStructureInput);
+            commandBuffer.bufferBarrier(skinnedVertexBuffer, NriBufferState.Storage, NriBufferState.AccelerationStructureInput);
             this.skinned = true;
         }
 
         // The rays (or ray queries): per pixel a primary ray and a shadow ray towards the sun, shading
         // the pixel into the shaded color, which then goes to the blit.
-        recordTrace(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordTrace(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const colorBuffer = this.colorBuffer;
             const layout = this.traceLayout;
             const pipeline = this.tracePipeline;
@@ -776,18 +776,18 @@ namespace RtBindlessNri {
             }
             if (this.useRayQuery) {
                 if (this.colorBufferState != NriTextureState.Storage) {
-                    Nri_CmdTextureBarrier(commandBuffer, colorBuffer, this.colorBufferState, NriTextureState.Storage);
+                    commandBuffer.textureBarrier(colorBuffer, this.colorBufferState, NriTextureState.Storage);
                 }
-                Nri_CmdSetComputePipelineLayout(commandBuffer, layout);
-                Nri_CmdSetPipeline(commandBuffer, pipeline);
-                Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, queuedFrame.traceSet);
+                commandBuffer.setComputePipelineLayout(layout);
+                commandBuffer.setPipeline(pipeline);
+                commandBuffer.setComputeDescriptorSet(0, queuedFrame.traceSet);
                 for (let k = 0; k < this.bindlessSets.length; k++) {
-                    Nri_CmdSetComputeDescriptorSet(commandBuffer, 1 + k, this.bindlessSets[k]);
+                    commandBuffer.setComputeDescriptorSet(1 + k, this.bindlessSets[k]);
                 }
                 const groupsX = Math.floor((this.width + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
                 const groupsY = Math.floor((this.height + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
-                Nri_CmdDispatch(commandBuffer, groupsX, groupsY, 1);
-                Nri_CmdTextureBarrier(commandBuffer, colorBuffer, NriTextureState.Storage, NriTextureState.ShaderResource);
+                commandBuffer.dispatch(groupsX, groupsY, 1);
+                commandBuffer.textureBarrier(colorBuffer, NriTextureState.Storage, NriTextureState.ShaderResource);
             } else {
                 const shaderTable = this.shaderTable;
                 if (!shaderTable) {
@@ -795,16 +795,16 @@ namespace RtBindlessNri {
                 }
                 // (From its creation, a storage texture already: D3D12 wants the states to differ.)
                 if (this.colorBufferState != NriTextureState.Storage) {
-                    Nri_CmdTextureBarrier(commandBuffer, colorBuffer, this.colorBufferState, NriTextureState.RayTracingStorage);
+                    commandBuffer.textureBarrier(colorBuffer, this.colorBufferState, NriTextureState.RayTracingStorage);
                 }
-                Nri_CmdSetRayTracingPipelineLayout(commandBuffer, layout);
-                Nri_CmdSetPipeline(commandBuffer, pipeline);
-                Nri_CmdSetRayTracingDescriptorSet(commandBuffer, 0, queuedFrame.traceSet);
+                commandBuffer.setRayTracingPipelineLayout(layout);
+                commandBuffer.setPipeline(pipeline);
+                commandBuffer.setRayTracingDescriptorSet(0, queuedFrame.traceSet);
                 for (let k = 0; k < this.bindlessSets.length; k++) {
-                    Nri_CmdSetRayTracingDescriptorSet(commandBuffer, 1 + k, this.bindlessSets[k]);
+                    commandBuffer.setRayTracingDescriptorSet(1 + k, this.bindlessSets[k]);
                 }
-                Nri_CmdDispatchRays(commandBuffer, shaderTable, this.width, this.height);
-                Nri_CmdTextureBarrier(commandBuffer, colorBuffer, NriTextureState.RayTracingStorage, NriTextureState.ShaderResource);
+                commandBuffer.dispatchRays(shaderTable, this.width, this.height);
+                commandBuffer.textureBarrier(colorBuffer, NriTextureState.RayTracingStorage, NriTextureState.ShaderResource);
             }
             this.colorBufferState = NriTextureState.ShaderResource;
         }
@@ -839,38 +839,38 @@ namespace RtBindlessNri {
                 return;
             }
             const commandBuffer = queuedFrame.commandBuffer;
-            Nri_BeginCommandBuffer(commandBuffer);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.begin();
+            commandBuffer.setDescriptorPool(descriptorPool);
             this.textures.recordBlits(commandBuffer);
 
             const skin = posed || !this.skinned;
             if (skin) {
                 this.recordSkinning(commandBuffer, queuedFrame);
             }
-            Nri_CmdBuildDonutAnimatedSceneAccelStructs(commandBuffer, accelStructs, scene, skinnedVertexBuffer, queuedFrameIndex,
+            commandBuffer.buildDonutAnimatedSceneAccelStructs(accelStructs, scene, skinnedVertexBuffer, queuedFrameIndex,
                 skin && this.skinnedCount > 0 ? 1 : 0);
             this.recordTrace(commandBuffer, queuedFrame);
 
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
             const blitSet = this.blitSet;
             if (blitSet) {
                 this.blit.record(commandBuffer, blitSet, this.width, this.height);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
@@ -884,12 +884,12 @@ namespace RtBindlessNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -899,16 +899,16 @@ namespace RtBindlessNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const view of this.perFrameViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const view of this.bindlessViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 this.destroyDescriptor(this.skinnedStorageView);
                 this.destroyDescriptor(this.geometryView);
@@ -920,11 +920,11 @@ namespace RtBindlessNri {
                 this.destroyDescriptor(this.topLevelASView);
                 const accelStructs = this.accelStructs;
                 if (accelStructs) {
-                    Nri_DestroyDonutAnimatedSceneAccelStructs(accelStructs);
+                    accelStructs.destroy();
                 }
                 const shaderTable = this.shaderTable;
                 if (shaderTable) {
-                    Nri_DestroyShaderTable(shaderTable);
+                    shaderTable.destroy();
                 }
                 this.destroyBuffer(this.vertexBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -941,53 +941,53 @@ namespace RtBindlessNri {
                 this.destroyLayout(this.skinningLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
             const scene = this.scene;
             if (scene) {
-                Nri_DestroyDonutAnimatedScene(scene);
+                scene.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const rtBindless = new RtBindless(sample);
         // --scene <path>: relative to the executable's directory. -rayQuery: inline ray queries in a
         // compute shader instead of a ray tracing pipeline. -noUI: accepted (the example has no UI).
-        Nri_AddExampleOptionWithValues(sample, "--scene", 1);
-        Nri_AddExampleOption(sample, "-rayQuery");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOptionWithValues("--scene", 1);
+        sample.addExampleOption("-rayQuery");
+        sample.addExampleOption("-noUI");
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "--scene" && i + 1 < argc) {
-                rtBindless.scenePath = Nri_GetArg(argc, argv, i + 1);
+                rtBindless.scenePath = Nri.getArg(argc, argv, i + 1);
             } else if (arg == "-rayQuery") {
                 rtBindless.useRayQuery = true;
             }

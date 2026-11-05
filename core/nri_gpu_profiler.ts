@@ -9,15 +9,16 @@
 
 /// <reference path="nri/nri_interop.d.ts" />
 import { formatFixed } from "./text_format";
+import { NriBuffer, NriCommandBuffer, NriDevice, NriQueryPool } from "./nri";
 
 // The most ids a report names.
 const REPORT_TOP = 12;
 
 @final
 export class NriGpuProfiler {
-    private device: NriDeviceHandle | null = null;
-    private pool: NriQueryPoolHandle | null = null;
-    private readback: NriBufferHandle | null = null;
+    private device: NriDevice | null = null;
+    private pool: NriQueryPool | null = null;
+    private readback: NriBuffer | null = null;
     private querySize: int = 0;
     private capacity: int = 0;
     private every: int = 1;
@@ -33,17 +34,17 @@ export class NriGpuProfiler {
 
     // Timing every `every` frames, up to capacity timestamps a frame, ids named by names (an id is
     // its index); a report every reportFrames timed frames. False if timestamps can't be had.
-    init(device: NriDeviceHandle, names: string[], capacity: int, every: int, reportFrames: int): boolean {
-        const pool = Nri_CreateTimestampQueryPool(device, capacity);
+    init(device: NriDevice, names: string[], capacity: int, every: int, reportFrames: int): boolean {
+        const pool = device.createTimestampQueryPool(capacity);
         if (!pool) {
             return false;
         }
         this.pool = pool;
-        this.querySize = Nri_GetQuerySize(pool);
+        this.querySize = pool.getQuerySize();
         if (this.querySize <= 0) {
             return false;
         }
-        this.readback = Nri_CreateReadbackBuffer(device, capacity * this.querySize);
+        this.readback = device.createReadbackBuffer(capacity * this.querySize);
         if (!this.readback) {
             return false;
         }
@@ -59,36 +60,36 @@ export class NriGpuProfiler {
     }
 
     // Frame frameIndex timed, if it's one to time (and the last one's were read): its first timestamp.
-    begin(commandBuffer: NriCommandBufferHandle, frameIndex: int) {
+    begin(commandBuffer: NriCommandBuffer, frameIndex: int) {
         const pool = this.pool;
         if (!pool || this.pendingFrame >= 0 || frameIndex % this.every != 0) {
             return;
         }
-        Nri_CmdResetQueries(commandBuffer, pool, 0, this.capacity);
-        Nri_CmdWriteTimestamp(commandBuffer, pool, 0);
+        commandBuffer.resetQueries(pool, 0, this.capacity);
+        commandBuffer.writeTimestamp(pool, 0);
         this.marks = [];
         this.recording = true;
     }
 
     // A timestamp after the work id, if this frame's timed (and there's room).
-    mark(commandBuffer: NriCommandBufferHandle, id: int) {
+    mark(commandBuffer: NriCommandBuffer, id: int) {
         const pool = this.pool;
         if (!pool || !this.recording || this.marks.length + 1 >= this.capacity) {
             return;
         }
         this.marks.push(id);
-        Nri_CmdWriteTimestamp(commandBuffer, pool, this.marks.length);
+        commandBuffer.writeTimestamp(pool, this.marks.length);
     }
 
     // The timed frame's timestamps copied for reading.
-    end(commandBuffer: NriCommandBufferHandle, frameIndex: int) {
+    end(commandBuffer: NriCommandBuffer, frameIndex: int) {
         const pool = this.pool;
         const readback = this.readback;
         if (!this.recording || !pool || !readback) {
             return;
         }
         this.recording = false;
-        Nri_CmdCopyQueries(commandBuffer, pool, 0, this.marks.length + 1, readback, 0);
+        commandBuffer.copyQueries(pool, 0, this.marks.length + 1, readback, 0);
         this.pendingFrame = frameIndex;
     }
 
@@ -102,7 +103,7 @@ export class NriGpuProfiler {
         }
         this.pendingFrame = -1;
         for (let i = 0; i < this.marks.length; i++) {
-            const ms = Nri_ReadTimestampIntervalMs(device, readback, i * this.querySize, (i + 1) * this.querySize);
+            const ms = device.readTimestampIntervalMs(readback, i * this.querySize, (i + 1) * this.querySize);
             if (ms >= 0.0) {
                 this.sums[this.marks[i]] += ms;
             }
@@ -146,11 +147,11 @@ export class NriGpuProfiler {
     destroy() {
         const pool = this.pool;
         if (pool) {
-            Nri_DestroyQueryPool(pool);
+            pool.destroy();
         }
         const readback = this.readback;
         if (readback) {
-            Nri_DestroyBuffer(readback);
+            readback.destroy();
         }
         this.pool = null;
         this.readback = null;

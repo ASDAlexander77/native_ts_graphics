@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandBuffer, NriDevice, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample } from "../../core/nri";
 
 namespace BufferDeviceAddressNri {
     // buffer_device_address, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead
@@ -128,20 +129,20 @@ namespace BufferDeviceAddressNri {
     // descriptor sets, no vertex buffers. The vertex shader loads its instance's mesh address from
     // the table and its vertex by index. Vulkan only: D3D shaders have no pointers.
     class BufferDeviceAddress {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format and their views'.
         private swapChainFormat: NriFormat = 0;
         private swapChainViewFormat: NriFormat = 0;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private computePipeline: NriPipelineHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private meshBuffers: NriBufferHandle[] = [];
-        private pointerBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private computePipeline: NriPipeline | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private meshBuffers: NriBuffer[] = [];
+        private pointerBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
         private width: int = 0;
         private height: int = 0;
         // Set by initialize when the example can't run ("" otherwise).
@@ -159,11 +160,11 @@ namespace BufferDeviceAddressNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < MESH_COUNT * 2; i++) {
                 this.pointers.push(0.0);
             }
@@ -183,13 +184,13 @@ namespace BufferDeviceAddressNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -202,19 +203,19 @@ namespace BufferDeviceAddressNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -237,26 +238,26 @@ namespace BufferDeviceAddressNri {
                 zeros.push(0.0);
             }
             for (let i = 0; i < MESH_COUNT; i++) {
-                const buffer = Nri_CreateStorageBuffer(device, this.queue, Ref(zeros[0]), MESH_WIDTH * MESH_HEIGHT * POSITION_SIZE, POSITION_SIZE);
+                const buffer = device.createStorageBuffer(this.queue, Ref(zeros[0]), MESH_WIDTH * MESH_HEIGHT * POSITION_SIZE, POSITION_SIZE);
                 if (!buffer) {
                     console.log("Cannot create the meshes' buffers");
                     return 0;
                 }
                 this.meshBuffers.push(buffer);
-                if (Nri_GetBufferDeviceAddress(device, buffer, Ref(this.pointers[i * 2])) == 0) {
+                if (device.getBufferAddress(buffer, Ref(this.pointers[i * 2])) == 0) {
                     this.unsupportedReason = "The device doesn't support buffer device addresses (bufferDeviceAddress).";
                     return 0;
                 }
             }
-            const pointerBuffer = Nri_CreateHostBufferWithStride(device, MESH_COUNT * ADDRESS_SIZE, NriBufferUsage.StructuredBuffer, ADDRESS_SIZE);
+            const pointerBuffer = device.createHostBufferWithStride(MESH_COUNT * ADDRESS_SIZE, NriBufferUsage.StructuredBuffer, ADDRESS_SIZE);
             this.pointerBuffer = pointerBuffer;
             if (!pointerBuffer) {
                 console.log("Cannot create the pointer buffer");
                 return 0;
             }
-            Nri_WriteBuffer(pointerBuffer, 0, Ref(this.pointers[0]), MESH_COUNT * ADDRESS_SIZE);
-            Nri_GetBufferDeviceAddress(device, pointerBuffer, Ref(this.pushCompute[0]));
-            Nri_GetBufferDeviceAddress(device, pointerBuffer, Ref(this.pushVertex[16]));
+            pointerBuffer.write(0, Ref(this.pointers[0]), MESH_COUNT * ADDRESS_SIZE);
+            device.getBufferAddress(pointerBuffer, Ref(this.pushCompute[0]));
+            device.getBufferAddress(pointerBuffer, Ref(this.pushVertex[16]));
 
             // create_index_buffer: the strips' 16-bit indices, two to an int.
             const indices16: int[] = [];
@@ -274,17 +275,17 @@ namespace BufferDeviceAddressNri {
             for (let i = 0; i < indices16.length; i += 2) {
                 indices.push(indices16[i] | (indices16[i + 1] << 16));
             }
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
 
             // The pipelines' layouts: push constants only.
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, PUSH_COMPUTE_FLOATS * 4, NriStage.Compute);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(drawLayoutDesc, 0, PUSH_VERTEX_FLOATS * 4, NriStage.Vertex);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootConstants(0, PUSH_COMPUTE_FLOATS * 4, NriStage.Compute);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRootConstants(0, PUSH_VERTEX_FLOATS * 4, NriStage.Vertex);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout || !this.indexBuffer) {
@@ -296,28 +297,28 @@ namespace BufferDeviceAddressNri {
             // the sample's: triangle strips with primitive restart, no culling, no depth test, no
             // vertex attributes.
             const shaders = "shaders/buffer_device_address/spirv/buffer_device_address";
-            this.computePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_update_vbo_cs.bin`, "update_vbo_cs");
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_render_vs.bin`, "render_vs") != 0;
+            this.computePipeline = device.createComputePipeline(computeLayout, `${shaders}_update_vbo_cs.bin`, "update_vbo_cs");
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_render_vs.bin`, "render_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_render_ps.bin`, "render_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_render_ps.bin`, "render_ps") != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetPrimitiveRestart(desc, NriIndexType.UInt16);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setPrimitiveRestart(NriIndexType.UInt16);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.computePipeline || !this.drawPipeline) {
                 console.log("Cannot load the buffer device address shaders");
                 return 0;
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -330,14 +331,14 @@ namespace BufferDeviceAddressNri {
 
         // render: the time advances 0.2 a second, kept to a fraction.
         update() {
-            const elapsedSeconds = this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? 1.0 / 60.0 : this.sample.getFrameTime();
             this.accumulatedTime = Math.fround(this.accumulatedTime + Math.fround(0.2 * Math.fround(elapsedSeconds)));
             this.accumulatedTime = Math.fround(this.accumulatedTime - Math.floor(this.accumulatedTime));
         }
 
         // update_meshlets: the compute shader writes every mesh through its address. The barriers
         // before and after are on the meshes' buffers, which the shaders reach without descriptors.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const computePipeline = this.computePipeline;
             if (!computeLayout || !computePipeline) {
@@ -345,24 +346,24 @@ namespace BufferDeviceAddressNri {
             }
             if (this.meshesDrawn) {
                 for (const buffer of this.meshBuffers) {
-                    Nri_CmdBufferBarrier(commandBuffer, buffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
+                    commandBuffer.bufferBarrier(buffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
                 }
             }
             this.pushCompute[2] = this.accumulatedTime;
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, computePipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.pushCompute[0]), PUSH_COMPUTE_FLOATS * 4);
-            Nri_CmdDispatch(commandBuffer, GROUPS_X, GROUPS_Y, MESH_COUNT);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(computePipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.pushCompute[0]), PUSH_COMPUTE_FLOATS * 4);
+            commandBuffer.dispatch(GROUPS_X, GROUPS_Y, MESH_COUNT);
             for (const buffer of this.meshBuffers) {
-                Nri_CmdBufferBarrier(commandBuffer, buffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
+                commandBuffer.bufferBarrier(buffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
             }
             this.meshesDrawn = true;
         }
 
         // The render pass: an ad-hoc perspective (90 degrees, depth 1 to 100) from (0, 0, 5), its
         // clip y negated for Donut's shaders, and the table's address; a mesh per instance (between
-        // Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle) {
+        // NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const indexBuffer = this.indexBuffer;
@@ -375,13 +376,13 @@ namespace BufferDeviceAddressNri {
             for (let i = 0; i < 16; i++) {
                 this.pushVertex[i] = i % 4 == 1 ? -viewProjection[i] : viewProjection[i];
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.pushVertex[0]), PUSH_VERTEX_FLOATS * 4);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt16);
-            Nri_CmdDrawIndexed(commandBuffer, MESH_NUM_INDICES, MESH_COUNT, 0, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setRootConstants(0, Ref(this.pushVertex[0]), PUSH_VERTEX_FLOATS * 4);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt16);
+            commandBuffer.drawIndexed(MESH_NUM_INDICES, MESH_COUNT, 0, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -392,7 +393,7 @@ namespace BufferDeviceAddressNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its
+        // The window was resized (NriSample.useResizableWindow): the swap chain made again at its
         // size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -417,26 +418,26 @@ namespace BufferDeviceAddressNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordCompute(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
                 this.recordDraw(commandBuffer);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -454,12 +455,12 @@ namespace BufferDeviceAddressNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -469,9 +470,9 @@ namespace BufferDeviceAddressNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const buffer of this.meshBuffers) {
-                    Nri_DestroyBuffer(buffer);
+                    buffer.destroy();
                 }
                 this.destroyBuffer(this.pointerBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -480,35 +481,35 @@ namespace BufferDeviceAddressNri {
                 this.destroyPipeline(this.drawPipeline);
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const bufferDeviceAddress = new BufferDeviceAddress(sample);
         return bufferDeviceAddress.run(argc, argv);
     }

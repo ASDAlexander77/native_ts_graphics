@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriDescriptor, NriDevice, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace DepthBoundsTestNri {
     // depth_bounds_test, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -60,16 +61,16 @@ namespace DepthBoundsTestNri {
     // it drew first lies within the bounds, which close in and open up from [0, 1] to about
     // [0.23, 0.77] and back as the frames go by (one step a frame, as the sample's at 60 Hz).
     class DepthBoundsTest {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private pipelineLayout: NriPipelineLayoutHandle;
-        private depthOnlyPipeline: NriPipelineHandle | null = null;
-        private boundsPipeline: NriPipelineHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private pipelineLayout: NriPipelineLayout;
+        private depthOnlyPipeline: NriPipeline | null = null;
+        private boundsPipeline: NriPipeline | null = null;
         private depthBoundsTestSupported: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -80,11 +81,11 @@ namespace DepthBoundsTestNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -95,11 +96,11 @@ namespace DepthBoundsTestNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -110,36 +111,36 @@ namespace DepthBoundsTestNri {
         }
 
         // The sample's two pipeline states, for the swap chain's format and D32.
-        createPipelines(graphicsAPI: NriGraphicsAPI, device: NriDeviceHandle, colorFormat: NriFormat) {
+        createPipelines(graphicsAPI: NriGraphicsAPI, device: NriDevice, colorFormat: NriFormat) {
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/depth_bounds_test/${folder}/depth_bounds_test`;
             for (let i = 0; i < 2; i++) {
-                const desc = Nri_CreatePipelineDesc();
-                let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
+                const desc = NriPipelineDesc.create();
+                let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
                 if (loaded) {
-                    loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
+                    loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
                 }
-                Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-                Nri_PipelineDescAddVertexAttribute(desc, "COLOR", NriFormat.RGBA32_SFLOAT, 12);
+                desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+                desc.addVertexAttribute("COLOR", NriFormat.RGBA32_SFLOAT, 12);
                 if (i == 0) {
                     // Depth only: the default depth state (less, writes), no color written.
-                    Nri_PipelineDescSetColor(desc, colorFormat, NriColorWrite.None);
-                    Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+                    desc.setColor(colorFormat, NriColorWrite.None);
+                    desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
                 } else {
                     // The triangle with depth testing off and, where the device has it, the depth
                     // bounds test.
-                    Nri_PipelineDescSetColor(desc, colorFormat, NriColorWrite.RGBA);
-                    Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.None, 0, this.depthBoundsTestSupported ? 1 : 0);
+                    desc.setColor(colorFormat, NriColorWrite.RGBA);
+                    desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.None, 0, this.depthBoundsTestSupported ? 1 : 0);
                 }
                 if (loaded) {
-                    const pipeline = Nri_CreatePipelineFromDesc(device, this.pipelineLayout, desc);
+                    const pipeline = device.createPipelineFromDesc(this.pipelineLayout, desc);
                     if (i == 0) {
                         this.depthOnlyPipeline = pipeline;
                     } else {
                         this.boundsPipeline = pipeline;
                     }
                 }
-                Nri_DestroyPipelineDesc(desc);
+                desc.destroy();
             }
             if (!this.depthOnlyPipeline) {
                 return false;
@@ -151,23 +152,23 @@ namespace DepthBoundsTestNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
             // Without it the sample draws the whole triangle, as here.
-            this.depthBoundsTestSupported = Nri_IsFeatureSupported(device, NriFeature.DepthBoundsTest) != 0;
+            this.depthBoundsTestSupported = device.isFeatureSupported(NriFeature.DepthBoundsTest) != 0;
             const support = this.depthBoundsTestSupported ? "supported" : "not supported";
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)}), depth bounds test: ${support}`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()}), depth bounds test: ${support}`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.pipelineLayout = Nri_CreatePipelineLayout(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.pipelineLayout = device.createPipelineLayout();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: the sample's R8G8B8A8_UNORM back buffers, rendered into as they are.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -190,7 +191,7 @@ namespace DepthBoundsTestNri {
                 0.25, -y, 0.9, 0.0, 1.0, 0.0, 1.0,
                 -0.25, -y, 0.5, 0.0, 0.0, 1.0, 1.0,
             ];
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
             if (!this.vertexBuffer) {
                 console.log("Cannot create the vertex buffer");
                 return 0;
@@ -203,9 +204,9 @@ namespace DepthBoundsTestNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -220,30 +221,30 @@ namespace DepthBoundsTestNri {
         }
 
         // The depth buffer at the swap chain's size; false if it can't be made.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             if (!depthTexture) {
                 return false;
             }
             this.depthTexture = depthTexture;
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -253,7 +254,7 @@ namespace DepthBoundsTestNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -276,8 +277,8 @@ namespace DepthBoundsTestNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 const depthTexture = this.depthTexture;
                 const depthAttachment = this.depthAttachment;
                 const vertexBuffer = this.vertexBuffer;
@@ -285,36 +286,36 @@ namespace DepthBoundsTestNri {
                 const boundsPipeline = this.boundsPipeline;
                 if (depthTexture) {
                     if (depthAttachment) {
-                        Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                        Nri_CmdClearColor(commandBuffer, 0.392, 0.584, 0.929, 1.0);
-                        Nri_CmdClearDepth(commandBuffer, 1.0);
+                        commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                        commandBuffer.clearColor(0.392, 0.584, 0.929, 1.0);
+                        commandBuffer.clearDepth(1.0);
                         if (vertexBuffer) {
                             if (depthOnlyPipeline) {
                                 if (boundsPipeline) {
-                                    Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-                                    Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-                                    Nri_CmdSetPipelineLayout(commandBuffer, this.pipelineLayout);
-                                    Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_STRIDE);
+                                    commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+                                    commandBuffer.setScissor(0, 0, this.width, this.height);
+                                    commandBuffer.setPipelineLayout(this.pipelineLayout);
+                                    commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_STRIDE);
 
                                     // Render only the depth of the triangle to prime the depth value
                                     // of the triangle.
-                                    Nri_CmdSetPipeline(commandBuffer, depthOnlyPipeline);
-                                    Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+                                    commandBuffer.setPipeline(depthOnlyPipeline);
+                                    commandBuffer.draw(3, 1, 0, 0);
 
                                     // Move the depth bounds so we can see them move: [f, 1 - f], f in
                                     // [0.125, 0.25]. The test is against the depth primed above.
                                     // m_frameNumber: OnUpdate counts the frame before it's drawn.
                                     const frameNumber = frameIndex + 1;
                                     const f = Math.fround(0.125 + Math.fround(Math.fround(Math.sin(Math.fround((frameNumber & 0x7F) / 127.0))) * 0.125));
-                                    Nri_CmdSetPipeline(commandBuffer, boundsPipeline);
+                                    commandBuffer.setPipeline(boundsPipeline);
                                     if (this.depthBoundsTestSupported) {
-                                        Nri_CmdSetDepthBounds(commandBuffer, Math.fround(0.0 + f), Math.fround(1.0 - f));
+                                        commandBuffer.setDepthBounds(Math.fround(0.0 + f), Math.fround(1.0 - f));
                                     }
-                                    Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+                                    commandBuffer.draw(3, 1, 0, 0);
                                 }
                             }
                         }
-                        Nri_CmdEndRendering(commandBuffer);
+                        commandBuffer.endRendering();
                     }
                 }
 
@@ -323,13 +324,13 @@ namespace DepthBoundsTestNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -347,12 +348,12 @@ namespace DepthBoundsTestNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -362,36 +363,36 @@ namespace DepthBoundsTestNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const depthOnlyPipeline = this.depthOnlyPipeline;
                 if (depthOnlyPipeline) {
-                    Nri_DestroyPipeline(depthOnlyPipeline);
+                    depthOnlyPipeline.destroy();
                 }
                 const boundsPipeline = this.boundsPipeline;
                 if (boundsPipeline) {
-                    Nri_DestroyPipeline(boundsPipeline);
+                    boundsPipeline.destroy();
                 }
                 const vertexBuffer = this.vertexBuffer;
                 if (vertexBuffer) {
-                    Nri_DestroyBuffer(vertexBuffer);
+                    vertexBuffer.destroy();
                 }
                 this.destroyDepth();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
-                Nri_DestroyPipelineLayout(this.pipelineLayout);
+                this.pipelineLayout.destroy();
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const depthBoundsTest = new DepthBoundsTest(sample);
         return depthBoundsTest.run(argc, argv);
     }

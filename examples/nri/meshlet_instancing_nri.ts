@@ -7,13 +7,14 @@ import {
     XM_PI,
 } from "../../core/directx_math";
 import { SimpleCamera } from "../../core/simple_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriFile, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace MeshletInstancingNri {
     // meshlet_instancing, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
     // Donut and NVRHI: the same shaders (meshlet_instancing.hlsl's, the D3D12MeshShaders
     // MeshletInstancing sample's) and model loader (core/meshlet_model.cpp), through the NRI calls
     // core/nri/nri_interop.d.ts binds, as meshlet_render_nri draws. SimpleCamera's keys are Donut's
-    // Key values (GLFW's key codes), which Nri_IsKeyPressed takes.
+    // Key values (GLFW's key codes), which NriSample.isKeyPressed takes.
 
     const WINDOW_TITLE = "NRI Example: D3D12 Mesh Shader Instancing";
     const MESH_FILE = "media/meshlet_instancing/ToyRobot.bin";
@@ -61,8 +62,8 @@ namespace MeshletInstancingNri {
     // primitives) and their views, its index size, its meshlet subsets (offset, count pairs) with
     // their last meshlet's pack counts.
     class GpuMesh {
-        buffers: NriBufferHandle[] = [];
-        views: NriDescriptorHandle[] = [];
+        buffers: NriBuffer[] = [];
+        views: NriDescriptor[] = [];
         subsets: int[] = [];
         packCounts: int[] = [];
 
@@ -118,19 +119,19 @@ namespace MeshletInstancingNri {
     // target it blits. The instances are in a buffer the CPU writes, written when they change (after
     // waiting for the GPU, as the sample does when it makes the buffer larger).
     class MeshletInstancing {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantBufferView: NriDescriptorHandle | null = null;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantBufferView: NriDescriptor | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
         private meshes: GpuMesh[] = [];
-        private instanceBuffer: NriBufferHandle | null = null;
-        private instanceView: NriDescriptorHandle | null = null;
+        private instanceBuffer: NriBuffer | null = null;
+        private instanceView: NriDescriptor | null = null;
         private instanceCapacity: int = 0;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -151,11 +152,11 @@ namespace MeshletInstancingNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONSTANT_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -172,13 +173,13 @@ namespace MeshletInstancingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -191,19 +192,19 @@ namespace MeshletInstancingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: the sample's R8G8B8A8_UNORM back buffers, rendered into as they are.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -211,21 +212,21 @@ namespace MeshletInstancingNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
 
-            if (Nri_IsFeatureSupported(device, NriFeature.MeshShader) == 0) {
+            if (device.isFeatureSupported(NriFeature.MeshShader) == 0) {
                 this.unsupportedReason = "The graphics device has no mesh shaders";
                 return 0;
             }
 
             // The sample's root signature: CBV(b0), RootConstants(b1, 2), RootConstants(b2, 3),
             // SRV(t0) .. SRV(t4); its root constants one block of push constants.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 1, PARAMS_SIZE, NriStage.AllGraphics);
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootConstants(1, PARAMS_SIZE, NriStage.AllGraphics);
+            layoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
             for (let t = 0; t < 5; t++) {
-                Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, t, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics);
+                layoutDesc.addRootDescriptor(t, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics);
             }
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -236,32 +237,32 @@ namespace MeshletInstancingNri {
             // state (opaque) and depth state (less, writes).
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/meshlet_instancing/${folder}/meshlet_instancing`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Mesh, `${shaders}_main_ms.bin`, "main_ms") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Mesh, `${shaders}_main_ms.bin`, "main_ms") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(format, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                this.pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the meshlet instancing shaders");
                 return 0;
             }
 
             // The constants, a queued frame's each; the depth buffer.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const depthCreated = this.createDepth(device);
             if (!constantBuffer || !depthCreated) {
                 console.log("Cannot create the constant buffer and depth buffer");
                 return 0;
             }
-            this.constantBufferView = Nri_CreateConstantBufferView(constantBuffer, 0, CONSTANTS_SIZE);
+            this.constantBufferView = constantBuffer.createConstantView(0, CONSTANTS_SIZE);
 
             if (!this.loadModel(device)) {
                 return 0;
@@ -276,9 +277,9 @@ namespace MeshletInstancingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -287,14 +288,14 @@ namespace MeshletInstancingNri {
         // Model::LoadFromFile and UploadGpuResources: each mesh's vertices, meshlets, unique vertex
         // indices and primitives in buffers for the mesh shader (the byte address buffers' structures
         // 4 bytes: raw views), its subsets and their pack counts.
-        loadModel(device: NriDeviceHandle): boolean {
-            const file = Nri_LoadFile(MESH_FILE);
+        loadModel(device: NriDevice): boolean {
+            const file = NriFile.load(MESH_FILE);
             if (!file) {
                 console.log(`Cannot load ${MESH_FILE} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                 return false;
             }
-            const model = MeshletModel.load(Nri_GetFileData(file), Nri_GetFileSize(file));
-            Nri_DestroyFile(file);
+            const model = MeshletModel.load(file.getData(), file.getSize());
+            file.destroy();
             if (model.isNull()) {
                 return false;
             }
@@ -313,9 +314,9 @@ namespace MeshletInstancingNri {
                 const mesh = new GpuMesh(model.getIndexSize(i));
                 this.meshes.push(mesh);
                 const meshletCount = model.getDataCount(i, MeshletModelData.Meshlets);
-                this.addBuffer(mesh, Nri_CreateUploadedStructuredBufferFromPointer(device, this.queue, model.getVertexBufferData(i, 0),
+                this.addBuffer(mesh, device.createUploadedStructuredBufferFromPointer(this.queue, model.getVertexBufferData(i, 0),
                     model.getVertexBufferSize(i, 0), 4));
-                this.addBuffer(mesh, Nri_CreateUploadedStructuredBufferFromPointer(device, this.queue,
+                this.addBuffer(mesh, device.createUploadedStructuredBufferFromPointer(this.queue,
                     model.getData(i, MeshletModelData.Meshlets), meshletCount * MESHLET_STRIDE, MESHLET_STRIDE));
                 // The unique vertex indices, rounded up to whole uints, as the sample's buffer.
                 const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
@@ -325,9 +326,9 @@ namespace MeshletInstancingNri {
                     unique.push(0);
                 }
                 model.copyData(i, MeshletModelData.UniqueVertexIndices, Ref(unique[0]));
-                this.addBuffer(mesh, Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(unique[0]), uniqueInts * 4, 4));
+                this.addBuffer(mesh, device.createUploadedStructuredBufferFromInts(this.queue, Ref(unique[0]), uniqueInts * 4, 4));
                 const primitiveCount = model.getDataCount(i, MeshletModelData.PrimitiveIndices);
-                this.addBuffer(mesh, Nri_CreateUploadedStructuredBufferFromPointer(device, this.queue,
+                this.addBuffer(mesh, device.createUploadedStructuredBufferFromPointer(this.queue,
                     model.getData(i, MeshletModelData.PrimitiveIndices), primitiveCount * 4, 4));
                 if (mesh.views.length != 4) {
                     console.log(`Cannot upload ${MESH_FILE}`);
@@ -358,12 +359,12 @@ namespace MeshletInstancingNri {
         }
 
         // A mesh's next buffer and its view, if it was made.
-        addBuffer(mesh: GpuMesh, buffer: NriBufferHandle | null) {
+        addBuffer(mesh: GpuMesh, buffer: NriBuffer | null) {
             if (!buffer) {
                 return;
             }
             mesh.buffers.push(buffer);
-            const view = Nri_CreateStructuredBufferView(buffer, 0);
+            const view = buffer.createStructuredView(0);
             if (view) {
                 mesh.views.push(view);
             }
@@ -372,23 +373,23 @@ namespace MeshletInstancingNri {
         // RegenerateInstances: the instances in a cube growing with the level, a bounding sphere's
         // diameter apart, written into the instance buffer (made larger when they don't fit) once the
         // GPU is done with it; false if it can't be made.
-        regenerateInstances(device: NriDeviceHandle): boolean {
+        regenerateInstances(device: NriDevice): boolean {
             const spacing = Math.fround(Math.fround(1.0 * this.radius) * 2.0);
             const width = this.instanceLevel * 2 + 1;
             const extents = Math.fround(spacing * this.instanceLevel);
             this.instanceCount = width * width * width;
 
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             if (this.instanceCount > this.instanceCapacity) {
                 this.destroyInstanceBuffer();
                 this.instanceCapacity = this.instanceCount;
-                const buffer = Nri_CreateHostBufferWithStride(device, this.instanceCapacity * INSTANCE_STRIDE, NriBufferUsage.StructuredBuffer,
+                const buffer = device.createHostBufferWithStride(this.instanceCapacity * INSTANCE_STRIDE, NriBufferUsage.StructuredBuffer,
                     INSTANCE_STRIDE);
                 if (!buffer) {
                     return false;
                 }
                 this.instanceBuffer = buffer;
-                this.instanceView = Nri_CreateStructuredBufferView(buffer, 0);
+                this.instanceView = buffer.createStructuredView(0);
             }
             const instanceBuffer = this.instanceBuffer;
             if (!instanceBuffer) {
@@ -410,18 +411,18 @@ namespace MeshletInstancingNri {
                     data.push(worldInvTranspose[k]);
                 }
             }
-            Nri_WriteBuffer(instanceBuffer, 0, Ref(data[0]), this.instanceCount * INSTANCE_STRIDE);
+            instanceBuffer.write(0, Ref(data[0]), this.instanceCount * INSTANCE_STRIDE);
             return true;
         }
 
         destroyInstanceBuffer() {
             const instanceView = this.instanceView;
             if (instanceView) {
-                Nri_DestroyDescriptor(instanceView);
+                instanceView.destroy();
             }
             const instanceBuffer = this.instanceBuffer;
             if (instanceBuffer) {
-                Nri_DestroyBuffer(instanceBuffer);
+                instanceBuffer.destroy();
             }
             this.instanceView = null;
             this.instanceBuffer = null;
@@ -433,33 +434,33 @@ namespace MeshletInstancingNri {
         }
 
         // OnKeyDown: + and - change the instance level, Space switches the meshlet colors.
-        onKeys(device: NriDeviceHandle) {
-            if (Nri_IsKeyToggled(this.sample, NriKey.Equal) != 0 || Nri_IsKeyToggled(this.sample, NriKey.KpAdd) != 0) {
+        onKeys(device: NriDevice) {
+            if (this.sample.isKeyToggled(NriKey.Equal) != 0 || this.sample.isKeyToggled(NriKey.KpAdd) != 0) {
                 this.instanceLevel++;
                 this.regenerateInstances(device);
             }
-            if (Nri_IsKeyToggled(this.sample, NriKey.Minus) != 0 || Nri_IsKeyToggled(this.sample, NriKey.KpSubtract) != 0) {
+            if (this.sample.isKeyToggled(NriKey.Minus) != 0 || this.sample.isKeyToggled(NriKey.KpSubtract) != 0) {
                 if (this.instanceLevel != 0) {
                     this.instanceLevel--;
                     this.regenerateInstances(device);
                 }
             }
-            if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+            if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                 this.drawMeshlets = !this.drawMeshlets;
             }
         }
 
         // OnUpdate: the keys, the camera (in test mode 1/60 second a frame, as Donut's test mode),
         // then the constants for its view: a 60 degree perspective (near 1, far 10000).
-        update(device: NriDeviceHandle, constantsOffset: int, constantBuffer: NriBufferHandle) {
+        update(device: NriDevice, constantsOffset: int, constantBuffer: NriBuffer) {
             if (!this.test) {
                 this.onKeys(device);
             }
             for (const key of CAMERA_KEYS) {
-                this.camera.onKey(key, Nri_IsKeyPressed(this.sample, key) != 0);
+                this.camera.onKey(key, this.sample.isKeyPressed(key) != 0);
             }
-            this.camera.update(Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample)));
-            Nri_SetWindowTitle(this.sample, `${WINDOW_TITLE} (${this.instanceCount} instances)`);
+            this.camera.update(Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime()));
+            this.sample.setWindowTitle(`${WINDOW_TITLE} (${this.instanceCount} instances)`);
 
             const view = this.camera.viewMatrix();
             const proj = matrixPerspectiveFovRH(Math.fround(XM_PI / 3.0), Math.fround(this.width / this.height), 1.0, 10000.0);
@@ -469,13 +470,13 @@ namespace MeshletInstancingNri {
                 this.constants[i] = viewT[i];
                 this.constants[16 + i] = viewProjT[i];
             }
-            Nri_StoreInt32(Ref(this.constants[DRAW_MESHLETS_INDEX]), this.drawMeshlets ? 1 : 0);
-            Nri_WriteBuffer(constantBuffer, constantsOffset, Ref(this.constants[0]), CONSTANT_FLOATS * 4);
+            Nri.storeInt32(Ref(this.constants[DRAW_MESHLETS_INDEX]), this.drawMeshlets ? 1 : 0);
+            constantBuffer.write(constantsOffset, Ref(this.constants[0]), CONSTANT_FLOATS * 4);
         }
 
         // PopulateCommandList's draws: per mesh and subset, the instances in batches of at most
-        // 65536 groups (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, constantsOffset: int) {
+        // 65536 groups (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, constantsOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipeline;
             const constantBufferView = this.constantBufferView;
@@ -483,15 +484,15 @@ namespace MeshletInstancingNri {
             if (!pipelineLayout || !pipeline || !constantBufferView || !instanceView) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, constantBufferView, constantsOffset);
-            Nri_CmdSetRootDescriptor(commandBuffer, 5, instanceView, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootDescriptor(0, constantBufferView, constantsOffset);
+            commandBuffer.setRootDescriptor(5, instanceView, 0);
             for (const mesh of this.meshes) {
                 for (let t = 0; t < 4; t++) {
-                    Nri_CmdSetRootDescriptor(commandBuffer, 1 + t, mesh.views[t], 0);
+                    commandBuffer.setRootDescriptor(1 + t, mesh.views[t], 0);
                 }
                 for (let s = 0; s < mesh.packCounts.length; s++) {
                     const subsetOffset = mesh.subsets[s * 2];
@@ -505,14 +506,14 @@ namespace MeshletInstancingNri {
                         if (instanceCount > maxInstancePerBatch) {
                             instanceCount = maxInstancePerBatch;
                         }
-                        Nri_StoreInt32(Ref(this.params[0]), instanceCount);
-                        Nri_StoreInt32(Ref(this.params[1]), instanceOffset);
-                        Nri_StoreInt32(Ref(this.params[2]), mesh.indexSize);
-                        Nri_StoreInt32(Ref(this.params[3]), subsetCount);
-                        Nri_StoreInt32(Ref(this.params[4]), subsetOffset);
+                        Nri.storeInt32(Ref(this.params[0]), instanceCount);
+                        Nri.storeInt32(Ref(this.params[1]), instanceOffset);
+                        Nri.storeInt32(Ref(this.params[2]), mesh.indexSize);
+                        Nri.storeInt32(Ref(this.params[3]), subsetCount);
+                        Nri.storeInt32(Ref(this.params[4]), subsetOffset);
                         const groupCount: int = Math.ceil(Math.fround(groupsPerInstance * instanceCount));
-                        Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.params[0]), PARAMS_SIZE);
-                        Nri_CmdDrawMeshTasks(commandBuffer, groupCount, 1, 1);
+                        commandBuffer.setRootConstants(0, Ref(this.params[0]), PARAMS_SIZE);
+                        commandBuffer.drawMeshTasks(groupCount, 1, 1);
                     }
                 }
             }
@@ -527,30 +528,30 @@ namespace MeshletInstancingNri {
         }
 
         // The depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -560,7 +561,7 @@ namespace MeshletInstancingNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -586,26 +587,26 @@ namespace MeshletInstancingNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: cleared, the robots.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                Nri_CmdClearColor(commandBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
-                Nri_CmdClearDepth(commandBuffer, 1.0);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                commandBuffer.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
+                commandBuffer.clearDepth(1.0);
                 this.recordDraw(commandBuffer, constantsOffset);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -623,12 +624,12 @@ namespace MeshletInstancingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -638,48 +639,48 @@ namespace MeshletInstancingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const mesh of this.meshes) {
                     for (const view of mesh.views) {
-                        Nri_DestroyDescriptor(view);
+                        view.destroy();
                     }
                     for (const buffer of mesh.buffers) {
-                        Nri_DestroyBuffer(buffer);
+                        buffer.destroy();
                     }
                 }
                 this.destroyInstanceBuffer();
                 const constantBufferView = this.constantBufferView;
                 if (constantBufferView) {
-                    Nri_DestroyDescriptor(constantBufferView);
+                    constantBufferView.destroy();
                 }
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 this.destroyDepth();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const meshletInstancing = new MeshletInstancing(sample);
         return meshletInstancing.run(argc, argv);
     }

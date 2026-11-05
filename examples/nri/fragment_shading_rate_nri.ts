@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { identity, multiply, rotate, radians, perspective } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace FragmentShadingRateNri {
     // fragment_shading_rate, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead
@@ -27,7 +28,7 @@ namespace FragmentShadingRateNri {
     const SKYSPHERE_TEXTURE_PATH = MEDIA_DIR + "skysphere_rgba.dds";
     const SCENE_TEXTURE_PATH = MEDIA_DIR + "metalplate01_rgba.dds";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // struct UBOScene { float4x4 projection, modelview, skysphere_modelview; int color_shading_rate; },
@@ -68,7 +69,7 @@ namespace FragmentShadingRateNri {
     // A frame in flight's own data: its descriptor set (the UBO's
     // slice, the two textures and their samplers) with the UBO's view.
     class QueuedFrame {
-        constructor(public descriptorSet: NriDescriptorSetHandle | null, public constantBufferView: NriDescriptorHandle | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public constantBufferView: NriDescriptor | null) {
         }
     }
 
@@ -119,30 +120,30 @@ namespace FragmentShadingRateNri {
     // chain view, as the Donut example draws into its back buffer; the overlay in a pass of its own
     // (its pipeline has no shading rate). D3D12 (tier 2) or Vulkan (VK_KHR_fragment_shading_rate).
     class FragmentShadingRate {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         // The swap chain textures' format (its views' are viewFormat).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private skyspherePipeline: NriPipelineHandle | null = null;
-        private cubePipeline: NriPipelineHandle | null = null;
-        private skysphereMesh: NriGltfMeshHandle | null = null;
-        private sceneMesh: NriGltfMeshHandle | null = null;
-        private skysphereTexture: NriTextureHandle | null = null;
-        private skysphereTextureView: NriDescriptorHandle | null = null;
-        private sceneTexture: NriTextureHandle | null = null;
-        private sceneTextureView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private shadingRateTexture: NriTextureHandle | null = null;
-        private shadingRateAttachment: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private skyspherePipeline: NriPipeline | null = null;
+        private cubePipeline: NriPipeline | null = null;
+        private skysphereMesh: NriGltfMesh | null = null;
+        private sceneMesh: NriGltfMesh | null = null;
+        private skysphereTexture: NriTexture | null = null;
+        private skysphereTextureView: NriDescriptor | null = null;
+        private sceneTexture: NriTexture | null = null;
+        private sceneTextureView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private shadingRateTexture: NriTexture | null = null;
+        private shadingRateAttachment: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -176,11 +177,11 @@ namespace FragmentShadingRateNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
             }
@@ -200,13 +201,13 @@ namespace FragmentShadingRateNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -219,19 +220,19 @@ namespace FragmentShadingRateNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -242,12 +243,12 @@ namespace FragmentShadingRateNri {
                 this.unsupportedReason = "No D3D11 shaders (fragment_shading_rate.hlsl needs shader model 6.4)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.VariableRateShading) == 0) {
+            if (device.isFeatureSupported(NriFeature.VariableRateShading) == 0) {
                 this.unsupportedReason = "The graphics device has no variable rate shading (D3D12 tier 2 or Vulkan's VK_KHR_fragment_shading_rate)";
                 return 0;
             }
-            this.rateCount = Nri_GetFragmentShadingRates(device, Ref(this.rates[0]));
-            this.tileSize = Nri_GetShadingRateTileSize(device);
+            this.rateCount = device.getFragmentShadingRates(Ref(this.rates[0]));
+            this.tileSize = device.getShadingRateTileSize();
             if (this.rateCount == 0 || this.tileSize == 0) {
                 this.unsupportedReason = "The graphics device has no variable rate shading with shading rate images";
                 return 0;
@@ -255,24 +256,24 @@ namespace FragmentShadingRateNri {
 
             // The models and textures, the textures as sRGB (as the framework loads KTX 1 color
             // textures).
-            this.skysphereMesh = Nri_LoadGltfMesh(device, this.queue, SKYSPHERE_PATH);
-            this.sceneMesh = Nri_LoadGltfMesh(device, this.queue, SCENE_PATH);
-            const skysphereTexture = Nri_LoadDdsTexture(device, this.queue, SKYSPHERE_TEXTURE_PATH, 1);
-            const sceneTexture = Nri_LoadDdsTexture(device, this.queue, SCENE_TEXTURE_PATH, 1);
+            this.skysphereMesh = device.loadGltfMesh(this.queue, SKYSPHERE_PATH);
+            this.sceneMesh = device.loadGltfMesh(this.queue, SCENE_PATH);
+            const skysphereTexture = device.loadDdsTexture(this.queue, SKYSPHERE_TEXTURE_PATH, 1);
+            const sceneTexture = device.loadDdsTexture(this.queue, SCENE_TEXTURE_PATH, 1);
             this.skysphereTexture = skysphereTexture;
             this.sceneTexture = sceneTexture;
             if (!this.modelsLoaded() || !skysphereTexture || !sceneTexture) {
                 console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const skysphereTextureView = Nri_CreateTextureView(skysphereTexture, NriFormat.RGBA8_SRGB);
-            const sceneTextureView = Nri_CreateTextureView(sceneTexture, NriFormat.RGBA8_SRGB);
+            const skysphereTextureView = skysphereTexture.createView(NriFormat.RGBA8_SRGB);
+            const sceneTextureView = sceneTexture.createView(NriFormat.RGBA8_SRGB);
             this.skysphereTextureView = skysphereTextureView;
             this.sceneTextureView = sceneTextureView;
             // ApiVulkanSample::load_texture's sampler: trilinear, repeating, anisotropic at the
             // device's most.
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
-                Nri_GetMaxSamplerAnisotropy(device));
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
+                device.getMaxSamplerAnisotropy());
             this.sampler = sampler;
 
             // The targets (for the window's size, made again when it is resized): the depth buffer and
@@ -284,13 +285,13 @@ namespace FragmentShadingRateNri {
 
             // The layout: the sample's descriptor set (the UBO at b0, the sky sphere's texture and
             // sampler at t0 and s0, the cubes' at t1 and s1) and push constants (b1: root constants).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 2, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 1, PUSH_SIZE, NriStage.VertexPixel);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 2, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRootConstants(1, PUSH_SIZE, NriStage.VertexPixel);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout || !sampler) {
                 console.log("Cannot create the pipeline layout");
@@ -310,9 +311,9 @@ namespace FragmentShadingRateNri {
             }
 
             // The UBO, a queued frame's each; a queued frame's descriptor set.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum, 2 * queuedFrameNum, queuedFrameNum,
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum, 2 * queuedFrameNum, queuedFrameNum,
                 2 * queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
@@ -321,24 +322,24 @@ namespace FragmentShadingRateNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantBufferView = Nri_CreateConstantBufferView(constantBuffer, i * UBO_STRIDE, UBO_STRIDE);
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
+                const constantBufferView = constantBuffer.createConstantView(i * UBO_STRIDE, UBO_STRIDE);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(descriptorSet,
                     constantBufferView));
                 if (!constantBufferView || !descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, constantBufferView);
-                Nri_UpdateDescriptor(descriptorSet, 1, 0, skysphereTextureView);
-                Nri_UpdateDescriptor(descriptorSet, 1, 1, sceneTextureView);
-                Nri_UpdateDescriptor(descriptorSet, 2, 0, sampler);
-                Nri_UpdateDescriptor(descriptorSet, 2, 1, sampler);
+                descriptorSet.updateDescriptor(0, 0, constantBufferView);
+                descriptorSet.updateDescriptor(1, 0, skysphereTextureView);
+                descriptorSet.updateDescriptor(1, 1, sceneTextureView);
+                descriptorSet.updateDescriptor(2, 0, sampler);
+                descriptorSet.updateDescriptor(2, 1, sampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -346,9 +347,9 @@ namespace FragmentShadingRateNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -408,25 +409,25 @@ namespace FragmentShadingRateNri {
 
         // A pipeline of scene_vs and scene_ps with variable rate shading: the sky sphere's (cube
         // false) or the cubes'.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, cube: boolean) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_scene_vs.bin`, "scene_vs") != 0;
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, cube: boolean) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_scene_vs.bin`, "scene_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_scene_ps.bin`, "scene_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_scene_ps.bin`, "scene_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, 12);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
-            Nri_PipelineDescSetCullMode(desc, cube ? NriCullMode.Front : NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, cube ? NriCompareOp.Greater : NriCompareOp.None, cube ? 1 : 0, 0);
-            Nri_PipelineDescSetShadingRate(desc, 1);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, 12);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+            desc.setCullMode(cube ? NriCullMode.Front : NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, cube ? NriCompareOp.Greater : NriCompareOp.None, cube ? 1 : 0, 0);
+            desc.setShadingRate(1);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -439,15 +440,15 @@ namespace FragmentShadingRateNri {
         // mouse: dragging with the left button turns the camera, with the right one zooms, with the
         // middle one pans.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (!pressed || !overlay) {
                     this.buttons[button] = pressed;
                 }
             }
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             const dx = Math.floor(this.mouseX) - Math.floor(x);
             const dy = Math.floor(this.mouseY) - Math.floor(y);
             if (this.buttons[0]) {
@@ -467,23 +468,23 @@ namespace FragmentShadingRateNri {
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.enableAttachmentShadingRate = Nri_ImguiCheckbox("Enable attachment shading rate",
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.enableAttachmentShadingRate = NriImgui.checkbox("Enable attachment shading rate",
                     this.enableAttachmentShadingRate ? 1 : 0) != 0;
-                this.colorShadingRate = Nri_ImguiCheckbox("Color shading rates", this.colorShadingRate ? 1 : 0) != 0;
-                this.displaySkySphere = Nri_ImguiCheckbox("skysphere", this.displaySkySphere ? 1 : 0) != 0;
+                this.colorShadingRate = NriImgui.checkbox("Color shading rates", this.colorShadingRate ? 1 : 0) != 0;
+                this.displaySkySphere = NriImgui.checkbox("skysphere", this.displaySkySphere ? 1 : 0) != 0;
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: its projection (clip y negated, as the Donut example
         // gives it) and view (vkb::Camera::update_view_matrix: rotations around x, y, z, then
         // translate(position)), into this frame's slice.
-        updateConstants(constantBuffer: NriBufferHandle, offset: int) {
+        updateConstants(constantBuffer: NriBuffer, offset: int) {
             const projection = perspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             let r = identity();
             r = rotate(r, radians(this.cameraRotation[0]), 1.0, 0.0, 0.0);
@@ -500,30 +501,30 @@ namespace FragmentShadingRateNri {
                 u[UBO_MODELVIEW + i] = view[i];
                 u[UBO_SKYSPHERE_MODELVIEW + i] = view[i];
             }
-            Nri_StoreInt32(Ref(u[UBO_COLOR_SHADING_RATE]), this.colorShadingRate ? 1 : 0);
-            Nri_WriteBuffer(constantBuffer, offset, Ref(u[0]), UBO_FLOATS * 4);
+            Nri.storeInt32(Ref(u[UBO_COLOR_SHADING_RATE]), this.colorShadingRate ? 1 : 0);
+            constantBuffer.write(offset, Ref(u[0]), UBO_FLOATS * 4);
         }
 
         // The push constants: an offset and the object's kind.
-        setPush(commandBuffer: NriCommandBufferHandle, x: number, y: number, z: number, objectType: int) {
+        setPush(commandBuffer: NriCommandBuffer, x: number, y: number, z: number, objectType: int) {
             this.push[0] = x;
             this.push[1] = y;
             this.push[2] = z;
             this.push[3] = 0.0;
-            Nri_StoreInt32(Ref(this.push[4]), objectType);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.push[0]), PUSH_SIZE);
+            Nri.storeInt32(Ref(this.push[4]), objectType);
+            commandBuffer.setRootConstants(0, Ref(this.push[0]), PUSH_SIZE);
         }
 
         // A mesh's buffers, bound.
-        setMesh(commandBuffer: NriCommandBufferHandle, mesh: NriGltfMeshHandle) {
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(mesh), 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(mesh), 0, NriIndexType.UInt32);
+        setMesh(commandBuffer: NriCommandBuffer, mesh: NriGltfMesh) {
+            commandBuffer.setVertexBuffer(0, mesh.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(mesh.getIndexBuffer(), 0, NriIndexType.UInt32);
         }
 
-        // The sample's build_command_buffers (between Nri_CmdBeginRenderingWithShadingRate and
-        // Nri_CmdEndRendering): the sky sphere (if shown) and the three cubes, each draw's rate 1 x 1,
+        // The sample's build_command_buffers (between NriCommandBuffer.beginRenderingWithShadingRate and
+        // NriCommandBuffer.endRendering): the sky sphere (if shown) and the three cubes, each draw's rate 1 x 1,
         // then the attachment's (REPLACE: NVRHI's Override) or kept (KEEP: Passthrough).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, frameOffset: int) {
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, frameOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const descriptorPool = this.descriptorPool;
             const constantBuffer = this.constantBuffer;
@@ -537,28 +538,28 @@ namespace FragmentShadingRateNri {
                 return;
             }
             this.updateConstants(constantBuffer, frameOffset);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
             const attachmentCombiner = this.enableAttachmentShadingRate ? NriShadingRateCombiner.Replace : NriShadingRateCombiner.Keep;
 
             if (this.displaySkySphere) {
-                Nri_CmdSetPipeline(commandBuffer, skyspherePipeline);
-                Nri_CmdSetShadingRate(commandBuffer, NriShadingRate.Rate1x1, NriShadingRateCombiner.Keep, attachmentCombiner);
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
+                commandBuffer.setPipeline(skyspherePipeline);
+                commandBuffer.setShadingRate(NriShadingRate.Rate1x1, NriShadingRateCombiner.Keep, attachmentCombiner);
+                commandBuffer.setDescriptorSet(0, set);
                 this.setMesh(commandBuffer, skysphereMesh);
                 this.setPush(commandBuffer, 0.0, 0.0, 0.0, OBJECT_SKYSPHERE);
-                Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(skysphereMesh), 1, 0, 0, 0);
+                commandBuffer.drawIndexed(skysphereMesh.getIndexCount(), 1, 0, 0, 0);
             }
 
-            Nri_CmdSetPipeline(commandBuffer, cubePipeline);
-            Nri_CmdSetShadingRate(commandBuffer, NriShadingRate.Rate1x1, NriShadingRateCombiner.Keep, attachmentCombiner);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
+            commandBuffer.setPipeline(cubePipeline);
+            commandBuffer.setShadingRate(NriShadingRate.Rate1x1, NriShadingRateCombiner.Keep, attachmentCombiner);
+            commandBuffer.setDescriptorSet(0, set);
             this.setMesh(commandBuffer, sceneMesh);
             for (let j = 0; j < 3; j++) {
                 this.setPush(commandBuffer, MESH_OFFSETS[j * 3], MESH_OFFSETS[j * 3 + 1], MESH_OFFSETS[j * 3 + 2], OBJECT_CUBE);
-                Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(sceneMesh), 1, 0, 0, 0);
+                commandBuffer.drawIndexed(sceneMesh.getIndexCount(), 1, 0, 0, 0);
             }
         }
 
@@ -572,19 +573,19 @@ namespace FragmentShadingRateNri {
 
         // The targets at the swap chain's size: the depth buffer and the shading rate attachment (a
         // texel per tile, its rings made for its size), and their views; false on failure.
-        createSizeTargets(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createSizeTargets(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             const rateWidth = Math.ceil(this.width / this.tileSize);
             const rateHeight = Math.ceil(this.height / this.tileSize);
             const pattern = this.shadingRatePattern(rateWidth, rateHeight);
-            const shadingRateTexture = Nri_CreateShadingRateTexture(device, this.queue, rateWidth, rateHeight, Ref(pattern[0]), rateWidth, 0);
+            const shadingRateTexture = device.createShadingRateTexture(this.queue, rateWidth, rateHeight, Ref(pattern[0]), rateWidth, 0);
             this.shadingRateTexture = shadingRateTexture;
             if (!depthTexture || !shadingRateTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
-            this.shadingRateAttachment = Nri_CreateShadingRateAttachmentView(shadingRateTexture);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
+            this.shadingRateAttachment = shadingRateTexture.createShadingRateAttachmentView();
             return true;
         }
 
@@ -599,7 +600,7 @@ namespace FragmentShadingRateNri {
             this.shadingRateTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain, the depth buffer and the shading rate attachment made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain, the depth buffer and the shading rate attachment made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -609,7 +610,7 @@ namespace FragmentShadingRateNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizeTargets();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -638,21 +639,21 @@ namespace FragmentShadingRateNri {
 
                 // Record: the scene with the shading rate attachment (color cleared to transparent
                 // black, depth to 0), then the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRenderingWithShadingRate(commandBuffer, this.swapChain.colorAttachment(index), null, depthAttachment,
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRenderingWithShadingRate(this.swapChain.colorAttachment(index), null, depthAttachment,
                     shadingRateAttachment);
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-                Nri_CmdClearDepth(commandBuffer, 0.0);
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+                commandBuffer.clearDepth(0.0);
                 this.recordDraw(commandBuffer, queuedFrame, queuedFrameIndex * UBO_STRIDE);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
                 if (this.imgui) {
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -660,18 +661,18 @@ namespace FragmentShadingRateNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -687,12 +688,12 @@ namespace FragmentShadingRateNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -702,16 +703,16 @@ namespace FragmentShadingRateNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.constantBufferView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.skysphereTextureView);
                 this.destroyDescriptor(this.sceneTextureView);
@@ -723,63 +724,63 @@ namespace FragmentShadingRateNri {
                 this.destroyMesh(this.sceneMesh);
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.destroyPipeline(this.skyspherePipeline);
                 this.destroyPipeline(this.cubePipeline);
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyMesh(mesh: NriGltfMeshHandle | null) {
+        destroyMesh(mesh: NriGltfMesh | null) {
             if (mesh) {
-                Nri_DestroyGltfMesh(mesh);
+                mesh.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const shadingRate = new FragmentShadingRate(sample);
         // -color: the shading rates shown; -noattachment: the full rate everywhere; -nosky: without
         // the sky sphere; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-color");
-        Nri_AddExampleOption(sample, "-noattachment");
-        Nri_AddExampleOption(sample, "-nosky");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-color");
+        sample.addExampleOption("-noattachment");
+        sample.addExampleOption("-nosky");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-color") {
                 shadingRate.colorShadingRate = true;
             } else if (arg == "-noattachment") {

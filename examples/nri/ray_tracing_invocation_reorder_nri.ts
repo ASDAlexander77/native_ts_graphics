@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, cross3, dot3 } from "../../core/matrix";
 import { randomFloat } from "../../core/random";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
+import { Nri, NriAccelerationStructure, NriBlasDesc, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfModel, NriImgui, NriPipeline, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriRayTracingPipelineDesc, NriSample, NriShaderTable, NriTexture, NriTopLevelAS, NriUpdatableBlas } from "../../core/nri";
 
 namespace RayTracingInvocationReorderNri {
     // ray_tracing_invocation_reorder, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -63,7 +64,7 @@ namespace RayTracingInvocationReorderNri {
     const CONST_SLICE = 256;
 
     // The hit groups' closest hit shaders, by object type (the instances' hit group offsets), and
-    // the pipeline's groups (Nri_RayTracingPipelineDescAddGroup's order): the ray generation shader,
+    // the pipeline's groups (NriRayTracingPipelineDesc.addGroup's order): the ray generation shader,
     // the miss shader, then the hit groups.
     const CLOSEST_HITS = ["closesthit_normal", "closesthit_refraction", "closesthit_flame"];
     const RAYGEN_GROUP = 0;
@@ -91,8 +92,8 @@ namespace RayTracingInvocationReorderNri {
     // A frame in flight's own data: its constants' slice and the refraction model's vertices
     // (rewritten every frame), and the set binding them.
     class QueuedFrame {
-        constructor(public constantsView: NriDescriptorHandle | null, public dynamicVertexBuffer: NriBufferHandle | null,
-            public dynamicVertexView: NriDescriptorHandle | null, public set: NriDescriptorSetHandle | null) {
+        constructor(public constantsView: NriDescriptor | null, public dynamicVertexBuffer: NriBuffer | null,
+            public dynamicVertexView: NriDescriptor | null, public set: NriDescriptorSet | null) {
         }
     }
 
@@ -257,7 +258,7 @@ namespace RayTracingInvocationReorderNri {
         textureIndex: int;
         objectType: int;
         isStatic: boolean;
-        blas: NriAccelerationStructureHandle | null;
+        blas: NriAccelerationStructure | null;
 
         constructor(vertexOffset: int, indexOffset: int, numVertices: int, numTriangles: int, textureIndex: int,
             objectType: int, isStatic: boolean) {
@@ -284,45 +285,45 @@ namespace RayTracingInvocationReorderNri {
     // without them traces as ray_tracing_extended does. Rays are
     // traced into a storage texture, copied to the back buffer, the UI drawn over it.
     class RayTracingInvocationReorder {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private shaderTable: NriShaderTableHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private shaderTable: NriShaderTable | null = null;
         private camera: DonutFirstPersonCamera = new DonutFirstPersonCamera(1.0, radians(1.0));
 
         // The scene's textures (the bindless array's, by descriptor index) and their file names.
-        private textures: NriTextureHandle[] = [];
-        private textureViews: NriDescriptorHandle[] = [];
+        private textures: NriTexture[] = [];
+        private textureViews: NriDescriptor[] = [];
         private textureNames: string[] = [];
-        private sampler: NriDescriptorHandle | null = null;
+        private sampler: NriDescriptor | null = null;
 
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private dataToModelBuffer: NriBufferHandle | null = null;
-        private dynamicIndexBuffer: NriBufferHandle | null = null;
-        private vertexView: NriDescriptorHandle | null = null;
-        private indexView: NriDescriptorHandle | null = null;
-        private dataToModelView: NriDescriptorHandle | null = null;
-        private dynamicIndexView: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private refractionBlas: NriUpdatableBlasHandle | null = null;
-        private topLevelAS: NriTopLevelASHandle | null = null;
-        private topLevelASView: NriDescriptorHandle | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private dataToModelBuffer: NriBuffer | null = null;
+        private dynamicIndexBuffer: NriBuffer | null = null;
+        private vertexView: NriDescriptor | null = null;
+        private indexView: NriDescriptor | null = null;
+        private dataToModelView: NriDescriptor | null = null;
+        private dynamicIndexView: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private refractionBlas: NriUpdatableBlas | null = null;
+        private topLevelAS: NriTopLevelAS | null = null;
+        private topLevelASView: NriDescriptor | null = null;
         private models: Model[] = [];
         private modelBuffers: ModelBuffer[] = [];
         private flameGenerator: FlameParticleGenerator;
 
-        private output: NriTextureHandle | null = null;
-        private outputStorage: NriDescriptorHandle | null = null;
+        private output: NriTexture | null = null;
+        private outputStorage: NriDescriptor | null = null;
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         // The swap chain textures' views for the UI: sRGB.
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private textureSet: NriDescriptorSetHandle | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private textureSet: NriDescriptorSet | null = null;
         // The output was copied from (after the first frame).
         private outputCopied: boolean = false;
 
@@ -356,11 +357,11 @@ namespace RayTracingInvocationReorderNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -381,13 +382,13 @@ namespace RayTracingInvocationReorderNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -400,20 +401,20 @@ namespace RayTracingInvocationReorderNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: copied into, in its own (UNORM) format: the shader writes the values the
             // sample's vkCmdCopyImage puts in its sRGB back buffer as they are.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -423,7 +424,7 @@ namespace RayTracingInvocationReorderNri {
                 this.unsupportedReason = "No D3D11 shaders (ray tracing needs D3D12 or Vulkan)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.RayTracing) == 0) {
+            if (device.isFeatureSupported(NriFeature.RayTracing) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Tracing Pipelines";
                 return 0;
             }
@@ -438,16 +439,16 @@ namespace RayTracingInvocationReorderNri {
             // dynamic vertex and dynamic index buffers (t1 to t5), the sampler (s0) and the output
             // (u0); set 1 the scene's textures (t0 in space 1; set 1's binding 0 on Vulkan), for every
             // ray tracing stage.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 1, 5, NriDescriptorType.StructuredBuffer, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.RayTracing, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 1, 0, textureCount, NriDescriptorType.Texture, NriStage.RayTracing,
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 1, 5, NriDescriptorType.StructuredBuffer, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.RayTracing, NriRangeFlags.None);
+            layoutDesc.addRange(1, 0, textureCount, NriDescriptorType.Texture, NriStage.RayTracing,
                 NriRangeFlags.PartiallyBound | NriRangeFlags.Array);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -456,18 +457,18 @@ namespace RayTracingInvocationReorderNri {
             // The ray generation and miss shaders, and a hit group per object type, from the library
             // with hit objects (SER=1: shader model 6.9 on D3D12, the NV extension on Vulkan) where the
             // device has them.
-            this.serSupported = Nri_IsFeatureSupported(device, NriFeature.ShaderExecutionReordering) != 0;
-            const desc = Nri_CreateRayTracingPipelineDesc();
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.RayGen, "raygen"), -1, -1);
-            Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.Miss, "miss"), -1, -1);
+            this.serSupported = device.isFeatureSupported(NriFeature.ShaderExecutionReordering) != 0;
+            const desc = NriRayTracingPipelineDesc.create();
+            desc.addGroup(desc.addShader(NriStage.RayGen, "raygen"), -1, -1);
+            desc.addGroup(desc.addShader(NriStage.Miss, "miss"), -1, -1);
             for (const closestHit of CLOSEST_HITS) {
-                Nri_RayTracingPipelineDescAddGroup(desc, Nri_RayTracingPipelineDescAddShader(desc, NriStage.ClosestHit, closestHit), -1, -1);
+                desc.addGroup(desc.addShader(NriStage.ClosestHit, closestHit), -1, -1);
             }
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
-            const pipeline = Nri_CreateRayTracingPipelineFromDescPermutation(device, layout,
+            const pipeline = device.createRayTracingPipelineFromDescPermutation(layout,
                 `shaders/ray_tracing_invocation_reorder/${folder}/ray_tracing_invocation_reorder.bin`, this.serSupported ? "SER=1" : "SER=0",
                 desc, PAYLOAD_SIZE, ATTRIBUTE_SIZE, 1);
-            Nri_DestroyRayTracingPipelineDesc(desc);
+            desc.destroy();
             this.pipeline = pipeline;
             if (!pipeline) {
                 console.log("Cannot initialize the ray tracing pipeline");
@@ -478,7 +479,7 @@ namespace RayTracingInvocationReorderNri {
             for (let i = 0; i < CLOSEST_HITS.length; i++) {
                 hitGroups.push(FIRST_HIT_GROUP + i);
             }
-            this.shaderTable = Nri_CreateShaderTableFromGroups(device, this.queue, pipeline, RAYGEN_GROUP, Ref(missGroups[0]), missGroups.length,
+            this.shaderTable = device.createShaderTableFromGroups(this.queue, pipeline, RAYGEN_GROUP, Ref(missGroups[0]), missGroups.length,
                 Ref(hitGroups[0]), hitGroups.length);
             if (!this.shaderTable) {
                 console.log("Cannot create the shader table");
@@ -488,7 +489,7 @@ namespace RayTracingInvocationReorderNri {
             // The refraction model's vertices, one buffer per frame in flight (rewritten every frame).
             const gridVertices = GRID_SIZE * GRID_SIZE;
             const gridTriangles = 2 * GRID_SIZE * GRID_SIZE;
-            const constantBuffer = Nri_CreateHostBuffer(device, CONST_SLICE * queuedFrameNum, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(CONST_SLICE * queuedFrameNum, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!constantBuffer) {
                 console.log("Cannot create the constant buffer");
@@ -496,12 +497,12 @@ namespace RayTracingInvocationReorderNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantsView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_SLICE, CONST_SLICE);
-                const dynamicVertexBuffer = Nri_CreateHostBufferWithStride(device, gridVertices * VERTEX_SIZE,
+                const constantsView = constantBuffer.createConstantView(i * CONST_SLICE, CONST_SLICE);
+                const dynamicVertexBuffer = device.createHostBufferWithStride(gridVertices * VERTEX_SIZE,
                     NriBufferUsage.AccelerationStructureInput, 16);
-                let dynamicVertexView: NriDescriptorHandle | null = null;
+                let dynamicVertexView: NriDescriptor | null = null;
                 if (dynamicVertexBuffer) {
-                    dynamicVertexView = Nri_CreateStructuredBufferView(dynamicVertexBuffer, 0);
+                    dynamicVertexView = dynamicVertexBuffer.createStructuredView(0);
                 }
                 this.queuedFrames.push(new QueuedFrame(constantsView,
                     dynamicVertexBuffer, dynamicVertexView, null));
@@ -516,14 +517,14 @@ namespace RayTracingInvocationReorderNri {
             }
 
             // Every model but the flame once, and each flame particle.
-            const topLevelAS = Nri_CreateTopLevelAS(device, this.modelBuffers.length - 1 + FLAME_PARTICLE_COUNT,
+            const topLevelAS = device.createTopLevelAS(this.modelBuffers.length - 1 + FLAME_PARTICLE_COUNT,
                 NriAccelerationStructureFlags.None, queuedFrameNum);
             this.topLevelAS = topLevelAS;
             if (!topLevelAS) {
                 console.log("Cannot create the top level acceleration structure");
                 return 0;
             }
-            const topLevelASView = Nri_CreateAccelerationStructureDescriptor(Nri_GetTopLevelAccelerationStructure(topLevelAS));
+            const topLevelASView = topLevelAS.getTopLevelAccelerationStructure().createDescriptor();
             this.topLevelASView = topLevelASView;
 
             // The output the ray generation shader writes: UNORM, in the back buffer's format, for the
@@ -531,9 +532,9 @@ namespace RayTracingInvocationReorderNri {
             this.createOutput(device);
             const output = this.output;
             // CommonSampler.LinearWrap: linear, mips too, wrapped.
-            const sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const sampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
-            const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device, queuedFrameNum + 1, queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithAccelerationStructures(queuedFrameNum + 1, queuedFrameNum,
                 queuedFrameNum, textureCount, queuedFrameNum, 5 * queuedFrameNum, queuedFrameNum);
             this.descriptorPool = descriptorPool;
             const vertexView = this.vertexView;
@@ -552,7 +553,7 @@ namespace RayTracingInvocationReorderNri {
             }
 
             for (const queuedFrame of this.queuedFrames) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+                const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
                 queuedFrame.set = set;
                 const constantsView = queuedFrame.constantsView;
                 const dynamicVertexView = queuedFrame.dynamicVertexView;
@@ -560,24 +561,24 @@ namespace RayTracingInvocationReorderNri {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(set, 0, 0, constantsView);
-                Nri_UpdateDescriptor(set, 1, 0, topLevelASView);
-                Nri_UpdateDescriptor(set, 2, 0, vertexView);
-                Nri_UpdateDescriptor(set, 2, 1, indexView);
-                Nri_UpdateDescriptor(set, 2, 2, dataToModelView);
-                Nri_UpdateDescriptor(set, 2, 3, dynamicVertexView);
-                Nri_UpdateDescriptor(set, 2, 4, dynamicIndexView);
-                Nri_UpdateDescriptor(set, 3, 0, sampler);
-                Nri_UpdateDescriptor(set, 4, 0, outputStorage);
+                set.updateDescriptor(0, 0, constantsView);
+                set.updateDescriptor(1, 0, topLevelASView);
+                set.updateDescriptor(2, 0, vertexView);
+                set.updateDescriptor(2, 1, indexView);
+                set.updateDescriptor(2, 2, dataToModelView);
+                set.updateDescriptor(2, 3, dynamicVertexView);
+                set.updateDescriptor(2, 4, dynamicIndexView);
+                set.updateDescriptor(3, 0, sampler);
+                set.updateDescriptor(4, 0, outputStorage);
             }
-            const textureSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 1, 0);
+            const textureSet = descriptorPool.allocateDescriptorSet(layout, 1, 0);
             this.textureSet = textureSet;
             if (!textureSet) {
                 console.log("Cannot create the texture set");
                 return 0;
             }
             for (let t = 0; t < textureCount; t++) {
-                Nri_UpdateDescriptor(textureSet, 0, t, this.textureViews[t]);
+                textureSet.updateDescriptor(0, t, this.textureViews[t]);
             }
 
             // The sample's first person camera at (0, 1.5, 0), not turned: at (0, -1.5, 0) looking
@@ -586,7 +587,7 @@ namespace RayTracingInvocationReorderNri {
             this.camera.lookAt(0.0, 1.5, 0.0, 0.0, 1.5, -1.0);
 
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -594,9 +595,9 @@ namespace RayTracingInvocationReorderNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -604,34 +605,34 @@ namespace RayTracingInvocationReorderNri {
 
         // The index of the bindless texture from the DDS file at path (sRGB), loaded the first time
         // it's asked for (Donut's texture cache gives the file's texture again); -1 on failure.
-        loadTexture(device: NriDeviceHandle, path: string): int {
+        loadTexture(device: NriDevice, path: string): int {
             for (let t = 0; t < this.textureNames.length; t++) {
                 if (this.textureNames[t] == path) {
                     return t;
                 }
             }
-            const texture = Nri_LoadDdsTexture(device, this.queue, path, 1);
+            const texture = device.loadDdsTexture(this.queue, path, 1);
             if (!texture) {
                 return -1;
             }
             this.textures.push(texture);
-            this.textureViews.push(Nri_CreateTextureView(texture, Nri_GetTextureFormat(texture)));
+            this.textureViews.push(texture.createView(texture.getFormat()));
             this.textureNames.push(path);
             return this.textures.length - 1;
         }
 
         // The sample's RaytracingScene: every Sponza submesh, its positions scaled to meters and its
         // axes turned (the vase moved too), with its base color texture. False on failure.
-        loadScene(device: NriDeviceHandle): boolean {
-            const scene = Nri_LoadGltfModel(SCENE_PATH);
+        loadScene(device: NriDevice): boolean {
+            const scene = NriGltfModel.load(SCENE_PATH);
             if (!scene) {
                 return false;
             }
 
             const sponzaScale = 0.01;
             let loaded = true;
-            for (let p = 0; p < Nri_GetGltfModelPrimitiveCount(scene); p++) {
-                const image = Nri_GetGltfModelBaseColorImage(scene, p);
+            for (let p = 0; p < scene.getPrimitiveCount(); p++) {
+                const image = scene.getBaseColorImage(p);
                 if (!image.endsWith(".ktx")) {
                     console.log(`Unexpected base color image ${image} in ${SCENE_PATH}`);
                     loaded = false;
@@ -644,8 +645,8 @@ namespace RayTracingInvocationReorderNri {
                 }
                 const isVase = image.indexOf("vase_dif.ktx") >= 0;
 
-                const vertexCount = Nri_GetGltfModelVertexCount(scene, p);
-                const indexCount = Nri_GetGltfModelIndexCount(scene, p);
+                const vertexCount = scene.getVertexCount(p);
+                const indexCount = scene.getIndexCount(p);
                 const vertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     vertices.push(0.0);
@@ -654,8 +655,8 @@ namespace RayTracingInvocationReorderNri {
                 for (let i = 0; i < indexCount; i++) {
                     triangles.push(0);
                 }
-                Nri_CopyGltfModelVertices(scene, p, Ref(vertices[0]));
-                Nri_CopyGltfModelIndices(scene, p, Ref(triangles[0]));
+                scene.copyVertices(p, Ref(vertices[0]));
+                scene.copyIndices(p, Ref(triangles[0]));
 
                 // pt = vec3(mat4(transform) * vec4(pt, 1)) + translation, with the sample's
                 // column-major transform (0, 0, s, tx | s, 0, 0, 0 | 0, s, 0, tz): (s y + tx, s z, s x + tz),
@@ -673,12 +674,12 @@ namespace RayTracingInvocationReorderNri {
 
                 this.models.push(new Model(vertices, triangles, textureIndex, ObjectType.Normal));
             }
-            Nri_DestroyGltfModel(scene);
+            scene.destroy();
             return loaded;
         }
 
         // The sample's create_flame_model: a unit square billboard with the flame texture.
-        createFlameModel(device: NriDeviceHandle): boolean {
+        createFlameModel(device: NriDevice): boolean {
             const textureIndex = this.loadTexture(device, FLAME_TEXTURE_PATH);
             if (textureIndex < 0) {
                 return false;
@@ -774,7 +775,7 @@ namespace RayTracingInvocationReorderNri {
         // and one index buffer, the refraction model in its own pair (its vertices the queued
         // frames'), a BLAS for each (the static ones from the same positions and indices). False
         // (after printing why) on failure.
-        createBuffersAndBlases(device: NriDeviceHandle, gridVertices: int, gridTriangles: int): boolean {
+        createBuffersAndBlases(device: NriDevice, gridVertices: int, gridTriangles: int): boolean {
             const staticVertices: f32[] = [];
             const staticTriangles: int[] = [];
             for (const model of this.models) {
@@ -792,8 +793,8 @@ namespace RayTracingInvocationReorderNri {
 
             const vertexCount = staticVertices.length / VERTEX_FLOATS;
             const triangleCount = staticTriangles.length / 3;
-            const vertexBuffer = Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(staticVertices[0]), vertexCount * VERTEX_SIZE, 16);
-            const indexBuffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(staticTriangles[0]),
+            const vertexBuffer = device.createUploadedStructuredBuffer(this.queue, Ref(staticVertices[0]), vertexCount * VERTEX_SIZE, 16);
+            const indexBuffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(staticTriangles[0]),
                 triangleCount * TRIANGLE_SIZE, 4);
             this.vertexBuffer = vertexBuffer;
             this.indexBuffer = indexBuffer;
@@ -801,13 +802,13 @@ namespace RayTracingInvocationReorderNri {
                 console.log("Cannot create the vertex and index buffers");
                 return false;
             }
-            this.vertexView = Nri_CreateStructuredBufferView(vertexBuffer, 0);
-            this.indexView = Nri_CreateStructuredBufferView(indexBuffer, 0);
+            this.vertexView = vertexBuffer.createStructuredView(0);
+            this.indexView = indexBuffer.createStructuredView(0);
 
             // The refraction model's buffers: its vertices rewritten every frame (into the queued
             // frame's buffer), its indices once (they don't change), as ints in floats' storage.
             this.createDynamicObjectBuffers(0.0);
-            const dynamicIndexBuffer = Nri_CreateHostBufferWithStride(device, gridTriangles * TRIANGLE_SIZE,
+            const dynamicIndexBuffer = device.createHostBufferWithStride(gridTriangles * TRIANGLE_SIZE,
                 NriBufferUsage.AccelerationStructureInput, 4);
             this.dynamicIndexBuffer = dynamicIndexBuffer;
             const firstVertexBuffer = this.queuedFrames[0].dynamicVertexBuffer;
@@ -818,11 +819,11 @@ namespace RayTracingInvocationReorderNri {
             const indexBits: f32[] = [];
             for (let i = 0; i < gridTriangles * 3; i++) {
                 indexBits.push(0.0);
-                Nri_StoreInt32(Ref(indexBits[i]), this.refractionIndices[i]);
+                Nri.storeInt32(Ref(indexBits[i]), this.refractionIndices[i]);
             }
-            Nri_WriteBuffer(dynamicIndexBuffer, 0, Ref(indexBits[0]), gridTriangles * TRIANGLE_SIZE);
-            Nri_WriteBuffer(firstVertexBuffer, 0, Ref(this.refractionModel[0]), gridVertices * VERTEX_SIZE);
-            this.dynamicIndexView = Nri_CreateStructuredBufferView(dynamicIndexBuffer, 0);
+            dynamicIndexBuffer.write(0, Ref(indexBits[0]), gridTriangles * TRIANGLE_SIZE);
+            firstVertexBuffer.write(0, Ref(this.refractionModel[0]), gridVertices * VERTEX_SIZE);
+            this.dynamicIndexView = dynamicIndexBuffer.createStructuredView(0);
             this.modelBuffers.push(new ModelBuffer(0, 0, gridVertices, gridTriangles, -1, ObjectType.Refraction, false));
 
             // Static objects prefer fast tracing; the refraction model fast builds and updates (built
@@ -830,15 +831,15 @@ namespace RayTracingInvocationReorderNri {
             for (let i = 0; i < this.modelBuffers.length; i++) {
                 const modelBuffer = this.modelBuffers[i];
                 if (!modelBuffer.isStatic) {
-                    const refractionBlas = Nri_CreateUpdatableTriangleBlas(device, modelBuffer.numVertices, VERTEX_SIZE,
+                    const refractionBlas = device.createUpdatableTriangleBlas(modelBuffer.numVertices, VERTEX_SIZE,
                         modelBuffer.numTriangles * 3, NriAccelerationStructureFlags.AllowUpdate | NriAccelerationStructureFlags.PreferFastBuild);
                     this.refractionBlas = refractionBlas;
                     if (!refractionBlas
-                        || Nri_BuildUpdatableBlasOnQueue(this.queue, refractionBlas, firstVertexBuffer, 0, dynamicIndexBuffer, 0) == 0) {
+                        || this.queue.buildUpdatableBlas(refractionBlas, firstVertexBuffer, 0, dynamicIndexBuffer, 0) == 0) {
                         console.log("Cannot build the bottom level acceleration structures");
                         return false;
                     }
-                    modelBuffer.blas = Nri_GetUpdatableBlasAccelerationStructure(refractionBlas);
+                    modelBuffer.blas = refractionBlas.getAccelerationStructure();
                     continue;
                 }
                 // Its positions (the first 3 of each vertex's floats: the Donut example's BLAS reads
@@ -856,10 +857,10 @@ namespace RayTracingInvocationReorderNri {
                 for (let k = 0; k < modelBuffer.numTriangles * 3; k++) {
                     indices.push(staticTriangles[firstIndex + k]);
                 }
-                const desc = Nri_CreateBlasDesc();
-                Nri_BlasDescAddTriangles(desc, Ref(positions[0]), modelBuffer.numVertices, Ref(indices[0]), indices.length);
-                const blas = Nri_BuildBlasFromDesc(device, this.queue, desc, NriAccelerationStructureFlags.PreferFastTrace);
-                Nri_DestroyBlasDesc(desc);
+                const desc = NriBlasDesc.create();
+                desc.addTriangles(Ref(positions[0]), modelBuffer.numVertices, Ref(indices[0]), indices.length);
+                const blas = device.buildBlasFromDesc(this.queue, desc, NriAccelerationStructureFlags.PreferFastTrace);
+                desc.destroy();
                 modelBuffer.blas = blas;
                 if (!blas) {
                     console.log("Cannot build the bottom level acceleration structures");
@@ -876,14 +877,14 @@ namespace RayTracingInvocationReorderNri {
                 modelInstanceData.push(modelBuffer.textureIndex);
                 modelInstanceData.push(modelBuffer.objectType);
             }
-            const dataToModelBuffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(modelInstanceData[0]),
+            const dataToModelBuffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(modelInstanceData[0]),
                 modelInstanceData.length * 4, 4);
             this.dataToModelBuffer = dataToModelBuffer;
             if (!dataToModelBuffer) {
                 console.log("Cannot create the instance data buffer");
                 return false;
             }
-            this.dataToModelView = Nri_CreateStructuredBufferView(dataToModelBuffer, 0);
+            this.dataToModelView = dataToModelBuffer.createStructuredView(0);
             return true;
         }
 
@@ -914,8 +915,8 @@ namespace RayTracingInvocationReorderNri {
         // The sample's create_top_level_acceleration_structure: Sponza and the refraction model, then
         // a billboard instance per flame particle; built this frame (into the queued frame's instance
         // buffer).
-        createTopLevelAccelerationStructure(commandBuffer: NriCommandBufferHandle, topLevelAS: NriTopLevelASHandle, queuedFrameIndex: int) {
-            Nri_TopLevelASClearInstances(topLevelAS);
+        createTopLevelAccelerationStructure(commandBuffer: NriCommandBuffer, topLevelAS: NriTopLevelAS, queuedFrameIndex: int) {
+            topLevelAS.clearInstances();
             let flameIndex = -1;
             for (let i = 0; i < this.modelBuffers.length; i++) {
                 const modelBuffer = this.modelBuffers[i];
@@ -935,7 +936,7 @@ namespace RayTracingInvocationReorderNri {
                 // Use object_type to select the appropriate hit group shader
                 // This creates shader divergence that SER can optimize by reordering threads
                 if (blas) {
-                    Nri_TopLevelASAddInstance(topLevelAS, blas, Ref(this.transform[0]), i, 0xFF, modelBuffer.objectType,
+                    topLevelAS.addInstance(blas, Ref(this.transform[0]), i, 0xFF, modelBuffer.objectType,
                         INSTANCE_FLAGS_CULL_DISABLE);
                 }
             }
@@ -946,12 +947,12 @@ namespace RayTracingInvocationReorderNri {
                 const particles = this.flameGenerator.particles;
                 for (const particle of particles) {
                     this.calculateRotation(particle.position, 0.25, true);
-                    Nri_TopLevelASAddInstance(topLevelAS, flameBlas, Ref(this.transform[0]), flameIndex, 0xFF, ObjectType.Flame,
+                    topLevelAS.addInstance(flameBlas, Ref(this.transform[0]), flameIndex, 0xFF, ObjectType.Flame,
                         INSTANCE_FLAGS_CULL_DISABLE);
                 }
             }
 
-            Nri_CmdBuildTopLevelAS(commandBuffer, topLevelAS, queuedFrameIndex, 0);
+            commandBuffer.buildTopLevelAS(topLevelAS, queuedFrameIndex, 0);
         }
 
         // The sample's update_uniform_buffers into this frame's slice: inverse view and projection
@@ -1012,21 +1013,21 @@ namespace RayTracingInvocationReorderNri {
                 c[CONST_PROJ_INVERSE + i] = projInverse[i];
             }
 
-            Nri_StoreInt32(Ref(c[CONST_RENDER_MODE]), this.renderMode);
-            Nri_StoreInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
+            Nri.storeInt32(Ref(c[CONST_RENDER_MODE]), this.renderMode);
+            Nri.storeInt32(Ref(c[CONST_MAX_RAYS]), MAX_RAYS);
             // SER only with the library that has it (see initialize).
-            Nri_StoreInt32(Ref(c[CONST_ENABLE_SER]), this.serEnabled && this.serSupported ? 1 : 0);
-            Nri_StoreInt32(Ref(c[CONST_USE_COHERENCE_HINT]), this.coherenceHintEnabled ? 1 : 0);
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * CONST_SLICE, Ref(c[0]), CONST_FLOATS * 4);
+            Nri.storeInt32(Ref(c[CONST_ENABLE_SER]), this.serEnabled && this.serSupported ? 1 : 0);
+            Nri.storeInt32(Ref(c[CONST_USE_COHERENCE_HINT]), this.coherenceHintEnabled ? 1 : 0);
+            constantBuffer.write(queuedFrameIndex * CONST_SLICE, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The Donut example's onAnimate: the camera (Donut's FirstPersonCamera, unless in test mode,
         // where nothing moves it; not by the mouse while the UI has it), the time and the flame
         // particles. Donut's test mode animates by float(1/60) a frame.
         animate() {
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             if (!this.test) {
-                this.camera.animate(this.sample, elapsedSeconds, !this.imgui || Nri_ImguiWantsMouse() == 0);
+                this.camera.animate(this.sample, elapsedSeconds, !this.imgui || NriImgui.wantsMouse() == 0);
             }
             this.time += elapsedSeconds;
             this.flameGenerator.updateParticles(elapsedSeconds);
@@ -1034,7 +1035,7 @@ namespace RayTracingInvocationReorderNri {
 
         // The Donut example's onRender: the constants, the refraction model's new vertices and its
         // BLAS updated for them, the TLAS, then the rays into the output, which then goes to the copy.
-        recordRays(commandBuffer: NriCommandBufferHandle, queuedFrameIndex: int) {
+        recordRays(commandBuffer: NriCommandBuffer, queuedFrameIndex: int) {
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const layout = this.layout;
             const pipeline = this.pipeline;
@@ -1055,21 +1056,21 @@ namespace RayTracingInvocationReorderNri {
 
             // The refraction model's new vertices, and its BLAS updated for them.
             this.createDynamicObjectBuffers(this.time);
-            Nri_WriteBuffer(dynamicVertexBuffer, 0, Ref(this.refractionModel[0]), GRID_SIZE * GRID_SIZE * VERTEX_SIZE);
-            Nri_CmdUpdateUpdatableBlas(commandBuffer, refractionBlas, dynamicVertexBuffer, 0, dynamicIndexBuffer, 0);
+            dynamicVertexBuffer.write(0, Ref(this.refractionModel[0]), GRID_SIZE * GRID_SIZE * VERTEX_SIZE);
+            commandBuffer.updateUpdatableBlas(refractionBlas, dynamicVertexBuffer, 0, dynamicIndexBuffer, 0);
             this.createTopLevelAccelerationStructure(commandBuffer, topLevelAS, queuedFrameIndex);
 
             // Dispatch the ray tracing commands
             if (this.outputCopied) {
-                Nri_CmdTextureBarrier(commandBuffer, output, NriTextureState.CopySource, NriTextureState.RayTracingStorage);
+                commandBuffer.textureBarrier(output, NriTextureState.CopySource, NriTextureState.RayTracingStorage);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetRayTracingPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRayTracingDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdSetRayTracingDescriptorSet(commandBuffer, 1, textureSet);
-            Nri_CmdDispatchRays(commandBuffer, shaderTable, this.width, this.height);
-            Nri_CmdTextureBarrier(commandBuffer, output, NriTextureState.RayTracingStorage, NriTextureState.CopySource);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setRayTracingPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRayTracingDescriptorSet(0, set);
+            commandBuffer.setRayTracingDescriptorSet(1, textureSet);
+            commandBuffer.dispatchRays(shaderTable, this.width, this.height);
+            commandBuffer.textureBarrier(output, NriTextureState.RayTracingStorage, NriTextureState.CopySource);
             this.outputCopied = true;
         }
 
@@ -1083,11 +1084,11 @@ namespace RayTracingInvocationReorderNri {
 
         // The output the ray generation shader writes, at the swap chain's size and in its format,
         // with its storage view.
-        createOutput(device: NriDeviceHandle) {
-            const output = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, this.swapChainFormat);
+        createOutput(device: NriDevice) {
+            const output = device.createStorageTexture(this.queue, this.width, this.height, this.swapChainFormat);
             this.output = output;
             if (output) {
-                this.outputStorage = Nri_CreateStorageTextureView(output, this.swapChainFormat);
+                this.outputStorage = output.createStorageView(this.swapChainFormat);
             }
         }
 
@@ -1096,12 +1097,12 @@ namespace RayTracingInvocationReorderNri {
             this.outputStorage = null;
             const output = this.output;
             if (output) {
-                Nri_DestroyTexture(output);
+                output.destroy();
             }
             this.output = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the output made again
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the output made again
         // at its size, once the GPU is done with the old ones; every queued frame's set pointed at the
         // new output, which starts in its creation state again (no CopySource barrier first). The
         // camera's aspect ratio and the rays' dispatch read the size every frame.
@@ -1113,7 +1114,7 @@ namespace RayTracingInvocationReorderNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             // (On D3D11, or without ray tracing, initialize stopped before making the output.)
             let hadOutput = false;
             if (this.output) {
@@ -1134,7 +1135,7 @@ namespace RayTracingInvocationReorderNri {
             for (const queuedFrame of this.queuedFrames) {
                 const set = queuedFrame.set;
                 if (set) {
-                    Nri_UpdateDescriptor(set, 4, 0, outputStorage);
+                    set.updateDescriptor(4, 0, outputStorage);
                 }
             }
         }
@@ -1142,18 +1143,18 @@ namespace RayTracingInvocationReorderNri {
         // The sample's overlay: SER's settings where the device has hit objects (the Donut example's
         // UserInterface).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
             // The sample's title (ApiVulkanSample's default).
-            Nri_ImguiBegin("Vulkan Example", 1);
+            NriImgui.begin("Vulkan Example", 1);
             if (this.serSupported) {
-                this.serEnabled = Nri_ImguiCheckbox("Enable Shader Execution Reordering (SER)", this.serEnabled ? 1 : 0) != 0;
-                this.coherenceHintEnabled = Nri_ImguiCheckbox("Enable Coherence Hint", this.coherenceHintEnabled ? 1 : 0) != 0;
+                this.serEnabled = NriImgui.checkbox("Enable Shader Execution Reordering (SER)", this.serEnabled ? 1 : 0) != 0;
+                this.coherenceHintEnabled = NriImgui.checkbox("Enable Coherence Hint", this.coherenceHintEnabled ? 1 : 0) != 0;
             } else {
-                Nri_ImguiText("Shader Execution Reordering is not supported");
+                NriImgui.text("Shader Execution Reordering is not supported");
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         renderFrame(frameIndex: int) {
@@ -1173,22 +1174,22 @@ namespace RayTracingInvocationReorderNri {
                 // Record: the acceleration structures and the rays, then their output copied into the
                 // frame without conversion, as the sample's vkCmdCopyImage (the UNORM values become
                 // the sRGB back buffer's encoded ones), then the UI over it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordRays(commandBuffer, queuedFrameIndex);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.CopyDestination);
                 const output = this.output;
                 if (output) {
-                    Nri_CmdCopyTexture(commandBuffer, texture, output);
+                    commandBuffer.copyTexture(texture, output);
                 }
                 let presentFrom = NriTextureState.CopyDestination;
                 if (this.imgui) {
-                    Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.CopyDestination, NriTextureState.ColorAttachment);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.textureBarrier(texture, NriTextureState.CopyDestination, NriTextureState.ColorAttachment);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                     presentFrom = NriTextureState.ColorAttachment;
                 }
 
@@ -1196,18 +1197,18 @@ namespace RayTracingInvocationReorderNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -1223,12 +1224,12 @@ namespace RayTracingInvocationReorderNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1238,9 +1239,9 @@ namespace RayTracingInvocationReorderNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.constantsView);
@@ -1249,7 +1250,7 @@ namespace RayTracingInvocationReorderNri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyOutput();
                 this.destroyDescriptor(this.topLevelASView);
@@ -1259,27 +1260,27 @@ namespace RayTracingInvocationReorderNri {
                 this.destroyDescriptor(this.dynamicIndexView);
                 this.destroyDescriptor(this.sampler);
                 for (const view of this.textureViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const texture of this.textures) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
-                    Nri_DestroyTopLevelAS(topLevelAS);
+                    topLevelAS.destroy();
                 }
                 for (const modelBuffer of this.modelBuffers) {
                     // (The refraction model's is its updatable BLAS'.)
                     const blas = modelBuffer.blas;
                     if (modelBuffer.isStatic) {
                         if (blas) {
-                            Nri_DestroyAccelerationStructure(blas);
+                            blas.destroy();
                         }
                     }
                 }
                 const refractionBlas = this.refractionBlas;
                 if (refractionBlas) {
-                    Nri_DestroyUpdatableBlas(refractionBlas);
+                    refractionBlas.destroy();
                 }
                 this.destroyBuffer(this.vertexBuffer);
                 this.destroyBuffer(this.indexBuffer);
@@ -1289,52 +1290,52 @@ namespace RayTracingInvocationReorderNri {
                 this.destroyBuffer(this.readbackBuffer);
                 const shaderTable = this.shaderTable;
                 if (shaderTable) {
-                    Nri_DestroyShaderTable(shaderTable);
+                    shaderTable.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const example = new RayTracingInvocationReorder(sample);
         // -mode <0..6>: the sample's render mode (its specialization constant): 0 default,
         // 1 barycentric, 2 instance ID, 3 distance, 4 global XYZ, 5 shadow map, 6 ambient occlusion
         // (as in the sample, 5 and 6 show the hit's texture: its ray generation shader stops before
         // their shadow and AO output). -noser, -nohint: SER, its coherence hint off at start. -noUI:
         // no overlay.
-        Nri_AddExampleOptionWithValues(sample, "-mode", 1);
-        Nri_AddExampleOption(sample, "-noser");
-        Nri_AddExampleOption(sample, "-nohint");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOptionWithValues("-mode", 1);
+        sample.addExampleOption("-noser");
+        sample.addExampleOption("-nohint");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-noser") {
                 example.serEnabled = false;
             } else if (arg == "-nohint") {
@@ -1344,7 +1345,7 @@ namespace RayTracingInvocationReorderNri {
             } else if (arg == "-mode" && i + 1 < argc) {
                 i++;
                 // Clamped to 0 .. 6 (tslang's Math.max is wrong for negative numbers).
-                const mode = parseInt(Nri_GetArg(argc, argv, i));
+                const mode = parseInt(Nri.getArg(argc, argv, i));
                 example.renderMode = mode < 0 ? 0 : (mode > 6 ? 6 : mode);
             }
         }

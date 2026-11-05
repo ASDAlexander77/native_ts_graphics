@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspProjD3DStyleReverse } from "../../core/matrix";
 import { randomFloat } from "../../core/random";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample } from "../../core/nri";
 
 namespace ComputeNBodyNri {
     // compute_nbody, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -79,14 +80,14 @@ namespace ComputeNBodyNri {
         worldToView: number[] = [];
 
         // The sample's ThirdPersonCamera::Animate with the mouse's motion.
-        animate(sample: NriSampleHandle) {
+        animate(sample: NriSample) {
             const f = Math.fround;
-            if (Nri_IsButtonPressed(sample, 0) != 0) {
-                this.yaw = f(this.yaw - f(this.rotateSpeed * f(Nri_GetMouseDeltaX(sample))));
-                this.pitch = f(this.pitch + f(this.rotateSpeed * f(Nri_GetMouseDeltaY(sample))));
+            if (sample.isButtonPressed(0) != 0) {
+                this.yaw = f(this.yaw - f(this.rotateSpeed * f(sample.getMouseDeltaX())));
+                this.pitch = f(this.pitch + f(this.rotateSpeed * f(sample.getMouseDeltaY())));
                 this.pitch = Math.min(Math.max(this.pitch, f(-0.5 * Math.PI)), f(0.5 * Math.PI));
             }
-            const wheel = Nri_GetMouseWheel(sample);
+            const wheel = sample.getMouseWheel();
             if (wheel != 0.0) {
                 this.distance = f(wheel < 0.0 ? this.distance * f(1.15) : this.distance * f(1.0 / f(1.15)));
             }
@@ -138,22 +139,22 @@ namespace ComputeNBodyNri {
     // passes go into the frame's command buffer ahead of the draw, as in the Donut example, with
     // the particle buffer's barriers between them.
     class ComputeNBody {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private calculatePipeline: NriPipelineHandle | null = null;
-        private integratePipeline: NriPipelineHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private particleBuffer: NriBufferHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private calculatePipeline: NriPipeline | null = null;
+        private integratePipeline: NriPipeline | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private particleBuffer: NriBuffer | null = null;
         // The particles, written by the compute passes and read by the draw.
-        private particlesStorage: NriDescriptorHandle | null = null;
-        private particlesView: NriDescriptorHandle | null = null;
+        private particlesStorage: NriDescriptor | null = null;
+        private particlesView: NriDescriptor | null = null;
         // A queued frame's view constants each, VIEW_CONSTANTS_STRIDE bytes apart.
-        private constantBuffer: NriBufferHandle | null = null;
-        private viewConstantsView: NriDescriptorHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private viewConstantsView: NriDescriptor | null = null;
         // The particle buffer's state between frames (Storage before the first).
         private particlesDrawn: boolean = false;
         private camera: ThirdPersonCamera = new ThirdPersonCamera();
@@ -172,12 +173,12 @@ namespace ComputeNBodyNri {
 
         // -test: the last frame and the particles after it are read back.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
-        private particleReadbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
+        private particleReadbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < VIEW_CONSTANTS_SIZE / 4; i++) {
                 this.viewConstants.push(0.0);
             }
@@ -191,11 +192,11 @@ namespace ComputeNBodyNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = this.checkTest();
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -206,19 +207,19 @@ namespace ComputeNBodyNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -229,16 +230,16 @@ namespace ComputeNBodyNri {
 
             // The layouts: the compute passes' SimulationConstants (push constants, b0) and particles
             // (u0); the draw's view constants (b1) and particles (t0). All root descriptors.
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootConstants(0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRootDescriptor(1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            drawLayoutDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout) {
@@ -250,20 +251,20 @@ namespace ComputeNBodyNri {
             // draw additively blended, back faces culled (NVRHI's default raster state).
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/compute_nbody/${folder}/compute_nbody`;
-            this.calculatePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_calculate_cs.bin`, "calculate_cs");
-            this.integratePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_integrate_cs.bin`, "integrate_cs");
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
+            this.calculatePipeline = device.createComputePipeline(computeLayout, `${shaders}_calculate_cs.bin`, "calculate_cs");
+            this.integratePipeline = device.createComputePipeline(computeLayout, `${shaders}_integrate_cs.bin`, "integrate_cs");
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetAdditiveBlend(desc);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
+            desc.setAdditiveBlend();
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.calculatePipeline || !this.integratePipeline || !this.drawPipeline) {
                 console.log("Cannot load the compute n-body shaders");
                 return 0;
@@ -271,20 +272,20 @@ namespace ComputeNBodyNri {
 
             const particleBuffer = this.createParticles(device);
             this.particleBuffer = particleBuffer;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * VIEW_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * VIEW_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!particleBuffer || !constantBuffer) {
                 console.log("Cannot create the buffers");
                 return 0;
             }
-            this.particlesStorage = Nri_CreateStructuredBufferView(particleBuffer, 1);
-            this.particlesView = Nri_CreateStructuredBufferView(particleBuffer, 0);
-            this.viewConstantsView = Nri_CreateConstantBufferView(constantBuffer, 0, VIEW_CONSTANTS_STRIDE);
+            this.particlesStorage = particleBuffer.createStructuredView(1);
+            this.particlesView = particleBuffer.createStructuredView(0);
+            this.viewConstantsView = constantBuffer.createConstantView(0, VIEW_CONSTANTS_STRIDE);
             if (!this.particlesStorage || !this.particlesView || !this.viewConstantsView) {
                 console.log("Cannot create the buffer views");
                 return 0;
             }
-            Nri_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+            Nri.storeInt32(Ref(this.simulationConstants[1]), this.numParticles);
 
             // The sample's look-at camera: 14 units from the origin, rotated (-26, 75) degrees.
             this.camera.distance = 14.0;
@@ -292,10 +293,10 @@ namespace ComputeNBodyNri {
             this.camera.pitch = Math.fround(radians(26.0));
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
-                this.particleReadbackBuffer = Nri_CreateReadbackBuffer(device, this.numParticles * PARTICLE_FLOATS * 4);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
+                this.particleReadbackBuffer = device.createReadbackBuffer(this.numParticles * PARTICLE_FLOATS * 4);
                 this.readbackFormat = format;
             }
             return 1;
@@ -303,7 +304,7 @@ namespace ComputeNBodyNri {
 
         // The sample's prepare_storage_buffers: the particles around their attractors, uploaded
         // once (the Donut example's numbers: the same random generator).
-        createParticles(device: NriDeviceHandle): NriBufferHandle | null {
+        createParticles(device: NriDevice): NriBuffer | null {
             const attractors: number[] = [
                 5.0, 0.0, 0.0,
                 -5.0, 0.0, 0.0,
@@ -367,7 +368,7 @@ namespace ComputeNBodyNri {
                 }
             }
 
-            return Nri_CreateStorageBuffer(device, this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4, PARTICLE_FLOATS * 4);
+            return device.createStorageBuffer(this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4, PARTICLE_FLOATS * 4);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -378,7 +379,7 @@ namespace ComputeNBodyNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -400,13 +401,13 @@ namespace ComputeNBodyNri {
         // The sample's OnUpdate: the camera, the time step (none when paused; space toggles it), the
         // window title.
         update() {
-            if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+            if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                 this.paused = !this.paused;
             }
             this.camera.animate(this.sample);
-            const elapsedSeconds = this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? 1.0 / 60.0 : this.sample.getFrameTime();
             this.simulationConstants[0] = this.paused ? 0.0 : elapsedSeconds;
-            Nri_SetWindowTitle(this.sample,
+            this.sample.setWindowTitle(
                 this.paused ? `${WINDOW_TITLE} - ${this.numParticles} particles (paused)` : `${WINDOW_TITLE} - ${this.numParticles} particles`);
         }
 
@@ -429,12 +430,12 @@ namespace ComputeNBodyNri {
             this.viewConstants[VIEWPORT_SIZE + 1] = this.height;
             this.viewConstants[VIEWPORT_SIZE_INV] = 1.0 / Math.fround(this.width);
             this.viewConstants[VIEWPORT_SIZE_INV + 1] = 1.0 / Math.fround(this.height);
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.viewConstants[0]), VIEW_CONSTANTS_SIZE);
+            constantBuffer.write(offset, Ref(this.viewConstants[0]), VIEW_CONSTANTS_SIZE);
         }
 
         // First pass: calculate particle movement; second pass: integrate particles. The particles
         // then go to the draw.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const calculatePipeline = this.calculatePipeline;
             const integratePipeline = this.integratePipeline;
@@ -444,25 +445,25 @@ namespace ComputeNBodyNri {
                 return;
             }
             if (this.particlesDrawn) {
-                Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
+                commandBuffer.bufferBarrier(particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
             }
             const groups: int = Math.floor(this.numParticles / WORKGROUP_SIZE);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, calculatePipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 0, particlesStorage);
-            Nri_CmdDispatch(commandBuffer, groups, 1, 1);
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.Storage, NriBufferState.Storage);
-            Nri_CmdSetPipeline(commandBuffer, integratePipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 0, particlesStorage);
-            Nri_CmdDispatch(commandBuffer, groups, 1, 1);
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(calculatePipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
+            commandBuffer.setComputeRootDescriptor(0, particlesStorage);
+            commandBuffer.dispatch(groups, 1, 1);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            commandBuffer.setPipeline(integratePipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
+            commandBuffer.setComputeRootDescriptor(0, particlesStorage);
+            commandBuffer.dispatch(groups, 1, 1);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
             this.particlesDrawn = true;
         }
 
-        // The particles' sprites (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, constantsOffset: int) {
+        // The particles' sprites (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, constantsOffset: int) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const viewConstantsView = this.viewConstantsView;
@@ -470,13 +471,13 @@ namespace ComputeNBodyNri {
             if (!drawLayout || !drawPipeline || !viewConstantsView || !particlesView) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, viewConstantsView, constantsOffset);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, particlesView, 0);
-            Nri_CmdDraw(commandBuffer, this.numParticles * VERTICES_PER_PARTICLE, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setRootDescriptor(0, viewConstantsView, constantsOffset);
+            commandBuffer.setRootDescriptor(1, particlesView, 0);
+            commandBuffer.draw(this.numParticles * VERTICES_PER_PARTICLE, 1, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
@@ -493,27 +494,27 @@ namespace ComputeNBodyNri {
                 this.writeViewConstants(constantsOffset);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordCompute(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
                 this.recordDraw(commandBuffer, constantsOffset);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back, and the particles after it
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                         this.recordParticleReadback(commandBuffer);
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -525,15 +526,15 @@ namespace ComputeNBodyNri {
         }
 
         // Copies the particles to particleReadbackBuffer (after the last frame's draw).
-        recordParticleReadback(commandBuffer: NriCommandBufferHandle) {
+        recordParticleReadback(commandBuffer: NriCommandBuffer) {
             const particleBuffer = this.particleBuffer;
             const particleReadbackBuffer = this.particleReadbackBuffer;
             if (!particleBuffer || !particleReadbackBuffer) {
                 return;
             }
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
-            Nri_CmdCopyBuffer(commandBuffer, particleReadbackBuffer, particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
+            commandBuffer.copyBuffer(particleReadbackBuffer, particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
         }
 
         // -test, as the Donut example checks: the particles after the last frame, every position
@@ -544,12 +545,12 @@ namespace ComputeNBodyNri {
             if (!device || !particleReadbackBuffer) {
                 return "cannot read the particles back";
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const particles: f32[] = [];
             for (let i = 0; i < this.numParticles * PARTICLE_FLOATS; i++) {
                 particles.push(0.0);
             }
-            if (Nri_ReadBufferFloats(particleReadbackBuffer, Ref(particles[0]), particles.length) == 0) {
+            if (particleReadbackBuffer.readFloats(Ref(particles[0]), particles.length) == 0) {
                 return "cannot read the particles back";
             }
             for (let i = 0; i < this.numParticles; i++) {
@@ -597,7 +598,7 @@ namespace ComputeNBodyNri {
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -607,7 +608,7 @@ namespace ComputeNBodyNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 this.destroyDescriptor(this.particlesStorage);
                 this.destroyDescriptor(this.particlesView);
                 this.destroyDescriptor(this.viewConstantsView);
@@ -620,41 +621,41 @@ namespace ComputeNBodyNri {
                 this.destroyPipeline(this.drawPipeline);
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const computeNBody = new ComputeNBody(sample);
         return computeNBody.run(argc, argv);
     }
