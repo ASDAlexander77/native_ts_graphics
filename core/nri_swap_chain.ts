@@ -2,28 +2,29 @@
 // color attachment view and a pair of semaphores for each texture, made again when the window's
 // resized, and the acquire, submit and present of a frame.
 //
-// Imported with `import { NriSwapChain } from "../core/nri_swap_chain";`, and listed in the app's
-// add_tslang_nri_example sources. Each frame: resized() (and recreate() when it is), acquire, record
-// into texture(i) through colorAttachment(i), submit, present. What the app keeps at the window's
-// size (targets, a layout) it makes again itself when recreate() runs.
+// Imported with `import { NriSwapChain } from "../core/nri_swap_chain";` (add_tslang_nri_example
+// adds it, and core/nri.ts, to the app's sources). Each frame: resized() (and recreate() when it
+// is), acquire, record into texture(i) through colorAttachment(i), submit, present. What the app
+// keeps at the window's size (targets, a layout) it makes again itself when recreate() runs.
 
 /// <reference path="nri/nri_interop.d.ts" />
+import { Nri, NriCommandBuffer, NriDescriptor, NriDevice, NriFence, NriQueue, NriSample, NriSwapChainObject, NriTexture } from "./nri";
 
 @final
 export class NriSwapChain {
-    private sample: NriSampleHandle;
-    private device: NriDeviceHandle;
-    private queue: NriQueueHandle;
-    private swapChain: NriSwapChainHandle;
+    private sample: NriSample;
+    private device: NriDevice;
+    private queue: NriQueue;
+    private swapChain: NriSwapChainObject;
     private srgb: boolean = false;
     private outputWidth: int = 0;
     private outputHeight: int = 0;
     private textureFormat: NriFormat = NriFormat.Unknown;
     private attachmentFormat: NriFormat = NriFormat.Unknown;
-    private textures: NriTextureHandle[] = [];
-    private views: NriDescriptorHandle[] = [];
-    private acquireSemaphores: NriFenceHandle[] = [];
-    private releaseSemaphores: NriFenceHandle[] = [];
+    private textures: NriTexture[] = [];
+    private views: NriDescriptor[] = [];
+    private acquireSemaphores: NriFence[] = [];
+    private releaseSemaphores: NriFence[] = [];
     // The acquire semaphore of the frame acquired last (its submit waits on it).
     private acquired: int = 0;
     private created: boolean = false;
@@ -33,9 +34,9 @@ export class NriSwapChain {
     // srgb: the views are the texture format's sRGB form (the GPU encodes the colors); else the
     // texture's own format (the app writes its colors as they are).
     init(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, srgb: boolean) {
-        this.sample = sample;
-        this.device = device;
-        this.queue = queue;
+        this.sample = new NriSample(sample);
+        this.device = new NriDevice(device);
+        this.queue = new NriQueue(queue);
         this.srgb = srgb;
         this.create();
     }
@@ -43,30 +44,30 @@ export class NriSwapChain {
     // A swap chain of format (NriSwapChainFormat: BT709_G22_10BIT, BT2020_G2084_10BIT, ...), its
     // views in its textures' format.
     initWithFormat(sample: NriSampleHandle, device: NriDeviceHandle, queue: NriQueueHandle, format: NriSwapChainFormat) {
-        this.sample = sample;
-        this.device = device;
-        this.queue = queue;
+        this.sample = new NriSample(sample);
+        this.device = new NriDevice(device);
+        this.queue = new NriQueue(queue);
         this.srgb = false;
         this.chainFormat = format;
         this.create();
     }
 
     private create() {
-        this.outputWidth = Nri_GetOutputWidth(this.sample);
-        this.outputHeight = Nri_GetOutputHeight(this.sample);
-        const wanted = Nri_GetQueuedFrameNum(this.sample) + 1;
+        this.outputWidth = this.sample.getOutputWidth();
+        this.outputHeight = this.sample.getOutputHeight();
+        const wanted = this.sample.getQueuedFrameNum() + 1;
         this.swapChain = this.chainFormat >= 0
-            ? Nri_CreateSwapChainWithFormat(this.sample, this.device, this.queue, wanted, this.chainFormat)
-            : Nri_CreateSwapChain(this.sample, this.device, this.queue, wanted);
-        const textureNum = Nri_GetSwapChainTextureNum(this.swapChain);
-        this.textureFormat = Nri_GetTextureFormat(Nri_GetSwapChainTexture(this.swapChain, 0));
-        this.attachmentFormat = this.srgb ? Nri_GetSrgbFormat(this.textureFormat) : this.textureFormat;
+            ? this.sample.createSwapChainWithFormat(this.device, this.queue, wanted, this.chainFormat)
+            : this.sample.createSwapChain(this.device, this.queue, wanted);
+        const textureNum = this.swapChain.getTextureNum();
+        this.textureFormat = this.swapChain.getTexture(0).getFormat();
+        this.attachmentFormat = this.srgb ? Nri.getSrgbFormat(this.textureFormat) : this.textureFormat;
         for (let i = 0; i < textureNum; i++) {
-            const texture = Nri_GetSwapChainTexture(this.swapChain, i);
+            const texture = this.swapChain.getTexture(i);
             this.textures.push(texture);
-            this.views.push(Nri_CreateColorAttachmentView(texture, this.attachmentFormat));
-            this.acquireSemaphores.push(Nri_CreateSwapChainSemaphore(this.device));
-            this.releaseSemaphores.push(Nri_CreateSwapChainSemaphore(this.device));
+            this.views.push(texture.createColorAttachmentView(this.attachmentFormat));
+            this.acquireSemaphores.push(this.device.createSwapChainSemaphore());
+            this.releaseSemaphores.push(this.device.createSwapChainSemaphore());
         }
         this.created = true;
     }
@@ -100,12 +101,12 @@ export class NriSwapChain {
 
     // The NRI swap chain itself (for Nri_IsDisplayHdr, say).
     handle(): NriSwapChainHandle {
-        return this.swapChain;
+        return this.swapChain.handle;
     }
 
     // Whether the window's size is no longer the swap chain's.
     resized(): boolean {
-        return Nri_GetOutputWidth(this.sample) != this.outputWidth || Nri_GetOutputHeight(this.sample) != this.outputHeight;
+        return this.sample.getOutputWidth() != this.outputWidth || this.sample.getOutputHeight() != this.outputHeight;
     }
 
     // Made again in format (NriSwapChainFormat), at the window's size, once the GPU's done with the
@@ -117,7 +118,7 @@ export class NriSwapChain {
 
     // Made again at the window's size, once the GPU's done with the old one.
     recreate() {
-        Nri_DeviceWaitIdle(this.device);
+        this.device.waitIdle();
         this.destroy();
         this.create();
     }
@@ -125,24 +126,24 @@ export class NriSwapChain {
     // The texture to render frame frameIndex into, or -1 (none this frame: skip its recording).
     acquire(frameIndex: int): int {
         this.acquired = frameIndex % this.acquireSemaphores.length;
-        return Nri_AcquireNextTexture(this.swapChain, this.acquireSemaphores[this.acquired]);
+        return this.swapChain.acquireNextTexture(this.acquireSemaphores[this.acquired]);
     }
 
     texture(index: int): NriTextureHandle {
-        return this.textures[index];
+        return this.textures[index].handle;
     }
 
     colorAttachment(index: int): NriDescriptorHandle {
-        return this.views[index];
+        return this.views[index].handle;
     }
 
     // The command buffer submitted, waiting for the acquired texture and signaling its present.
     submit(commandBuffer: NriCommandBufferHandle, index: int) {
-        Nri_QueueSubmit(this.queue, commandBuffer, this.acquireSemaphores[this.acquired], this.releaseSemaphores[index]);
+        this.queue.submit(new NriCommandBuffer(commandBuffer), this.acquireSemaphores[this.acquired], this.releaseSemaphores[index]);
     }
 
     present(index: int) {
-        Nri_QueuePresent(this.swapChain, this.releaseSemaphores[index]);
+        this.swapChain.present(this.releaseSemaphores[index]);
     }
 
     // (after the device is idle)
@@ -151,15 +152,15 @@ export class NriSwapChain {
             return;
         }
         for (let i = 0; i < this.textures.length; i++) {
-            Nri_DestroyFence(this.acquireSemaphores[i]);
-            Nri_DestroyFence(this.releaseSemaphores[i]);
-            Nri_DestroyDescriptor(this.views[i]);
+            this.acquireSemaphores[i].destroy();
+            this.releaseSemaphores[i].destroy();
+            this.views[i].destroy();
         }
         this.textures = [];
         this.views = [];
         this.acquireSemaphores = [];
         this.releaseSemaphores = [];
-        Nri_DestroySwapChain(this.swapChain);
+        this.swapChain.destroy();
         this.created = false;
     }
 }
