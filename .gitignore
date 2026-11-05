@@ -4,3 +4,4 @@ __pycache__/
 __jit*/
 /tools/tslang
 *.log
+*.apk
