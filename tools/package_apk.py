@@ -14,6 +14,13 @@ Run by the <example>_apk targets (CMakeLists.txt); with the SDK's build tools, n
    libnri_interop.so), go in stripped (with --strip) and uncompressed (the manifest has
    extractNativeLibs="false"), and zipalign aligns them to 16 KiB pages;
 4. apksigner signs it with the debug keystore, made by the JDK's keytool if there is none.
+
+For a store (--release): not debuggable, the app's label, version, icon (--res, --icon) and the
+manifest's further attributes, signed with the release keystore (--keystore, --key-alias; its
+passwords from the environment variables --store-pass-env and --key-pass-env name, never on the
+command line), and with --bundle an Android App Bundle (.aab, what Google Play takes) too, built by
+bundletool (--bundletool, fetched if it isn't there) and signed by the JDK's jarsigner; with
+--symbols the libraries' debug symbols zipped for the store's crash reports.
 """
 
 import argparse
@@ -23,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +39,10 @@ MANIFEST_TEMPLATE = os.path.join(ROOT, "tools", "android", "AndroidManifest.xml.
 # the SDK's debug signing conventions
 KEY_ALIAS = "androiddebugkey"
 KEY_PASSWORD = "android"
+
+BUNDLETOOL_VERSION = "1.18.1"
+BUNDLETOOL_URL = (f"https://github.com/google/bundletool/releases/download/{BUNDLETOOL_VERSION}/"
+                  f"bundletool-all-{BUNDLETOOL_VERSION}.jar")
 
 
 def fail(message):
@@ -96,6 +108,61 @@ def make_debug_keystore(keystore, java_home, env):
     os.remove(made)
 
 
+def java_tool(env, name):
+    tool = shutil.which(name, path=env["PATH"])
+    if not tool:
+        fail(f"no {name}: pass --java-home (a JDK)")
+    return tool
+
+
+def password_env(name):
+    """The name of an environment variable holding a password, checked to be set."""
+    if not name or not os.environ.get(name):
+        fail(f"set the environment variable {name or '(none given)'} to the keystore's password")
+    return name
+
+
+def fetch_bundletool(path):
+    if os.path.isfile(path):
+        return path
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    print(f"package_apk: fetching bundletool {BUNDLETOOL_VERSION} ({BUNDLETOOL_URL})")
+    partial = path + ".part"
+    urllib.request.urlretrieve(BUNDLETOOL_URL, partial)
+    os.replace(partial, path)
+    return path
+
+
+def build_bundle(args, env, aapt2, link_args, libraries, work):
+    """The App Bundle: aapt2's proto-format link of the same manifest, resources and assets, its
+    entries laid out as bundletool's base module with the libraries, built into an .aab and signed."""
+    proto = os.path.join(work, "proto.zip")
+    run([aapt2, "link", "--proto-format", "-o", proto] + link_args)
+    module = os.path.join(work, "base.zip")
+    with zipfile.ZipFile(proto) as source, zipfile.ZipFile(module, "w", zipfile.ZIP_DEFLATED) as base:
+        for entry in source.infolist():
+            name = entry.filename
+            if name == "AndroidManifest.xml":
+                name = "manifest/AndroidManifest.xml"
+            base.writestr(name, source.read(entry))
+        for packaged, library in libraries.items():
+            base.write(library, f"lib/{args.abi}/{packaged}")
+    bundletool = fetch_bundletool(args.bundletool or os.path.join(work, f"bundletool-{BUNDLETOOL_VERSION}.jar"))
+    unsigned = os.path.join(work, "unsigned.aab")
+    if os.path.isfile(unsigned):
+        os.remove(unsigned)
+    run([java_tool(env, "java"), "-jar", bundletool, "build-bundle", f"--modules={module}",
+         f"--output={unsigned}"], env=env)
+    signed = os.path.join(work, "signed.aab")
+    shutil.copyfile(unsigned, signed)
+    run([java_tool(env, "jarsigner"), "-keystore", args.keystore,
+         "-storepass:env", password_env(args.store_pass_env), "-keypass:env", password_env(args.key_pass_env),
+         "-sigalg", "SHA256withRSA", "-digestalg", "SHA-256", signed, args.key_alias], env=env)
+    os.makedirs(os.path.dirname(os.path.abspath(args.bundle)), exist_ok=True)
+    shutil.copyfile(signed, args.bundle)
+    print(f"package_apk: {args.bundle}")
+
+
 def stage_assets(assets, folder):
     """Copies each source=destination file or folder into the staging folder; returns their file
     list."""
@@ -141,7 +208,22 @@ def main():
     parser.add_argument("--java-home", help="a JDK, for apksigner and keytool (default: JAVA_HOME)")
     parser.add_argument("--min-sdk", default="29")
     parser.add_argument("--target-sdk", default="29")
-    parser.add_argument("--keystore", required=True, help="the debug keystore, made if it isn't there")
+    parser.add_argument("--keystore", required=True, help="the debug keystore, made if it isn't there "
+                                                          "(with --release: the release keystore)")
+    parser.add_argument("--label", help="the app's name on the launcher (default: --name)")
+    parser.add_argument("--version-code", default="1", help="the version's number (one more each release)")
+    parser.add_argument("--version-name", default="1.0", help="the version users see")
+    parser.add_argument("--res", help="a resources folder (res/: drawable, mipmap-anydpi-v26, ...)")
+    parser.add_argument("--icon", help="the launcher icon among them (@mipmap/ic_launcher)")
+    parser.add_argument("--app-category", help="the store's category hint (game, audio, ...)")
+    parser.add_argument("--vulkan-version", help="the Vulkan version the device must have (0x402000: 1.2)")
+    parser.add_argument("--release", action="store_true", help="for a store: not debuggable, release-signed")
+    parser.add_argument("--key-alias", default=KEY_ALIAS, help="the release key's alias")
+    parser.add_argument("--store-pass-env", help="the environment variable with the keystore's password")
+    parser.add_argument("--key-pass-env", help="the environment variable with the key's password")
+    parser.add_argument("--bundle", help="an Android App Bundle (.aab) to make as well")
+    parser.add_argument("--bundletool", help="bundletool's jar (fetched there if it isn't)")
+    parser.add_argument("--symbols", help="a zip of the libraries' debug symbols (unstripped), for the store")
     parser.add_argument("--strip", help="llvm-strip, to package the library without its debug info "
                                         "(the build's copy keeps it, for symbolizing crashes)")
     parser.add_argument("--work", help="the folder to build it in (default: next to --out)")
@@ -170,16 +252,35 @@ def main():
 
     with open(MANIFEST_TEMPLATE, encoding="utf-8") as template:
         manifest = template.read()
-    for key, value in {"@PACKAGE@": package, "@NAME@": args.name, "@LABEL@": args.name,
+    application = ""
+    if args.icon:
+        application += f'\n        android:icon="{args.icon}"\n        android:roundIcon="{args.icon}"'
+    if args.app_category:
+        application += f'\n        android:appCategory="{args.app_category}"'
+    if args.release:
+        application += '\n        android:allowBackup="false"'
+    features = ""
+    if args.vulkan_version:
+        features = (f'    <uses-feature android:name="android.hardware.vulkan.version" '
+                    f'android:version="{args.vulkan_version}" android:required="true" />')
+    for key, value in {"@PACKAGE@": package, "@NAME@": args.name, "@LABEL@": args.label or args.name,
+                       "@VERSION_CODE@": args.version_code, "@VERSION_NAME@": args.version_name,
+                       "@USES_FEATURES@": features, "@APPLICATION_ATTRIBUTES@": application,
                        "@MIN_SDK@": args.min_sdk, "@TARGET_SDK@": args.target_sdk}.items():
         manifest = manifest.replace(key, value)
     manifest_path = os.path.join(work, "AndroidManifest.xml")
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as file:
         file.write(manifest)
 
+    link_args = ["--manifest", manifest_path, "-I", android_jar, "-A", assets_folder]
+    if args.res:
+        compiled = os.path.join(work, "res.zip")
+        run([aapt2, "compile", "--dir", args.res, "-o", compiled])
+        link_args += ["-R", compiled, "--auto-add-overlay"]
+    if not args.release:
+        link_args.append("--debug-mode")
     base = os.path.join(work, "base.apk")
-    run([aapt2, "link", "-o", base, "--manifest", manifest_path, "-I", android_jar, "-A", assets_folder,
-         "--debug-mode"])
+    run([aapt2, "link", "-o", base] + link_args)
 
     # each library under its name in the APK, stripped if asked
     libraries = {}
@@ -201,13 +302,31 @@ def main():
     aligned = os.path.join(work, "aligned.apk")
     run([zipalign, "-f", "-P", "16", "4", unaligned, aligned])
 
-    if not os.path.isfile(args.keystore):
-        make_debug_keystore(args.keystore, args.java_home, env)
-
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    run([apksigner, "sign", "--ks", args.keystore, "--ks-key-alias", KEY_ALIAS,
-         "--ks-pass", f"pass:{KEY_PASSWORD}", "--key-pass", f"pass:{KEY_PASSWORD}",
-         "--out", args.out, aligned], env=env)
+    if args.release:
+        if not os.path.isfile(args.keystore):
+            fail(f"no release keystore {args.keystore}: make it with the JDK's keytool (see "
+                 "powder_sandbox/store/README.md), and keep it: every update must be signed with it")
+        run([apksigner, "sign", "--ks", args.keystore, "--ks-key-alias", args.key_alias,
+             "--ks-pass", f"env:{password_env(args.store_pass_env)}",
+             "--key-pass", f"env:{password_env(args.key_pass_env)}",
+             "--out", args.out, aligned], env=env)
+    else:
+        if not os.path.isfile(args.keystore):
+            make_debug_keystore(args.keystore, args.java_home, env)
+        run([apksigner, "sign", "--ks", args.keystore, "--ks-key-alias", KEY_ALIAS,
+             "--ks-pass", f"pass:{KEY_PASSWORD}", "--key-pass", f"pass:{KEY_PASSWORD}",
+             "--out", args.out, aligned], env=env)
+
+    if args.bundle:
+        build_bundle(args, env, aapt2, link_args, libraries, work)
+
+    if args.symbols:
+        os.makedirs(os.path.dirname(os.path.abspath(args.symbols)), exist_ok=True)
+        with zipfile.ZipFile(args.symbols, "w", zipfile.ZIP_DEFLATED) as symbols:
+            for source, packaged in [(args.lib, f"lib{args.name}.so")] + [(lib, os.path.basename(lib)) for lib in args.extra_lib]:
+                symbols.write(source, f"{args.abi}/{packaged}")
+        print(f"package_apk: {args.symbols}")
 
     print(f"package_apk: {args.out} ({package}, {len(files)} assets)")
 

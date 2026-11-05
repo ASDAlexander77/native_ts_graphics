@@ -4,5 +4,4 @@ __pycache__/
 __jit*/
 /tools/tslang
 *.log
-# A git worktree kept beside the checkout
-/nri-resize-batch-3-pr/
+*.apk

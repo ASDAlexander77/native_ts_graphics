@@ -108,3 +108,21 @@ add_tslang_example_test(powder_sandbox_nri SUFFIX roundtrip ARGS -utube -roundTr
 # water slumping to half its height). It must still level out.
 add_tslang_example_test(powder_sandbox_nri SUFFIX regrid ARGS -utube -regrid 1)
 add_tslang_example_test(powder_sandbox_nri SUFFIX turned ARGS -utube -regrid 2 -testFrames 3600)
+
+# The store build (Google Play): `cmake --build --preset android-arm64 --target powder_sandbox_nri_release`
+# makes bin/powder_sandbox_nri-release.apk and .aab, signed with the release keystore (see
+# powder_sandbox/store/README.md). Its window hides the system bars (TSLANG_ANDROID_IMMERSIVE): an
+# app targeting Android 15+ is drawn under them, which would put the toolbar under the gesture bar.
+if (ANDROID AND TARGET powder_sandbox_nri_app)
+    target_compile_definitions(powder_sandbox_nri_app PRIVATE TSLANG_ANDROID_IMMERSIVE=1)
+endif()
+add_tslang_android_release(powder_sandbox_nri
+    PACKAGE io.github.asdalexander77.powdersandbox
+    LABEL "Powder Sandbox"
+    VERSION_CODE 1
+    VERSION_NAME 1.0
+    RES powder_sandbox/android/res
+    ICON @mipmap/ic_launcher
+    CATEGORY game
+    VULKAN_VERSION 0x402000
+    TARGET_SDK 36)

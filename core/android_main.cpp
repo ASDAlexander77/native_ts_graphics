@@ -243,6 +243,59 @@ namespace
         return args;
     }
 
+#if TSLANG_ANDROID_IMMERSIVE
+    // The status and navigation bars hidden (a swipe from the screen's edge shows them for a
+    // while): the app has the whole screen, and isn't drawn under them (an app targeting Android
+    // 15+ is drawn edge to edge). Called on the activity's thread, in its onCreate.
+    void HideSystemBars(ANativeActivity* activity)
+    {
+        JNIEnv* env = activity->env;
+        jclass activityClass = env->GetObjectClass(activity->clazz);
+        jmethodID getWindow = env->GetMethodID(activityClass, "getWindow", "()Landroid/view/Window;");
+        jobject window = getWindow ? env->CallObjectMethod(activity->clazz, getWindow) : nullptr;
+        if (window && activity->sdkVersion >= 30)
+        {
+            // window.getInsetsController(): hide(WindowInsets.Type.systemBars()), shown by a swipe
+            jclass windowClass = env->GetObjectClass(window);
+            jmethodID getInsetsController = env->GetMethodID(windowClass, "getInsetsController", "()Landroid/view/WindowInsetsController;");
+            jobject controller = getInsetsController ? env->CallObjectMethod(window, getInsetsController) : nullptr;
+            jclass typeClass = env->FindClass("android/view/WindowInsets$Type");
+            jmethodID systemBars = typeClass ? env->GetStaticMethodID(typeClass, "systemBars", "()I") : nullptr;
+            if (controller && systemBars)
+            {
+                const jint types = env->CallStaticIntMethod(typeClass, systemBars);
+                jclass controllerClass = env->GetObjectClass(controller);
+                jmethodID setBehavior = env->GetMethodID(controllerClass, "setSystemBarsBehavior", "(I)V");
+                jmethodID hide = env->GetMethodID(controllerClass, "hide", "(I)V");
+                const jint showTransientBarsBySwipe = 2; // BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                if (setBehavior)
+                    env->CallVoidMethod(controller, setBehavior, showTransientBarsBySwipe);
+                if (hide)
+                    env->CallVoidMethod(controller, hide, types);
+            }
+        }
+        else if (window)
+        {
+            // Android 10: the decor view's system UI flags (immersive sticky)
+            jclass windowClass = env->GetObjectClass(window);
+            jmethodID getDecorView = env->GetMethodID(windowClass, "getDecorView", "()Landroid/view/View;");
+            jobject decor = getDecorView ? env->CallObjectMethod(window, getDecorView) : nullptr;
+            if (decor)
+            {
+                jclass viewClass = env->GetObjectClass(decor);
+                jmethodID setSystemUiVisibility = env->GetMethodID(viewClass, "setSystemUiVisibility", "(I)V");
+                // LAYOUT_STABLE | LAYOUT_HIDE_NAVIGATION | LAYOUT_FULLSCREEN | HIDE_NAVIGATION |
+                // FULLSCREEN | IMMERSIVE_STICKY
+                const jint flags = 0x100 | 0x200 | 0x400 | 0x2 | 0x4 | 0x1000;
+                if (setSystemUiVisibility)
+                    env->CallVoidMethod(decor, setSystemUiVisibility, flags);
+            }
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+    }
+#endif
+
     // Runs the activity's events (its commands, through the glue) for up to timeoutMillis
     void PumpEvents(struct android_app* app, int timeoutMillis)
     {
@@ -277,6 +330,9 @@ extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, vo
 #endif
 
     glue_ANativeActivity_onCreate(activity, savedState, savedStateSize);
+#if TSLANG_ANDROID_IMMERSIVE
+    HideSystemBars(activity);
+#endif
 }
 
 extern "C" void android_main(struct android_app* app)
