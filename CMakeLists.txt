@@ -812,7 +812,7 @@ endfunction()
 # bin/<name>-native-debug-symbols.zip (the libraries unstripped, for the store's crash reports).
 # Not debuggable, with the given application ID (PACKAGE), name (LABEL), version (VERSION_CODE, one
 # more for each upload; VERSION_NAME), resources (RES, a res/ folder) and launcher icon (ICON),
-# CATEGORY (game, ...), the Vulkan version the device must have (VULKAN_VERSION, 0x402000 for 1.2)
+# CATEGORY (game, ...), the Vulkan version the device must have (VULKAN_VERSION, 0x403000 for 1.3)
 # and TARGET_SDK (the store's required level; its SDK platform installed). Signed with the release
 # keystore ANDROID_RELEASE_KEYSTORE (key ANDROID_RELEASE_KEY_ALIAS), whose passwords the build reads
 # from the environment variables ANDROID_RELEASE_STORE_PASSWORD and ANDROID_RELEASE_KEY_PASSWORD.
