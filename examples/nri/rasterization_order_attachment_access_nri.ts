@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, radians, samplePerspective } from "../../core/matrix";
 import { MsvcRandom } from "../../core/random";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueryPool, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace RasterizationOrderAttachmentAccessNri {
     // rasterization_order_attachment_access, rendered with NRI (NVIDIA Rendering Interface) and
@@ -21,7 +22,7 @@ namespace RasterizationOrderAttachmentAccessNri {
     const MODEL_PATH = "media/rasterization_order_attachment_access/geosphere.gltf";
     const BACKGROUND_PATH = "media/rasterization_order_attachment_access/vulkan_logo_full.dds";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // The sample's grid of transparent spheres: rows (x) by columns (y) by layers (z), one unit
@@ -74,9 +75,9 @@ namespace RasterizationOrderAttachmentAccessNri {
     class QueuedFrame {
         timestampsPending: boolean = false;
 
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public backgroundSet: NriDescriptorSetHandle | null, public blendSet: NriDescriptorSetHandle | null,
-            public sceneView: NriDescriptorHandle | null, public timestampBuffer: NriBufferHandle | null) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public backgroundSet: NriDescriptorSet | null, public blendSet: NriDescriptorSet | null,
+            public sceneView: NriDescriptor | null, public timestampBuffer: NriBuffer | null) {
         }
     }
 
@@ -137,34 +138,34 @@ namespace RasterizationOrderAttachmentAccessNri {
     // spheres write the texture only (no color); a display pass decodes it into the sRGB swap chain
     // view.
     class RasterizationOrderAttachmentAccess {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private backgroundLayout: NriPipelineLayoutHandle | null = null;
-        private blendLayout: NriPipelineLayoutHandle | null = null;
-        private displayLayout: NriPipelineLayoutHandle | null = null;
-        private backgroundPipeline: NriPipelineHandle | null = null;
-        private blendPipeline: NriPipelineHandle | null = null;
-        private blendRovPipeline: NriPipelineHandle | null = null;
-        private displayPipeline: NriPipelineHandle | null = null;
-        private displaySet: NriDescriptorSetHandle | null = null;
-        private mesh: NriGltfMeshHandle | null = null;
-        private background: NriTextureHandle | null = null;
-        private backgroundView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private sceneConstantBuffer: NriBufferHandle | null = null;
-        private instanceBuffer: NriBufferHandle | null = null;
-        private instanceView: NriDescriptorHandle | null = null;
+        private backgroundLayout: NriPipelineLayout | null = null;
+        private blendLayout: NriPipelineLayout | null = null;
+        private displayLayout: NriPipelineLayout | null = null;
+        private backgroundPipeline: NriPipeline | null = null;
+        private blendPipeline: NriPipeline | null = null;
+        private blendRovPipeline: NriPipeline | null = null;
+        private displayPipeline: NriPipeline | null = null;
+        private displaySet: NriDescriptorSet | null = null;
+        private mesh: NriGltfMesh | null = null;
+        private background: NriTexture | null = null;
+        private backgroundView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private sceneConstantBuffer: NriBuffer | null = null;
+        private instanceBuffer: NriBuffer | null = null;
+        private instanceView: NriDescriptor | null = null;
         // The color texture (the swap chain's bytes, sRGB-encoded RGBA8 packed in a uint) for the
         // window's size: written by the pixel shaders, read by the display pass.
-        private colorTexture: NriTextureHandle | null = null;
-        private colorStorageView: NriDescriptorHandle | null = null;
-        private colorView: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private queryPool: NriQueryPoolHandle | null = null;
+        private colorTexture: NriTexture | null = null;
+        private colorStorageView: NriDescriptor | null = null;
+        private colorView: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private queryPool: NriQueryPool | null = null;
         private querySize: int = 0;
         private imgui: boolean = false;
         private width: int = 0;
@@ -195,11 +196,11 @@ namespace RasterizationOrderAttachmentAccessNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -213,11 +214,11 @@ namespace RasterizationOrderAttachmentAccessNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -228,24 +229,24 @@ namespace RasterizationOrderAttachmentAccessNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // The sample's ROAA, where the device has rasterizer ordered views (else, as the Donut
             // example, a draw and a barrier per sphere).
-            this.rovSupported = Nri_IsFeatureSupported(device, NriFeature.RasterizerOrderedViews) != 0;
+            this.rovSupported = device.isFeatureSupported(NriFeature.RasterizerOrderedViews) != 0;
             this.rovEnabled = this.rovEnabled && this.rovSupported;
 
             // Swap chain: rendered through sRGB views, as Donut's (sRGB) back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -253,42 +254,42 @@ namespace RasterizationOrderAttachmentAccessNri {
 
             // The model and the background (KTX 1 files have no color space: the framework takes
             // color textures as sRGB).
-            this.mesh = Nri_LoadGltfMesh(device, this.queue, MODEL_PATH);
-            const background = Nri_LoadDdsTexture(device, this.queue, BACKGROUND_PATH, 1);
+            this.mesh = device.loadGltfMesh(this.queue, MODEL_PATH);
+            const background = device.loadDdsTexture(this.queue, BACKGROUND_PATH, 1);
             this.background = background;
             if (!this.mesh || !background) {
                 console.log("Cannot load the model and the background: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const backgroundView = Nri_CreateTextureView(background, NriFormat.RGBA8_SRGB);
+            const backgroundView = background.createView(NriFormat.RGBA8_SRGB);
             this.backgroundView = backgroundView;
             // Donut's LinearWrap: linear, repeating (one mip level, as the sample's texture).
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
 
             // The sample's descriptor set, split by pass as the Donut example does: the background's
             // uniforms, texture, sampler and color texture; the spheres' uniforms, first instance
             // (root constants), instances and color texture; the display pass's color texture.
-            const backgroundLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(backgroundLayoutDesc, 0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
-            this.backgroundLayout = Nri_CreatePipelineLayoutFromDesc(device, backgroundLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(backgroundLayoutDesc);
+            const backgroundLayoutDesc = NriPipelineLayoutDesc.create();
+            backgroundLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            backgroundLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            backgroundLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            backgroundLayoutDesc.addRange(0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
+            this.backgroundLayout = device.createPipelineLayoutFromDesc(backgroundLayoutDesc);
+            backgroundLayoutDesc.destroy();
 
-            const blendLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(blendLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blendLayoutDesc, 0, 1, 1, NriDescriptorType.StructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blendLayoutDesc, 0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(blendLayoutDesc, 1, DRAW_CONSTANTS_SIZE, NriStage.VertexPixel);
-            this.blendLayout = Nri_CreatePipelineLayoutFromDesc(device, blendLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(blendLayoutDesc);
+            const blendLayoutDesc = NriPipelineLayoutDesc.create();
+            blendLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            blendLayoutDesc.addRange(0, 1, 1, NriDescriptorType.StructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            blendLayoutDesc.addRange(0, 1, 1, NriDescriptorType.StorageTexture, NriStage.VertexPixel, NriRangeFlags.None);
+            blendLayoutDesc.addRootConstants(1, DRAW_CONSTANTS_SIZE, NriStage.VertexPixel);
+            this.blendLayout = device.createPipelineLayoutFromDesc(blendLayoutDesc);
+            blendLayoutDesc.destroy();
 
-            const displayLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(displayLayoutDesc, 0, 2, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            this.displayLayout = Nri_CreatePipelineLayoutFromDesc(device, displayLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(displayLayoutDesc);
+            const displayLayoutDesc = NriPipelineLayoutDesc.create();
+            displayLayoutDesc.addRange(0, 2, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            this.displayLayout = device.createPipelineLayoutFromDesc(displayLayoutDesc);
+            displayLayoutDesc.destroy();
 
             const backgroundLayout = this.backgroundLayout;
             const blendLayout = this.blendLayout;
@@ -323,7 +324,7 @@ namespace RasterizationOrderAttachmentAccessNri {
             }
 
             // The uniforms, a queued frame's each; the instances (the sample's instance data).
-            const sceneConstantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const sceneConstantBuffer = device.createHostBuffer(queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.sceneConstantBuffer = sceneConstantBuffer;
             const instanceBuffer = this.createInstanceBuffer(device);
             this.instanceBuffer = instanceBuffer;
@@ -331,7 +332,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                 console.log("Cannot create the buffers");
                 return 0;
             }
-            const instanceView = Nri_CreateStructuredBufferView(instanceBuffer, 0);
+            const instanceView = instanceBuffer.createStructuredView(0);
             this.instanceView = instanceView;
 
             if (!this.createColorTexture(device) || !instanceView) {
@@ -346,53 +347,53 @@ namespace RasterizationOrderAttachmentAccessNri {
             }
 
             // The GPU time's timestamps, a queued frame's each.
-            const queryPool = Nri_CreateTimestampQueryPool(device, queuedFrameNum * TIMESTAMPS);
+            const queryPool = device.createTimestampQueryPool(queuedFrameNum * TIMESTAMPS);
             this.queryPool = queryPool;
             if (!queryPool) {
                 console.log("Cannot create the timestamp queries");
                 return 0;
             }
-            this.querySize = Nri_GetQuerySize(queryPool);
+            this.querySize = queryPool.getQuerySize();
 
             // A queued frame's descriptor sets, and the display pass's.
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 2 * queuedFrameNum + 1, queuedFrameNum, 2 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(2 * queuedFrameNum + 1, queuedFrameNum, 2 * queuedFrameNum,
                 queuedFrameNum + 1, 2 * queuedFrameNum, queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");
                 return 0;
             }
-            const displaySet = Nri_AllocateDescriptorSet(descriptorPool, displayLayout, 0, 0);
+            const displaySet = descriptorPool.allocateDescriptorSet(displayLayout, 0, 0);
             this.displaySet = displaySet;
             if (!displaySet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
-            Nri_UpdateDescriptor(displaySet, 0, 0, colorView);
+            displaySet.updateDescriptor(0, 0, colorView);
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const sceneView = Nri_CreateConstantBufferView(sceneConstantBuffer, i * CONST_STRIDE, CONST_STRIDE);
-                const backgroundSet = Nri_AllocateDescriptorSet(descriptorPool, backgroundLayout, 0, 0);
-                const blendSet = Nri_AllocateDescriptorSet(descriptorPool, blendLayout, 0, 0);
-                const timestampBuffer = Nri_CreateReadbackBuffer(device, TIMESTAMPS * this.querySize);
+                const sceneView = sceneConstantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
+                const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
+                const blendSet = descriptorPool.allocateDescriptorSet(blendLayout, 0, 0);
+                const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
                 this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), backgroundSet, blendSet,
                     sceneView, timestampBuffer));
                 if (!sceneView || !backgroundSet || !blendSet || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(backgroundSet, 0, 0, sceneView);
-                Nri_UpdateDescriptor(backgroundSet, 1, 0, backgroundView);
-                Nri_UpdateDescriptor(backgroundSet, 2, 0, sampler);
-                Nri_UpdateDescriptor(backgroundSet, 3, 0, colorStorageView);
-                Nri_UpdateDescriptor(blendSet, 0, 0, sceneView);
-                Nri_UpdateDescriptor(blendSet, 1, 0, instanceView);
-                Nri_UpdateDescriptor(blendSet, 2, 0, colorStorageView);
+                backgroundSet.updateDescriptor(0, 0, sceneView);
+                backgroundSet.updateDescriptor(1, 0, backgroundView);
+                backgroundSet.updateDescriptor(2, 0, sampler);
+                backgroundSet.updateDescriptor(3, 0, colorStorageView);
+                blendSet.updateDescriptor(0, 0, sceneView);
+                blendSet.updateDescriptor(1, 0, instanceView);
+                blendSet.updateDescriptor(2, 0, colorStorageView);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -400,9 +401,9 @@ namespace RasterizationOrderAttachmentAccessNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -411,32 +412,32 @@ namespace RasterizationOrderAttachmentAccessNri {
         // A pipeline of the shaders vs and ps (ps's permutation: "" for none), with the spheres'
         // positions and their back faces culled or a fullscreen triangle, the channels written; no
         // depth.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, vs: string, ps: string,
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, vs: string, ps: string,
             permutation: string, spheres: boolean, writeMask: int) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
             if (loaded) {
                 loaded = permutation == ""
-                    ? Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0
-                    : Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps, permutation) != 0;
+                    ? desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0
+                    : desc.addShaderPermutation(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps, permutation) != 0;
             }
             if (spheres) {
-                Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-                Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-                Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
+                desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+                desc.setCullMode(NriCullMode.Back);
+                desc.setFrontCounterClockwise(1);
             }
-            Nri_PipelineDescSetColor(desc, this.viewFormat, writeMask);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setColor(this.viewFormat, writeMask);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The sample's instance data: the grid's transforms and random colors (alpha 0.2 to 1), in
         // a structured buffer; null on failure.
-        createInstanceBuffer(device: NriDeviceHandle) {
+        createInstanceBuffer(device: NriDevice) {
             const random = new MsvcRandom(RANDOM_SEED);
             const instances: f32[] = [];
             for (let z = 0; z < INSTANCE_LAYER_COUNT; z++) {
@@ -465,7 +466,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                     }
                 }
             }
-            return Nri_CreateUploadedStructuredBuffer(device, this.queue, Ref(instances[0]), INSTANCE_COUNT * INSTANCE_SIZE, INSTANCE_SIZE);
+            return device.createUploadedStructuredBuffer(this.queue, Ref(instances[0]), INSTANCE_COUNT * INSTANCE_SIZE, INSTANCE_SIZE);
         }
 
         drawCallCount() {
@@ -484,15 +485,15 @@ namespace RasterizationOrderAttachmentAccessNri {
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: dragging with the left
         // button rotates the camera, with the right one zooms, with the middle one pans.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (!pressed || !overlay) {
                     this.buttons[button] = pressed;
                 }
             }
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.buttons[0]) {
@@ -512,25 +513,25 @@ namespace RasterizationOrderAttachmentAccessNri {
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
             if (this.rovSupported) {
-                this.rovEnabled = Nri_ImguiCheckbox("Enable ROAA", this.rovEnabled ? 1 : 0) != 0;
+                this.rovEnabled = NriImgui.checkbox("Enable ROAA", this.rovEnabled ? 1 : 0) != 0;
             } else {
-                Nri_ImguiText("ROAA not supported on this device");
+                NriImgui.text("ROAA not supported on this device");
             }
-            Nri_ImguiText(`Draw calls: ${this.drawCallCount()}`);
-            Nri_ImguiText(`Barriers: ${this.barrierCount()}`);
+            NriImgui.text(`Draw calls: ${this.drawCallCount()}`);
+            NriImgui.text(`Barriers: ${this.barrierCount()}`);
             if (this.hasGpuTime) {
-                Nri_ImguiText(`GPU time: ${formatFixed3(this.gpuDrawTimeMs)} ms`);
+                NriImgui.text(`GPU time: ${formatFixed3(this.gpuDrawTimeMs)} ms`);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_scene_uniforms, into this frame's slice.
-        updateSceneConstants(sceneConstantBuffer: NriBufferHandle, offset: int) {
+        updateSceneConstants(sceneConstantBuffer: NriBuffer, offset: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -544,7 +545,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                 c[CONST_VIEW + i] = view[i];
             }
             c[CONST_BACKGROUND_GRAYSCALE] = BACKGROUND_GRAYSCALE;
-            Nri_WriteBuffer(sceneConstantBuffer, offset, Ref(c[0]), CONST_FLOATS * 4);
+            sceneConstantBuffer.write(offset, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // The sample's GPU time: the background and the spheres this queued frame measured when it
@@ -555,7 +556,7 @@ namespace RasterizationOrderAttachmentAccessNri {
             if (!device || !timestampBuffer || !queuedFrame.timestampsPending) {
                 return;
             }
-            const ms = Nri_ReadTimestampIntervalMs(device, timestampBuffer, 0, this.querySize);
+            const ms = device.readTimestampIntervalMs(timestampBuffer, 0, this.querySize);
             if (ms >= 0.0) {
                 this.gpuDrawTimeMs = ms;
                 this.hasGpuTime = true;
@@ -565,24 +566,24 @@ namespace RasterizationOrderAttachmentAccessNri {
 
         // The color texture's writes before seen by the accesses after (a UAV barrier between pixel
         // shaders).
-        colorBarrier(commandBuffer: NriCommandBufferHandle) {
+        colorBarrier(commandBuffer: NriCommandBuffer) {
             const colorTexture = this.colorTexture;
             if (!colorTexture) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, colorTexture, NriTextureState.PixelStorage, NriTextureState.PixelStorage);
+            commandBuffer.textureBarrier(colorTexture, NriTextureState.PixelStorage, NriTextureState.PixelStorage);
         }
 
         // A rendering pass into the swap chain view (which the background and the spheres don't
         // write), the whole window's viewport.
-        beginPass(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle) {
-            Nri_CmdBeginRendering(commandBuffer, colorAttachment);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+        beginPass(commandBuffer: NriCommandBuffer, colorAttachment: NriDescriptor) {
+            commandBuffer.beginRendering(colorAttachment);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
         }
 
         // The background (a fullscreen triangle) into the color texture.
-        recordBackground(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, colorAttachment: NriDescriptorHandle) {
+        recordBackground(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, colorAttachment: NriDescriptor) {
             const backgroundLayout = this.backgroundLayout;
             const backgroundPipeline = this.backgroundPipeline;
             const backgroundSet = queuedFrame.backgroundSet;
@@ -590,16 +591,16 @@ namespace RasterizationOrderAttachmentAccessNri {
                 return;
             }
             this.beginPass(commandBuffer, colorAttachment);
-            Nri_CmdSetPipelineLayout(commandBuffer, backgroundLayout);
-            Nri_CmdSetPipeline(commandBuffer, backgroundPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, backgroundSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.setPipelineLayout(backgroundLayout);
+            commandBuffer.setPipeline(backgroundPipeline);
+            commandBuffer.setDescriptorSet(0, backgroundSet);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.endRendering();
         }
 
         // The spheres over it: one instanced draw with ROAA; else a draw per sphere, a barrier
         // between each two (outside rendering, so a pass per sphere).
-        recordSpheres(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, colorAttachment: NriDescriptorHandle) {
+        recordSpheres(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, colorAttachment: NriDescriptor) {
             const blendLayout = this.blendLayout;
             const blendSet = queuedFrame.blendSet;
             const mesh = this.mesh;
@@ -613,25 +614,25 @@ namespace RasterizationOrderAttachmentAccessNri {
                     this.colorBarrier(commandBuffer);
                 }
                 this.beginPass(commandBuffer, colorAttachment);
-                Nri_CmdSetPipelineLayout(commandBuffer, blendLayout);
-                Nri_CmdSetPipeline(commandBuffer, pipeline);
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, blendSet);
-                Nri_StoreInt32(Ref(this.drawConstants[0]), draw);
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.drawConstants[0]), DRAW_CONSTANTS_SIZE);
-                Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(mesh), 0, VERTEX_SIZE);
-                Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(mesh), 0, NriIndexType.UInt32);
-                Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(mesh), this.rovEnabled ? INSTANCE_COUNT : 1, 0, 0, 0);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.setPipelineLayout(blendLayout);
+                commandBuffer.setPipeline(pipeline);
+                commandBuffer.setDescriptorSet(0, blendSet);
+                Nri.storeInt32(Ref(this.drawConstants[0]), draw);
+                commandBuffer.setRootConstants(0, Ref(this.drawConstants[0]), DRAW_CONSTANTS_SIZE);
+                commandBuffer.setVertexBuffer(0, mesh.getVertexBuffer(), 0, VERTEX_SIZE);
+                commandBuffer.setIndexBuffer(mesh.getIndexBuffer(), 0, NriIndexType.UInt32);
+                commandBuffer.drawIndexed(mesh.getIndexCount(), this.rovEnabled ? INSTANCE_COUNT : 1, 0, 0, 0);
+                commandBuffer.endRendering();
             }
         }
 
         // Writes this queued frame's timestamp index.
-        writeTimestamp(commandBuffer: NriCommandBufferHandle, queuedFrameIndex: int, index: int) {
+        writeTimestamp(commandBuffer: NriCommandBuffer, queuedFrameIndex: int, index: int) {
             const queryPool = this.queryPool;
             if (!queryPool) {
                 return;
             }
-            Nri_CmdWriteTimestamp(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS + index);
+            commandBuffer.writeTimestamp(queryPool, queuedFrameIndex * TIMESTAMPS + index);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -646,19 +647,19 @@ namespace RasterizationOrderAttachmentAccessNri {
         // The color texture, for the window's size: read and written by pixel shaders, read by the
         // display pass, in whose state each frame finds it (zeroed: the background covers it before
         // anything reads it); false on failure.
-        createColorTexture(device: NriDeviceHandle): boolean {
+        createColorTexture(device: NriDevice): boolean {
             const zeros: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 zeros.push(0);
             }
-            const colorTexture = Nri_CreateStorageTextureWithData(device, this.queue, this.width, this.height, NriFormat.R32_UINT,
+            const colorTexture = device.createStorageTextureWithData(this.queue, this.width, this.height, NriFormat.R32_UINT,
                 Ref(zeros[0]), this.width * 4, NriTextureState.ShaderResource);
             this.colorTexture = colorTexture;
             if (!colorTexture) {
                 return false;
             }
-            this.colorStorageView = Nri_CreateStorageTextureView(colorTexture, NriFormat.R32_UINT);
-            this.colorView = Nri_CreateTextureView(colorTexture, NriFormat.R32_UINT);
+            this.colorStorageView = colorTexture.createStorageView(NriFormat.R32_UINT);
+            this.colorView = colorTexture.createView(NriFormat.R32_UINT);
             return true;
         }
 
@@ -679,7 +680,7 @@ namespace RasterizationOrderAttachmentAccessNri {
             const displaySet = this.displaySet;
             if (displaySet) {
                 if (colorView) {
-                    Nri_UpdateDescriptor(displaySet, 0, 0, colorView);
+                    displaySet.updateDescriptor(0, 0, colorView);
                 }
             }
             if (!colorStorageView) {
@@ -689,15 +690,15 @@ namespace RasterizationOrderAttachmentAccessNri {
                 const backgroundSet = queuedFrame.backgroundSet;
                 const blendSet = queuedFrame.blendSet;
                 if (backgroundSet) {
-                    Nri_UpdateDescriptor(backgroundSet, 3, 0, colorStorageView);
+                    backgroundSet.updateDescriptor(3, 0, colorStorageView);
                 }
                 if (blendSet) {
-                    Nri_UpdateDescriptor(blendSet, 2, 0, colorStorageView);
+                    blendSet.updateDescriptor(2, 0, colorStorageView);
                 }
             }
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the color texture made
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the color texture made
         // again at its size (the sets pointed at the new one), once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -707,7 +708,7 @@ namespace RasterizationOrderAttachmentAccessNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyColorTexture();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -750,17 +751,17 @@ namespace RasterizationOrderAttachmentAccessNri {
             const commandBuffer = queuedFrame.commandBuffer;
             this.updateSceneConstants(sceneConstantBuffer, queuedFrameIndex * CONST_STRIDE);
 
-            Nri_BeginCommandBuffer(commandBuffer);
+            commandBuffer.begin();
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
 
             // The background and the spheres, timed; a barrier between them (the previous frame's
             // display pass left the color texture readable by pixel shaders).
-            Nri_CmdResetQueries(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS);
-            Nri_CmdTextureBarrier(commandBuffer, colorTexture, NriTextureState.ShaderResource, NriTextureState.PixelStorage);
+            commandBuffer.resetQueries(queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS);
+            commandBuffer.textureBarrier(colorTexture, NriTextureState.ShaderResource, NriTextureState.PixelStorage);
             this.writeTimestamp(commandBuffer, queuedFrameIndex, 0);
             this.recordBackground(commandBuffer, queuedFrame, this.swapChain.colorAttachment(index));
             this.colorBarrier(commandBuffer);
@@ -768,39 +769,39 @@ namespace RasterizationOrderAttachmentAccessNri {
             this.writeTimestamp(commandBuffer, queuedFrameIndex, 1);
             const timestampBuffer = queuedFrame.timestampBuffer;
             if (timestampBuffer) {
-                Nri_CmdCopyQueries(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS, timestampBuffer, 0);
+                commandBuffer.copyQueries(queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS, timestampBuffer, 0);
                 queuedFrame.timestampsPending = true;
             }
 
             // The color texture's bytes to the screen; the overlay over them.
-            Nri_CmdTextureBarrier(commandBuffer, colorTexture, NriTextureState.PixelStorage, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(colorTexture, NriTextureState.PixelStorage, NriTextureState.ShaderResource);
             this.beginPass(commandBuffer, this.swapChain.colorAttachment(index));
-            Nri_CmdSetPipelineLayout(commandBuffer, displayLayout);
-            Nri_CmdSetPipeline(commandBuffer, displayPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, displaySet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setPipelineLayout(displayLayout);
+            commandBuffer.setPipeline(displayPipeline);
+            commandBuffer.setDescriptorSet(0, displaySet);
+            commandBuffer.draw(3, 1, 0, 0);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImgui(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -812,12 +813,12 @@ namespace RasterizationOrderAttachmentAccessNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -827,9 +828,9 @@ namespace RasterizationOrderAttachmentAccessNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.sceneView);
@@ -837,11 +838,11 @@ namespace RasterizationOrderAttachmentAccessNri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const queryPool = this.queryPool;
                 if (queryPool) {
-                    Nri_DestroyQueryPool(queryPool);
+                    queryPool.destroy();
                 }
                 this.destroyDescriptor(this.backgroundView);
                 this.destroyDescriptor(this.sampler);
@@ -852,7 +853,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                 this.destroyTexture(this.colorTexture);
                 const mesh = this.mesh;
                 if (mesh) {
-                    Nri_DestroyGltfMesh(mesh);
+                    mesh.destroy();
                 }
                 this.destroyBuffer(this.sceneConstantBuffer);
                 this.destroyBuffer(this.instanceBuffer);
@@ -866,52 +867,52 @@ namespace RasterizationOrderAttachmentAccessNri {
                 this.destroyPipelineLayout(this.displayLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyPipelineLayout(pipelineLayout: NriPipelineLayoutHandle | null) {
+        destroyPipelineLayout(pipelineLayout: NriPipelineLayout | null) {
             if (pipelineLayout) {
-                Nri_DestroyPipelineLayout(pipelineLayout);
+                pipelineLayout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const roaa = new RasterizationOrderAttachmentAccess(sample);
         // -norov: start with a draw and a barrier per sphere; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-norov");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-norov");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-norov") {
                 roaa.rovEnabled = false;
             } else if (arg == "-noUI") {

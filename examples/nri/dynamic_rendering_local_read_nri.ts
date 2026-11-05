@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { identity, radians, perspective } from "../../core/matrix";
 import { FirstPersonCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfModel, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriRandomEngine, NriSample, NriTexture } from "../../core/nri";
 
 namespace DynamicRenderingLocalReadNri {
     // dynamic_rendering_local_read, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -23,7 +24,7 @@ namespace DynamicRenderingLocalReadNri {
     const TRANSPARENT_SCENE_PATH = MEDIA_DIR + "subpass_scene_transparent.gltf";
     const GLASS_TEXTURE_PATH = MEDIA_DIR + "transparent_glass_rgba.dds";
 
-    // Nri_LoadGltfModel's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriGltfModel.load's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_FLOATS = 8;
     const VERTEX_SIZE = VERTEX_FLOATS * 4;
     const NORMAL_OFFSET = 12;
@@ -64,15 +65,15 @@ namespace DynamicRenderingLocalReadNri {
     // the UBO) and the transparent pass's (the UBO slice, the G-buffer's position and depth, the
     // glass texture and its sampler).
     class QueuedFrame {
-        constructor(public uboView: NriDescriptorHandle | null, public opaqueSet: NriDescriptorSetHandle | null,
-            public transparentSet: NriDescriptorSetHandle | null) {
+        constructor(public uboView: NriDescriptor | null, public opaqueSet: NriDescriptorSet | null,
+            public transparentSet: NriDescriptorSet | null) {
         }
     }
 
     // A G-buffer texture and its views: rendered into, then read by the composition.
     class GBufferTarget {
-        constructor(public texture: NriTextureHandle, public attachment: NriDescriptorHandle,
-            public shaderResource: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public attachment: NriDescriptor,
+            public shaderResource: NriDescriptor) {
         }
     }
 
@@ -141,27 +142,27 @@ namespace DynamicRenderingLocalReadNri {
     // primitive): index range, base vertex, push constants (the node's world transform and the
     // material's base color factor). As the Donut example's Scene.
     class Scene {
-        vertexBuffer: NriBufferHandle | null = null;
-        indexBuffer: NriBufferHandle | null = null;
+        vertexBuffer: NriBuffer | null = null;
+        indexBuffer: NriBuffer | null = null;
         firstIndex: int[] = [];
         indexCount: int[] = [];
         baseVertex: int[] = [];
         push: f32[] = [];
 
-        load(device: NriDeviceHandle, queue: NriQueueHandle, path: string) {
-            const model = Nri_LoadGltfModel(path);
+        load(device: NriDevice, queue: NriQueue, path: string) {
+            const model = NriGltfModel.load(path);
             if (!model) {
                 return false;
             }
-            const primitiveCount = Nri_GetGltfModelPrimitiveCount(model);
+            const primitiveCount = model.getPrimitiveCount();
             const vertices: f32[] = [];
             const indices: int[] = [];
             const firstIndex: int[] = [];
             const baseVertex: int[] = [];
             let meshCount: int = 0;
             for (let p = 0; p < primitiveCount; p++) {
-                const vertexCount = Nri_GetGltfModelVertexCount(model, p);
-                const indexCount = Nri_GetGltfModelIndexCount(model, p);
+                const vertexCount = model.getVertexCount(p);
+                const indexCount = model.getIndexCount(p);
                 const primitiveVertices: f32[] = [];
                 for (let i = 0; i < vertexCount * VERTEX_FLOATS; i++) {
                     primitiveVertices.push(0.0);
@@ -170,8 +171,8 @@ namespace DynamicRenderingLocalReadNri {
                 for (let i = 0; i < indexCount; i++) {
                     primitiveIndices.push(0);
                 }
-                Nri_CopyGltfModelVertices(model, p, Ref(primitiveVertices[0]));
-                Nri_CopyGltfModelIndices(model, p, Ref(primitiveIndices[0]));
+                model.copyVertices(p, Ref(primitiveVertices[0]));
+                model.copyIndices(p, Ref(primitiveIndices[0]));
                 baseVertex.push(vertices.length / VERTEX_FLOATS);
                 firstIndex.push(indices.length);
                 for (let v = 0; v < vertexCount * VERTEX_FLOATS; v++) {
@@ -180,7 +181,7 @@ namespace DynamicRenderingLocalReadNri {
                 for (let i = 0; i < indexCount; i++) {
                     indices.push(primitiveIndices[i]);
                 }
-                meshCount = Math.max(meshCount, Nri_GetGltfModelPrimitiveMesh(model, p) + 1);
+                meshCount = Math.max(meshCount, model.getPrimitiveMesh(p) + 1);
             }
 
             const transform: f32[] = [];
@@ -188,21 +189,21 @@ namespace DynamicRenderingLocalReadNri {
                 transform.push(0.0);
             }
             const color: f32[] = [0.0, 0.0, 0.0, 0.0];
-            const nodeCount = Nri_GetGltfModelNodeCount(model);
+            const nodeCount = model.getNodeCount();
             for (let mesh = 0; mesh < meshCount; mesh++) {
                 for (let node = 0; node < nodeCount; node++) {
-                    if (Nri_GetGltfModelNodeMesh(model, node) != mesh) {
+                    if (model.getNodeMesh(node) != mesh) {
                         continue;
                     }
-                    Nri_CopyGltfModelNodeTransform(model, node, Ref(transform[0]));
+                    model.copyNodeTransform(node, Ref(transform[0]));
                     for (let p = 0; p < primitiveCount; p++) {
-                        if (Nri_GetGltfModelPrimitiveMesh(model, p) != mesh) {
+                        if (model.getPrimitiveMesh(p) != mesh) {
                             continue;
                         }
                         this.firstIndex.push(firstIndex[p]);
-                        this.indexCount.push(Nri_GetGltfModelIndexCount(model, p));
+                        this.indexCount.push(model.getIndexCount(p));
                         this.baseVertex.push(baseVertex[p]);
-                        Nri_CopyGltfModelBaseColorFactor(model, p, Ref(color[0]));
+                        model.copyBaseColorFactor(p, Ref(color[0]));
                         for (let i = 0; i < 16; i++) {
                             this.push.push(transform[i]);
                         }
@@ -212,10 +213,10 @@ namespace DynamicRenderingLocalReadNri {
                     }
                 }
             }
-            Nri_DestroyGltfModel(model);
+            model.destroy();
 
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
             if (!this.vertexBuffer || !this.indexBuffer) {
                 return false;
             }
@@ -225,11 +226,11 @@ namespace DynamicRenderingLocalReadNri {
         destroy() {
             const vertexBuffer = this.vertexBuffer;
             if (vertexBuffer) {
-                Nri_DestroyBuffer(vertexBuffer);
+                vertexBuffer.destroy();
             }
             const indexBuffer = this.indexBuffer;
             if (indexBuffer) {
-                Nri_DestroyBuffer(indexBuffer);
+                indexBuffer.destroy();
             }
         }
     }
@@ -241,31 +242,31 @@ namespace DynamicRenderingLocalReadNri {
     // the G-buffer pass ends, then the composition and the glass are drawn into the swap chain view
     // (sRGB, as Donut's back buffer) with the G-buffer's depth, reading the G-buffer as textures.
     class LocalRead {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         private gbuffer: GBufferTarget[] = [];
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private opaqueLayout: NriPipelineLayoutHandle | null = null;
-        private compositionLayout: NriPipelineLayoutHandle | null = null;
-        private transparentLayout: NriPipelineLayoutHandle | null = null;
-        private opaquePipeline: NriPipelineHandle | null = null;
-        private compositionPipeline: NriPipelineHandle | null = null;
-        private transparentPipeline: NriPipelineHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private opaqueLayout: NriPipelineLayout | null = null;
+        private compositionLayout: NriPipelineLayout | null = null;
+        private transparentLayout: NriPipelineLayout | null = null;
+        private opaquePipeline: NriPipeline | null = null;
+        private compositionPipeline: NriPipeline | null = null;
+        private transparentPipeline: NriPipeline | null = null;
         private opaqueScene: Scene = new Scene();
         private transparentScene: Scene = new Scene();
-        private glassTexture: NriTextureHandle | null = null;
-        private glassView: NriDescriptorHandle | null = null;
-        private glassSampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private lightsBuffer: NriBufferHandle | null = null;
-        private lightsView: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private compositionSet: NriDescriptorSetHandle | null = null;
+        private glassTexture: NriTexture | null = null;
+        private glassView: NriDescriptor | null = null;
+        private glassSampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private lightsBuffer: NriBuffer | null = null;
+        private lightsView: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private compositionSet: NriDescriptorSet | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -292,11 +293,11 @@ namespace DynamicRenderingLocalReadNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
             }
@@ -313,11 +314,11 @@ namespace DynamicRenderingLocalReadNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -328,19 +329,19 @@ namespace DynamicRenderingLocalReadNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -355,28 +356,28 @@ namespace DynamicRenderingLocalReadNri {
             // trilinear, repeating, the device's widest anisotropic filtering.
             const loaded = this.opaqueScene.load(device, this.queue, OPAQUE_SCENE_PATH)
                 && this.transparentScene.load(device, this.queue, TRANSPARENT_SCENE_PATH);
-            const glass = Nri_LoadDdsTexture(device, this.queue, GLASS_TEXTURE_PATH, 1);
+            const glass = device.loadDdsTexture(this.queue, GLASS_TEXTURE_PATH, 1);
             this.glassTexture = glass;
             if (!loaded || !glass) {
                 console.log("Cannot load the scenes and the texture: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const glassView = Nri_CreateTextureView(glass, NriFormat.RGBA8_SRGB);
+            const glassView = glass.createView(NriFormat.RGBA8_SRGB);
             this.glassView = glassView;
-            const glassSampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
-                Nri_GetMaxSamplerAnisotropy(device));
+            const glassSampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
+                device.getMaxSamplerAnisotropy());
             this.glassSampler = glassSampler;
 
             // The lights (a structured buffer the CPU writes), seeded with 0 under -benchmark and
             // -test.
-            const lightsBuffer = Nri_CreateHostBufferWithStride(device, LIGHT_COUNT * LIGHT_FLOATS * 4, NriBufferUsage.StructuredBuffer,
+            const lightsBuffer = device.createHostBufferWithStride(LIGHT_COUNT * LIGHT_FLOATS * 4, NriBufferUsage.StructuredBuffer,
                 LIGHT_FLOATS * 4);
             this.lightsBuffer = lightsBuffer;
             if (!glassSampler || !lightsBuffer) {
                 console.log("Cannot create the sampler and the lights");
                 return 0;
             }
-            const lightsView = Nri_CreateStructuredBufferView(lightsBuffer, 0);
+            const lightsView = lightsBuffer.createStructuredView(0);
             this.lightsView = lightsView;
             this.benchmark = this.benchmark || this.test;
             this.randomizeLights();
@@ -386,26 +387,26 @@ namespace DynamicRenderingLocalReadNri {
             // G-buffer (t0 to t2) and lights (t3); the transparent pass's UBO, push constants, the
             // G-buffer's position and depth (t0), the glass texture (t4) and its sampler (s0).
             const stages = NriStage.VertexPixel;
-            const opaqueDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(opaqueDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(opaqueDesc, PUSH_REGISTER, PUSH_FLOATS * 4, stages);
-            const opaqueLayout = Nri_CreatePipelineLayoutFromDesc(device, opaqueDesc);
-            Nri_DestroyPipelineLayoutDesc(opaqueDesc);
+            const opaqueDesc = NriPipelineLayoutDesc.create();
+            opaqueDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            opaqueDesc.addRootConstants(PUSH_REGISTER, PUSH_FLOATS * 4, stages);
+            const opaqueLayout = device.createPipelineLayoutFromDesc(opaqueDesc);
+            opaqueDesc.destroy();
             this.opaqueLayout = opaqueLayout;
-            const compositionDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(compositionDesc, 0, 0, 3, NriDescriptorType.Texture, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(compositionDesc, 0, 3, 1, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
-            const compositionLayout = Nri_CreatePipelineLayoutFromDesc(device, compositionDesc);
-            Nri_DestroyPipelineLayoutDesc(compositionDesc);
+            const compositionDesc = NriPipelineLayoutDesc.create();
+            compositionDesc.addRange(0, 0, 3, NriDescriptorType.Texture, stages, NriRangeFlags.None);
+            compositionDesc.addRange(0, 3, 1, NriDescriptorType.StructuredBuffer, stages, NriRangeFlags.None);
+            const compositionLayout = device.createPipelineLayoutFromDesc(compositionDesc);
+            compositionDesc.destroy();
             this.compositionLayout = compositionLayout;
-            const transparentDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(transparentDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(transparentDesc, 0, 0, 1, NriDescriptorType.Texture, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(transparentDesc, 0, 4, 1, NriDescriptorType.Texture, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(transparentDesc, 0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(transparentDesc, PUSH_REGISTER, PUSH_FLOATS * 4, stages);
-            const transparentLayout = Nri_CreatePipelineLayoutFromDesc(device, transparentDesc);
-            Nri_DestroyPipelineLayoutDesc(transparentDesc);
+            const transparentDesc = NriPipelineLayoutDesc.create();
+            transparentDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            transparentDesc.addRange(0, 0, 1, NriDescriptorType.Texture, stages, NriRangeFlags.None);
+            transparentDesc.addRange(0, 4, 1, NriDescriptorType.Texture, stages, NriRangeFlags.None);
+            transparentDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, stages, NriRangeFlags.None);
+            transparentDesc.addRootConstants(PUSH_REGISTER, PUSH_FLOATS * 4, stages);
+            const transparentLayout = device.createPipelineLayoutFromDesc(transparentDesc);
+            transparentDesc.destroy();
             this.transparentLayout = transparentLayout;
             if (!opaqueLayout || !compositionLayout || !transparentLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -423,46 +424,46 @@ namespace DynamicRenderingLocalReadNri {
             }
 
             // A queued frame's UBO slice and its opaque and transparent sets; the composition's set.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, 2 * queuedFrameNum + 1, queuedFrameNum, 2 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(2 * queuedFrameNum + 1, queuedFrameNum, 2 * queuedFrameNum,
                 3 + 2 * queuedFrameNum, 0, 1, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool || !lightsView) {
                 console.log("Cannot create the descriptors");
                 return 0;
             }
-            const compositionSet = Nri_AllocateDescriptorSet(descriptorPool, compositionLayout, 0, 0);
+            const compositionSet = descriptorPool.allocateDescriptorSet(compositionLayout, 0, 0);
             this.compositionSet = compositionSet;
             if (!compositionSet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
             for (let i = 0; i < 3; i++) {
-                Nri_UpdateDescriptor(compositionSet, 0, i, this.gbuffer[i].shaderResource);
+                compositionSet.updateDescriptor(0, i, this.gbuffer[i].shaderResource);
             }
-            Nri_UpdateDescriptor(compositionSet, 1, 0, lightsView);
+            compositionSet.updateDescriptor(1, 0, lightsView);
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const uboView = Nri_CreateConstantBufferView(constantBuffer, i * UBO_STRIDE, UBO_STRIDE);
-                const opaqueSet = Nri_AllocateDescriptorSet(descriptorPool, opaqueLayout, 0, 0);
-                const transparentSet = Nri_AllocateDescriptorSet(descriptorPool, transparentLayout, 0, 0);
+                const uboView = constantBuffer.createConstantView(i * UBO_STRIDE, UBO_STRIDE);
+                const opaqueSet = descriptorPool.allocateDescriptorSet(opaqueLayout, 0, 0);
+                const transparentSet = descriptorPool.allocateDescriptorSet(transparentLayout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(uboView, opaqueSet,
                     transparentSet));
                 if (!uboView || !opaqueSet || !transparentSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(opaqueSet, 0, 0, uboView);
-                Nri_UpdateDescriptor(transparentSet, 0, 0, uboView);
-                Nri_UpdateDescriptor(transparentSet, 1, 0, this.gbuffer[0].shaderResource);
-                Nri_UpdateDescriptor(transparentSet, 2, 0, glassView);
-                Nri_UpdateDescriptor(transparentSet, 3, 0, glassSampler);
+                opaqueSet.updateDescriptor(0, 0, uboView);
+                transparentSet.updateDescriptor(0, 0, uboView);
+                transparentSet.updateDescriptor(1, 0, this.gbuffer[0].shaderResource);
+                transparentSet.updateDescriptor(2, 0, glassView);
+                transparentSet.updateDescriptor(3, 0, glassSampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -470,9 +471,9 @@ namespace DynamicRenderingLocalReadNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -480,61 +481,61 @@ namespace DynamicRenderingLocalReadNri {
 
         // The opaque scene into the G-buffer: positions and normals, back faces culled
         // (counter-clockwise front faces), depth tested (greater: reversed) and written.
-        createOpaquePipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_opaque_vs.bin`, "opaque_vs") != 0;
+        createOpaquePipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_opaque_vs.bin`, "opaque_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_opaque_ps.bin`, "opaque_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_opaque_ps.bin`, "opaque_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
-            Nri_PipelineDescAddColor(desc, NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
-            Nri_PipelineDescAddColor(desc, NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, NORMAL_OFFSET);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
+            desc.addColor(NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
+            desc.addColor(NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
             return this.finishPipeline(device, layout, desc, loaded);
         }
 
         // The composition: a full screen triangle, no culling, no depth (in the pass with the
         // depth buffer the glass is drawn in).
-        createCompositionPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_composition_vs.bin`, "composition_vs") != 0;
+        createCompositionPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_composition_vs.bin`, "composition_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_composition_ps.bin`, "composition_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_composition_ps.bin`, "composition_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.None, 0, 0);
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.None, 0, 0);
             return this.finishPipeline(device, layout, desc, loaded);
         }
 
         // The glass: positions and texture coordinates, no culling, depth tested (greater) and
         // written, alpha blended (destination alpha kept).
-        createTransparentPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_transparent_vs.bin`, "transparent_vs") != 0;
+        createTransparentPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_transparent_vs.bin`, "transparent_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_transparent_ps.bin`, "transparent_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_transparent_ps.bin`, "transparent_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, TEXCOORD_OFFSET);
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                 NriBlendFactor.Zero, NriBlendFactor.One, NriBlendOp.Add);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
             return this.finishPipeline(device, layout, desc, loaded);
         }
 
-        finishPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, desc: NriPipelineDescHandle, loaded: boolean) {
-            let pipeline: NriPipelineHandle | null = null;
+        finishPipeline(device: NriDevice, layout: NriPipelineLayout, desc: NriPipelineDesc, loaded: boolean) {
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -542,16 +543,16 @@ namespace DynamicRenderingLocalReadNri {
         // time, seeded randomly, or with 0 under -benchmark). MSVC evaluates the sample's
         // vec4(x, y, z, 1) and vec3(r, g, b) from the last argument: z, y, x and b, g, r.
         randomizeLights() {
-            const rng = Nri_CreateRandomEngine(this.benchmark ? 0 : -1);
+            const rng = NriRandomEngine.create(this.benchmark ? 0 : -1);
             this.lights = [];
             for (let l = 0; l < LIGHT_COUNT; l++) {
-                const z = Math.fround(Nri_RandomUniformFloat(rng, -1.0, 1.0) * LIGHT_RANGE[2]);
-                const y = Math.fround(1.0 + Math.fround(Math.abs(Nri_RandomUniformFloat(rng, -1.0, 1.0)) * LIGHT_RANGE[1]));
-                const x = Math.fround(Nri_RandomUniformFloat(rng, -1.0, 1.0) * LIGHT_RANGE[0]);
-                const radius = Math.fround(1.0 + Math.fround(Math.abs(Nri_RandomUniformFloat(rng, -1.0, 1.0)) * 3.0));
-                const b = Nri_RandomUniformFloat(rng, 0.0, 0.5);
-                const g = Nri_RandomUniformFloat(rng, 0.0, 0.5);
-                const r = Nri_RandomUniformFloat(rng, 0.0, 0.5);
+                const z = Math.fround(rng.randomUniformFloat(-1.0, 1.0) * LIGHT_RANGE[2]);
+                const y = Math.fround(1.0 + Math.fround(Math.abs(rng.randomUniformFloat(-1.0, 1.0)) * LIGHT_RANGE[1]));
+                const x = Math.fround(rng.randomUniformFloat(-1.0, 1.0) * LIGHT_RANGE[0]);
+                const radius = Math.fround(1.0 + Math.fround(Math.abs(rng.randomUniformFloat(-1.0, 1.0)) * 3.0));
+                const b = rng.randomUniformFloat(0.0, 0.5);
+                const g = rng.randomUniformFloat(0.0, 0.5);
+                const r = rng.randomUniformFloat(0.0, 0.5);
                 this.lights.push(x);
                 this.lights.push(y);
                 this.lights.push(z);
@@ -561,7 +562,7 @@ namespace DynamicRenderingLocalReadNri {
                 this.lights.push(b * 2.0);
                 this.lights.push(radius);
             }
-            Nri_DestroyRandomEngine(rng);
+            rng.destroy();
             this.lightsDirty = true;
         }
 
@@ -573,8 +574,8 @@ namespace DynamicRenderingLocalReadNri {
             if (!this.lightsDirty || !device || !lightsBuffer) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            Nri_WriteBuffer(lightsBuffer, 0, Ref(this.lights[0]), LIGHT_COUNT * LIGHT_FLOATS * 4);
+            device.waitIdle();
+            lightsBuffer.write(0, Ref(this.lights[0]), LIGHT_COUNT * LIGHT_FLOATS * 4);
             this.lightsDirty = false;
         }
 
@@ -586,9 +587,9 @@ namespace DynamicRenderingLocalReadNri {
         // The camera's input (ApiVulkanSample's), the mouse unless the overlay has it; then its
         // movement over the frame's time (Donut's test mode: 1/60 s, as a float).
         handleInput() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -597,34 +598,34 @@ namespace DynamicRenderingLocalReadNri {
                 }
             }
             if (!overlay) {
-                this.camera.mouseMove(Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample));
+                this.camera.mouseMove(this.sample.getMouseX(), this.sample.getMouseY());
             }
             for (let k = 0; k < 4; k++) {
-                const pressed = Nri_IsKeyPressed(this.sample, CAMERA_KEYS[k]) != 0;
+                const pressed = this.sample.isKeyPressed(CAMERA_KEYS[k]) != 0;
                 if (pressed != this.keys[k]) {
                     this.camera.key(<Key>CAMERA_KEYS[k], <Action>(pressed ? 1 : 0));
                     this.keys[k] = pressed;
                 }
             }
-            this.camera.update(this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample));
+            this.camera.update(this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime());
         }
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Dynamic Rendering Local Read", 1);
-            Nri_ImguiText("Using separate passes (no local read)");
-            if (Nri_ImguiButton("Randomize lights") != 0) {
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Dynamic Rendering Local Read", 1);
+            NriImgui.text("Using separate passes (no local read)");
+            if (NriImgui.button("Randomize lights") != 0) {
                 this.randomizeLights();
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffer: its projection (clip y negated, as the Donut example
         // gives it), the scene's model (identity), the view; into this frame's UBO slice.
-        writeUbo(constantBuffer: NriBufferHandle, queuedFrameIndex: int) {
+        writeUbo(constantBuffer: NriBuffer, queuedFrameIndex: int) {
             const projection = perspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             const view = this.camera.view();
             const model = identity();
@@ -633,31 +634,31 @@ namespace DynamicRenderingLocalReadNri {
                 this.ubo[UBO_MODEL + i] = model[i];
                 this.ubo[UBO_VIEW + i] = view[i];
             }
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * UBO_STRIDE, Ref(this.ubo[0]), UBO_FLOATS * 4);
+            constantBuffer.write(queuedFrameIndex * UBO_STRIDE, Ref(this.ubo[0]), UBO_FLOATS * 4);
         }
 
         // A scene's draws with a pipeline, their push constants each (the layout and its set bound).
-        drawScene(commandBuffer: NriCommandBufferHandle, scene: Scene, pipeline: NriPipelineHandle | null) {
+        drawScene(commandBuffer: NriCommandBuffer, scene: Scene, pipeline: NriPipeline | null) {
             const vertexBuffer = scene.vertexBuffer;
             const indexBuffer = scene.indexBuffer;
             if (!pipeline || !vertexBuffer || !indexBuffer) {
                 return;
             }
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
             for (let d = 0; d < scene.indexCount.length; d++) {
                 for (let i = 0; i < PUSH_FLOATS; i++) {
                     this.push[i] = scene.push[d * PUSH_FLOATS + i];
                 }
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.push[0]), PUSH_FLOATS * 4);
-                Nri_CmdDrawIndexed(commandBuffer, scene.indexCount[d], 1, scene.firstIndex[d], scene.baseVertex[d], 0);
+                commandBuffer.setRootConstants(0, Ref(this.push[0]), PUSH_FLOATS * 4);
+                commandBuffer.drawIndexed(scene.indexCount[d], 1, scene.firstIndex[d], scene.baseVertex[d], 0);
             }
         }
 
         // First draw: the G-buffer (cleared to zeros, depth to 0), the G-buffer left for the
         // composition to read.
-        recordGBuffer(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordGBuffer(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const opaqueLayout = this.opaqueLayout;
             const opaqueSet = queuedFrame.opaqueSet;
             const depthAttachment = this.depthAttachment;
@@ -665,29 +666,29 @@ namespace DynamicRenderingLocalReadNri {
                 return;
             }
             for (const target of this.gbuffer) {
-                Nri_CmdTextureBarrier(commandBuffer, target.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(target.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
             }
-            Nri_CmdBeginRenderingWithThreeColorsAndDepth(commandBuffer, this.gbuffer[0].attachment, this.gbuffer[1].attachment,
+            commandBuffer.beginRenderingWithThreeColorsAndDepth(this.gbuffer[0].attachment, this.gbuffer[1].attachment,
                 this.gbuffer[2].attachment, depthAttachment);
             for (let i = 0; i < 3; i++) {
-                Nri_CmdClearColorAttachment(commandBuffer, i, 0.0, 0.0, 0.0, 0.0);
+                commandBuffer.clearColorAttachment(i, 0.0, 0.0, 0.0, 0.0);
             }
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, opaqueLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, opaqueSet);
+            commandBuffer.clearDepth(0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(opaqueLayout);
+            commandBuffer.setDescriptorSet(0, opaqueSet);
             this.drawScene(commandBuffer, this.opaqueScene, this.opaquePipeline);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
             for (const target of this.gbuffer) {
-                Nri_CmdTextureBarrier(commandBuffer, target.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+                commandBuffer.textureBarrier(target.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
             }
         }
 
         // Second draw: the deferred composition, reading the G-buffer; third: the glass, forward,
-        // against the G-buffer's depth (between Nri_CmdBeginRenderingWithDepth and
-        // Nri_CmdEndRendering).
-        recordComposition(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // against the G-buffer's depth (between NriCommandBuffer.beginRenderingWithDepth and
+        // NriCommandBuffer.endRendering).
+        recordComposition(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const compositionLayout = this.compositionLayout;
             const compositionSet = this.compositionSet;
             const compositionPipeline = this.compositionPipeline;
@@ -696,14 +697,14 @@ namespace DynamicRenderingLocalReadNri {
             if (!compositionLayout || !compositionSet || !compositionPipeline || !transparentLayout || !transparentSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, compositionLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, compositionSet);
-            Nri_CmdSetPipeline(commandBuffer, compositionPipeline);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdSetPipelineLayout(commandBuffer, transparentLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, transparentSet);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(compositionLayout);
+            commandBuffer.setDescriptorSet(0, compositionSet);
+            commandBuffer.setPipeline(compositionPipeline);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.setPipelineLayout(transparentLayout);
+            commandBuffer.setDescriptorSet(0, transparentSet);
             this.drawScene(commandBuffer, this.transparentScene, this.transparentPipeline);
         }
 
@@ -716,7 +717,7 @@ namespace DynamicRenderingLocalReadNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // The window was resized (NriSample.useResizableWindow): the swap chain made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -726,7 +727,7 @@ namespace DynamicRenderingLocalReadNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizeTargets();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -737,13 +738,13 @@ namespace DynamicRenderingLocalReadNri {
             const compositionSet = this.compositionSet;
             if (compositionSet) {
                 for (let i = 0; i < 3; i++) {
-                    Nri_UpdateDescriptor(compositionSet, 0, i, this.gbuffer[i].shaderResource);
+                    compositionSet.updateDescriptor(0, i, this.gbuffer[i].shaderResource);
                 }
             }
             for (const queuedFrame of this.queuedFrames) {
                 const transparentSet = queuedFrame.transparentSet;
                 if (transparentSet) {
-                    Nri_UpdateDescriptor(transparentSet, 1, 0, this.gbuffer[0].shaderResource);
+                    transparentSet.updateDescriptor(1, 0, this.gbuffer[0].shaderResource);
                 }
             }
         }
@@ -751,32 +752,32 @@ namespace DynamicRenderingLocalReadNri {
         // The sample's create_attachments: the G-buffer (position and linear depth, normal, albedo;
         // cleared before every read) and the depth buffer (D32, cleared to 0: reversed), at the swap
         // chain's size. False if they can't be created.
-        createSizeTargets(device: NriDeviceHandle): boolean {
+        createSizeTargets(device: NriDevice): boolean {
             const gbufferFormats = [NriFormat.RGBA16_SFLOAT, NriFormat.RGBA16_SFLOAT, NriFormat.RGBA8_UNORM];
             for (let i = 0; i < 3; i++) {
-                const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, gbufferFormats[i]);
+                const texture = device.createRenderTargetTexture(this.queue, this.width, this.height, gbufferFormats[i]);
                 if (!texture) {
                     console.log("Cannot create the G-buffer");
                     return false;
                 }
-                this.gbuffer.push(new GBufferTarget(texture, Nri_CreateColorAttachmentView(texture, gbufferFormats[i]),
-                    Nri_CreateTextureView(texture, gbufferFormats[i])));
+                this.gbuffer.push(new GBufferTarget(texture, texture.createColorAttachmentView(gbufferFormats[i]),
+                    texture.createView(gbufferFormats[i])));
             }
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 console.log("Cannot create the depth buffer");
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroySizeTargets() {
             for (const target of this.gbuffer) {
-                Nri_DestroyDescriptor(target.attachment);
-                Nri_DestroyDescriptor(target.shaderResource);
-                Nri_DestroyTexture(target.texture);
+                target.attachment.destroy();
+                target.shaderResource.destroy();
+                target.texture.destroy();
             }
             this.gbuffer = [];
             this.destroyDescriptor(this.depthAttachment);
@@ -809,24 +810,24 @@ namespace DynamicRenderingLocalReadNri {
 
                 // Record: the G-buffer; the composition and the glass into the swap chain view
                 // (cleared to zeros) with the G-buffer's depth; then the overlay over them.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (descriptorPool) {
-                    Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                    commandBuffer.setDescriptorPool(descriptorPool);
                 }
                 this.recordGBuffer(commandBuffer, queuedFrame);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
                     this.recordComposition(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -834,18 +835,18 @@ namespace DynamicRenderingLocalReadNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -861,12 +862,12 @@ namespace DynamicRenderingLocalReadNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -876,21 +877,21 @@ namespace DynamicRenderingLocalReadNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.uboView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const target of this.gbuffer) {
-                    Nri_DestroyDescriptor(target.attachment);
-                    Nri_DestroyDescriptor(target.shaderResource);
-                    Nri_DestroyTexture(target.texture);
+                    target.attachment.destroy();
+                    target.shaderResource.destroy();
+                    target.texture.destroy();
                 }
                 this.destroyDescriptor(this.depthAttachment);
                 this.destroyDescriptor(this.glassView);
@@ -911,52 +912,52 @@ namespace DynamicRenderingLocalReadNri {
                 this.destroyLayout(this.transparentLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const localRead = new LocalRead(sample);
         // -benchmark: the lights seeded with 0 (as under -test); -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-benchmark");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-benchmark");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-benchmark") {
                 localRead.benchmark = true;
             } else if (arg == "-noUI") {

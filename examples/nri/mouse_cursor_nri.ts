@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { SdkMesh } from "../../core/sdk_mesh";
 import { identity, multiplyF32, inverse } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriImgui, NriImguiFont, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace MouseCursorNri {
     // mouse_cursor, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -84,10 +85,10 @@ namespace MouseCursorNri {
     // FPS room's, then the RTS map's) its set (its slice of the constants, its textures, the
     // sampler) and the slice's view.
     class QueuedFrame {
-        materialSets: NriDescriptorSetHandle[] = [];
-        materialViews: NriDescriptorHandle[] = [];
+        materialSets: NriDescriptorSet[] = [];
+        materialViews: NriDescriptor[] = [];
 
-        constructor(public commandBuffer: NriCommandBufferHandle) {
+        constructor(public commandBuffer: NriCommandBuffer) {
         }
     }
 
@@ -223,8 +224,8 @@ namespace MouseCursorNri {
     // effect's diffuse color, specular color and power, emissive color, and textures (the diffuse
     // texture; the specular texture, which is DualTextureEffect's second texture) with their views.
     class Model {
-        vertexBuffers: NriBufferHandle[] = [];
-        indexBuffers: NriBufferHandle[] = [];
+        vertexBuffers: NriBuffer[] = [];
+        indexBuffers: NriBuffer[] = [];
         index32: boolean[] = [];
         partVertexBuffers: int[] = [];
         partIndexBuffers: int[] = [];
@@ -235,25 +236,25 @@ namespace MouseCursorNri {
         materialColors: number[] = [];
         materialSpecular: number[] = [];
         materialEmissive: number[] = [];
-        materialTextures: NriTextureHandle[] = [];
-        materialTextures2: NriTextureHandle[] = [];
-        materialViews: NriDescriptorHandle[] = [];
-        materialViews2: NriDescriptorHandle[] = [];
+        materialTextures: NriTexture[] = [];
+        materialTextures2: NriTexture[] = [];
+        materialViews: NriDescriptor[] = [];
+        materialViews2: NriDescriptor[] = [];
         stride: int = 0;
 
         // The file's buffers uploaded on the queue, its materials' textures loaded (DDS files as
         // they are). dualTexture: the materials' specular textures too, and the vertices must have
         // two texture coordinates. False (after printing why) on failure.
-        load(device: NriDeviceHandle, queue: NriQueueHandle, file: string, stride: int, dualTexture: boolean) {
+        load(device: NriDevice, queue: NriQueue, file: string, stride: int, dualTexture: boolean) {
             this.stride = stride;
-            const binaryFile = Nri_LoadFile(MEDIA_DIR + file);
+            const binaryFile = NriFile.load(MEDIA_DIR + file);
             if (!binaryFile) {
                 console.log(`Cannot load ${file}: set XBOX_ATG_SAMPLES_DIR when configuring`);
                 return false;
             }
-            const mesh = SdkMesh.load(Nri_GetFileData(binaryFile), Nri_GetFileSize(binaryFile));
+            const mesh = SdkMesh.load(binaryFile.getData(), binaryFile.getSize());
             if (mesh.isNull()) {
-                Nri_DestroyFile(binaryFile);
+                binaryFile.destroy();
                 console.log(`${file}: not a SDKMESH file`);
                 return false;
             }
@@ -270,7 +271,7 @@ namespace MouseCursorNri {
                     console.log(`${file}: unexpected vertex layout`);
                     ok = false;
                 }
-                const buffer = Nri_CreateUploadedBufferFromPointer(device, queue, mesh.getVertexBufferData(i), mesh.getVertexBufferSize(i),
+                const buffer = device.createUploadedBufferFromPointer(queue, mesh.getVertexBufferData(i), mesh.getVertexBufferSize(i),
                     NriBufferUsage.VertexBuffer);
                 if (!buffer) {
                     ok = false;
@@ -279,7 +280,7 @@ namespace MouseCursorNri {
                 }
             }
             for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
-                const buffer = Nri_CreateUploadedBufferFromPointer(device, queue, mesh.getIndexBufferData(i), mesh.getIndexBufferSize(i),
+                const buffer = device.createUploadedBufferFromPointer(queue, mesh.getIndexBufferData(i), mesh.getIndexBufferSize(i),
                     NriBufferUsage.IndexBuffer);
                 if (!buffer) {
                     ok = false;
@@ -339,24 +340,24 @@ namespace MouseCursorNri {
                     }
                 }
                 const textureName = mesh.getMaterialTexture(m, 0);
-                const texture = textureName == "" ? null : Nri_LoadTexture(device, queue, MEDIA_DIR + textureName, 0);
+                const texture = textureName == "" ? null : device.loadTexture(queue, MEDIA_DIR + textureName, 0);
                 if (!texture) {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
                     ok = false;
                 } else {
                     this.materialTextures.push(texture);
-                    this.materialViews.push(Nri_CreateTextureView(texture, Nri_GetTextureFormat(texture)));
+                    this.materialViews.push(texture.createView(texture.getFormat()));
                 }
                 if (dualTexture) {
                     // The SDKMESH material's specular texture (Donut_GetSdkMeshMaterialTexture's 2).
                     const texture2Name = mesh.getMaterialTexture(m, 2);
-                    const texture2 = texture2Name == "" ? null : Nri_LoadTexture(device, queue, MEDIA_DIR + texture2Name, 0);
+                    const texture2 = texture2Name == "" ? null : device.loadTexture(queue, MEDIA_DIR + texture2Name, 0);
                     if (!texture2) {
                         console.log(`${file}: cannot load the material's second texture ${texture2Name}`);
                         ok = false;
                     } else {
                         this.materialTextures2.push(texture2);
-                        this.materialViews2.push(Nri_CreateTextureView(texture2, Nri_GetTextureFormat(texture2)));
+                        this.materialViews2.push(texture2.createView(texture2.getFormat()));
                     }
                 }
             }
@@ -378,7 +379,7 @@ namespace MouseCursorNri {
             }
 
             mesh.destroy();
-            Nri_DestroyFile(binaryFile);
+            binaryFile.destroy();
             return ok;
         }
 
@@ -390,31 +391,31 @@ namespace MouseCursorNri {
 
         destroy() {
             for (const buffer of this.vertexBuffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             for (const buffer of this.indexBuffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             for (const view of this.materialViews) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
             for (const view of this.materialViews2) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
             for (const texture of this.materialTextures) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
             for (const texture of this.materialTextures2) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
     }
 
     // A sprite: its texture, its view and its set (the view, SpriteBatch's sampler).
     class Sprite {
-        set: NriDescriptorSetHandle | null = null;
+        set: NriDescriptorSet | null = null;
 
-        constructor(public texture: NriTextureHandle, public view: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public view: NriDescriptor) {
         }
     }
 
@@ -432,8 +433,8 @@ namespace MouseCursorNri {
     // disabled cursor mode for the captured mouse (raw mouse motion as UWP's MouseMoved). Its Sample
     // class is the rest. The test (as the Donut example's, which gets no input) reads none.
     class MouseCursor {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
@@ -490,31 +491,31 @@ namespace MouseCursorNri {
         private background: Sprite | null = null;
         private tile: Sprite | null = null;
         private tileBorder: Sprite | null = null;
-        private spriteSampler: NriDescriptorHandle | null = null;
-        private linearWrapSampler: NriDescriptorHandle | null = null;
-        private spriteLayout: NriPipelineLayoutHandle | null = null;
-        private modelLayout: NriPipelineLayoutHandle | null = null;
-        private spritePipeline: NriPipelineHandle | null = null;
-        private dualPipeline: NriPipelineHandle | null = null;
-        private basicPipeline: NriPipelineHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private spriteSampler: NriDescriptor | null = null;
+        private linearWrapSampler: NriDescriptor | null = null;
+        private spriteLayout: NriPipelineLayout | null = null;
+        private modelLayout: NriPipelineLayout | null = null;
+        private spritePipeline: NriPipeline | null = null;
+        private dualPipeline: NriPipeline | null = null;
+        private basicPipeline: NriPipeline | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // The depth buffer (D24S8, as the sample's).
-        private depth: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
+        private depth: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
         private spriteConstants: f32[] = [];
         private parameters: f32[] = [];
         private imgui: boolean = false;
-        private titleFont: NriImguiFontHandle | null = null;
-        private subtitleFont: NriImguiFontHandle | null = null;
-        private tileFont: NriImguiFontHandle | null = null;
+        private titleFont: NriImguiFont | null = null;
+        private subtitleFont: NriImguiFont | null = null;
+        private tileFont: NriImguiFont | null = null;
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < SPRITE_FLOATS; i++) {
                 this.spriteConstants.push(0.0);
             }
@@ -531,11 +532,11 @@ namespace MouseCursorNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.frameWidth, this.frameHeight);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -546,19 +547,19 @@ namespace MouseCursorNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's B8G8R8A8_UNORM back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const width = this.frameWidth;
@@ -570,8 +571,8 @@ namespace MouseCursorNri {
 
             // Model::Draw's LinearWrap (Donut's: trilinear, wrapped); SpriteBatch's LinearClamp (the
             // images' one level).
-            const linearWrapSampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
-            const spriteSampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            const linearWrapSampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const spriteSampler = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
             this.linearWrapSampler = linearWrapSampler;
             this.spriteSampler = spriteSampler;
             if (!linearWrapSampler || !spriteSampler) {
@@ -600,18 +601,18 @@ namespace MouseCursorNri {
 
             // The sprites' layout: SpriteConstants (push constants, b0), the texture (t0), the sampler
             // (s0). The models': the parameters (b0), the textures (t0, t1), the sampler (s0).
-            const spriteLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(spriteLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(spriteLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(spriteLayoutDesc, 0, SPRITE_FLOATS * 4, NriStage.VertexPixel);
-            this.spriteLayout = Nri_CreatePipelineLayoutFromDesc(device, spriteLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(spriteLayoutDesc);
-            const modelLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(modelLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(modelLayoutDesc, 0, 0, 2, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(modelLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            this.modelLayout = Nri_CreatePipelineLayoutFromDesc(device, modelLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(modelLayoutDesc);
+            const spriteLayoutDesc = NriPipelineLayoutDesc.create();
+            spriteLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            spriteLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            spriteLayoutDesc.addRootConstants(0, SPRITE_FLOATS * 4, NriStage.VertexPixel);
+            this.spriteLayout = device.createPipelineLayoutFromDesc(spriteLayoutDesc);
+            spriteLayoutDesc.destroy();
+            const modelLayoutDesc = NriPipelineLayoutDesc.create();
+            modelLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            modelLayoutDesc.addRange(0, 0, 2, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            modelLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            this.modelLayout = device.createPipelineLayoutFromDesc(modelLayoutDesc);
+            modelLayoutDesc.destroy();
             const spriteLayout = this.spriteLayout;
             const modelLayout = this.modelLayout;
             if (!spriteLayout || !modelLayout) {
@@ -631,10 +632,10 @@ namespace MouseCursorNri {
             // The parameters, a slice per material of each model a queued frame; per queued frame a
             // set per material, and the sprites' sets.
             const materialNum = this.modelFPS.materialViews.length + this.modelRTS.materialViews.length;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * materialNum * PARAMETERS_SLICE_SIZE,
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * materialNum * PARAMETERS_SLICE_SIZE,
                 NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 3 + queuedFrameNum * materialNum, 3 + queuedFrameNum * materialNum,
+            const descriptorPool = device.createDescriptorPool(3 + queuedFrameNum * materialNum, 3 + queuedFrameNum * materialNum,
                 queuedFrameNum * materialNum, 3 + 2 * queuedFrameNum * materialNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
@@ -647,8 +648,8 @@ namespace MouseCursorNri {
                     const fps = m < this.modelFPS.materialViews.length;
                     const model = fps ? this.modelFPS : this.modelRTS;
                     const material = fps ? m : m - this.modelFPS.materialViews.length;
-                    const view = Nri_CreateConstantBufferView(constantBuffer, (q * materialNum + m) * PARAMETERS_SLICE_SIZE, PARAMETERS_SLICE_SIZE);
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, modelLayout, 0, 0);
+                    const view = constantBuffer.createConstantView((q * materialNum + m) * PARAMETERS_SLICE_SIZE, PARAMETERS_SLICE_SIZE);
+                    const set = descriptorPool.allocateDescriptorSet(modelLayout, 0, 0);
                     if (!view || !set) {
                         console.log("Cannot create the descriptor sets");
                         return 0;
@@ -657,32 +658,32 @@ namespace MouseCursorNri {
                     queuedFrame.materialSets.push(set);
                     // The parameters, its texture(s) (the first again where there's no second),
                     // Model::Draw's LinearWrap sampler.
-                    Nri_UpdateDescriptor(set, 0, 0, view);
-                    Nri_UpdateDescriptor(set, 1, 0, model.materialViews[material]);
-                    Nri_UpdateDescriptor(set, 1, 1, model.secondView(material));
-                    Nri_UpdateDescriptor(set, 2, 0, linearWrapSampler);
+                    set.updateDescriptor(0, 0, view);
+                    set.updateDescriptor(1, 0, model.materialViews[material]);
+                    set.updateDescriptor(1, 1, model.secondView(material));
+                    set.updateDescriptor(2, 0, linearWrapSampler);
                 }
             }
             for (const sprite of [background, tile, tileBorder]) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, spriteLayout, 0, 0);
+                const set = descriptorPool.allocateDescriptorSet(spriteLayout, 0, 0);
                 if (!set) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(set, 0, 0, sprite.view);
-                Nri_UpdateDescriptor(set, 1, 0, spriteSampler);
+                set.updateDescriptor(0, 0, sprite.view);
+                set.updateDescriptor(1, 0, spriteSampler);
                 sprite.set = set;
             }
 
             // The sample's text, in its three fonts.
-            if (Nri_InitImgui(this.sample, device) == 0) {
+            if (this.sample.initImgui(device) == 0) {
                 console.log("Cannot initialize the user interface");
                 return 0;
             }
             this.imgui = true;
-            this.titleFont = Nri_ImguiCreateFont(FONT_PATH, TITLE_FONT_SIZE);
-            this.subtitleFont = Nri_ImguiCreateFont(FONT_PATH, SUBTITLE_FONT_SIZE);
-            this.tileFont = Nri_ImguiCreateFont(FONT_PATH, TILE_FONT_SIZE);
+            this.titleFont = NriImgui.createFont(FONT_PATH, TITLE_FONT_SIZE);
+            this.subtitleFont = NriImgui.createFont(FONT_PATH, SUBTITLE_FONT_SIZE);
+            this.tileFont = NriImgui.createFont(FONT_PATH, TILE_FONT_SIZE);
             if (!this.titleFont || !this.subtitleFont || !this.tileFont) {
                 console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
                 return 0;
@@ -693,42 +694,42 @@ namespace MouseCursorNri {
             this.layout(width, height);
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * height);
             }
             return 1;
         }
 
         // A sprite texture (CreateWICTextureFromFile: as stored, UNORM) and its view; null on failure.
-        loadSprite(device: NriDeviceHandle, file: string): Sprite | null {
-            const texture = Nri_LoadImageTexture(device, this.queue, MEDIA_DIR + file, 0);
+        loadSprite(device: NriDevice, file: string): Sprite | null {
+            const texture = device.loadImageTexture(this.queue, MEDIA_DIR + file, 0);
             if (!texture) {
                 console.log(`Cannot load ${file}: set XBOX_ATG_SAMPLES_DIR when configuring`);
                 return null;
             }
-            return new Sprite(texture, Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM));
+            return new Sprite(texture, texture.createView(NriFormat.RGBA8_UNORM));
         }
 
-        createPipelines(device: NriDeviceHandle, spriteLayout: NriPipelineLayoutHandle, modelLayout: NriPipelineLayoutHandle, shaders: string) {
+        createPipelines(device: NriDevice, spriteLayout: NriPipelineLayout, modelLayout: NriPipelineLayout, shaders: string) {
             const format = this.swapChainFormat;
 
             // SpriteBatch: premultiplied alpha blending (CommonStates::AlphaBlend), no depth, no culling.
-            const spriteDesc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(spriteDesc, NriShaderStage.Vertex, `${shaders}_sprite_vs.bin`, "sprite_vs") != 0;
+            const spriteDesc = NriPipelineDesc.create();
+            let loaded = spriteDesc.addShader(NriShaderStage.Vertex, `${shaders}_sprite_vs.bin`, "sprite_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(spriteDesc, NriShaderStage.Pixel, `${shaders}_sprite_ps.bin`, "sprite_ps") != 0;
+                loaded = spriteDesc.addShader(NriShaderStage.Pixel, `${shaders}_sprite_ps.bin`, "sprite_ps") != 0;
             }
-            Nri_PipelineDescSetDepthClip(spriteDesc, 0);
-            Nri_PipelineDescSetColor(spriteDesc, format, NriColorWrite.RGBA);
-            Nri_PipelineDescSetBlend(spriteDesc, NriBlendFactor.One, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add, NriBlendFactor.One,
+            spriteDesc.setDepthClip(0);
+            spriteDesc.setColor(format, NriColorWrite.RGBA);
+            spriteDesc.setBlend(NriBlendFactor.One, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add, NriBlendFactor.One,
                 NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add);
             // (Drawn into the color and depth attachments: the depth unused.)
-            Nri_PipelineDescSetDepth(spriteDesc, NriFormat.D24_UNORM_S8_UINT, NriCompareOp.None, 0, 0);
+            spriteDesc.setDepth(NriFormat.D24_UNORM_S8_UINT, NriCompareOp.None, 0, 0);
             if (loaded) {
-                this.spritePipeline = Nri_CreatePipelineFromDesc(device, spriteLayout, spriteDesc);
+                this.spritePipeline = device.createPipelineFromDesc(spriteLayout, spriteDesc);
             }
-            Nri_DestroyPipelineDesc(spriteDesc);
+            spriteDesc.destroy();
 
             this.dualPipeline = this.createModelPipeline(device, modelLayout, shaders, "dual_texture", true);
             this.basicPipeline = this.createModelPipeline(device, modelLayout, shaders, "basic", false);
@@ -739,29 +740,29 @@ namespace MouseCursorNri {
         // depth clip on. The FPS room's vertices: position, normal, two texture coordinates, tangent,
         // binormal (64 bytes); the RTS map's position, normal, texture coordinates, tangent, binormal
         // (56 bytes).
-        createModelPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, name: string, dualTexture: boolean) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${name}_vs.bin`, `${name}_vs`) != 0;
+        createModelPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, name: string, dualTexture: boolean) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${name}_vs.bin`, `${name}_vs`) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${name}_ps.bin`, `${name}_ps`) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${name}_ps.bin`, `${name}_ps`) != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
             if (dualTexture) {
-                Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
-                Nri_PipelineDescAddVertexAttribute(desc, "LIGHTMAPCOORD", NriFormat.RG32_SFLOAT, 32);
+                desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+                desc.addVertexAttribute("LIGHTMAPCOORD", NriFormat.RG32_SFLOAT, 32);
             } else {
-                Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, 12);
-                Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+                desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, 12);
+                desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetDepthClip(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.swapChainFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D24_UNORM_S8_UINT, NriCompareOp.LessEqual, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setCullMode(NriCullMode.Back);
+            desc.setDepthClip(1);
+            desc.setColor(this.swapChainFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D24_UNORM_S8_UINT, NriCompareOp.LessEqual, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -928,7 +929,7 @@ namespace MouseCursorNri {
 
         // The mouse is captured and hidden: the sample draws its own cursor.
         capture(x: number, y: number) {
-            Nri_SetCursorDisabled(this.sample, 1);
+            this.sample.setCursorDisabled(1);
             this.resyncMouse = true;
             // Save the pointers position
             this.virtualX = clampTo(x, this.frameWidth);
@@ -937,9 +938,9 @@ namespace MouseCursorNri {
 
         // Back to the menu: the system cursor returns where the sample's was.
         release() {
-            Nri_SetCursorDisabled(this.sample, 0);
+            this.sample.setCursorDisabled(0);
             this.resyncMouse = true;
-            Nri_SetCursorPosition(this.sample, Math.trunc(this.virtualX), Math.trunc(this.virtualY));
+            this.sample.setCursorPosition(Math.trunc(this.virtualX), Math.trunc(this.virtualY));
             this.clipCursor = false;
             this.relative = false;
             this.absolute = true;
@@ -993,8 +994,8 @@ namespace MouseCursorNri {
         // The polled mouse and keys, as the events Main.cpp gets: the cursor moved, a button
         // pressed, Escape pressed.
         pollInput() {
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             if (x != this.polledX || y != this.polledY) {
                 this.polledX = x;
                 this.polledY = y;
@@ -1002,7 +1003,7 @@ namespace MouseCursorNri {
             }
             let pressed = false;
             for (let button = 0; button < 3; button++) {
-                const down = Nri_IsButtonPressed(this.sample, button) != 0;
+                const down = this.sample.isButtonPressed(button) != 0;
                 if (down && !this.buttonsDown[button]) {
                     pressed = true;
                 }
@@ -1011,7 +1012,7 @@ namespace MouseCursorNri {
             if (pressed) {
                 this.onMouseButton();
             }
-            const escape = Nri_IsKeyPressed(this.sample, Key.Escape) != 0;
+            const escape = this.sample.isKeyPressed(Key.Escape) != 0;
             if (escape && !this.escapeDown) {
                 this.onEscape();
             }
@@ -1046,13 +1047,13 @@ namespace MouseCursorNri {
         }
 
         // The depth buffer at the swap chain's size; false if it can't be made.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depth = Nri_CreateDepthTexture(device, this.queue, this.frameWidth, this.frameHeight, NriFormat.D24_UNORM_S8_UINT);
+        createDepth(device: NriDevice): boolean {
+            const depth = device.createDepthTexture(this.queue, this.frameWidth, this.frameHeight, NriFormat.D24_UNORM_S8_UINT);
             this.depth = depth;
             if (!depth) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D24_UNORM_S8_UINT);
+            this.depthAttachment = depth.createDepthAttachmentView(NriFormat.D24_UNORM_S8_UINT);
             return true;
         }
 
@@ -1061,12 +1062,12 @@ namespace MouseCursorNri {
             this.depthAttachment = null;
             const depth = this.depth;
             if (depth) {
-                Nri_DestroyTexture(depth);
+                depth.destroy();
             }
             this.depth = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and depth buffer made again at
+        // The window was resized (NriSample.useResizableWindow): the swap chain and depth buffer made again at
         // its size, once the GPU is done with the old ones, and Main.cpp's OnWindowSizeChanged (the
         // menu's layout, the projection's aspect ratio).
         resizeIfNeeded() {
@@ -1077,7 +1078,7 @@ namespace MouseCursorNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -1091,7 +1092,7 @@ namespace MouseCursorNri {
         // here: NRIFramework calls this while the unfocused window waits, not renderFrame).
         latencySleep(frameIndex: int) {
             this.frames.wait(frameIndex);
-            if (!this.test && !this.absolute && Nri_IsWindowFocused(this.sample) == 0) {
+            if (!this.test && !this.absolute && this.sample.isWindowFocused() == 0) {
                 this.release();
             }
         }
@@ -1106,12 +1107,12 @@ namespace MouseCursorNri {
         centered(x: number, y: number, lines: string[], fontSize: number, lineSpacing: number) {
             let width = 0.0;
             for (const line of lines) {
-                width = Math.max(width, Nri_ImguiCalcTextWidth(line));
+                width = Math.max(width, NriImgui.calcTextWidth(line));
             }
             const left = x - width / 2.0;
             const top = y - lines.length * lineSpacing / 2.0 + (lineSpacing - fontSize) / 2.0;
             for (let i = 0; i < lines.length; i++) {
-                Nri_ImguiDrawText(left, top + i * lineSpacing, lines[i], 1.0, 1.0, 1.0, 1.0, 0);
+                NriImgui.drawText(left, top + i * lineSpacing, lines[i], 1.0, 1.0, 1.0, 1.0, 0);
             }
         }
 
@@ -1119,42 +1120,42 @@ namespace MouseCursorNri {
             const cx = Math.floor(x) + 4.0;
             const cy = Math.floor(y) - 1.0;
             const side = 0.333;
-            Nri_ImguiDrawRect(cx, cy - 11.0, cx + 1.0, cy + 12.0, 1.0, 1.0, 1.0, 1.0);
-            Nri_ImguiDrawRect(cx - 1.0, cy - 11.0, cx, cy + 12.0, 1.0, 1.0, 1.0, side);
-            Nri_ImguiDrawRect(cx + 1.0, cy - 11.0, cx + 2.0, cy + 12.0, 1.0, 1.0, 1.0, side);
-            Nri_ImguiDrawRect(cx - 10.0, cy, cx, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
-            Nri_ImguiDrawRect(cx + 1.0, cy, cx + 11.0, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
-            Nri_ImguiDrawRect(cx - 10.0, cy - 1.0, cx - 1.0, cy, 1.0, 1.0, 1.0, side);
-            Nri_ImguiDrawRect(cx + 2.0, cy - 1.0, cx + 11.0, cy, 1.0, 1.0, 1.0, side);
-            Nri_ImguiDrawRect(cx - 10.0, cy + 1.0, cx - 1.0, cy + 2.0, 1.0, 1.0, 1.0, side);
-            Nri_ImguiDrawRect(cx + 2.0, cy + 1.0, cx + 11.0, cy + 2.0, 1.0, 1.0, 1.0, side);
+            NriImgui.drawRect(cx, cy - 11.0, cx + 1.0, cy + 12.0, 1.0, 1.0, 1.0, 1.0);
+            NriImgui.drawRect(cx - 1.0, cy - 11.0, cx, cy + 12.0, 1.0, 1.0, 1.0, side);
+            NriImgui.drawRect(cx + 1.0, cy - 11.0, cx + 2.0, cy + 12.0, 1.0, 1.0, 1.0, side);
+            NriImgui.drawRect(cx - 10.0, cy, cx, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
+            NriImgui.drawRect(cx + 1.0, cy, cx + 11.0, cy + 1.0, 1.0, 1.0, 1.0, 1.0);
+            NriImgui.drawRect(cx - 10.0, cy - 1.0, cx - 1.0, cy, 1.0, 1.0, 1.0, side);
+            NriImgui.drawRect(cx + 2.0, cy - 1.0, cx + 11.0, cy, 1.0, 1.0, 1.0, side);
+            NriImgui.drawRect(cx - 10.0, cy + 1.0, cx - 1.0, cy + 2.0, 1.0, 1.0, 1.0, side);
+            NriImgui.drawRect(cx + 2.0, cy + 1.0, cx + 11.0, cy + 2.0, 1.0, 1.0, 1.0, side);
         }
 
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             const titleFont = this.titleFont;
             const subtitleFont = this.subtitleFont;
             const tileFont = this.tileFont;
             if (!titleFont || !subtitleFont || !tileFont) {
-                Nri_ImguiRender(this.sample);
+                this.sample.imguiRender();
                 return;
             }
             if (this.isAbsolute) {
-                Nri_ImguiPushFont(titleFont);
+                titleFont.pushFont();
                 this.centered(this.fontPosTitle[0], this.fontPosTitle[1], ["Mouse Cursor Sample: 0"], TITLE_FONT_SIZE, TITLE_LINE_SPACING);
-                Nri_ImguiPopFont();
-                Nri_ImguiPushFont(subtitleFont);
+                NriImgui.popFont();
+                subtitleFont.pushFont();
                 this.centered(this.fontPosSubtitle[0], this.fontPosSubtitle[1], ["Choose a game mode"], SUBTITLE_FONT_SIZE,
                     SUBTITLE_LINE_SPACING);
-                Nri_ImguiPopFont();
-                Nri_ImguiPushFont(tileFont);
+                NriImgui.popFont();
+                tileFont.pushFont();
                 this.centered(this.fontPosFPS[0], this.fontPosFPS[1], ["First-person ", "   Shooter"], TILE_FONT_SIZE, TILE_LINE_SPACING);
                 this.centered(this.fontPosRTS[0], this.fontPosRTS[1], ["Real-time ", " Strategy"], TILE_FONT_SIZE, TILE_LINE_SPACING);
-                Nri_ImguiPopFont();
+                NriImgui.popFont();
             } else {
                 this.cursor(this.screenX, this.screenY);
             }
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
         renderFrame(frameIndex: int) {
@@ -1179,9 +1180,9 @@ namespace MouseCursorNri {
             this.frames.signal(frameIndex);
         }
 
-        // SpriteBatch::Draw(texture, destinationRectangle), white (between Nri_CmdBeginRendering* and
-        // Nri_CmdEndRendering, the sprite pipeline set).
-        drawSprite(commandBuffer: NriCommandBufferHandle, sprite: Sprite | null, left: number, top: number, right: number, bottom: number) {
+        // SpriteBatch::Draw(texture, destinationRectangle), white (between NriCommandBuffer.beginRendering* and
+        // NriCommandBuffer.endRendering, the sprite pipeline set).
+        drawSprite(commandBuffer: NriCommandBuffer, sprite: Sprite | null, left: number, top: number, right: number, bottom: number) {
             if (!sprite) {
                 return;
             }
@@ -1200,17 +1201,17 @@ namespace MouseCursorNri {
             c[9] = 1.0;
             c[10] = 1.0;
             c[11] = 1.0;
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(c[0]), SPRITE_FLOATS * 4);
-            Nri_CmdDraw(commandBuffer, 6, 1, 0, 0);
+            commandBuffer.setDescriptorSet(0, set);
+            commandBuffer.setRootConstants(0, Ref(c[0]), SPRITE_FLOATS * 4);
+            commandBuffer.draw(6, 1, 0, 0);
         }
 
         // Model::Draw(context, states, world, view, proj): each part with its material's effect
         // (Model::UpdateEffectMatrices, EffectLights::SetConstants: ambient folded into emissive,
         // diffuse premultiplied by alpha), the materials' parameters written into this queued
         // frame's slices first (firstMaterial: the model's first in the queued frame's sets).
-        drawModel(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, queuedFrameIndex: int, model: Model, firstMaterial: int,
-            pipeline: NriPipelineHandle | null) {
+        drawModel(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, queuedFrameIndex: int, model: Model, firstMaterial: int,
+            pipeline: NriPipeline | null) {
             const constantBuffer = this.constantBuffer;
             const modelLayout = this.modelLayout;
             if (!constantBuffer || !modelLayout || !pipeline) {
@@ -1246,18 +1247,18 @@ namespace MouseCursorNri {
                 }
                 p[3] = alpha;
                 p[PARAMETERS_SPECULAR + 3] = model.materialSpecular[material * 4 + 3];
-                Nri_WriteBuffer(constantBuffer, (queuedFrameIndex * materialNum + firstMaterial + material) * PARAMETERS_SLICE_SIZE, Ref(p[0]),
+                constantBuffer.write((queuedFrameIndex * materialNum + firstMaterial + material) * PARAMETERS_SLICE_SIZE, Ref(p[0]),
                     PARAMETERS_FLOATS * 4);
             }
 
-            Nri_CmdSetPipelineLayout(commandBuffer, modelLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
+            commandBuffer.setPipelineLayout(modelLayout);
+            commandBuffer.setPipeline(pipeline);
             for (let part = 0; part < model.partMaterials.length; part++) {
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.materialSets[firstMaterial + model.partMaterials[part]]);
+                commandBuffer.setDescriptorSet(0, queuedFrame.materialSets[firstMaterial + model.partMaterials[part]]);
                 const ib = model.partIndexBuffers[part];
-                Nri_CmdSetIndexBuffer(commandBuffer, model.indexBuffers[ib], 0, model.index32[ib] ? NriIndexType.UInt32 : NriIndexType.UInt16);
-                Nri_CmdSetVertexBuffer(commandBuffer, 0, model.vertexBuffers[model.partVertexBuffers[part]], 0, model.stride);
-                Nri_CmdDrawIndexed(commandBuffer, model.partIndexCounts[part], 1, model.partStartIndices[part], model.partVertexOffsets[part], 0);
+                commandBuffer.setIndexBuffer(model.indexBuffers[ib], 0, model.index32[ib] ? NriIndexType.UInt32 : NriIndexType.UInt16);
+                commandBuffer.setVertexBuffer(0, model.vertexBuffers[model.partVertexBuffers[part]], 0, model.stride);
+                commandBuffer.drawIndexed(model.partIndexCounts[part], 1, model.partStartIndices[part], model.partVertexOffsets[part], 0);
             }
         }
 
@@ -1275,21 +1276,21 @@ namespace MouseCursorNri {
             const height = this.frameHeight;
             const commandBuffer = queuedFrame.commandBuffer;
 
-            Nri_BeginCommandBuffer(commandBuffer);
+            commandBuffer.begin();
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-            Nri_CmdClearColor(commandBuffer, CORNFLOWER_BLUE[0], CORNFLOWER_BLUE[1], CORNFLOWER_BLUE[2], 1.0);
-            Nri_CmdClearDepth(commandBuffer, 1.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, width, height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, width, height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+            commandBuffer.clearColor(CORNFLOWER_BLUE[0], CORNFLOWER_BLUE[1], CORNFLOWER_BLUE[2], 1.0);
+            commandBuffer.clearDepth(1.0);
+            commandBuffer.setViewport(0.0, 0.0, width, height);
+            commandBuffer.setScissor(0, 0, width, height);
 
             if (this.isAbsolute) {
-                Nri_CmdSetPipelineLayout(commandBuffer, spriteLayout);
-                Nri_CmdSetPipeline(commandBuffer, spritePipeline);
+                commandBuffer.setPipelineLayout(spriteLayout);
+                commandBuffer.setPipeline(spritePipeline);
                 this.drawSprite(commandBuffer, this.background, 0.0, 0.0, width, height);
                 const fps = this.fpsTile;
                 const rts = this.rtsTile;
@@ -1306,12 +1307,12 @@ namespace MouseCursorNri {
                 this.drawModel(commandBuffer, queuedFrame, queuedFrameIndex, this.modelRTS, this.modelFPS.materialViews.length,
                     this.basicPipeline);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
             // The text in a pass of its own: NRIFramework's ImGui pipeline has no depth attachment.
             if (this.imgui) {
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, this.swapChainFormat);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                this.sample.drawImguiUnconverted(commandBuffer, this.swapChainFormat);
+                commandBuffer.endRendering();
             }
 
             // The test's last frame: read back
@@ -1319,18 +1320,18 @@ namespace MouseCursorNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), width, height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), width, height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -1342,12 +1343,12 @@ namespace MouseCursorNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.frameWidth * this.frameHeight; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.frameWidth, this.frameHeight, this.swapChainFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.frameWidth, this.frameHeight, this.swapChainFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1357,18 +1358,18 @@ namespace MouseCursorNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     for (const view of queuedFrame.materialViews) {
-                        Nri_DestroyDescriptor(view);
+                        view.destroy();
                     }
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.modelFPS.destroy();
                 this.modelRTS.destroy();
@@ -1385,53 +1386,53 @@ namespace MouseCursorNri {
                 this.destroyPipeline(this.basicPipeline);
                 const spriteLayout = this.spriteLayout;
                 if (spriteLayout) {
-                    Nri_DestroyPipelineLayout(spriteLayout);
+                    spriteLayout.destroy();
                 }
                 const modelLayout = this.modelLayout;
                 if (modelLayout) {
-                    Nri_DestroyPipelineLayout(modelLayout);
+                    modelLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroySprite(sprite: Sprite | null) {
             if (!sprite) {
                 return;
             }
-            Nri_DestroyDescriptor(sprite.view);
-            Nri_DestroyTexture(sprite.texture);
+            sprite.view.destroy();
+            sprite.texture.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const mouseCursor = new MouseCursor(sample);
         // -noUI: accepted, as Donut's examples accept it (the menu's text is the scene's, drawn anyway).
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         return mouseCursor.run(argc, argv);
     }
 }

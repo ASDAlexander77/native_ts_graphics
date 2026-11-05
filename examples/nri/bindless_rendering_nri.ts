@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
 import { DonutSceneTextures } from "../../core/nri_donut_textures";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriDonutScene, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace BindlessRenderingNri {
     // bindless_rendering, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -75,7 +76,7 @@ namespace BindlessRenderingNri {
 
     // A frame in flight's own data: its set (its copy of the view's constants).
     class QueuedFrame {
-        constructor(public set: NriDescriptorSetHandle | null, public viewConstantsView: NriDescriptorHandle | null) {
+        constructor(public set: NriDescriptorSet | null, public viewConstantsView: NriDescriptor | null) {
         }
     }
 
@@ -86,8 +87,8 @@ namespace BindlessRenderingNri {
     // texture array (alpha-tested materials clip). WASD/QE and the left mouse button move the
     // camera (Donut's FirstPersonCamera).
     class BindlessRendering {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
@@ -102,25 +103,25 @@ namespace BindlessRenderingNri {
 
         // The scene: its buffers (vertices, indices, instances, geometries, materials), their views,
         // its textures and their views; the draws.
-        private scene: NriDonutSceneHandle | null = null;
-        private sceneBuffers: NriBufferHandle[] = [];
-        private sceneBufferViews: NriDescriptorHandle[] = [];
+        private scene: NriDonutScene | null = null;
+        private sceneBuffers: NriBuffer[] = [];
+        private sceneBufferViews: NriDescriptor[] = [];
         // (Their mip chains made in the first frame.)
         private textures: DonutSceneTextures = new DonutSceneTextures();
 
         // The depth buffer (D24S8, the Donut example's).
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
 
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
         // CommonRenderPasses' anisotropic wrap sampler (the materials').
-        private anisotropicWrap: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private anisotropicWrap: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // The bindless arrays' sets: one on Vulkan (the shader's set 1, bindings 0 and 1), the
         // buffers' and the textures' (spaces 1 and 2) on D3D12.
-        private bindlessSets: NriDescriptorSetHandle[] = [];
+        private bindlessSets: NriDescriptorSet[] = [];
         private viewConstantsSize: int = 0;
         private viewStride: int = 0;
 
@@ -131,11 +132,11 @@ namespace BindlessRenderingNri {
         private instanceConstants: f32[] = [0.0, 0.0];
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < 16; i++) {
                 this.viewMatrix.push(0.0);
                 this.projMatrix.push(0.0);
@@ -150,11 +151,11 @@ namespace BindlessRenderingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -170,19 +171,19 @@ namespace BindlessRenderingNri {
                 console.log("The Bindless Rendering example does not support D3D11.");
                 return 0;
             }
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered into through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -200,12 +201,12 @@ namespace BindlessRenderingNri {
             }
 
             this.camera.lookAt(0.0, 1.8, 0.0, 1.0, 1.8, 0.0);
-            this.viewConstantsSize = Nri_GetDonutConstantsSize(0);
+            this.viewConstantsSize = Nri.getDonutConstantsSize(0);
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -213,21 +214,21 @@ namespace BindlessRenderingNri {
 
         // The scene, as Donut's engine loads it: its buffers, its textures (their mip chains below the
         // first level blitted in the first frame).
-        loadScene(device: NriDeviceHandle, vulkan: boolean) {
-            const scene = Nri_LoadDonutScene(this.scenePath);
+        loadScene(device: NriDevice, vulkan: boolean) {
+            const scene = NriDonutScene.load(this.scenePath);
             this.scene = scene;
             if (!scene) {
                 console.log(`Cannot load the scene ${this.scenePath}`);
                 return false;
             }
             for (let which = 0; which < 5; which++) {
-                const buffer = Nri_CreateDonutSceneBuffer(device, this.queue, scene, which);
+                const buffer = device.createDonutSceneBuffer(this.queue, scene, which);
                 if (!buffer) {
                     console.log("Cannot create the scene's buffers");
                     return false;
                 }
                 this.sceneBuffers.push(buffer);
-                const view = Nri_CreateStructuredBufferView(buffer, 0);
+                const view = buffer.createStructuredView(0);
                 if (!view) {
                     console.log("Cannot create the scene's buffers");
                     return false;
@@ -239,26 +240,26 @@ namespace BindlessRenderingNri {
 
         // The example's layout and pipeline (front faces counterclockwise, back faces culled; depth
         // tested greater or equal and written).
-        createPipelines(device: NriDeviceHandle, vulkan: boolean) {
+        createPipelines(device: NriDevice, vulkan: boolean) {
             const textureCount = this.textures.textures.length;
             // Set 0: the view (b0), the instances, geometries and materials (t0 to t2), the
             // sampler (s0); the instance constants (b1) as root constants.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 3, NriDescriptorType.StructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 1, INSTANCE_CONSTANTS_SIZE, NriStage.Vertex);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 3, NriDescriptorType.StructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRootConstants(1, INSTANCE_CONSTANTS_SIZE, NriStage.Vertex);
             // The bindless arrays: on Vulkan set 1, the buffers at binding 0 and the textures at 1 (the
             // shader's vk::binding); on D3D12 spaces 1 and 2.
             const arrayFlags = NriRangeFlags.PartiallyBound | NriRangeFlags.Array;
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 1, 0, 2, NriDescriptorType.StructuredBuffer, NriStage.Vertex, arrayFlags);
+            layoutDesc.addRange(1, 0, 2, NriDescriptorType.StructuredBuffer, NriStage.Vertex, arrayFlags);
             if (vulkan) {
-                Nri_PipelineLayoutDescAddRange(layoutDesc, 1, 1, textureCount, NriDescriptorType.Texture, NriStage.Pixel, arrayFlags);
+                layoutDesc.addRange(1, 1, textureCount, NriDescriptorType.Texture, NriStage.Pixel, arrayFlags);
             } else {
-                Nri_PipelineLayoutDescAddRange(layoutDesc, 2, 0, textureCount, NriDescriptorType.Texture, NriStage.Pixel, arrayFlags);
+                layoutDesc.addRange(2, 0, textureCount, NriDescriptorType.Texture, NriStage.Pixel, arrayFlags);
             }
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
 
             if (!layout) {
@@ -268,19 +269,19 @@ namespace BindlessRenderingNri {
 
             const folder = vulkan ? "spirv" : "dxil";
             const shaders = `shaders/bindless_rendering/${folder}/bindless_rendering`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_vs_main.bin`, "vs_main") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_vs_main.bin`, "vs_main") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_ps_main.bin`, "ps_main") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_ps_main.bin`, "ps_main") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D24_UNORM_S8_UINT, NriCompareOp.GreaterEqual, 1, 0);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D24_UNORM_S8_UINT, NriCompareOp.GreaterEqual, 1, 0);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                this.pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
 
             if (!this.pipeline) {
                 console.log("Cannot load the bindless rendering shaders");
@@ -291,21 +292,21 @@ namespace BindlessRenderingNri {
 
         // The sampler, the view's constants (a queued frame's copy each), the sets: a queued frame's,
         // the bindless arrays', a mip blit's each.
-        createDescriptorSets(device: NriDeviceHandle, queuedFrameNum: int, vulkan: boolean) {
+        createDescriptorSets(device: NriDevice, queuedFrameNum: int, vulkan: boolean) {
             const layout = this.layout;
             if (!layout) {
                 return false;
             }
-            this.anisotropicWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 16);
+            this.anisotropicWrap = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 16);
             const anisotropicWrap = this.anisotropicWrap;
             const blitCount = this.textures.blitSetCount();
             const textureCount = this.textures.textures.length;
 
-            this.viewStride = Math.floor((Nri_GetDonutConstantsSize(0) + CONSTANTS_ALIGNMENT - 1) / CONSTANTS_ALIGNMENT) * CONSTANTS_ALIGNMENT;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.viewStride, NriBufferUsage.ConstantBuffer);
+            this.viewStride = Math.floor((Nri.getDonutConstantsSize(0) + CONSTANTS_ALIGNMENT - 1) / CONSTANTS_ALIGNMENT) * CONSTANTS_ALIGNMENT;
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * this.viewStride, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setNum = queuedFrameNum + 2 + blitCount;
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, setNum, queuedFrameNum + blitCount, queuedFrameNum,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(setNum, queuedFrameNum + blitCount, queuedFrameNum,
                 textureCount + blitCount, 0, 3 * queuedFrameNum + 2, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool || !anisotropicWrap) {
@@ -315,33 +316,33 @@ namespace BindlessRenderingNri {
 
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
-                const viewConstantsView = Nri_CreateConstantBufferView(constantBuffer, i * this.viewStride, this.viewStride);
+                const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
+                const viewConstantsView = constantBuffer.createConstantView(i * this.viewStride, this.viewStride);
                 this.queuedFrames.push(new QueuedFrame(set, viewConstantsView));
                 if (!set || !viewConstantsView) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                Nri_UpdateDescriptor(set, 0, 0, viewConstantsView);
+                set.updateDescriptor(0, 0, viewConstantsView);
                 for (let k = 0; k < 3; k++) {
-                    Nri_UpdateDescriptor(set, 1, k, this.sceneBufferViews[2 + k]);
+                    set.updateDescriptor(1, k, this.sceneBufferViews[2 + k]);
                 }
-                Nri_UpdateDescriptor(set, 2, 0, anisotropicWrap);
+                set.updateDescriptor(2, 0, anisotropicWrap);
             }
 
             // The bindless arrays: the vertices (0) and indices (1); the textures by number.
-            const bufferSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 1, 0);
+            const bufferSet = descriptorPool.allocateDescriptorSet(layout, 1, 0);
             if (!bufferSet) {
                 console.log("Cannot create the descriptor sets");
                 return false;
             }
             this.bindlessSets.push(bufferSet);
-            Nri_UpdateDescriptor(bufferSet, 0, 0, this.sceneBufferViews[0]);
-            Nri_UpdateDescriptor(bufferSet, 0, 1, this.sceneBufferViews[1]);
+            bufferSet.updateDescriptor(0, 0, this.sceneBufferViews[0]);
+            bufferSet.updateDescriptor(0, 1, this.sceneBufferViews[1]);
             let textureSet = bufferSet;
             let textureRange = 1;
             if (!vulkan) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 2, 0);
+                const set = descriptorPool.allocateDescriptorSet(layout, 2, 0);
                 if (!set) {
                     console.log("Cannot create the descriptor sets");
                     return false;
@@ -351,7 +352,7 @@ namespace BindlessRenderingNri {
                 textureRange = 0;
             }
             for (let i = 0; i < textureCount; i++) {
-                Nri_UpdateDescriptor(textureSet, textureRange, i, this.textures.views[i]);
+                textureSet.updateDescriptor(textureRange, i, this.textures.views[i]);
             }
             if (!this.textures.createBlits(descriptorPool)) {
                 console.log("Cannot create the descriptor sets");
@@ -373,7 +374,7 @@ namespace BindlessRenderingNri {
                 return;
             }
             if (!this.test) {
-                this.camera.animate(this.sample, Nri_GetFrameTime(this.sample), true);
+                this.camera.animate(this.sample, this.sample.getFrameTime(), true);
             }
             const worldToView = this.camera.worldToView();
             const projection = perspProjD3DStyleReverse(Math.PI * 0.25, this.width / this.height, Z_NEAR);
@@ -386,14 +387,14 @@ namespace BindlessRenderingNri {
                     this.viewConstants.push(0.0);
                 }
             }
-            Nri_FillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
+            Nri.fillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
                 Ref(this.viewConstants[0]));
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * this.viewStride, Ref(this.viewConstants[0]), this.viewConstantsSize);
+            constantBuffer.write(queuedFrameIndex * this.viewStride, Ref(this.viewConstants[0]), this.viewConstantsSize);
         }
 
-        // Every geometry of every instance, a draw each (between Nri_CmdBeginRenderingWithDepth and
-        // Nri_CmdEndRendering).
-        recordDraws(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // Every geometry of every instance, a draw each (between NriCommandBuffer.beginRenderingWithDepth and
+        // NriCommandBuffer.endRendering).
+        recordDraws(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const scene = this.scene;
             const layout = this.layout;
             const pipeline = this.pipeline;
@@ -402,23 +403,23 @@ namespace BindlessRenderingNri {
             if (!scene || !layout || !pipeline || !descriptorPool || !set) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, set);
             for (let k = 0; k < this.bindlessSets.length; k++) {
-                Nri_CmdSetDescriptorSet(commandBuffer, 1 + k, this.bindlessSets[k]);
+                commandBuffer.setDescriptorSet(1 + k, this.bindlessSets[k]);
             }
-            const instanceCount = Nri_GetDonutSceneInstanceCount(scene);
+            const instanceCount = scene.getInstanceCount();
             for (let i = 0; i < instanceCount; i++) {
-                const geometryCount = Nri_GetDonutSceneInstanceGeometryCount(scene, i);
+                const geometryCount = scene.getInstanceGeometryCount(i);
                 for (let g = 0; g < geometryCount; g++) {
-                    Nri_StoreInt32(Ref(this.instanceConstants[0]), i);
-                    Nri_StoreInt32(Ref(this.instanceConstants[1]), g);
-                    Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.instanceConstants[0]), INSTANCE_CONSTANTS_SIZE);
-                    Nri_CmdDraw(commandBuffer, Nri_GetDonutSceneGeometryIndexCount(scene, i, g), 1, 0, 0);
+                    Nri.storeInt32(Ref(this.instanceConstants[0]), i);
+                    Nri.storeInt32(Ref(this.instanceConstants[1]), g);
+                    commandBuffer.setRootConstants(0, Ref(this.instanceConstants[0]), INSTANCE_CONSTANTS_SIZE);
+                    commandBuffer.draw(scene.getGeometryIndexCount(i, g), 1, 0, 0);
                 }
             }
         }
@@ -433,31 +434,31 @@ namespace BindlessRenderingNri {
         }
 
         // The depth buffer at the swap chain's size.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D24_UNORM_S8_UINT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D24_UNORM_S8_UINT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 console.log("Cannot create the depth buffer");
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D24_UNORM_S8_UINT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D24_UNORM_S8_UINT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -467,7 +468,7 @@ namespace BindlessRenderingNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -488,19 +489,19 @@ namespace BindlessRenderingNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the mip chains (the first frame), then the scene.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                    commandBuffer.setDescriptorPool(descriptorPool);
                     this.textures.recordBlits(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraws(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -508,13 +509,13 @@ namespace BindlessRenderingNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -532,12 +533,12 @@ namespace BindlessRenderingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -547,26 +548,26 @@ namespace BindlessRenderingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.viewConstantsView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.textures.destroy();
                 for (const view of this.sceneBufferViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const buffer of this.sceneBuffers) {
-                    Nri_DestroyBuffer(buffer);
+                    buffer.destroy();
                 }
                 this.destroyDescriptor(this.anisotropicWrap);
                 this.destroyDescriptor(this.depthAttachment);
                 const depthTexture = this.depthTexture;
                 if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
+                    depthTexture.destroy();
                 }
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
@@ -574,49 +575,49 @@ namespace BindlessRenderingNri {
                 this.destroyLayout(this.layout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
             const scene = this.scene;
             if (scene) {
-                Nri_DestroyDonutScene(scene);
+                scene.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const rendering = new BindlessRendering(sample);
         // --scene <path>: relative to the executable's directory.
-        Nri_AddExampleOptionWithValues(sample, "--scene", 1);
+        sample.addExampleOptionWithValues("--scene", 1);
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "--scene" && i + 1 < argc) {
-                rendering.scenePath = Nri_GetArg(argc, argv, i + 1);
+            if (Nri.getArg(argc, argv, i) == "--scene" && i + 1 < argc) {
+                rendering.scenePath = Nri.getArg(argc, argv, i + 1);
             }
         }
         return rendering.run(argc, argv);

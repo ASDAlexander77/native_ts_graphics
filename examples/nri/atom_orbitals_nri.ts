@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspProjD3DStyleReverse } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample } from "../../core/nri";
 
 namespace AtomOrbitalsNri {
     // atom_orbitals, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -465,25 +466,25 @@ namespace AtomOrbitalsNri {
     // left alone for IDLE_SECONDS, the camera orbits slowly. The camera: the left mouse button turns
     // it, the wheel zooms (the Donut example's ThirdPersonCamera also pans and takes keys).
     export class AtomOrbitals {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private advancePipeline: NriPipelineHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private particleBuffer: NriBufferHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private advancePipeline: NriPipeline | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private particleBuffer: NriBuffer | null = null;
         // The particles, written by the compute pass and read by the draw.
-        private particlesStorage: NriDescriptorHandle | null = null;
-        private particlesView: NriDescriptorHandle | null = null;
+        private particlesStorage: NriDescriptor | null = null;
+        private particlesView: NriDescriptor | null = null;
         // The particle buffer's state between frames (Storage before the first).
         private particlesDrawn: boolean = false;
         // A queued frame's view and display constants each, FRAME_CONSTANTS_STRIDE bytes apart.
-        private constantBuffer: NriBufferHandle | null = null;
-        private viewConstantsView: NriDescriptorHandle | null = null;
-        private displayConstantsView: NriDescriptorHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private viewConstantsView: NriDescriptor | null = null;
+        private displayConstantsView: NriDescriptor | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -538,12 +539,12 @@ namespace AtomOrbitalsNri {
 
         // -test: the last frame and the particles after it are read back.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
-        private particleReadbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
+        private particleReadbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < SIMULATION_FLOATS; i++) {
                 this.simulationConstants.push(0.0);
             }
@@ -563,11 +564,11 @@ namespace AtomOrbitalsNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = this.checkTest();
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -578,20 +579,20 @@ namespace AtomOrbitalsNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
             this.autoRotate = !this.test;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -604,17 +605,17 @@ namespace AtomOrbitalsNri {
             // The layouts: the compute pass's SimulationConstants (push constants, b0) and particles
             // (u0); the draw's view (b1) and display (b2) constants and particles (t0). All root
             // descriptors.
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 2, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootConstants(0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRootDescriptor(1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            drawLayoutDesc.addRootDescriptor(2, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            drawLayoutDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout) {
@@ -627,33 +628,33 @@ namespace AtomOrbitalsNri {
             // (NVRHI's default raster state).
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/atom_orbitals/${folder}/atom_orbitals`;
-            this.advancePipeline = Nri_CreateComputePipelinePermutation(device, computeLayout, `${shaders}_advance_cs.bin`, "advance_cs",
+            this.advancePipeline = device.createComputePipelinePermutation(computeLayout, `${shaders}_advance_cs.bin`, "advance_cs",
                 "SIMULATION=1");
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetAdditiveBlend(desc);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
+            desc.setAdditiveBlend();
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.advancePipeline || !this.drawPipeline) {
                 console.log("Cannot load the atom orbitals shaders");
                 return 0;
             }
 
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!constantBuffer) {
                 console.log("Cannot create the constant buffer");
                 return 0;
             }
-            this.viewConstantsView = Nri_CreateConstantBufferView(constantBuffer, 0, VIEW_CONSTANTS_VIEW_SIZE);
-            this.displayConstantsView = Nri_CreateConstantBufferView(constantBuffer, DISPLAY_CONSTANTS_OFFSET, DISPLAY_CONSTANTS_VIEW_SIZE);
+            this.viewConstantsView = constantBuffer.createConstantView(0, VIEW_CONSTANTS_VIEW_SIZE);
+            this.displayConstantsView = constantBuffer.createConstantView(DISPLAY_CONSTANTS_OFFSET, DISPLAY_CONSTANTS_VIEW_SIZE);
 
             // The camera: (35, 20) degrees around the nucleus, far enough back to see the state.
             this.camera.setRotation(radians(35.0), radians(20.0));
@@ -664,7 +665,7 @@ namespace AtomOrbitalsNri {
 
             // The settings window.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -672,10 +673,10 @@ namespace AtomOrbitalsNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
-                this.particleReadbackBuffer = Nri_CreateReadbackBuffer(device, this.numParticles * PARTICLE_FLOATS * 4);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
+                this.particleReadbackBuffer = device.createReadbackBuffer(this.numParticles * PARTICLE_FLOATS * 4);
                 this.readbackFormat = format;
             }
             return 1;
@@ -746,7 +747,7 @@ namespace AtomOrbitalsNri {
         // states' distributions (|a|^2 + |b|^2 = 1), doubled: points drawn from the mixture are kept
         // with the probability |psi|^2 / (2 mixture), which leaves them distributed as |psi|^2.
         // False on failure.
-        createParticles(device: NriDeviceHandle): boolean {
+        createParticles(device: NriDevice): boolean {
             this.applyStates();
             this.startPositions = [];
             const particles: f32[] = [];
@@ -794,15 +795,15 @@ namespace AtomOrbitalsNri {
                 }
             }
 
-            const particleBuffer = Nri_CreateStorageBuffer(device, this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4,
+            const particleBuffer = device.createStorageBuffer(this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4,
                 PARTICLE_FLOATS * 4);
             this.particleBuffer = particleBuffer;
             this.particlesDrawn = false;
             if (!particleBuffer) {
                 return false;
             }
-            this.particlesStorage = Nri_CreateStructuredBufferView(particleBuffer, 1);
-            this.particlesView = Nri_CreateStructuredBufferView(particleBuffer, 0);
+            this.particlesStorage = particleBuffer.createStructuredView(1);
+            this.particlesView = particleBuffer.createStructuredView(0);
 
             const extent = sceneExtent(this.largestN());
             this.camera.distance = Math.fround(2.0 * extent);
@@ -815,7 +816,7 @@ namespace AtomOrbitalsNri {
             if (!device) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDescriptor(this.particlesStorage);
             this.destroyDescriptor(this.particlesView);
             this.destroyBuffer(this.particleBuffer);
@@ -836,7 +837,7 @@ namespace AtomOrbitalsNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -866,17 +867,17 @@ namespace AtomOrbitalsNri {
             }
 
             // In test mode 1/60 second a frame in float32, as Donut's test mode passes it.
-            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
-            if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
+            if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                 this.paused = !this.paused;
                 this.idleSeconds = 0.0;
             }
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
-            const orbiting = !overlay && Nri_IsButtonPressed(this.sample, 0) != 0;
-            const wheel = overlay ? 0.0 : Nri_GetMouseWheel(this.sample);
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
+            const orbiting = !overlay && this.sample.isButtonPressed(0) != 0;
+            const wheel = overlay ? 0.0 : this.sample.getMouseWheel();
             if (orbiting || wheel != 0.0) {
                 this.idleSeconds = 0.0;
-                this.camera.orbit(orbiting ? Nri_GetMouseDeltaX(this.sample) : 0.0, orbiting ? Nri_GetMouseDeltaY(this.sample) : 0.0, wheel);
+                this.camera.orbit(orbiting ? this.sample.getMouseDeltaX() : 0.0, orbiting ? this.sample.getMouseDeltaY() : 0.0, wheel);
             }
 
             this.idleSeconds += elapsedSeconds;
@@ -897,15 +898,15 @@ namespace AtomOrbitalsNri {
             const name = this.superposed
                 ? `${orbitalName(this.orbitalA.n, this.orbitalA.l, this.orbitalA.m)} + ${orbitalName(this.orbitalB.n, this.orbitalB.l, this.orbitalB.m)}`
                 : orbitalName(this.orbitalA.n, this.orbitalA.l, this.orbitalA.m);
-            Nri_SetWindowTitle(this.sample,
+            this.sample.setWindowTitle(
                 this.paused ? `${WINDOW_TITLE} - ${name}, ${this.numParticles} particles (paused)` : `${WINDOW_TITLE} - ${name}, ${this.numParticles} particles`);
         }
 
         // A state's n, l, m sliders, l and m kept in range as n and l change; true on a change.
         stateUI(label: string, state: int[]) {
-            const n = Nri_ImguiSliderInt(`n ${label}`, state[0], 1, MAX_N);
+            const n = NriImgui.sliderInt(`n ${label}`, state[0], 1, MAX_N);
             let l = state[1] < n ? state[1] : n - 1;
-            l = Nri_ImguiSliderInt(`l ${label}`, l, 0, n - 1);
+            l = NriImgui.sliderInt(`l ${label}`, l, 0, n - 1);
             let m = state[2];
             if (m > l) {
                 m = l;
@@ -913,7 +914,7 @@ namespace AtomOrbitalsNri {
             if (m < -l) {
                 m = -l;
             }
-            m = Nri_ImguiSliderInt(`m ${label}`, m, -l, l);
+            m = NriImgui.sliderInt(`m ${label}`, m, -l, l);
             const changed = n != state[0] || l != state[1] || m != state[2];
             state[0] = n;
             state[1] = l;
@@ -923,65 +924,65 @@ namespace AtomOrbitalsNri {
 
         // The settings window, top right.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPosPivot(this.width - 10.0, 10.0, 1.0, 0.0);
-            Nri_ImguiBegin("Atom Orbitals", 1);
-            Nri_ImguiPushItemWidth(160.0);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPosPivot(this.width - 10.0, 10.0, 1.0, 0.0);
+            NriImgui.begin("Atom Orbitals", 1);
+            NriImgui.pushItemWidth(160.0);
 
-            if (Nri_ImguiCollapsingHeader("State", 1) != 0) {
-                Nri_ImguiText(`A: ${orbitalName(this.uiA[0], this.uiA[1], this.uiA[2])}, E = ${energy(this.uiA[0])}`);
+            if (NriImgui.collapsingHeader("State", 1) != 0) {
+                NriImgui.text(`A: ${orbitalName(this.uiA[0], this.uiA[1], this.uiA[2])}, E = ${energy(this.uiA[0])}`);
                 let changed = this.stateUI("(A)", this.uiA);
-                const superposed = Nri_ImguiCheckbox("Superpose B", this.uiSuperposed ? 1 : 0) != 0;
+                const superposed = NriImgui.checkbox("Superpose B", this.uiSuperposed ? 1 : 0) != 0;
                 changed = changed || superposed != this.uiSuperposed;
                 this.uiSuperposed = superposed;
                 if (this.uiSuperposed) {
-                    Nri_ImguiText(`B: ${orbitalName(this.uiB[0], this.uiB[1], this.uiB[2])}, E = ${energy(this.uiB[0])}`);
+                    NriImgui.text(`B: ${orbitalName(this.uiB[0], this.uiB[1], this.uiB[2])}, E = ${energy(this.uiB[0])}`);
                     changed = this.stateUI("(B)", this.uiB) || changed;
-                    const weight = Nri_ImguiSliderFloat("Share of B |b|^2", this.uiWeight, 0.0, 1.0);
+                    const weight = NriImgui.sliderFloat("Share of B |b|^2", this.uiWeight, 0.0, 1.0);
                     changed = changed || weight != this.uiWeight;
                     this.uiWeight = weight;
                     const deltaE = energy(this.uiB[0]) - energy(this.uiA[0]);
                     if (deltaE != 0.0) {
-                        Nri_ImguiText(`Beat period 2 pi / |dE| = ${2.0 * Math.PI / Math.abs(deltaE)} a.u.`);
+                        NriImgui.text(`Beat period 2 pi / |dE| = ${2.0 * Math.PI / Math.abs(deltaE)} a.u.`);
                     } else {
-                        Nri_ImguiText("Same energy: stationary");
+                        NriImgui.text("Same energy: stationary");
                     }
                 }
-                const choice = Nri_ImguiCombo("Particles", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
+                const choice = NriImgui.combo("Particles", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
                 if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
                     this.uiParticles = particleChoice(choice);
                     changed = true;
                 }
-                if (Nri_ImguiButton("Restart") != 0 || changed) {
+                if (NriImgui.button("Restart") != 0 || changed) {
                     this.restartRequested = true;
                 }
             }
 
-            if (Nri_ImguiCollapsingHeader("Simulation", 1) != 0) {
-                this.paused = Nri_ImguiCheckbox("Paused (Space)", this.paused ? 1 : 0) != 0;
-                this.timeScale = Nri_ImguiSliderFloat("Time scale (a.u./s)", this.timeScale, 0.0, TIME_SCALE_MAX);
-                Nri_ImguiText(`t = ${this.simTime} a.u.`);
+            if (NriImgui.collapsingHeader("Simulation", 1) != 0) {
+                this.paused = NriImgui.checkbox("Paused (Space)", this.paused ? 1 : 0) != 0;
+                this.timeScale = NriImgui.sliderFloat("Time scale (a.u./s)", this.timeScale, 0.0, TIME_SCALE_MAX);
+                NriImgui.text(`t = ${this.simTime} a.u.`);
             }
 
-            if (Nri_ImguiCollapsingHeader("Display", 1) != 0) {
-                this.colorMode = Nri_ImguiCombo("Color", this.colorMode, COLOR_MODES);
-                this.brightness = Nri_ImguiSliderFloat("Brightness", this.brightness, 0.02, 1.0);
-                this.cutAway = Nri_ImguiCheckbox("Cut away x > 0", this.cutAway ? 1 : 0) != 0;
-                this.autoRotate = Nri_ImguiCheckbox("Orbit when idle", this.autoRotate ? 1 : 0) != 0;
+            if (NriImgui.collapsingHeader("Display", 1) != 0) {
+                this.colorMode = NriImgui.combo("Color", this.colorMode, COLOR_MODES);
+                this.brightness = NriImgui.sliderFloat("Brightness", this.brightness, 0.02, 1.0);
+                this.cutAway = NriImgui.checkbox("Cut away x > 0", this.cutAway ? 1 : 0) != 0;
+                this.autoRotate = NriImgui.checkbox("Orbit when idle", this.autoRotate ? 1 : 0) != 0;
             }
 
-            if (Nri_ImguiCollapsingHeader("Units", 0) != 0) {
-                Nri_ImguiText("Atomic units: hbar = electron mass = e = 1");
-                Nri_ImguiText("Length: Bohr radius a0 = 0.0529 nm (scene unit)");
-                Nri_ImguiText("Time: hbar / E_h = 24.2 as; E_n = -1 / (2 n^2)");
-                Nri_ImguiText("psi = a psi_A + b psi_B e^(-i dE t), dE = E_B - E_A");
-                Nri_ImguiText("v = Im(conj(psi) grad psi) / |psi|^2");
-                Nri_ImguiText("Phase colors: arg psi around the hue wheel");
+            if (NriImgui.collapsingHeader("Units", 0) != 0) {
+                NriImgui.text("Atomic units: hbar = electron mass = e = 1");
+                NriImgui.text("Length: Bohr radius a0 = 0.0529 nm (scene unit)");
+                NriImgui.text("Time: hbar / E_h = 24.2 as; E_n = -1 / (2 n^2)");
+                NriImgui.text("psi = a psi_A + b psi_B e^(-i dE t), dE = E_B - E_A");
+                NriImgui.text("v = Im(conj(psi) grad psi) / |psi|^2");
+                NriImgui.text("Phase colors: arg psi around the hue wheel");
             }
 
-            Nri_ImguiPopItemWidth();
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.popItemWidth();
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The view constants main_vs reads (the camera; 60 degrees vertically) and the display
@@ -1003,7 +1004,7 @@ namespace AtomOrbitalsNri {
             this.viewConstants[VIEWPORT_SIZE + 1] = this.height;
             this.viewConstants[VIEWPORT_SIZE_INV] = 1.0 / Math.fround(this.width);
             this.viewConstants[VIEWPORT_SIZE_INV + 1] = 1.0 / Math.fround(this.height);
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.viewConstants[0]), VIEW_CONSTANTS_SIZE);
+            constantBuffer.write(offset, Ref(this.viewConstants[0]), VIEW_CONSTANTS_SIZE);
 
             // Sprites a little larger for fewer particles, the same light in all.
             const extent = sceneExtent(this.largestN());
@@ -1015,11 +1016,11 @@ namespace AtomOrbitalsNri {
             this.displayConstants[4] = this.cutAway ? 1.0 : 0.0;
             this.displayConstants[5] = this.numParticles;
             this.displayConstants[6] = 0.04 * extent;
-            Nri_WriteBuffer(constantBuffer, offset + DISPLAY_CONSTANTS_OFFSET, Ref(this.displayConstants[0]), DISPLAY_CONSTANTS_SIZE);
+            constantBuffer.write(offset + DISPLAY_CONSTANTS_OFFSET, Ref(this.displayConstants[0]), DISPLAY_CONSTANTS_SIZE);
         }
 
         // advance_cs over the particles, which then go to the draw.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const advancePipeline = this.advancePipeline;
             const particleBuffer = this.particleBuffer;
@@ -1028,21 +1029,21 @@ namespace AtomOrbitalsNri {
                 return;
             }
             if (this.particlesDrawn) {
-                Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
+                commandBuffer.bufferBarrier(particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
             }
             const groups: int = Math.floor((this.numParticles + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, advancePipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 0, particlesStorage);
-            Nri_CmdDispatch(commandBuffer, groups, 1, 1);
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(advancePipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
+            commandBuffer.setComputeRootDescriptor(0, particlesStorage);
+            commandBuffer.dispatch(groups, 1, 1);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
             this.particlesDrawn = true;
         }
 
-        // The particles' sprites and the nucleus (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, constantsOffset: int) {
+        // The particles' sprites and the nucleus (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, constantsOffset: int) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const viewConstantsView = this.viewConstantsView;
@@ -1051,14 +1052,14 @@ namespace AtomOrbitalsNri {
             if (!drawLayout || !drawPipeline || !viewConstantsView || !displayConstantsView || !particlesView) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, viewConstantsView, constantsOffset);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, displayConstantsView, constantsOffset);
-            Nri_CmdSetRootDescriptor(commandBuffer, 2, particlesView, 0);
-            Nri_CmdDraw(commandBuffer, (this.numParticles + 1) * VERTICES_PER_PARTICLE, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setRootDescriptor(0, viewConstantsView, constantsOffset);
+            commandBuffer.setRootDescriptor(1, displayConstantsView, constantsOffset);
+            commandBuffer.setRootDescriptor(2, particlesView, 0);
+            commandBuffer.draw((this.numParticles + 1) * VERTICES_PER_PARTICLE, 1, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
@@ -1078,38 +1079,38 @@ namespace AtomOrbitalsNri {
                 this.writeConstants(constantsOffset);
 
                 // Record: the compute pass; cleared to black, the particles, the settings window.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordCompute(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
                 this.recordDraw(commandBuffer, constantsOffset);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back, and the particles after it
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                         this.recordParticleReadback(commandBuffer);
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -1119,15 +1120,15 @@ namespace AtomOrbitalsNri {
         }
 
         // Copies the particles to particleReadbackBuffer (after the last frame's draw).
-        recordParticleReadback(commandBuffer: NriCommandBufferHandle) {
+        recordParticleReadback(commandBuffer: NriCommandBuffer) {
             const particleBuffer = this.particleBuffer;
             const particleReadbackBuffer = this.particleReadbackBuffer;
             if (!particleBuffer || !particleReadbackBuffer) {
                 return;
             }
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
-            Nri_CmdCopyBuffer(commandBuffer, particleReadbackBuffer, particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
+            commandBuffer.copyBuffer(particleReadbackBuffer, particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
         }
 
         // -test, as the Donut example checks: the particles after the last frame: every position and
@@ -1141,12 +1142,12 @@ namespace AtomOrbitalsNri {
             if (!device || !particleReadbackBuffer) {
                 return "cannot read the particles back";
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const particles: f32[] = [];
             for (let i = 0; i < this.numParticles * PARTICLE_FLOATS; i++) {
                 particles.push(0.0);
             }
-            if (Nri_ReadBufferFloats(particleReadbackBuffer, Ref(particles[0]), particles.length) == 0) {
+            if (particleReadbackBuffer.readFloats(Ref(particles[0]), particles.length) == 0) {
                 return "cannot read the particles back";
             }
             let sumRadius = 0.0;
@@ -1277,7 +1278,7 @@ namespace AtomOrbitalsNri {
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1287,9 +1288,9 @@ namespace AtomOrbitalsNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 this.destroyDescriptor(this.particlesStorage);
                 this.destroyDescriptor(this.particlesView);
@@ -1303,71 +1304,71 @@ namespace AtomOrbitalsNri {
                 this.destroyPipeline(this.drawPipeline);
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const orbitals = new AtomOrbitals(sample);
         // -orbital <n> <l> <m>: the state (3 2 1 by default); -mix <n> <l> <m>: a second state
         // superposed (with -weight); -weight <w>: its share of the probability, |b|^2 (0, none, by
         // default); -particles <n>; -timescale <a.u. per second>; -noUI: no settings window.
-        Nri_AddExampleOptionWithValues(sample, "-orbital", 3);
-        Nri_AddExampleOptionWithValues(sample, "-mix", 3);
-        Nri_AddExampleOptionWithValues(sample, "-weight", 1);
-        Nri_AddExampleOptionWithValues(sample, "-particles", 1);
-        Nri_AddExampleOptionWithValues(sample, "-timescale", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-orbital", 3);
+        sample.addExampleOptionWithValues("-mix", 3);
+        sample.addExampleOptionWithValues("-weight", 1);
+        sample.addExampleOptionWithValues("-particles", 1);
+        sample.addExampleOptionWithValues("-timescale", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         let weight = 0.0;
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-orbital" && i + 3 < argc) {
-                orbitals.uiA = [parseInt(Nri_GetArg(argc, argv, i + 1)), parseInt(Nri_GetArg(argc, argv, i + 2)),
-                    parseInt(Nri_GetArg(argc, argv, i + 3))];
+                orbitals.uiA = [parseInt(Nri.getArg(argc, argv, i + 1)), parseInt(Nri.getArg(argc, argv, i + 2)),
+                    parseInt(Nri.getArg(argc, argv, i + 3))];
                 i += 3;
             } else if (arg == "-mix" && i + 3 < argc) {
-                orbitals.uiB = [parseInt(Nri_GetArg(argc, argv, i + 1)), parseInt(Nri_GetArg(argc, argv, i + 2)),
-                    parseInt(Nri_GetArg(argc, argv, i + 3))];
+                orbitals.uiB = [parseInt(Nri.getArg(argc, argv, i + 1)), parseInt(Nri.getArg(argc, argv, i + 2)),
+                    parseInt(Nri.getArg(argc, argv, i + 3))];
                 i += 3;
             } else if (arg == "-weight" && i + 1 < argc) {
-                weight = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                weight = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-particles" && i + 1 < argc) {
-                orbitals.uiParticles = parseInt(Nri_GetArg(argc, argv, i + 1));
+                orbitals.uiParticles = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-timescale" && i + 1 < argc) {
-                orbitals.timeScale = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                orbitals.timeScale = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-noUI") {
                 orbitals.noUI = true;

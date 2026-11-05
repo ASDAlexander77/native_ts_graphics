@@ -3,12 +3,13 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutThirdPersonCamera } from "../../core/donut_third_person_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample } from "../../core/nri";
 
 namespace GravityLightBendingNri {
     // gravity_light_bending, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
     // Donut and NVRHI: the same shaders (gravity_light_bending.hlsl's), Donut's ThirdPersonCamera and
     // PlanarViewConstants as Donut computes them (core/donut_third_person_camera.ts,
-    // Nri_FillDonutPlanarViewConstants), through the NRI calls core/nri/nri_interop.d.ts binds. This
+    // Nri.fillDonutPlanarViewConstants), through the NRI calls core/nri/nri_interop.d.ts binds. This
     // example creates everything it runs, and does the rendering.
 
     const WINDOW_TITLE = "NRI Example: Gravity Light Bending";
@@ -108,7 +109,7 @@ namespace GravityLightBendingNri {
         Sphere = 3
     }
 
-    // GLFW's key codes (Nri_IsKeyToggled): the example's keys.
+    // GLFW's key codes (NriSample.isKeyToggled): the example's keys.
     const KEY_B = 66;
     const KEY_G = 71;
     const KEY_K = 75;
@@ -168,7 +169,7 @@ namespace GravityLightBendingNri {
     // A frame in flight's own data: its views of the constant buffer: its SceneConstants
     // and PlanarViewConstants.
     class QueuedFrame {
-        constructor(public sceneView: NriDescriptorHandle, public viewView: NriDescriptorHandle) {
+        constructor(public sceneView: NriDescriptor, public viewView: NriDescriptor) {
         }
     }
 
@@ -189,34 +190,34 @@ namespace GravityLightBendingNri {
     // restarts. The compute pass and the draws go into the frame's command buffer, with the rays'
     // buffers' barriers between them.
     class LightBending {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
         // The swap chain textures' format (their views': viewFormat).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private raysPipeline: NriPipelineHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private pathPipeline: NriPipelineHandle | null = null;
-        private straightPipeline: NriPipelineHandle | null = null;
-        private gridPipeline: NriPipelineHandle | null = null;
-        private bodyPipeline: NriPipelineHandle | null = null;
-        private skyPipeline: NriPipelineHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private raysPipeline: NriPipeline | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private pathPipeline: NriPipeline | null = null;
+        private straightPipeline: NriPipeline | null = null;
+        private gridPipeline: NriPipeline | null = null;
+        private bodyPipeline: NriPipeline | null = null;
+        private skyPipeline: NriPipeline | null = null;
         // The rays' paths, MAX_POINTS points each, and the rays; written by the compute pass, read by
         // the draws' vertex shaders (in VertexShaderResource between frames, once drawn).
-        private pointBuffer: NriBufferHandle | null = null;
-        private rayBuffer: NriBufferHandle | null = null;
-        private pointsStorage: NriDescriptorHandle | null = null;
-        private pointsView: NriDescriptorHandle | null = null;
-        private raysStorage: NriDescriptorHandle | null = null;
-        private raysView: NriDescriptorHandle | null = null;
+        private pointBuffer: NriBuffer | null = null;
+        private rayBuffer: NriBuffer | null = null;
+        private pointsStorage: NriDescriptor | null = null;
+        private pointsView: NriDescriptor | null = null;
+        private raysStorage: NriDescriptor | null = null;
+        private raysView: NriDescriptor | null = null;
         private raysDrawn: boolean = false;
         // A queued frame's SceneConstants and PlanarViewConstants each, frameStride bytes apart.
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantViews: NriDescriptorHandle[] = [];
+        private constantBuffer: NriBuffer | null = null;
+        private constantViews: NriDescriptor[] = [];
         private sceneStride: int = 0;
         private viewSize: int = 0;
         private frameStride: int = 0;
@@ -277,13 +278,13 @@ namespace GravityLightBendingNri {
 
         // -test: the last frame, and the rays and their paths after it, are read back.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
-        private rayReadbackBuffer: NriBufferHandle | null = null;
-        private pointReadbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
+        private rayReadbackBuffer: NriBuffer | null = null;
+        private pointReadbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < MAX_BODIES; i++) {
                 for (let k = 0; k < 3; k++) {
                     this.bodyPos.push(0.0);
@@ -304,11 +305,11 @@ namespace GravityLightBendingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = this.checkTest();
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -319,20 +320,20 @@ namespace GravityLightBendingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
             this.autoRotate = !this.test;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -341,19 +342,19 @@ namespace GravityLightBendingNri {
             // points and rays (u0, u1); the draws' scene (b0) and view (b1), every stage (path_ps reads
             // the bodies and the camera too; the sky's pixel shader both), and the points and rays (t0,
             // t1) the vertex shaders read. All root descriptors.
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRootDescriptor(computeLayoutDesc, 1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawLayoutDesc, 1, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(0, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
+            computeLayoutDesc.addRootDescriptor(1, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
+            drawLayoutDesc.addRootDescriptor(1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
+            drawLayoutDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            drawLayoutDesc.addRootDescriptor(1, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout) {
@@ -367,7 +368,7 @@ namespace GravityLightBendingNri {
             // faces culled, no depth (Donut_CreateGraphicsPipelineWithBlend's state).
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/gravity_light_bending/${folder}/gravity_light_bending`;
-            this.raysPipeline = Nri_CreateComputePipelinePermutation(device, computeLayout, `${shaders}_rays_cs.bin`, "rays_cs", "RAYS=1");
+            this.raysPipeline = device.createComputePipelinePermutation(computeLayout, `${shaders}_rays_cs.bin`, "rays_cs", "RAYS=1");
             this.pathPipeline = this.createPipeline(device, drawLayout, shaders, "path_vs", "path_ps", 1);
             this.straightPipeline = this.createPipeline(device, drawLayout, shaders, "straight_vs", "color_ps", 1);
             this.gridPipeline = this.createPipeline(device, drawLayout, shaders, "grid_vs", "color_ps", 2);
@@ -382,26 +383,26 @@ namespace GravityLightBendingNri {
             this.createBodies();
 
             // The rays' paths, MAX_POINTS points each, and the rays (written before they're read).
-            const pointBuffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, MAX_RAYS * MAX_POINTS * 16, 16, NriBufferState.Storage);
-            const rayBuffer = Nri_CreateUninitializedStorageBuffer(device, this.queue, MAX_RAYS * RAY_FLOATS * 4, RAY_FLOATS * 4,
+            const pointBuffer = device.createUninitializedStorageBuffer(this.queue, MAX_RAYS * MAX_POINTS * 16, 16, NriBufferState.Storage);
+            const rayBuffer = device.createUninitializedStorageBuffer(this.queue, MAX_RAYS * RAY_FLOATS * 4, RAY_FLOATS * 4,
                 NriBufferState.Storage);
             this.pointBuffer = pointBuffer;
             this.rayBuffer = rayBuffer;
             // The constant buffer: a queued frame's SceneConstants, then its PlanarViewConstants.
-            this.viewSize = Nri_GetDonutConstantsSize(0);
+            this.viewSize = Nri.getDonutConstantsSize(0);
             this.viewConstants = zeros(this.viewSize / 4);
             this.sceneStride = align(SCENE_FLOATS * 4);
             this.frameStride = this.sceneStride + align(this.viewSize);
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.frameStride, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * this.frameStride, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!pointBuffer || !rayBuffer || !constantBuffer) {
                 console.log("Cannot create the buffers");
                 return 0;
             }
-            this.pointsStorage = Nri_CreateStructuredBufferView(pointBuffer, 1);
-            this.pointsView = Nri_CreateStructuredBufferView(pointBuffer, 0);
-            this.raysStorage = Nri_CreateStructuredBufferView(rayBuffer, 1);
-            this.raysView = Nri_CreateStructuredBufferView(rayBuffer, 0);
+            this.pointsStorage = pointBuffer.createStructuredView(1);
+            this.pointsView = pointBuffer.createStructuredView(0);
+            this.raysStorage = rayBuffer.createStructuredView(1);
+            this.raysView = rayBuffer.createStructuredView(0);
             if (!this.pointsStorage || !this.pointsView || !this.raysStorage || !this.raysView) {
                 console.log("Cannot create the buffer views");
                 return 0;
@@ -410,8 +411,8 @@ namespace GravityLightBendingNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const sceneView = Nri_CreateConstantBufferView(constantBuffer, i * this.frameStride, this.sceneStride);
-                const viewView = Nri_CreateConstantBufferView(constantBuffer, i * this.frameStride + this.sceneStride, align(this.viewSize));
+                const sceneView = constantBuffer.createConstantView(i * this.frameStride, this.sceneStride);
+                const viewView = constantBuffer.createConstantView(i * this.frameStride + this.sceneStride, align(this.viewSize));
                 if (!sceneView || !viewView) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
@@ -428,7 +429,7 @@ namespace GravityLightBendingNri {
 
             // The settings window.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -436,11 +437,11 @@ namespace GravityLightBendingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
-                this.rayReadbackBuffer = Nri_CreateReadbackBuffer(device, MAX_RAYS * RAY_FLOATS * 4);
-                this.pointReadbackBuffer = Nri_CreateReadbackBuffer(device, MAX_RAYS * MAX_POINTS * 16);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
+                this.rayReadbackBuffer = device.createReadbackBuffer(MAX_RAYS * RAY_FLOATS * 4);
+                this.pointReadbackBuffer = device.createReadbackBuffer(MAX_RAYS * MAX_POINTS * 16);
                 this.readbackFormat = format;
             }
             return 1;
@@ -449,25 +450,25 @@ namespace GravityLightBendingNri {
         // A draw's pipeline into the swap chain's sRGB view: blend 0 none, 1 Donut's additive (color
         // one + one, alpha srcAlpha + dstAlpha), 2 Donut's alpha blending (color srcAlpha +
         // invSrcAlpha, alpha invSrcAlpha + zero); back faces culled (NVRHI's default raster state).
-        createPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, vs: string, ps: string, blend: int) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
+        createPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, vs: string, ps: string, blend: int) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
             if (blend == 1) {
-                Nri_PipelineDescSetAdditiveBlend(desc);
+                desc.setAdditiveBlend();
             } else if (blend == 2) {
-                Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+                desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                     NriBlendFactor.OneMinusSrcAlpha, NriBlendFactor.Zero, NriBlendOp.Add);
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -478,7 +479,7 @@ namespace GravityLightBendingNri {
 
         // 1 if the key (a GLFW key code) was pressed since the last frame.
         toggled(key: int) {
-            return Nri_IsKeyToggled(this.sample, key) != 0;
+            return this.sample.isKeyToggled(key) != 0;
         }
 
         // The Donut example's input callbacks and onAnimate: a restart asked for; the keys; the
@@ -491,7 +492,7 @@ namespace GravityLightBendingNri {
             }
 
             // In test mode 1/60 second a frame in float32, as Donut's test mode passes it.
-            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             if (this.toggled(NriKey.Space)) {
                 this.paused = !this.paused;
                 this.idleSeconds = 0.0;
@@ -516,7 +517,7 @@ namespace GravityLightBendingNri {
                 this.restartRequested = true;
                 this.idleSeconds = 0.0;
             }
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             if (this.camera.mouse(this.sample, !overlay)) {
                 this.idleSeconds = 0.0;
             }
@@ -543,7 +544,7 @@ namespace GravityLightBendingNri {
 
             const light = this.bendLight ? `c = ${this.lightSpeed}` : "light not bent";
             const info = `${this.bodyCount} bodies, ${this.rayCount()} rays, ${light}`;
-            Nri_SetWindowTitle(this.sample, this.paused ? `${WINDOW_TITLE} - ${info} (paused)` : `${WINDOW_TITLE} - ${info}`);
+            this.sample.setWindowTitle(this.paused ? `${WINDOW_TITLE} - ${info} (paused)` : `${WINDOW_TITLE} - ${info}`);
         }
 
         // The rays the emitter sends: a sheet is one row of them.
@@ -565,12 +566,12 @@ namespace GravityLightBendingNri {
                 this.projMatrix[i] = projection[i];
             }
             const offset = queuedFrameIndex * this.frameStride;
-            Nri_FillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
+            Nri.fillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
                 Ref(this.viewConstants[0]));
-            Nri_WriteBuffer(constantBuffer, offset + this.sceneStride, Ref(this.viewConstants[0]), this.viewSize);
+            constantBuffer.write(offset + this.sceneStride, Ref(this.viewConstants[0]), this.viewSize);
 
             this.fillSceneConstants();
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.sceneConstants[0]), SCENE_FLOATS * 4);
+            constantBuffer.write(offset, Ref(this.sceneConstants[0]), SCENE_FLOATS * 4);
         }
 
         // The SceneConstants (c_Scene in the shader): the light, the tracing, the emitter and the bodies.
@@ -641,7 +642,7 @@ namespace GravityLightBendingNri {
         }
 
         // The rays through the bodies as they are now; the points and rays then go to the draws.
-        recordRays(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordRays(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const computeLayout = this.computeLayout;
             const raysPipeline = this.raysPipeline;
             const pointBuffer = this.pointBuffer;
@@ -652,50 +653,50 @@ namespace GravityLightBendingNri {
                 return;
             }
             if (this.raysDrawn) {
-                Nri_CmdBufferBarrier(commandBuffer, pointBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
-                Nri_CmdBufferBarrier(commandBuffer, rayBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
+                commandBuffer.bufferBarrier(pointBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
+                commandBuffer.bufferBarrier(rayBuffer, NriBufferState.VertexShaderResource, NriBufferState.Storage);
             }
             const rays = this.rayCount();
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, raysPipeline);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 0, queuedFrame.sceneView);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 1, pointsStorage);
-            Nri_CmdSetComputeRootDescriptor(commandBuffer, 2, raysStorage);
-            Nri_CmdDispatch(commandBuffer, Math.floor((rays + RAYS_GROUP_SIZE - 1) / RAYS_GROUP_SIZE), 1, 1);
-            Nri_CmdBufferBarrier(commandBuffer, pointBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
-            Nri_CmdBufferBarrier(commandBuffer, rayBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(raysPipeline);
+            commandBuffer.setComputeRootDescriptor(0, queuedFrame.sceneView);
+            commandBuffer.setComputeRootDescriptor(1, pointsStorage);
+            commandBuffer.setComputeRootDescriptor(2, raysStorage);
+            commandBuffer.dispatch(Math.floor((rays + RAYS_GROUP_SIZE - 1) / RAYS_GROUP_SIZE), 1, 1);
+            commandBuffer.bufferBarrier(pointBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
+            commandBuffer.bufferBarrier(rayBuffer, NriBufferState.Storage, NriBufferState.VertexShaderResource);
             this.raysDrawn = true;
         }
 
         // vertexNum vertices of the pipeline, with the draws' root descriptors.
-        draw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, pipeline: NriPipelineHandle | null, vertexNum: int) {
+        draw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, pipeline: NriPipeline | null, vertexNum: int) {
             const drawLayout = this.drawLayout;
             const pointsView = this.pointsView;
             const raysView = this.raysView;
             if (!drawLayout || !pipeline || !pointsView || !raysView) {
                 return;
             }
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, queuedFrame.sceneView, 0);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, queuedFrame.viewView, 0);
-            Nri_CmdSetRootDescriptor(commandBuffer, 2, pointsView, 0);
-            Nri_CmdSetRootDescriptor(commandBuffer, 3, raysView, 0);
-            Nri_CmdDraw(commandBuffer, vertexNum, 1, 0, 0);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootDescriptor(0, queuedFrame.sceneView, 0);
+            commandBuffer.setRootDescriptor(1, queuedFrame.viewView, 0);
+            commandBuffer.setRootDescriptor(2, pointsView, 0);
+            commandBuffer.setRootDescriptor(3, raysView, 0);
+            commandBuffer.draw(vertexNum, 1, 0, 0);
         }
 
         // The lensed sky with the bodies in it (or a black background and the bodies drawn over the
         // rays), the grid, the straight lines, the rays' paths; over the lensed sky, only the black
-        // holes' horizons and photon spheres (body_vs). Between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering.
-        recordDraws(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+        // holes' horizons and photon spheres (body_vs). Between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering.
+        recordDraws(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
             const rays = this.rayCount();
             if (this.showSky) {
                 this.draw(commandBuffer, queuedFrame, this.skyPipeline, 3);
             } else {
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
             }
             if (this.showGrid) {
                 this.draw(commandBuffer, queuedFrame, this.gridPipeline, GRID_LINE_COUNT * VERTICES_PER_QUAD);
@@ -715,7 +716,7 @@ namespace GravityLightBendingNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with it, the swap chain
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with it, the swap chain
         // made again at its size. The projection, the view constants and the settings window's place
         // read the size every frame.
         resizeIfNeeded() {
@@ -747,37 +748,37 @@ namespace GravityLightBendingNri {
                 this.writeConstants(queuedFrameIndex);
 
                 // Record: the rays; the sky (or black), the lines and the bodies, the settings window.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordRays(commandBuffer, queuedFrame);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
                 this.recordDraws(commandBuffer, queuedFrame);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back, and the rays and their paths after it
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                         this.recordRayReadback(commandBuffer);
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -787,7 +788,7 @@ namespace GravityLightBendingNri {
         }
 
         // Copies the rays and their paths (after the last frame's draws) to the readback buffers.
-        recordRayReadback(commandBuffer: NriCommandBufferHandle) {
+        recordRayReadback(commandBuffer: NriCommandBuffer) {
             const pointBuffer = this.pointBuffer;
             const rayBuffer = this.rayBuffer;
             const rayReadbackBuffer = this.rayReadbackBuffer;
@@ -796,12 +797,12 @@ namespace GravityLightBendingNri {
                 return;
             }
             const rays = this.rayCount();
-            Nri_CmdBufferBarrier(commandBuffer, rayBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
-            Nri_CmdBufferBarrier(commandBuffer, pointBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
-            Nri_CmdCopyBuffer(commandBuffer, rayReadbackBuffer, rayBuffer, rays * RAY_FLOATS * 4);
-            Nri_CmdCopyBuffer(commandBuffer, pointReadbackBuffer, pointBuffer, rays * MAX_POINTS * 16);
-            Nri_CmdBufferBarrier(commandBuffer, rayBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
-            Nri_CmdBufferBarrier(commandBuffer, pointBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
+            commandBuffer.bufferBarrier(rayBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
+            commandBuffer.bufferBarrier(pointBuffer, NriBufferState.VertexShaderResource, NriBufferState.CopySource);
+            commandBuffer.copyBuffer(rayReadbackBuffer, rayBuffer, rays * RAY_FLOATS * 4);
+            commandBuffer.copyBuffer(pointReadbackBuffer, pointBuffer, rays * MAX_POINTS * 16);
+            commandBuffer.bufferBarrier(rayBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
+            commandBuffer.bufferBarrier(pointBuffer, NriBufferState.CopySource, NriBufferState.VertexShaderResource);
         }
 
         // --- The bodies ---------------------------------------------------------------------
@@ -1014,12 +1015,12 @@ namespace GravityLightBendingNri {
         // --- Test ---------------------------------------------------------------------------
 
         // The first count floats of a readback buffer (the GPU idle), empty if it can't be read.
-        readFloats(buffer: NriBufferHandle | null, count: int): f32[] {
+        readFloats(buffer: NriBuffer | null, count: int): f32[] {
             const values = zeros(count);
             if (!buffer || count == 0) {
                 return [];
             }
-            if (Nri_ReadBufferFloats(buffer, Ref(values[0]), count) == 0) {
+            if (buffer.readFloats(Ref(values[0]), count) == 0) {
                 return [];
             }
             return values;
@@ -1036,7 +1037,7 @@ namespace GravityLightBendingNri {
             if (!device) {
                 return "cannot read the rays back";
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const rays = this.rayCount();
             const rayData = this.readFloats(this.rayReadbackBuffer, rays * RAY_FLOATS);
             const points = this.readFloats(this.pointReadbackBuffer, rays * MAX_POINTS * 4);
@@ -1296,7 +1297,7 @@ namespace GravityLightBendingNri {
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1307,54 +1308,54 @@ namespace GravityLightBendingNri {
 
         // A checkbox for value; its new state.
         checkbox(label: string, value: boolean): boolean {
-            return Nri_ImguiCheckbox(label, value ? 1 : 0) != 0;
+            return NriImgui.checkbox(label, value ? 1 : 0) != 0;
         }
 
         // The settings window, top right.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPosPivot(this.width - 10.0, 10.0, 1.0, 0.0);
-            Nri_ImguiBegin("Gravity Light Bending", 1);
-            Nri_ImguiPushItemWidth(180.0);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPosPivot(this.width - 10.0, 10.0, 1.0, 0.0);
+            NriImgui.begin("Gravity Light Bending", 1);
+            NriImgui.pushItemWidth(180.0);
 
-            if (Nri_ImguiCollapsingHeader("Light", 1) != 0) {
+            if (NriImgui.collapsingHeader("Light", 1) != 0) {
                 this.bendLight = this.checkbox("Gravity bends light (L)", this.bendLight);
                 if (this.bendLight) {
-                    this.bending = Nri_ImguiCombo("Bending", this.bending, BENDINGS);
+                    this.bending = NriImgui.combo("Bending", this.bending, BENDINGS);
                 }
-                this.lightSpeed = Nri_ImguiSliderFloat("Speed of light c (u/s)", this.lightSpeed, LIGHT_SPEED_MIN, LIGHT_SPEED_MAX);
-                this.emitter = Nri_ImguiCombo("Emitter", this.emitter, EMITTERS);
-                this.raysAcross = Nri_ImguiSliderInt(this.emitter == Emitter.Sheet ? "Rays" : "Rays across", this.raysAcross, 1, MAX_RAYS_ACROSS);
+                this.lightSpeed = NriImgui.sliderFloat("Speed of light c (u/s)", this.lightSpeed, LIGHT_SPEED_MIN, LIGHT_SPEED_MAX);
+                this.emitter = NriImgui.combo("Emitter", this.emitter, EMITTERS);
+                this.raysAcross = NriImgui.sliderInt(this.emitter == Emitter.Sheet ? "Rays" : "Rays across", this.raysAcross, 1, MAX_RAYS_ACROSS);
                 if (this.emitter != Emitter.Sheet) {
-                    this.rayRows = Nri_ImguiSliderInt("Rows", this.rayRows, 1, MAX_RAYS_ACROSS);
+                    this.rayRows = NriImgui.sliderInt("Rows", this.rayRows, 1, MAX_RAYS_ACROSS);
                 }
                 if (this.emitter == Emitter.Cone) {
-                    this.coneAngle = Nri_ImguiSliderFloat("Cone half angle (deg)", this.coneAngle, 0.0, 89.0);
+                    this.coneAngle = NriImgui.sliderFloat("Cone half angle (deg)", this.coneAngle, 0.0, 89.0);
                 } else if (this.emitter != Emitter.Sphere) {
-                    this.beamHalfWidth = Nri_ImguiSliderFloat("Beam half width (u)", this.beamHalfWidth, 0.0, 30.0);
+                    this.beamHalfWidth = NriImgui.sliderFloat("Beam half width (u)", this.beamHalfWidth, 0.0, 30.0);
                 }
-                this.emitterYaw = Nri_ImguiSliderFloat("Direction yaw (deg)", this.emitterYaw, -180.0, 180.0);
-                this.emitterPitch = Nri_ImguiSliderFloat("Direction pitch (deg)", this.emitterPitch, -85.0, 85.0);
-                this.emitterDistance = Nri_ImguiSliderFloat("Emitter distance (u)", this.emitterDistance, 0.0, 60.0);
-                this.emitterOffsetRight = Nri_ImguiSliderFloat("Emitter offset right (u)", this.emitterOffsetRight, -20.0, 20.0);
-                this.emitterOffsetUp = Nri_ImguiSliderFloat("Emitter offset up (u)", this.emitterOffsetUp, -20.0, 20.0);
-                this.rayLength = Nri_ImguiSliderFloat("Ray length (u)", this.rayLength, 1.0, RAY_LENGTH_MAX);
+                this.emitterYaw = NriImgui.sliderFloat("Direction yaw (deg)", this.emitterYaw, -180.0, 180.0);
+                this.emitterPitch = NriImgui.sliderFloat("Direction pitch (deg)", this.emitterPitch, -85.0, 85.0);
+                this.emitterDistance = NriImgui.sliderFloat("Emitter distance (u)", this.emitterDistance, 0.0, 60.0);
+                this.emitterOffsetRight = NriImgui.sliderFloat("Emitter offset right (u)", this.emitterOffsetRight, -20.0, 20.0);
+                this.emitterOffsetUp = NriImgui.sliderFloat("Emitter offset up (u)", this.emitterOffsetUp, -20.0, 20.0);
+                this.rayLength = NriImgui.sliderFloat("Ray length (u)", this.rayLength, 1.0, RAY_LENGTH_MAX);
             }
 
-            if (Nri_ImguiCollapsingHeader("Simulation", 1) != 0) {
+            if (NriImgui.collapsingHeader("Simulation", 1) != 0) {
                 this.paused = this.checkbox("Paused (Space)", this.paused);
-                this.timeScale = Nri_ImguiSliderFloat("Time scale", this.timeScale, 0.0, 4.0);
-                this.gravity = Nri_ImguiSliderFloat("Gravity G", this.gravity, 0.0, 4.0);
-                this.scene = Nri_ImguiCombo("Scene", this.scene, SCENES);
+                this.timeScale = NriImgui.sliderFloat("Time scale", this.timeScale, 0.0, 4.0);
+                this.gravity = NriImgui.sliderFloat("Gravity G", this.gravity, 0.0, 4.0);
+                this.scene = NriImgui.combo("Scene", this.scene, SCENES);
                 if (this.scene == Scene.Cluster) {
-                    this.clusterBodies = Nri_ImguiSliderInt("Bodies", this.clusterBodies, 1, MAX_BODIES);
+                    this.clusterBodies = NriImgui.sliderInt("Bodies", this.clusterBodies, 1, MAX_BODIES);
                 }
-                if (Nri_ImguiButton("Restart (R)") != 0) {
+                if (NriImgui.button("Restart (R)") != 0) {
                     this.restartRequested = true;
                 }
             }
 
-            if (Nri_ImguiCollapsingHeader("Display", 1) != 0) {
+            if (NriImgui.collapsingHeader("Display", 1) != 0) {
                 this.showSky = this.checkbox("Lensed sky (K)", this.showSky);
                 this.showGrid = this.checkbox("Grid (G)", this.showGrid);
                 this.showStraight = this.checkbox("Straight lines to compare (B)", this.showStraight);
@@ -1362,37 +1363,37 @@ namespace GravityLightBendingNri {
                 this.autoRotate = this.checkbox("Orbit when idle", this.autoRotate);
             }
 
-            if (Nri_ImguiCollapsingHeader("Units", 0) != 0) {
-                Nri_ImguiText("u: scene unit; the grid's lines are 2 u apart");
-                Nri_ImguiText("Gravity: a = G m / r^2; the rays are traced through it");
-                Nri_ImguiText("  as the bodies are, the light's travel time left out");
-                Nri_ImguiText("A ray passing a mass m at distance b turns by");
-                Nri_ImguiText("  2 G m / (c^2 b) as a Newtonian particle at c,");
-                Nri_ImguiText("  4 G m / (c^2 b) in general relativity");
-                Nri_ImguiText("Schwarzschild radius r_s = 2 G m / c^2: a body");
-                Nri_ImguiText("  inside its own is a black hole; light circles it");
-                Nri_ImguiText("  at 1.5 r_s (the exact mode), and takes every ray");
-                Nri_ImguiText("  aimed within 2.6 r_s of it");
-                Nri_ImguiText("Black hole: orange ring = horizon, dashed = photon");
-                Nri_ImguiText("  sphere; the dark disk in the sky is its shadow");
-                Nri_ImguiText("The pulses run at c times the time scale");
+            if (NriImgui.collapsingHeader("Units", 0) != 0) {
+                NriImgui.text("u: scene unit; the grid's lines are 2 u apart");
+                NriImgui.text("Gravity: a = G m / r^2; the rays are traced through it");
+                NriImgui.text("  as the bodies are, the light's travel time left out");
+                NriImgui.text("A ray passing a mass m at distance b turns by");
+                NriImgui.text("  2 G m / (c^2 b) as a Newtonian particle at c,");
+                NriImgui.text("  4 G m / (c^2 b) in general relativity");
+                NriImgui.text("Schwarzschild radius r_s = 2 G m / c^2: a body");
+                NriImgui.text("  inside its own is a black hole; light circles it");
+                NriImgui.text("  at 1.5 r_s (the exact mode), and takes every ray");
+                NriImgui.text("  aimed within 2.6 r_s of it");
+                NriImgui.text("Black hole: orange ring = horizon, dashed = photon");
+                NriImgui.text("  sphere; the dark disk in the sky is its shadow");
+                NriImgui.text("The pulses run at c times the time scale");
             }
 
-            Nri_ImguiPopItemWidth();
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.popItemWidth();
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 this.swapChain.destroy();
                 for (const view of this.constantViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 this.destroyDescriptor(this.pointsStorage);
                 this.destroyDescriptor(this.pointsView);
@@ -1412,40 +1413,40 @@ namespace GravityLightBendingNri {
                 this.destroyPipeline(this.skyPipeline);
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 this.frames.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const lightBending = new LightBending(sample);
         // -scene <planets|binary|eight|blackhole|single|cluster>: the bodies (a star and planets by
         // default); -gravity <G>: the gravitational constant (1 by default; 0: no gravity, the rays
@@ -1454,19 +1455,19 @@ namespace GravityLightBendingNri {
         // default), a beam, a cone, a point; -nosky: a black background and the bodies drawn over the
         // rays, not the lensed sky (which traces every pixel: the costly part on a slow GPU); -noUI:
         // no settings window.
-        Nri_AddExampleOptionWithValues(sample, "-scene", 1);
-        Nri_AddExampleOptionWithValues(sample, "-gravity", 1);
-        Nri_AddExampleOptionWithValues(sample, "-c", 1);
-        Nri_AddExampleOptionWithValues(sample, "-bending", 1);
-        Nri_AddExampleOptionWithValues(sample, "-emitter", 1);
-        Nri_AddExampleOption(sample, "-nosky");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-scene", 1);
+        sample.addExampleOptionWithValues("-gravity", 1);
+        sample.addExampleOptionWithValues("-c", 1);
+        sample.addExampleOptionWithValues("-bending", 1);
+        sample.addExampleOptionWithValues("-emitter", 1);
+        sample.addExampleOption("-nosky");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         let bending: int = Bending.Schwarzschild;
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-scene" && i + 1 < argc) {
-                const name = Nri_GetArg(argc, argv, i + 1);
+                const name = Nri.getArg(argc, argv, i + 1);
                 if (name == "planets") {
                     lightBending.scene = Scene.StarAndPlanets;
                 } else if (name == "binary") {
@@ -1482,18 +1483,18 @@ namespace GravityLightBendingNri {
                 }
                 i++;
             } else if (arg == "-gravity" && i + 1 < argc) {
-                lightBending.gravity = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                lightBending.gravity = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-c" && i + 1 < argc) {
-                lightBending.lightSpeed = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                lightBending.lightSpeed = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-bending" && i + 1 < argc) {
-                bending = parseInt(Nri_GetArg(argc, argv, i + 1));
+                bending = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-nosky") {
                 lightBending.showSky = false;
             } else if (arg == "-emitter" && i + 1 < argc) {
-                lightBending.emitter = parseInt(Nri_GetArg(argc, argv, i + 1));
+                lightBending.emitter = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-noUI") {
                 lightBending.noUI = true;

@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutFirstPersonCamera } from "../../core/donut_first_person_camera";
 import { DonutSceneTextures } from "../../core/nri_donut_textures";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriDonutScene, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace EnvironmentMapNri {
     // environment_map, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -124,10 +125,10 @@ namespace EnvironmentMapNri {
 
     // What a frame in flight records into, and its sets (its copies of the per-frame constants).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public viewSet: NriDescriptorSetHandle, public skySet: NriDescriptorSetHandle,
-            public histogramSet: NriDescriptorSetHandle, public exposureSet: NriDescriptorSetHandle,
-            public toneMappingSet: NriDescriptorSetHandle) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public viewSet: NriDescriptorSet, public skySet: NriDescriptorSet,
+            public histogramSet: NriDescriptorSet, public exposureSet: NriDescriptorSet,
+            public toneMappingSet: NriDescriptorSet) {
         }
     }
 
@@ -145,8 +146,8 @@ namespace EnvironmentMapNri {
     // sun don't move); then Donut's tone mapping with a fixed exposure. Space switches the shadows off
     // and on; WASD/QE and the left mouse button move the camera (Donut's FirstPersonCamera).
     class EnvironmentMap {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
@@ -160,90 +161,90 @@ namespace EnvironmentMapNri {
         private enableShadows: boolean = true;
 
         // The scene and its draws.
-        private scene: NriDonutSceneHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private vertexBufferView: NriDescriptorHandle | null = null;
-        private instanceBuffer: NriBufferHandle | null = null;
-        private instanceBufferView: NriDescriptorHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private materialBuffer: NriBufferHandle | null = null;
-        private materialViews: NriDescriptorHandle[] = [];
+        private scene: NriDonutScene | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private vertexBufferView: NriDescriptor | null = null;
+        private instanceBuffer: NriBuffer | null = null;
+        private instanceBufferView: NriDescriptor | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private materialBuffer: NriBuffer | null = null;
+        private materialViews: NriDescriptor[] = [];
         // A material's forward set (all its textures) and depth set (base color and opacity).
-        private materialSets: NriDescriptorSetHandle[] = [];
-        private depthMaterialSets: NriDescriptorSetHandle[] = [];
+        private materialSets: NriDescriptorSet[] = [];
+        private depthMaterialSets: NriDescriptorSet[] = [];
         private textures: DonutSceneTextures = new DonutSceneTextures();
         private drawItems: DrawItem[] = [];
 
         // The environment map, the shadow map (D24S8, one layer; rendered in the first frame), the
         // scene targets (SceneRenderTargets': HDR RGBA16F, D24S8 reverse depth, LDR sRGB).
-        private environmentMap: NriTextureHandle | null = null;
-        private environmentMapView: NriDescriptorHandle | null = null;
-        private shadowMap: NriTextureHandle | null = null;
-        private shadowMapAttachment: NriDescriptorHandle | null = null;
-        private shadowMapView: NriDescriptorHandle | null = null;
+        private environmentMap: NriTexture | null = null;
+        private environmentMapView: NriDescriptor | null = null;
+        private shadowMap: NriTexture | null = null;
+        private shadowMapAttachment: NriDescriptor | null = null;
+        private shadowMapView: NriDescriptor | null = null;
         private shadowMapRendered: boolean = false;
         private shadowMirrored: boolean = false;
-        private hdrColor: NriTextureHandle | null = null;
-        private hdrAttachment: NriDescriptorHandle | null = null;
-        private hdrView: NriDescriptorHandle | null = null;
-        private depth: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private ldrColor: NriTextureHandle | null = null;
-        private ldrAttachment: NriDescriptorHandle | null = null;
-        private ldrView: NriDescriptorHandle | null = null;
+        private hdrColor: NriTexture | null = null;
+        private hdrAttachment: NriDescriptor | null = null;
+        private hdrView: NriDescriptor | null = null;
+        private depth: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private ldrColor: NriTexture | null = null;
+        private ldrAttachment: NriDescriptor | null = null;
+        private ldrView: NriDescriptor | null = null;
 
         // Tone mapping's histogram and exposure (typed R32_UINT buffers) and their views.
-        private histogram: NriBufferHandle | null = null;
-        private histogramStorage: NriDescriptorHandle | null = null;
-        private histogramView: NriDescriptorHandle | null = null;
-        private exposure: NriBufferHandle | null = null;
-        private exposureStorage: NriDescriptorHandle | null = null;
-        private exposureView: NriDescriptorHandle | null = null;
+        private histogram: NriBuffer | null = null;
+        private histogramStorage: NriDescriptor | null = null;
+        private histogramView: NriDescriptor | null = null;
+        private exposure: NriBuffer | null = null;
+        private exposureStorage: NriDescriptor | null = null;
+        private exposureView: NriDescriptor | null = null;
 
         // CommonRenderPasses' fallbacks: black, a black cubemap array, a depth texture array (the
         // shadow maps' when shadows are off; cleared once).
-        private solidTextures: NriTextureHandle[] = [];
-        private blackView: NriDescriptorHandle | null = null;
-        private blackCubeArrayView: NriDescriptorHandle | null = null;
-        private noShadowTexture: NriTextureHandle | null = null;
-        private noShadowView: NriDescriptorHandle | null = null;
-        private noShadowAttachment: NriDescriptorHandle | null = null;
+        private solidTextures: NriTexture[] = [];
+        private blackView: NriDescriptor | null = null;
+        private blackCubeArrayView: NriDescriptor | null = null;
+        private noShadowTexture: NriTexture | null = null;
+        private noShadowView: NriDescriptor | null = null;
+        private noShadowAttachment: NriDescriptor | null = null;
         private noShadowCleared: boolean = false;
 
         // The passes' layouts and pipelines: the forward pass's (by cull mode and front face), the
         // shadow depth pass's (by cull mode, alpha test and front face), the environment map's, tone
         // mapping's (histogram, exposure, the tone mapping draw), the blit's.
-        private forwardLayout: NriPipelineLayoutHandle | null = null;
-        private forwardPipelines: NriPipelineHandle[] = [];
-        private depthLayout: NriPipelineLayoutHandle | null = null;
-        private depthPipelines: NriPipelineHandle[] = [];
-        private skyLayout: NriPipelineLayoutHandle | null = null;
-        private skyPipeline: NriPipelineHandle | null = null;
-        private histogramLayout: NriPipelineLayoutHandle | null = null;
-        private histogramPipeline: NriPipelineHandle | null = null;
-        private exposureLayout: NriPipelineLayoutHandle | null = null;
-        private exposurePipeline: NriPipelineHandle | null = null;
-        private toneMappingLayout: NriPipelineLayoutHandle | null = null;
-        private toneMappingPipeline: NriPipelineHandle | null = null;
-        private blitLayout: NriPipelineLayoutHandle | null = null;
-        private blitPipeline: NriPipelineHandle | null = null;
+        private forwardLayout: NriPipelineLayout | null = null;
+        private forwardPipelines: NriPipeline[] = [];
+        private depthLayout: NriPipelineLayout | null = null;
+        private depthPipelines: NriPipeline[] = [];
+        private skyLayout: NriPipelineLayout | null = null;
+        private skyPipeline: NriPipeline | null = null;
+        private histogramLayout: NriPipelineLayout | null = null;
+        private histogramPipeline: NriPipeline | null = null;
+        private exposureLayout: NriPipelineLayout | null = null;
+        private exposurePipeline: NriPipeline | null = null;
+        private toneMappingLayout: NriPipelineLayout | null = null;
+        private toneMappingPipeline: NriPipeline | null = null;
+        private blitLayout: NriPipelineLayout | null = null;
+        private blitPipeline: NriPipeline | null = null;
 
         // CommonRenderPasses' samplers (anisotropic wrap, linear wrap, linear clamp) and the forward
         // pass's shadow sampler (border, white).
-        private anisotropicWrap: NriDescriptorHandle | null = null;
-        private linearWrap: NriDescriptorHandle | null = null;
-        private linearClamp: NriDescriptorHandle | null = null;
-        private shadowSampler: NriDescriptorHandle | null = null;
+        private anisotropicWrap: NriDescriptor | null = null;
+        private linearWrap: NriDescriptor | null = null;
+        private linearClamp: NriDescriptor | null = null;
+        private shadowSampler: NriDescriptor | null = null;
 
         // The constant buffer: the static constants (the forward light constants with shadows and
         // without, the depth pass's), then a queued frame's (the view, the sky, tone mapping's three).
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantViews: NriDescriptorHandle[] = [];
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantViews: NriDescriptor[] = [];
+        private descriptorPool: NriDescriptorPool | null = null;
         // The shading sets (shadows on, off), the depth pass's view set, the blit's set.
-        private shadingSets: NriDescriptorSetHandle[] = [];
-        private depthViewSet: NriDescriptorSetHandle | null = null;
-        private blitSet: NriDescriptorSetHandle | null = null;
+        private shadingSets: NriDescriptorSet[] = [];
+        private depthViewSet: NriDescriptorSet | null = null;
+        private blitSet: NriDescriptorSet | null = null;
         private viewSize: int = 0;
         private skySize: int = 0;
         private toneMappingSize: int = 0;
@@ -260,11 +261,11 @@ namespace EnvironmentMapNri {
         private blitConstants: f32[] = [];
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (const value of BLIT_CONSTANTS) {
                 this.blitConstants.push(value);
             }
@@ -278,11 +279,11 @@ namespace EnvironmentMapNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -293,19 +294,19 @@ namespace EnvironmentMapNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -319,9 +320,9 @@ namespace EnvironmentMapNri {
             this.camera.lookAt(-6.0, 1.8, -0.5, 4.0, 7.0, 0.5);
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -330,95 +331,95 @@ namespace EnvironmentMapNri {
         // The scene, as Donut's engine loads it, its textures, the materials' constants; the draws
         // InstancedOpaqueDrawStrategy makes of it (opaque and alpha-tested materials), by material.
         // The environment map.
-        loadScene(device: NriDeviceHandle, folder: string, d3d11: boolean) {
-            const scene = Nri_LoadDonutScene(this.scenePath);
+        loadScene(device: NriDevice, folder: string, d3d11: boolean) {
+            const scene = NriDonutScene.load(this.scenePath);
             this.scene = scene;
             if (!scene) {
                 console.log(`Cannot load the scene ${this.scenePath}`);
                 return false;
             }
-            const vertexBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, scene, 0);
+            const vertexBuffer = device.createDonutSceneBuffer(this.queue, scene, 0);
             // (D3D11's shaders read the instances as a ByteAddressBuffer.)
-            const instanceBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, scene, d3d11 ? 6 : 2);
+            const instanceBuffer = device.createDonutSceneBuffer(this.queue, scene, d3d11 ? 6 : 2);
             this.vertexBuffer = vertexBuffer;
             this.instanceBuffer = instanceBuffer;
-            this.indexBuffer = Nri_CreateDonutSceneBuffer(device, this.queue, scene, 5);
-            this.materialBuffer = Nri_CreateDonutSceneMaterialBuffer(device, scene);
+            this.indexBuffer = device.createDonutSceneBuffer(this.queue, scene, 5);
+            this.materialBuffer = device.createDonutSceneMaterialBuffer(scene);
             if (!vertexBuffer || !instanceBuffer || !this.indexBuffer || !this.materialBuffer) {
                 console.log("Cannot create the scene's buffers");
                 return false;
             }
-            this.vertexBufferView = Nri_CreateStructuredBufferView(vertexBuffer, 0);
-            this.instanceBufferView = Nri_CreateStructuredBufferView(instanceBuffer, 0);
+            this.vertexBufferView = vertexBuffer.createStructuredView(0);
+            this.instanceBufferView = instanceBuffer.createStructuredView(0);
 
             const streams: int[] = [];
             for (let stream = 0; stream < 4; stream++) {
-                streams.push(Nri_GetDonutSceneStreamOffset(scene, stream));
+                streams.push(scene.getStreamOffset(stream));
             }
             // By material (Donut sorts by the materials' addresses), then in the scene's order.
-            const materialCount = Nri_GetDonutSceneMaterialCount(scene);
-            const instanceCount = Nri_GetDonutSceneInstanceCount(scene);
+            const materialCount = scene.getMaterialCount();
+            const instanceCount = scene.getInstanceCount();
             for (let drawnMaterial = 0; drawnMaterial < materialCount; drawnMaterial++) {
-                const domain = Nri_GetDonutSceneMaterialDomain(scene, drawnMaterial);
+                const domain = scene.getMaterialDomain(drawnMaterial);
                 if (domain != DOMAIN_OPAQUE && domain != DOMAIN_ALPHA_TESTED) {
                     continue;
                 }
                 // DepthPass: alpha-tested materials with a base color or opacity texture run its pixel
                 // shader.
-                const alphaTested = domain == DOMAIN_ALPHA_TESTED && (Nri_GetDonutSceneMaterialTexture(scene, drawnMaterial, 0) >= 0
-                    || Nri_GetDonutSceneMaterialTexture(scene, drawnMaterial, 6) >= 0);
-                const doubleSided = Nri_GetDonutSceneMaterialDoubleSided(scene, drawnMaterial) != 0;
+                const alphaTested = domain == DOMAIN_ALPHA_TESTED && (scene.getMaterialTexture(drawnMaterial, 0) >= 0
+                    || scene.getMaterialTexture(drawnMaterial, 6) >= 0);
+                const doubleSided = scene.getMaterialDoubleSided(drawnMaterial) != 0;
                 for (let instance = 0; instance < instanceCount; instance++) {
-                    const geometryCount = Nri_GetDonutSceneInstanceGeometryCount(scene, instance);
+                    const geometryCount = scene.getInstanceGeometryCount(instance);
                     for (let geometry = 0; geometry < geometryCount; geometry++) {
-                        if (Nri_GetDonutSceneGeometryMaterial(scene, instance, geometry) != drawnMaterial) {
+                        if (scene.getGeometryMaterial(instance, geometry) != drawnMaterial) {
                             continue;
                         }
-                        const words = [instance, Nri_GetDonutSceneGeometryFirstVertex(scene, instance, geometry),
+                        const words = [instance, scene.getGeometryFirstVertex(instance, geometry),
                             streams[0], streams[1], streams[2], streams[3]];
                         const forwardPush = zeros(FORWARD_PUSH_WORDS);
                         for (let k = 0; k < FORWARD_PUSH_WORDS; k++) {
-                            Nri_StoreInt32(Ref(forwardPush[k]), words[k]);
+                            Nri.storeInt32(Ref(forwardPush[k]), words[k]);
                         }
                         const depthPush = zeros(DEPTH_PUSH_WORDS);
                         for (let k = 0; k < DEPTH_PUSH_WORDS; k++) {
-                            Nri_StoreInt32(Ref(depthPush[k]), words[k]);
+                            Nri.storeInt32(Ref(depthPush[k]), words[k]);
                         }
                         this.drawItems.push(new DrawItem(drawnMaterial, doubleSided, alphaTested,
-                            Nri_GetDonutSceneGeometryIndexCount(scene, instance, geometry),
-                            Nri_GetDonutSceneGeometryFirstIndex(scene, instance, geometry), forwardPush, depthPush));
+                            scene.getGeometryIndexCount(instance, geometry),
+                            scene.getGeometryFirstIndex(instance, geometry), forwardPush, depthPush));
                     }
                 }
             }
 
-            const environmentMap = Nri_LoadDdsTexture(device, this.queue, ENVIRONMENT_MAP, 0);
+            const environmentMap = device.loadDdsTexture(this.queue, ENVIRONMENT_MAP, 0);
             this.environmentMap = environmentMap;
             if (!environmentMap) {
                 console.log(`Cannot load the environment map ${ENVIRONMENT_MAP}`);
                 return false;
             }
-            this.environmentMapView = Nri_CreateTextureView(environmentMap, Nri_GetTextureFormat(environmentMap));
+            this.environmentMapView = environmentMap.createView(environmentMap.getFormat());
 
             return this.textures.load(device, this.queue, scene, folder);
         }
 
         // The window-size scene targets: the HDR color, its depth and tone mapping's LDR color, in
         // the states their creation leaves them in (the frames' barriers start from them).
-        createSizedTargets(device: NriDeviceHandle): boolean {
-            const hdrColor = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+        createSizedTargets(device: NriDevice): boolean {
+            const hdrColor = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
             this.hdrColor = hdrColor;
-            const depth = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D24_UNORM_S8_UINT);
+            const depth = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D24_UNORM_S8_UINT);
             this.depth = depth;
-            const ldrColor = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_SRGB);
+            const ldrColor = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA8_SRGB);
             this.ldrColor = ldrColor;
             if (!hdrColor || !depth || !ldrColor) {
                 return false;
             }
-            this.hdrAttachment = Nri_CreateColorAttachmentView(hdrColor, NriFormat.RGBA16_SFLOAT);
-            this.hdrView = Nri_CreateTextureView(hdrColor, NriFormat.RGBA16_SFLOAT);
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depth, NriFormat.D24_UNORM_S8_UINT);
-            this.ldrAttachment = Nri_CreateColorAttachmentView(ldrColor, NriFormat.RGBA8_SRGB);
-            this.ldrView = Nri_CreateTextureView(ldrColor, NriFormat.RGBA8_SRGB);
+            this.hdrAttachment = hdrColor.createColorAttachmentView(NriFormat.RGBA16_SFLOAT);
+            this.hdrView = hdrColor.createView(NriFormat.RGBA16_SFLOAT);
+            this.depthAttachment = depth.createDepthAttachmentView(NriFormat.D24_UNORM_S8_UINT);
+            this.ldrAttachment = ldrColor.createColorAttachmentView(NriFormat.RGBA8_SRGB);
+            this.ldrView = ldrColor.createView(NriFormat.RGBA8_SRGB);
             return true;
         }
 
@@ -426,13 +427,13 @@ namespace EnvironmentMapNri {
             const descriptors = [this.hdrAttachment, this.hdrView, this.depthAttachment, this.ldrAttachment, this.ldrView];
             for (const descriptor of descriptors) {
                 if (descriptor) {
-                    Nri_DestroyDescriptor(descriptor);
+                    descriptor.destroy();
                 }
             }
             const textures = [this.hdrColor, this.depth, this.ldrColor];
             for (const texture of textures) {
                 if (texture) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
             }
             this.hdrAttachment = null;
@@ -455,11 +456,11 @@ namespace EnvironmentMapNri {
             }
             const blitSet = this.blitSet;
             if (blitSet) {
-                Nri_UpdateDescriptor(blitSet, 0, 0, ldrView);
+                blitSet.updateDescriptor(0, 0, ldrView);
             }
             for (const queuedFrame of this.queuedFrames) {
-                Nri_UpdateDescriptor(queuedFrame.histogramSet, 1, 0, hdrView);
-                Nri_UpdateDescriptor(queuedFrame.toneMappingSet, 1, 0, hdrView);
+                queuedFrame.histogramSet.updateDescriptor(1, 0, hdrView);
+                queuedFrame.toneMappingSet.updateDescriptor(1, 0, hdrView);
             }
         }
 
@@ -471,7 +472,7 @@ namespace EnvironmentMapNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with them, the swap
         // chain and the scene targets made again at its size, and the sets pointed at them. The
         // projection, tone mapping's constants and dispatch read the size every frame.
         resizeIfNeeded() {
@@ -482,7 +483,7 @@ namespace EnvironmentMapNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizedTargets();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -492,16 +493,16 @@ namespace EnvironmentMapNri {
         }
 
         // The shadow map, the scene targets, tone mapping's buffers, the fallbacks.
-        createTargets(device: NriDeviceHandle) {
-            const shadowMap = Nri_CreateSampledDepthTexture(device, this.queue, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION,
+        createTargets(device: NriDevice) {
+            const shadowMap = device.createSampledDepthTexture(this.queue, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION,
                 NriFormat.D24_UNORM_S8_UINT);
             this.shadowMap = shadowMap;
             if (!shadowMap || !this.createSizedTargets(device)) {
                 console.log("Cannot create the render targets");
                 return false;
             }
-            this.shadowMapAttachment = Nri_CreateDepthAttachmentView(shadowMap, NriFormat.D24_UNORM_S8_UINT);
-            this.shadowMapView = Nri_CreateTextureArrayView(shadowMap, NriFormat.R24_UNORM_X8);
+            this.shadowMapAttachment = shadowMap.createDepthAttachmentView(NriFormat.D24_UNORM_S8_UINT);
+            this.shadowMapView = shadowMap.createArrayView(NriFormat.R24_UNORM_X8);
 
             // The histogram (zeroed each frame) and the exposure (ToneMappingPass::ResetExposure: the
             // exposure's bits).
@@ -509,25 +510,25 @@ namespace EnvironmentMapNri {
             for (let i = 0; i < HISTOGRAM_BINS; i++) {
                 histogramZeros.push(0);
             }
-            const histogram = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(histogramZeros[0]), HISTOGRAM_BINS * 4, 0,
+            const histogram = device.createStorageBufferFromInts(this.queue, Ref(histogramZeros[0]), HISTOGRAM_BINS * 4, 0,
                 NriBufferState.CopyDestination);
             this.histogram = histogram;
             const exposureValue = zeros(1);
             exposureValue[0] = EXPOSURE;
-            const exposure = Nri_CreateStorageBuffer(device, this.queue, Ref(exposureValue[0]), 4, 0);
+            const exposure = device.createStorageBuffer(this.queue, Ref(exposureValue[0]), 4, 0);
             this.exposure = exposure;
             if (!histogram || !exposure) {
                 console.log("Cannot create tone mapping's buffers");
                 return false;
             }
-            this.histogramStorage = Nri_CreateTypedBufferView(histogram, NriFormat.R32_UINT, 1);
-            this.histogramView = Nri_CreateTypedBufferView(histogram, NriFormat.R32_UINT, 0);
-            this.exposureStorage = Nri_CreateTypedBufferView(exposure, NriFormat.R32_UINT, 1);
-            this.exposureView = Nri_CreateTypedBufferView(exposure, NriFormat.R32_UINT, 0);
+            this.histogramStorage = histogram.createTypedView(NriFormat.R32_UINT, 1);
+            this.histogramView = histogram.createTypedView(NriFormat.R32_UINT, 0);
+            this.exposureStorage = exposure.createTypedView(NriFormat.R32_UINT, 1);
+            this.exposureView = exposure.createTypedView(NriFormat.R32_UINT, 0);
 
-            const black = Nri_CreateSolidTexture(device, this.queue, 1, 0xFF000000, NriTextureState.AllShaderResource);
-            const blackCubes = Nri_CreateSolidTexture(device, this.queue, 6, 0xFF000000, NriTextureState.ShaderResource);
-            const noShadowTexture = Nri_CreateSampledDepthTexture(device, this.queue, 1, 1, NriFormat.D16_UNORM);
+            const black = device.createSolidTexture(this.queue, 1, 0xFF000000, NriTextureState.AllShaderResource);
+            const blackCubes = device.createSolidTexture(this.queue, 6, 0xFF000000, NriTextureState.ShaderResource);
+            const noShadowTexture = device.createSampledDepthTexture(this.queue, 1, 1, NriFormat.D16_UNORM);
             this.noShadowTexture = noShadowTexture;
             if (!black || !blackCubes || !noShadowTexture) {
                 console.log("Cannot create the default textures");
@@ -535,65 +536,65 @@ namespace EnvironmentMapNri {
             }
             this.solidTextures.push(black);
             this.solidTextures.push(blackCubes);
-            this.blackView = Nri_CreateTextureView(black, NriFormat.RGBA8_UNORM);
-            this.blackCubeArrayView = Nri_CreateTextureCubeArrayView(blackCubes, NriFormat.RGBA8_UNORM);
-            this.noShadowView = Nri_CreateTextureArrayView(noShadowTexture, NriFormat.D16_UNORM);
-            this.noShadowAttachment = Nri_CreateDepthAttachmentView(noShadowTexture, NriFormat.D16_UNORM);
+            this.blackView = black.createView(NriFormat.RGBA8_UNORM);
+            this.blackCubeArrayView = blackCubes.createCubeArrayView(NriFormat.RGBA8_UNORM);
+            this.noShadowView = noShadowTexture.createArrayView(NriFormat.D16_UNORM);
+            this.noShadowAttachment = noShadowTexture.createDepthAttachmentView(NriFormat.D16_UNORM);
             return true;
         }
 
         // The passes' layouts, as their shaders declare their bindings (Donut's register spaces).
-        createLayouts(device: NriDeviceHandle) {
+        createLayouts(device: NriDevice) {
             // Forward shading: 0 the material, 1 the inputs (root), 2 the view, 3 the shading.
-            const forwardDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(forwardDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(forwardDesc, 0, 0, 7, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(forwardDesc, 1, 2, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescSetRegisterSpace(forwardDesc, 1, 2);
-            Nri_PipelineLayoutDescAddRange(forwardDesc, 2, 3, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(forwardDesc, 2, 20, 4, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(forwardDesc, 2, 0, 4, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescSetRegisterSpace(forwardDesc, 2, 3);
-            Nri_PipelineLayoutDescSetRootRegisterSpace(forwardDesc, 1);
-            Nri_PipelineLayoutDescAddRootConstants(forwardDesc, 1, FORWARD_PUSH_WORDS * 4, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(forwardDesc, 10, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(forwardDesc, 11, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            this.forwardLayout = Nri_CreatePipelineLayoutFromDesc(device, forwardDesc);
-            Nri_DestroyPipelineLayoutDesc(forwardDesc);
+            const forwardDesc = NriPipelineLayoutDesc.create();
+            forwardDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
+            forwardDesc.addRange(0, 0, 7, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            forwardDesc.addRange(1, 2, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            forwardDesc.setRegisterSpace(1, 2);
+            forwardDesc.addRange(2, 3, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
+            forwardDesc.addRange(2, 20, 4, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            forwardDesc.addRange(2, 0, 4, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            forwardDesc.setRegisterSpace(2, 3);
+            forwardDesc.setRootRegisterSpace(1);
+            forwardDesc.addRootConstants(1, FORWARD_PUSH_WORDS * 4, NriStage.Vertex);
+            forwardDesc.addRootDescriptor(10, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            forwardDesc.addRootDescriptor(11, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            this.forwardLayout = device.createPipelineLayoutFromDesc(forwardDesc);
+            forwardDesc.destroy();
 
             // Shadow depth: 0 the material (b0, t0 base color, t1 opacity), 1 the inputs (root), 2 the
             // view (b2) and the material sampler (s0).
-            const depthDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(depthDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(depthDesc, 0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(depthDesc, 1, 2, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(depthDesc, 1, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescSetRegisterSpace(depthDesc, 1, 2);
-            Nri_PipelineLayoutDescSetRootRegisterSpace(depthDesc, 1);
-            Nri_PipelineLayoutDescAddRootConstants(depthDesc, 1, DEPTH_PUSH_WORDS * 4, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(depthDesc, 10, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(depthDesc, 11, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            this.depthLayout = Nri_CreatePipelineLayoutFromDesc(device, depthDesc);
-            Nri_DestroyPipelineLayoutDesc(depthDesc);
+            const depthDesc = NriPipelineLayoutDesc.create();
+            depthDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
+            depthDesc.addRange(0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            depthDesc.addRange(1, 2, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex, NriRangeFlags.None);
+            depthDesc.addRange(1, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            depthDesc.setRegisterSpace(1, 2);
+            depthDesc.setRootRegisterSpace(1);
+            depthDesc.addRootConstants(1, DEPTH_PUSH_WORDS * 4, NriStage.Vertex);
+            depthDesc.addRootDescriptor(10, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            depthDesc.addRootDescriptor(11, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            this.depthLayout = device.createPipelineLayoutFromDesc(depthDesc);
+            depthDesc.destroy();
 
             // The environment map: b0, t0, s0.
-            const skyDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(skyDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(skyDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(skyDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.skyLayout = Nri_CreatePipelineLayoutFromDesc(device, skyDesc);
-            Nri_DestroyPipelineLayoutDesc(skyDesc);
+            const skyDesc = NriPipelineLayoutDesc.create();
+            skyDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
+            skyDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            skyDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.skyLayout = device.createPipelineLayoutFromDesc(skyDesc);
+            skyDesc.destroy();
 
             // The histogram and exposure compute shaders: b0, t0 (the source texture; the
             // histogram, a typed buffer), u0 (a typed buffer).
             const computeTypes = [NriDescriptorType.Texture, NriDescriptorType.Buffer];
             for (let k = 0; k < 2; k++) {
-                const computeDesc = Nri_CreatePipelineLayoutDesc();
-                Nri_PipelineLayoutDescAddRange(computeDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
-                Nri_PipelineLayoutDescAddRange(computeDesc, 0, 0, 1, computeTypes[k], NriStage.Compute, NriRangeFlags.None);
-                Nri_PipelineLayoutDescAddRange(computeDesc, 0, 0, 1, NriDescriptorType.StorageBuffer, NriStage.Compute, NriRangeFlags.None);
-                const computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeDesc);
-                Nri_DestroyPipelineLayoutDesc(computeDesc);
+                const computeDesc = NriPipelineLayoutDesc.create();
+                computeDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
+                computeDesc.addRange(0, 0, 1, computeTypes[k], NriStage.Compute, NriRangeFlags.None);
+                computeDesc.addRange(0, 0, 1, NriDescriptorType.StorageBuffer, NriStage.Compute, NriRangeFlags.None);
+                const computeLayout = device.createPipelineLayoutFromDesc(computeDesc);
+                computeDesc.destroy();
                 if (k == 0) {
                     this.histogramLayout = computeLayout;
                 } else {
@@ -603,21 +604,21 @@ namespace EnvironmentMapNri {
 
             // The tone mapping draw: b0, t0 (the HDR color), t1 (the exposure), t2 (the color LUT),
             // s0.
-            const toneMappingDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(toneMappingDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(toneMappingDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(toneMappingDesc, 0, 1, 1, NriDescriptorType.Buffer, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(toneMappingDesc, 0, 2, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(toneMappingDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.toneMappingLayout = Nri_CreatePipelineLayoutFromDesc(device, toneMappingDesc);
-            Nri_DestroyPipelineLayoutDesc(toneMappingDesc);
+            const toneMappingDesc = NriPipelineLayoutDesc.create();
+            toneMappingDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Pixel, NriRangeFlags.None);
+            toneMappingDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            toneMappingDesc.addRange(0, 1, 1, NriDescriptorType.Buffer, NriStage.Pixel, NriRangeFlags.None);
+            toneMappingDesc.addRange(0, 2, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            toneMappingDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.toneMappingLayout = device.createPipelineLayoutFromDesc(toneMappingDesc);
+            toneMappingDesc.destroy();
 
-            const blitDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(blitDesc, 0, BLIT_CONSTANTS.length * 4, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRange(blitDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blitDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.blitLayout = Nri_CreatePipelineLayoutFromDesc(device, blitDesc);
-            Nri_DestroyPipelineLayoutDesc(blitDesc);
+            const blitDesc = NriPipelineLayoutDesc.create();
+            blitDesc.addRootConstants(0, BLIT_CONSTANTS.length * 4, NriStage.Vertex);
+            blitDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            blitDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.blitLayout = device.createPipelineLayoutFromDesc(blitDesc);
+            blitDesc.destroy();
 
             if (!this.forwardLayout || !this.depthLayout || !this.skyLayout || !this.histogramLayout || !this.exposureLayout
                 || !this.toneMappingLayout || !this.blitLayout) {
@@ -630,25 +631,25 @@ namespace EnvironmentMapNri {
         // A fullscreen pass's pipeline (Donut's fullscreen_vs with its quad at depth 0, a pixel shader
         // permutation) into a color attachment of format, depth tested (greater or equal, not written)
         // against D24S8 if depthTested.
-        createFullscreenPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, framework: string, ps: string, permutation: string,
+        createFullscreenPipeline(device: NriDevice, layout: NriPipelineLayout, framework: string, ps: string, permutation: string,
             format: NriFormat, depthTested: boolean) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Vertex, `${framework}/fullscreen_vs.bin`, "main",
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShaderPermutation(NriShaderStage.Vertex, `${framework}/fullscreen_vs.bin`, "main",
                 "QUAD_Z=0") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Pixel, `${framework}/${ps}`, "main", permutation) != 0;
+                loaded = desc.addShaderPermutation(NriShaderStage.Pixel, `${framework}/${ps}`, "main", permutation) != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setColor(format, NriColorWrite.RGBA);
             if (depthTested) {
-                Nri_PipelineDescSetDepth(desc, NriFormat.D24_UNORM_S8_UINT, NriCompareOp.GreaterEqual, 0, 0);
+                desc.setDepth(NriFormat.D24_UNORM_S8_UINT, NriCompareOp.GreaterEqual, 0, 0);
             }
-            const pipeline = loaded ? Nri_CreatePipelineFromDesc(device, layout, desc) : null;
-            Nri_DestroyPipelineDesc(desc);
+            const pipeline = loaded ? device.createPipelineFromDesc(layout, desc) : null;
+            desc.destroy();
             return pipeline;
         }
 
-        createPipelines(device: NriDeviceHandle, folder: string) {
+        createPipelines(device: NriDevice, folder: string) {
             const forwardLayout = this.forwardLayout;
             const depthLayout = this.depthLayout;
             const skyLayout = this.skyLayout;
@@ -667,19 +668,19 @@ namespace EnvironmentMapNri {
             // Forward shading, by key: bit 0 no culling (double-sided), bit 1 counterclockwise front
             // faces (a mirrored view); reverse depth (greater or equal, written).
             for (let key = 0; key < 4; key++) {
-                const desc = Nri_CreatePipelineDesc();
-                let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${framework}/passes/forward_vs_buffer_loads.bin`,
+                const desc = NriPipelineDesc.create();
+                let loaded = desc.addShader(NriShaderStage.Vertex, `${framework}/passes/forward_vs_buffer_loads.bin`,
                     "buffer_loads") != 0;
                 if (loaded) {
-                    loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Pixel, `${framework}/passes/forward_ps.bin`, "main",
+                    loaded = desc.addShaderPermutation(NriShaderStage.Pixel, `${framework}/passes/forward_ps.bin`, "main",
                         "TRANSMISSIVE_MATERIAL=0") != 0;
                 }
-                Nri_PipelineDescSetCullMode(desc, (key & 1) != 0 ? NriCullMode.None : NriCullMode.Back);
-                Nri_PipelineDescSetFrontCounterClockwise(desc, key >> 1);
-                Nri_PipelineDescSetColor(desc, NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
-                Nri_PipelineDescSetDepth(desc, NriFormat.D24_UNORM_S8_UINT, NriCompareOp.GreaterEqual, 1, 0);
-                const pipeline = loaded ? Nri_CreatePipelineFromDesc(device, forwardLayout, desc) : null;
-                Nri_DestroyPipelineDesc(desc);
+                desc.setCullMode((key & 1) != 0 ? NriCullMode.None : NriCullMode.Back);
+                desc.setFrontCounterClockwise(key >> 1);
+                desc.setColor(NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
+                desc.setDepth(NriFormat.D24_UNORM_S8_UINT, NriCompareOp.GreaterEqual, 1, 0);
+                const pipeline = loaded ? device.createPipelineFromDesc(forwardLayout, desc) : null;
+                desc.destroy();
                 if (!pipeline) {
                     console.log("Cannot load the forward shading shaders");
                     return false;
@@ -691,18 +692,18 @@ namespace EnvironmentMapNri {
             // alpha test's pixel shader, bit 2 counterclockwise front faces; depth tested less or
             // equal and written, with its biases.
             for (let key = 0; key < 8; key++) {
-                const desc = Nri_CreatePipelineDesc();
-                let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${framework}/passes/depth_vs_buffer_loads.bin`,
+                const desc = NriPipelineDesc.create();
+                let loaded = desc.addShader(NriShaderStage.Vertex, `${framework}/passes/depth_vs_buffer_loads.bin`,
                     "buffer_loads") != 0;
                 if (loaded && (key & 2) != 0) {
-                    loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${framework}/passes/depth_ps.bin`, "main") != 0;
+                    loaded = desc.addShader(NriShaderStage.Pixel, `${framework}/passes/depth_ps.bin`, "main") != 0;
                 }
-                Nri_PipelineDescSetCullMode(desc, (key & 1) != 0 ? NriCullMode.None : NriCullMode.Back);
-                Nri_PipelineDescSetFrontCounterClockwise(desc, (key >> 2) & 1);
-                Nri_PipelineDescSetDepth(desc, NriFormat.D24_UNORM_S8_UINT, NriCompareOp.LessEqual, 1, 0);
-                Nri_PipelineDescSetDepthBias(desc, SHADOW_DEPTH_BIAS, 0.0, SHADOW_SLOPE_SCALED_DEPTH_BIAS);
-                const pipeline = loaded ? Nri_CreatePipelineFromDesc(device, depthLayout, desc) : null;
-                Nri_DestroyPipelineDesc(desc);
+                desc.setCullMode((key & 1) != 0 ? NriCullMode.None : NriCullMode.Back);
+                desc.setFrontCounterClockwise((key >> 2) & 1);
+                desc.setDepth(NriFormat.D24_UNORM_S8_UINT, NriCompareOp.LessEqual, 1, 0);
+                desc.setDepthBias(SHADOW_DEPTH_BIAS, 0.0, SHADOW_SLOPE_SCALED_DEPTH_BIAS);
+                const pipeline = loaded ? device.createPipelineFromDesc(depthLayout, desc) : null;
+                desc.destroy();
                 if (!pipeline) {
                     console.log("Cannot load the depth pass shaders");
                     return false;
@@ -716,23 +717,23 @@ namespace EnvironmentMapNri {
                 "LATLONG_TEXTURE=1", NriFormat.RGBA16_SFLOAT, true);
             this.toneMappingPipeline = this.createFullscreenPipeline(device, toneMappingLayout, framework, "passes/tonemapping_ps.bin",
                 "HISTOGRAM_BINS=256 SOURCE_ARRAY=0", NriFormat.RGBA8_SRGB, false);
-            this.histogramPipeline = Nri_CreateComputePipelinePermutation(device, histogramLayout, `${framework}/passes/histogram_cs.bin`,
+            this.histogramPipeline = device.createComputePipelinePermutation(histogramLayout, `${framework}/passes/histogram_cs.bin`,
                 "main", "HISTOGRAM_BINS=256 SOURCE_ARRAY=0");
-            this.exposurePipeline = Nri_CreateComputePipelinePermutation(device, exposureLayout, `${framework}/passes/exposure_cs.bin`,
+            this.exposurePipeline = device.createComputePipelinePermutation(exposureLayout, `${framework}/passes/exposure_cs.bin`,
                 "main", "HISTOGRAM_BINS=256 SOURCE_ARRAY=0");
 
-            const blitDesc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(blitDesc, NriShaderStage.Vertex, `${framework}/rect_vs.bin`, "main") != 0;
+            const blitDesc = NriPipelineDesc.create();
+            let loaded = blitDesc.addShader(NriShaderStage.Vertex, `${framework}/rect_vs.bin`, "main") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(blitDesc, NriShaderStage.Pixel, `${framework}/blit_ps.bin`, "main",
+                loaded = blitDesc.addShaderPermutation(NriShaderStage.Pixel, `${framework}/blit_ps.bin`, "main",
                     "TEXTURE_ARRAY=0") != 0;
             }
-            Nri_PipelineDescSetTopology(blitDesc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(blitDesc, this.viewFormat, NriColorWrite.RGBA);
+            blitDesc.setTopology(NriTopology.TriangleStrip);
+            blitDesc.setColor(this.viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.blitPipeline = Nri_CreatePipelineFromDesc(device, blitLayout, blitDesc);
+                this.blitPipeline = device.createPipelineFromDesc(blitLayout, blitDesc);
             }
-            Nri_DestroyPipelineDesc(blitDesc);
+            blitDesc.destroy();
 
             if (!this.skyPipeline || !this.toneMappingPipeline || !this.histogramPipeline || !this.exposurePipeline || !this.blitPipeline) {
                 console.log("Cannot load Donut's passes' shaders");
@@ -742,12 +743,12 @@ namespace EnvironmentMapNri {
         }
 
         // A constant buffer view of the constant buffer, kept for destruction.
-        constantView(offset: int, size: int): NriDescriptorHandle | null {
+        constantView(offset: int, size: int): NriDescriptor | null {
             const constantBuffer = this.constantBuffer;
             if (!constantBuffer) {
                 return null;
             }
-            const view = Nri_CreateConstantBufferView(constantBuffer, offset, size);
+            const view = constantBuffer.createConstantView(offset, size);
             if (view) {
                 this.constantViews.push(view);
             }
@@ -756,7 +757,7 @@ namespace EnvironmentMapNri {
 
         // The samplers; the constant buffer: the static constants (the shadow map's fit, the forward
         // light constants with shadows and without), then a queued frame's; the sets.
-        createDescriptorSets(device: NriDeviceHandle, queuedFrameNum: int) {
+        createDescriptorSets(device: NriDevice, queuedFrameNum: int) {
             const scene = this.scene;
             const materialBuffer = this.materialBuffer;
             const forwardLayout = this.forwardLayout;
@@ -772,46 +773,46 @@ namespace EnvironmentMapNri {
             if (!exposureLayout || !toneMappingLayout || !blitLayout) {
                 return false;
             }
-            this.anisotropicWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 16);
-            this.linearWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
-            this.linearClamp = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
-            this.shadowSampler = Nri_CreateBorderSampler(device, NriFilter.Linear, 1);
+            this.anisotropicWrap = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 16);
+            this.linearWrap = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
+            this.linearClamp = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            this.shadowSampler = device.createBorderSampler(NriFilter.Linear, 1);
 
             // The static constants: the shadow map's fit (its DepthPassConstants, ShadowConstants), the
             // forward light constants with the shadow map and without.
             const bounds = zeros(6);
-            Nri_GetDonutSceneBounds(scene, Ref(bounds[0]));
-            const depthConstants = zeros(Nri_GetDonutConstantsSize(6) / 4);
-            const shadowConstants = zeros(Nri_GetDonutConstantsSize(5) / 4);
-            this.shadowMirrored = Nri_SetupDonutPlanarShadowMap(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2], Ref(bounds[0]),
+            scene.getBounds(Ref(bounds[0]));
+            const depthConstants = zeros(Nri.getDonutConstantsSize(6) / 4);
+            const shadowConstants = zeros(Nri.getDonutConstantsSize(5) / 4);
+            this.shadowMirrored = Nri.setupDonutPlanarShadowMap(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2], Ref(bounds[0]),
                 SHADOW_MAP_RESOLUTION, SHADOW_FADE_RANGE, Ref(depthConstants[0]), Ref(shadowConstants[0])) != 0;
-            const lightConstantsSize = Nri_GetDonutConstantsSize(4);
+            const lightConstantsSize = Nri.getDonutConstantsSize(4);
             const lightConstants = [zeros(lightConstantsSize / 4), zeros(lightConstantsSize / 4)];
             for (let k = 0; k < 2; k++) {
-                Nri_FillDonutForwardSunLightConstants(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2], SUN_ANGULAR_SIZE,
+                Nri.fillDonutForwardSunLightConstants(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2], SUN_ANGULAR_SIZE,
                     SUN_IRRADIANCE, Ref(shadowConstants[0]), k == 0 ? SHADOW_MAP_RESOLUTION : 0, AMBIENT_TOP, AMBIENT_TOP, AMBIENT_TOP,
                     AMBIENT_BOTTOM, AMBIENT_BOTTOM, AMBIENT_BOTTOM, Ref(lightConstants[k][0]));
             }
             const depthStride = align(depthConstants.length * 4);
             const lightStride = align(lightConstantsSize);
             this.staticStride = depthStride + 2 * lightStride;
-            this.viewSize = Nri_GetDonutConstantsSize(0);
-            this.skySize = Nri_GetDonutConstantsSize(7);
-            this.toneMappingSize = Nri_GetDonutConstantsSize(8);
+            this.viewSize = Nri.getDonutConstantsSize(0);
+            this.skySize = Nri.getDonutConstantsSize(7);
+            this.toneMappingSize = Nri.getDonutConstantsSize(8);
             this.viewConstants = zeros(this.viewSize / 4);
             this.skyConstants = zeros(this.skySize / 4);
             this.toneMappingConstants = zeros(this.toneMappingSize / 4);
             this.frameStride = align(this.viewSize) + align(this.skySize) + 3 * align(this.toneMappingSize);
-            const constantBuffer = Nri_CreateHostBuffer(device, this.staticStride + queuedFrameNum * this.frameStride,
+            const constantBuffer = device.createHostBuffer(this.staticStride + queuedFrameNum * this.frameStride,
                 NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
 
-            const materialCount = Nri_GetDonutSceneMaterialCount(scene);
+            const materialCount = scene.getMaterialCount();
             const blitCount = this.textures.blitSetCount();
             const setNum = 2 * materialCount + 2 + 1 + 1 + 5 * queuedFrameNum + blitCount;
             // (Typed buffers: a queued frame's exposure set reads the histogram, its tone mapping set the
             // exposure; its histogram and exposure sets write one each.)
-            const descriptorPool = Nri_CreateDescriptorPoolWithTypedBuffers(device, setNum,
+            const descriptorPool = device.createDescriptorPoolWithTypedBuffers(setNum,
                 1 + 4 * 2 + 1 + 2 * queuedFrameNum + blitCount,
                 2 * materialCount + 3 + 5 * queuedFrameNum,
                 9 * materialCount + 4 * 2 + 1 + 4 * queuedFrameNum + blitCount, 0, 0, 0,
@@ -833,17 +834,17 @@ namespace EnvironmentMapNri {
                 console.log("Cannot create the samplers");
                 return false;
             }
-            Nri_WriteBuffer(constantBuffer, 0, Ref(depthConstants[0]), depthConstants.length * 4);
+            constantBuffer.write(0, Ref(depthConstants[0]), depthConstants.length * 4);
             for (let k = 0; k < 2; k++) {
-                Nri_WriteBuffer(constantBuffer, depthStride + k * lightStride, Ref(lightConstants[k][0]), lightConstantsSize);
+                constantBuffer.write(depthStride + k * lightStride, Ref(lightConstants[k][0]), lightConstantsSize);
             }
 
             // A material's sets: the forward pass's (its constants, its textures, black for the slots
             // it doesn't use), the depth pass's (its constants, base color, opacity).
             for (let m = 0; m < materialCount; m++) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, forwardLayout, 0, 0);
-                const depthSet = Nri_AllocateDescriptorSet(descriptorPool, depthLayout, 0, 0);
-                const view = Nri_CreateConstantBufferView(materialBuffer, m * CONSTANTS_ALIGNMENT, CONSTANTS_ALIGNMENT);
+                const set = descriptorPool.allocateDescriptorSet(forwardLayout, 0, 0);
+                const depthSet = descriptorPool.allocateDescriptorSet(depthLayout, 0, 0);
+                const view = materialBuffer.createConstantView(m * CONSTANTS_ALIGNMENT, CONSTANTS_ALIGNMENT);
                 if (!set || !depthSet || !view) {
                     console.log("Cannot create the descriptor sets");
                     return false;
@@ -851,51 +852,51 @@ namespace EnvironmentMapNri {
                 this.materialSets.push(set);
                 this.depthMaterialSets.push(depthSet);
                 this.materialViews.push(view);
-                Nri_UpdateDescriptor(set, 0, 0, view);
+                set.updateDescriptor(0, 0, view);
                 for (let slot = 0; slot < 7; slot++) {
-                    const texture = Nri_GetDonutSceneMaterialTexture(scene, m, slot);
-                    Nri_UpdateDescriptor(set, 1, slot, texture >= 0 ? this.textures.views[texture] : blackView);
+                    const texture = scene.getMaterialTexture(m, slot);
+                    set.updateDescriptor(1, slot, texture >= 0 ? this.textures.views[texture] : blackView);
                 }
-                Nri_UpdateDescriptor(depthSet, 0, 0, view);
+                depthSet.updateDescriptor(0, 0, view);
                 const slots = [0, 6];
                 for (let k = 0; k < 2; k++) {
-                    const texture = Nri_GetDonutSceneMaterialTexture(scene, m, slots[k]);
-                    Nri_UpdateDescriptor(depthSet, 1, k, texture >= 0 ? this.textures.views[texture] : blackView);
+                    const texture = scene.getMaterialTexture(m, slots[k]);
+                    depthSet.updateDescriptor(1, k, texture >= 0 ? this.textures.views[texture] : blackView);
                 }
             }
 
             // The shading sets: shadows on (the shadow map), off (the fallback).
             for (let k = 0; k < 2; k++) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, forwardLayout, 2, 0);
+                const set = descriptorPool.allocateDescriptorSet(forwardLayout, 2, 0);
                 const view = this.constantView(depthStride + k * lightStride, lightStride);
                 if (!set || !view) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                Nri_UpdateDescriptor(set, 0, 0, view);
-                Nri_UpdateDescriptor(set, 1, 0, k == 0 ? shadowMapView : noShadowView);
-                Nri_UpdateDescriptor(set, 1, 1, blackCubeArrayView);
-                Nri_UpdateDescriptor(set, 1, 2, blackCubeArrayView);
-                Nri_UpdateDescriptor(set, 1, 3, blackView);
-                Nri_UpdateDescriptor(set, 2, 0, anisotropicWrap);
-                Nri_UpdateDescriptor(set, 2, 1, shadowSampler);
-                Nri_UpdateDescriptor(set, 2, 2, linearWrap);
-                Nri_UpdateDescriptor(set, 2, 3, linearClamp);
+                set.updateDescriptor(0, 0, view);
+                set.updateDescriptor(1, 0, k == 0 ? shadowMapView : noShadowView);
+                set.updateDescriptor(1, 1, blackCubeArrayView);
+                set.updateDescriptor(1, 2, blackCubeArrayView);
+                set.updateDescriptor(1, 3, blackView);
+                set.updateDescriptor(2, 0, anisotropicWrap);
+                set.updateDescriptor(2, 1, shadowSampler);
+                set.updateDescriptor(2, 2, linearWrap);
+                set.updateDescriptor(2, 3, linearClamp);
                 this.shadingSets.push(set);
             }
 
             // The depth pass's view set: the shadow map's DepthPassConstants, the material sampler.
-            const depthViewSet = Nri_AllocateDescriptorSet(descriptorPool, depthLayout, 1, 0);
+            const depthViewSet = descriptorPool.allocateDescriptorSet(depthLayout, 1, 0);
             const depthView = this.constantView(0, depthStride);
             this.depthViewSet = depthViewSet;
             if (!depthViewSet || !depthView) {
                 console.log("Cannot create the descriptor sets");
                 return false;
             }
-            Nri_UpdateDescriptor(depthViewSet, 0, 0, depthView);
-            Nri_UpdateDescriptor(depthViewSet, 1, 0, anisotropicWrap);
+            depthViewSet.updateDescriptor(0, 0, depthView);
+            depthViewSet.updateDescriptor(1, 0, anisotropicWrap);
 
-            const blitSet = Nri_AllocateDescriptorSet(descriptorPool, blitLayout, 0, 0);
+            const blitSet = descriptorPool.allocateDescriptorSet(blitLayout, 0, 0);
             this.blitSet = blitSet;
             const ldrView = this.ldrView;
             const hdrView = this.hdrView;
@@ -911,18 +912,18 @@ namespace EnvironmentMapNri {
             if (!exposureStorage || !exposureView) {
                 return false;
             }
-            Nri_UpdateDescriptor(blitSet, 0, 0, ldrView);
-            Nri_UpdateDescriptor(blitSet, 1, 0, linearClamp);
+            blitSet.updateDescriptor(0, 0, ldrView);
+            blitSet.updateDescriptor(1, 0, linearClamp);
 
             // A queued frame's: the view, the sky, the histogram, the exposure, the tone mapping.
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
                 const base = this.frameOffset(i);
-                const viewSet = Nri_AllocateDescriptorSet(descriptorPool, forwardLayout, 1, 0);
-                const skySet = Nri_AllocateDescriptorSet(descriptorPool, skyLayout, 0, 0);
-                const histogramSet = Nri_AllocateDescriptorSet(descriptorPool, histogramLayout, 0, 0);
-                const exposureSet = Nri_AllocateDescriptorSet(descriptorPool, exposureLayout, 0, 0);
-                const toneMappingSet = Nri_AllocateDescriptorSet(descriptorPool, toneMappingLayout, 0, 0);
+                const viewSet = descriptorPool.allocateDescriptorSet(forwardLayout, 1, 0);
+                const skySet = descriptorPool.allocateDescriptorSet(skyLayout, 0, 0);
+                const histogramSet = descriptorPool.allocateDescriptorSet(histogramLayout, 0, 0);
+                const exposureSet = descriptorPool.allocateDescriptorSet(exposureLayout, 0, 0);
+                const toneMappingSet = descriptorPool.allocateDescriptorSet(toneMappingLayout, 0, 0);
                 const viewView = this.constantView(base, align(this.viewSize));
                 const skyView = this.constantView(this.skyOffset(i), align(this.skySize));
                 const histogramConstants = this.constantView(this.toneMappingOffset(i, 0), align(this.toneMappingSize));
@@ -935,21 +936,21 @@ namespace EnvironmentMapNri {
                 if (!histogramConstants || !exposureConstants || !toneMappingConstants) {
                     return false;
                 }
-                Nri_UpdateDescriptor(viewSet, 0, 0, viewView);
-                Nri_UpdateDescriptor(skySet, 0, 0, skyView);
-                Nri_UpdateDescriptor(skySet, 1, 0, environmentMapView);
-                Nri_UpdateDescriptor(skySet, 2, 0, linearWrap);
-                Nri_UpdateDescriptor(histogramSet, 0, 0, histogramConstants);
-                Nri_UpdateDescriptor(histogramSet, 1, 0, hdrView);
-                Nri_UpdateDescriptor(histogramSet, 2, 0, histogramStorage);
-                Nri_UpdateDescriptor(exposureSet, 0, 0, exposureConstants);
-                Nri_UpdateDescriptor(exposureSet, 1, 0, histogramView);
-                Nri_UpdateDescriptor(exposureSet, 2, 0, exposureStorage);
-                Nri_UpdateDescriptor(toneMappingSet, 0, 0, toneMappingConstants);
-                Nri_UpdateDescriptor(toneMappingSet, 1, 0, hdrView);
-                Nri_UpdateDescriptor(toneMappingSet, 2, 0, exposureView);
-                Nri_UpdateDescriptor(toneMappingSet, 3, 0, blackView);
-                Nri_UpdateDescriptor(toneMappingSet, 4, 0, linearClamp);
+                viewSet.updateDescriptor(0, 0, viewView);
+                skySet.updateDescriptor(0, 0, skyView);
+                skySet.updateDescriptor(1, 0, environmentMapView);
+                skySet.updateDescriptor(2, 0, linearWrap);
+                histogramSet.updateDescriptor(0, 0, histogramConstants);
+                histogramSet.updateDescriptor(1, 0, hdrView);
+                histogramSet.updateDescriptor(2, 0, histogramStorage);
+                exposureSet.updateDescriptor(0, 0, exposureConstants);
+                exposureSet.updateDescriptor(1, 0, histogramView);
+                exposureSet.updateDescriptor(2, 0, exposureStorage);
+                toneMappingSet.updateDescriptor(0, 0, toneMappingConstants);
+                toneMappingSet.updateDescriptor(1, 0, hdrView);
+                toneMappingSet.updateDescriptor(2, 0, exposureView);
+                toneMappingSet.updateDescriptor(3, 0, blackView);
+                toneMappingSet.updateDescriptor(4, 0, linearClamp);
                 this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet, skySet,
                     histogramSet, exposureSet, toneMappingSet));
             }
@@ -987,7 +988,7 @@ namespace EnvironmentMapNri {
                 return;
             }
             if (!this.test) {
-                this.camera.animate(this.sample, Nri_GetFrameTime(this.sample), true);
+                this.camera.animate(this.sample, this.sample.getFrameTime(), true);
             }
             const worldToView = this.camera.worldToView();
             const projection = perspProjD3DStyleReverse(Math.PI * 0.25, this.width / this.height, Z_NEAR);
@@ -1001,47 +1002,47 @@ namespace EnvironmentMapNri {
                 + m[2] * (m[4] * m[9] - m[5] * m[8]);
             this.mirrored = determinant < 0.0;
 
-            Nri_FillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
+            Nri.fillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
                 Ref(this.viewConstants[0]));
-            Nri_WriteBuffer(constantBuffer, this.frameOffset(queuedFrameIndex), Ref(this.viewConstants[0]), this.viewSize);
-            Nri_FillDonutSkyConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height, Ref(this.skyConstants[0]));
-            Nri_WriteBuffer(constantBuffer, this.skyOffset(queuedFrameIndex), Ref(this.skyConstants[0]), this.skySize);
+            constantBuffer.write(this.frameOffset(queuedFrameIndex), Ref(this.viewConstants[0]), this.viewSize);
+            Nri.fillDonutSkyConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height, Ref(this.skyConstants[0]));
+            constantBuffer.write(this.skyOffset(queuedFrameIndex), Ref(this.skyConstants[0]), this.skySize);
             // (No eye adaptation: a frame time of 0, as Donut_AdvanceToneMappingFrame is never called.)
             for (let stage = 0; stage < 3; stage++) {
-                Nri_FillDonutToneMappingConstants(stage, this.width, this.height, 0.0, Ref(this.toneMappingConstants[0]));
-                Nri_WriteBuffer(constantBuffer, this.toneMappingOffset(queuedFrameIndex, stage), Ref(this.toneMappingConstants[0]),
+                Nri.fillDonutToneMappingConstants(stage, this.width, this.height, 0.0, Ref(this.toneMappingConstants[0]));
+                constantBuffer.write(this.toneMappingOffset(queuedFrameIndex, stage), Ref(this.toneMappingConstants[0]),
                     this.toneMappingSize);
             }
         }
 
         // The fallback shadow map, cleared once (D3D12 wants depth textures initialized before
         // shaders read them).
-        clearNoShadow(commandBuffer: NriCommandBufferHandle) {
+        clearNoShadow(commandBuffer: NriCommandBuffer) {
             const texture = this.noShadowTexture;
             const attachment = this.noShadowAttachment;
             if (this.noShadowCleared || !texture || !attachment) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-            Nri_CmdBeginRenderingDepthOnly(commandBuffer, attachment);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+            commandBuffer.beginRenderingDepthOnly(attachment);
+            commandBuffer.clearDepth(0.0);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(texture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
             this.noShadowCleared = true;
         }
 
         // The draws' geometry (the instances and vertices as root descriptors, the index buffer) and
         // each draw, with set 0 the draw's material set and the pipeline of its key (by the pass).
-        recordDraws(commandBuffer: NriCommandBufferHandle, depthPass: boolean) {
+        recordDraws(commandBuffer: NriCommandBuffer, depthPass: boolean) {
             const indexBuffer = this.indexBuffer;
             const instanceBufferView = this.instanceBufferView;
             const vertexBufferView = this.vertexBufferView;
             if (!indexBuffer || !instanceBufferView || !vertexBufferView) {
                 return;
             }
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, instanceBufferView, 0);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, vertexBufferView, 0);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setRootDescriptor(0, instanceBufferView, 0);
+            commandBuffer.setRootDescriptor(1, vertexBufferView, 0);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
             let pipeline = -1;
             let material = -1;
             for (const item of this.drawItems) {
@@ -1049,25 +1050,25 @@ namespace EnvironmentMapNri {
                     ? (item.doubleSided ? 1 : 0) + (item.alphaTested ? 2 : 0) + (this.shadowMirrored ? 4 : 0)
                     : (item.doubleSided ? 1 : 0) + (this.mirrored ? 2 : 0);
                 if (itemPipeline != pipeline) {
-                    Nri_CmdSetPipeline(commandBuffer, depthPass ? this.depthPipelines[itemPipeline] : this.forwardPipelines[itemPipeline]);
+                    commandBuffer.setPipeline(depthPass ? this.depthPipelines[itemPipeline] : this.forwardPipelines[itemPipeline]);
                     pipeline = itemPipeline;
                 }
                 if (item.material != material) {
-                    Nri_CmdSetDescriptorSet(commandBuffer, 0, depthPass ? this.depthMaterialSets[item.material] : this.materialSets[item.material]);
+                    commandBuffer.setDescriptorSet(0, depthPass ? this.depthMaterialSets[item.material] : this.materialSets[item.material]);
                     material = item.material;
                 }
                 if (depthPass) {
-                    Nri_CmdSetRootConstants(commandBuffer, 0, Ref(item.depthPush[0]), DEPTH_PUSH_WORDS * 4);
+                    commandBuffer.setRootConstants(0, Ref(item.depthPush[0]), DEPTH_PUSH_WORDS * 4);
                 } else {
-                    Nri_CmdSetRootConstants(commandBuffer, 0, Ref(item.forwardPush[0]), FORWARD_PUSH_WORDS * 4);
+                    commandBuffer.setRootConstants(0, Ref(item.forwardPush[0]), FORWARD_PUSH_WORDS * 4);
                 }
-                Nri_CmdDrawIndexed(commandBuffer, item.indexCount, 1, item.firstIndex, 0, 0);
+                commandBuffer.drawIndexed(item.indexCount, 1, item.firstIndex, 0, 0);
             }
         }
 
         // The shadow map, once (the scene and the sun don't move): cleared to 1, the opaque and
         // alpha-tested geometries drawn by Donut's depth pass from the sun.
-        recordShadowMap(commandBuffer: NriCommandBufferHandle) {
+        recordShadowMap(commandBuffer: NriCommandBuffer) {
             const shadowMap = this.shadowMap;
             const attachment = this.shadowMapAttachment;
             const layout = this.depthLayout;
@@ -1075,22 +1076,22 @@ namespace EnvironmentMapNri {
             if (this.shadowMapRendered || !shadowMap || !attachment || !layout || !depthViewSet) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, shadowMap, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-            Nri_CmdBeginRenderingDepthOnly(commandBuffer, attachment);
-            Nri_CmdClearDepth(commandBuffer, 1.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 1, depthViewSet);
+            commandBuffer.textureBarrier(shadowMap, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+            commandBuffer.beginRenderingDepthOnly(attachment);
+            commandBuffer.clearDepth(1.0);
+            commandBuffer.setViewport(0.0, 0.0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION);
+            commandBuffer.setScissor(0, 0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setDescriptorSet(1, depthViewSet);
             this.recordDraws(commandBuffer, true);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, shadowMap, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(shadowMap, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
             this.shadowMapRendered = true;
         }
 
         // The HDR color and depth cleared (to 0), the forward pass's opaque draws, then the
         // environment map behind them.
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordScene(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const hdrColor = this.hdrColor;
             const hdrAttachment = this.hdrAttachment;
             const depthAttachment = this.depthAttachment;
@@ -1100,30 +1101,30 @@ namespace EnvironmentMapNri {
             if (!hdrColor || !hdrAttachment || !depthAttachment || !forwardLayout || !skyLayout || !skyPipeline) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, hdrColor, NriTextureState.AllShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, hdrAttachment, depthAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, forwardLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 1, queuedFrame.viewSet);
-            Nri_CmdSetDescriptorSet(commandBuffer, 2, this.shadingSets[this.enableShadows ? 0 : 1]);
+            commandBuffer.textureBarrier(hdrColor, NriTextureState.AllShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRenderingWithDepth(hdrAttachment, depthAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.clearDepth(0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(forwardLayout);
+            commandBuffer.setDescriptorSet(1, queuedFrame.viewSet);
+            commandBuffer.setDescriptorSet(2, this.shadingSets[this.enableShadows ? 0 : 1]);
             this.recordDraws(commandBuffer, false);
 
             // Behind everything opaque.
-            Nri_CmdSetPipelineLayout(commandBuffer, skyLayout);
-            Nri_CmdSetPipeline(commandBuffer, skyPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.skySet);
-            Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, hdrColor, NriTextureState.ColorAttachment, NriTextureState.AllShaderResource);
+            commandBuffer.setPipelineLayout(skyLayout);
+            commandBuffer.setPipeline(skyPipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.skySet);
+            commandBuffer.draw(4, 1, 0, 0);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(hdrColor, NriTextureState.ColorAttachment, NriTextureState.AllShaderResource);
         }
 
         // Donut's ToneMappingPass::SimpleRender: the histogram zeroed and filled from the HDR color,
         // the exposure computed from it (kept as it is: no frame time), the HDR color tone mapped
         // into the LDR color.
-        recordToneMapping(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordToneMapping(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const histogram = this.histogram;
             const exposure = this.exposure;
             const histogramLayout = this.histogramLayout;
@@ -1140,59 +1141,59 @@ namespace EnvironmentMapNri {
             if (!exposureLayout || !toneMappingPipeline || !ldrColor || !ldrAttachment) {
                 return;
             }
-            Nri_CmdZeroBuffer(commandBuffer, histogram);
-            Nri_CmdBufferBarrier(commandBuffer, histogram, NriBufferState.CopyDestination, NriBufferState.Storage);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, histogramLayout);
-            Nri_CmdSetPipeline(commandBuffer, histogramPipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, queuedFrame.histogramSet);
-            Nri_CmdDispatch(commandBuffer, Math.floor((this.width + TONE_MAPPING_GROUP_SIZE - 1) / TONE_MAPPING_GROUP_SIZE),
+            commandBuffer.zeroBuffer(histogram);
+            commandBuffer.bufferBarrier(histogram, NriBufferState.CopyDestination, NriBufferState.Storage);
+            commandBuffer.setComputePipelineLayout(histogramLayout);
+            commandBuffer.setPipeline(histogramPipeline);
+            commandBuffer.setComputeDescriptorSet(0, queuedFrame.histogramSet);
+            commandBuffer.dispatch(Math.floor((this.width + TONE_MAPPING_GROUP_SIZE - 1) / TONE_MAPPING_GROUP_SIZE),
                 Math.floor((this.height + TONE_MAPPING_GROUP_SIZE - 1) / TONE_MAPPING_GROUP_SIZE), 1);
-            Nri_CmdBufferBarrier(commandBuffer, histogram, NriBufferState.Storage, NriBufferState.ComputeShaderResource);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, exposureLayout);
-            Nri_CmdSetPipeline(commandBuffer, exposurePipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, queuedFrame.exposureSet);
-            Nri_CmdDispatch(commandBuffer, 1, 1, 1);
-            Nri_CmdBufferBarrier(commandBuffer, histogram, NriBufferState.ComputeShaderResource, NriBufferState.CopyDestination);
-            Nri_CmdBufferBarrier(commandBuffer, exposure, NriBufferState.Storage, NriBufferState.PixelShaderResource);
+            commandBuffer.bufferBarrier(histogram, NriBufferState.Storage, NriBufferState.ComputeShaderResource);
+            commandBuffer.setComputePipelineLayout(exposureLayout);
+            commandBuffer.setPipeline(exposurePipeline);
+            commandBuffer.setComputeDescriptorSet(0, queuedFrame.exposureSet);
+            commandBuffer.dispatch(1, 1, 1);
+            commandBuffer.bufferBarrier(histogram, NriBufferState.ComputeShaderResource, NriBufferState.CopyDestination);
+            commandBuffer.bufferBarrier(exposure, NriBufferState.Storage, NriBufferState.PixelShaderResource);
 
-            Nri_CmdTextureBarrier(commandBuffer, ldrColor, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, ldrAttachment);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, toneMappingLayout);
-            Nri_CmdSetPipeline(commandBuffer, toneMappingPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.toneMappingSet);
-            Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, ldrColor, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-            Nri_CmdBufferBarrier(commandBuffer, exposure, NriBufferState.PixelShaderResource, NriBufferState.Storage);
+            commandBuffer.textureBarrier(ldrColor, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(ldrAttachment);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(toneMappingLayout);
+            commandBuffer.setPipeline(toneMappingPipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.toneMappingSet);
+            commandBuffer.draw(4, 1, 0, 0);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(ldrColor, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.bufferBarrier(exposure, NriBufferState.PixelShaderResource, NriBufferState.Storage);
         }
 
-        // The LDR color over the swap chain texture (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering), as Donut's BlitTexture draws it.
-        recordBlit(commandBuffer: NriCommandBufferHandle) {
+        // The LDR color over the swap chain texture (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering), as Donut's BlitTexture draws it.
+        recordBlit(commandBuffer: NriCommandBuffer) {
             const layout = this.blitLayout;
             const pipeline = this.blitPipeline;
             const blitSet = this.blitSet;
             if (!layout || !pipeline || !blitSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.blitConstants[0]), BLIT_CONSTANTS.length * 4);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, blitSet);
-            Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootConstants(0, Ref(this.blitConstants[0]), BLIT_CONSTANTS.length * 4);
+            commandBuffer.setDescriptorSet(0, blitSet);
+            commandBuffer.draw(4, 1, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
             this.resizeIfNeeded();
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
-            if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+            if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                 this.enableShadows = !this.enableShadows;
-                Nri_SetWindowTitle(this.sample, `${WINDOW_TITLE} - shadows ${this.enableShadows ? "on" : "off"}`);
+                this.sample.setWindowTitle(`${WINDOW_TITLE} - shadows ${this.enableShadows ? "on" : "off"}`);
             }
             this.writeConstants(queuedFrameIndex);
 
@@ -1213,8 +1214,8 @@ namespace EnvironmentMapNri {
                 return;
             }
             const commandBuffer = queuedFrame.commandBuffer;
-            Nri_BeginCommandBuffer(commandBuffer);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.begin();
+            commandBuffer.setDescriptorPool(descriptorPool);
             // The first frame: the mip chains, the fallback, the shadow map.
             this.textures.recordBlits(commandBuffer);
             this.clearNoShadow(commandBuffer);
@@ -1224,23 +1225,23 @@ namespace EnvironmentMapNri {
             this.recordScene(commandBuffer, queuedFrame);
             this.recordToneMapping(commandBuffer, queuedFrame);
 
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
             this.recordBlit(commandBuffer);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
@@ -1254,12 +1255,12 @@ namespace EnvironmentMapNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1269,12 +1270,12 @@ namespace EnvironmentMapNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 this.swapChain.destroy();
                 this.destroySizedTargets();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.textures.destroy();
                 const descriptors = [this.vertexBufferView, this.instanceBufferView, this.environmentMapView, this.shadowMapAttachment,
@@ -1283,70 +1284,70 @@ namespace EnvironmentMapNri {
                     this.linearClamp, this.shadowSampler];
                 for (const descriptor of descriptors) {
                     if (descriptor) {
-                        Nri_DestroyDescriptor(descriptor);
+                        descriptor.destroy();
                     }
                 }
                 for (const view of this.materialViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const view of this.constantViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 const textures = [this.environmentMap, this.shadowMap, this.noShadowTexture];
                 for (const texture of textures) {
                     if (texture) {
-                        Nri_DestroyTexture(texture);
+                        texture.destroy();
                     }
                 }
                 for (const texture of this.solidTextures) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
                 const buffers = [this.vertexBuffer, this.instanceBuffer, this.indexBuffer, this.materialBuffer, this.histogram,
                     this.exposure, this.constantBuffer, this.readbackBuffer];
                 for (const buffer of buffers) {
                     if (buffer) {
-                        Nri_DestroyBuffer(buffer);
+                        buffer.destroy();
                     }
                 }
                 for (const pipeline of this.forwardPipelines) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 for (const pipeline of this.depthPipelines) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const pipelines = [this.skyPipeline, this.histogramPipeline, this.exposurePipeline, this.toneMappingPipeline, this.blitPipeline];
                 for (const pipeline of pipelines) {
                     if (pipeline) {
-                        Nri_DestroyPipeline(pipeline);
+                        pipeline.destroy();
                     }
                 }
                 const layouts = [this.forwardLayout, this.depthLayout, this.skyLayout, this.histogramLayout, this.exposureLayout,
                     this.toneMappingLayout, this.blitLayout];
                 for (const layout of layouts) {
                     if (layout) {
-                        Nri_DestroyPipelineLayout(layout);
+                        layout.destroy();
                     }
                 }
                 this.frames.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
             const scene = this.scene;
             if (scene) {
-                Nri_DestroyDonutScene(scene);
+                scene.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const environmentMap = new EnvironmentMap(sample);
         // --scene <path>: relative to the executable's directory.
-        Nri_AddExampleOptionWithValues(sample, "--scene", 1);
+        sample.addExampleOptionWithValues("--scene", 1);
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "--scene" && i + 1 < argc) {
-                environmentMap.scenePath = Nri_GetArg(argc, argv, i + 1);
+            if (Nri.getArg(argc, argv, i) == "--scene" && i + 1 < argc) {
+                environmentMap.scenePath = Nri.getArg(argc, argv, i + 1);
             }
         }
         return environmentMap.run(argc, argv);

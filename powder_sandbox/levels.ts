@@ -17,6 +17,7 @@ import {
     DETECTOR_ROWS, HEATERS, toolNamed, LevelStroke, Level, starText, Stroke
 } from "./defs";
 import { SandboxView } from "./view";
+import { NriFile } from "../core/nri";
 
 // The sandbox's scenes and levels: the test scenes' strokes, the levels read from their files
 // (index.json's list, a level's goal, clock and stars) and the best stars kept.
@@ -81,19 +82,19 @@ export class SandboxLevels extends SandboxView {
         for (let k = 0; k < this.levelNames.length; k++) {
             this.bestStars.push(0);
         }
-        const file = Nri_LoadFile(STARS_PATH);
+        const file = NriFile.load(STARS_PATH);
         if (!file) {
             return;
         }
         const bytes: int[] = [];
-        const size = Nri_GetFileSize(file);
+        const size = file.getSize();
         for (let i = 0; i < size; i++) {
             bytes.push(0);
         }
         if (size > 0) {
-            Nri_CopyFileBytes(file, 0, size, Ref(bytes[0]));
+            file.copyBytes(0, size, Ref(bytes[0]));
         }
-        Nri_DestroyFile(file);
+        file.destroy();
         const ints: int[] = [];
         for (let i = 0; i + 3 < size; i += 4) {
             ints.push(bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24));
@@ -115,7 +116,7 @@ export class SandboxLevels extends SandboxView {
         for (const stars of this.bestStars) {
             ints.push(stars);
         }
-        Nri_SaveBufferToFile(this.queuedFrames[0].probeReadback, 0, Ref(ints[0]), ints.length, STARS_PATH);
+        this.queuedFrames[0].probeReadback.saveToFile(0, Ref(ints[0]), ints.length, STARS_PATH);
     }
 
     // The level's goal against the count a frame's probe read (time: the level's time after that
@@ -179,16 +180,16 @@ export class SandboxLevels extends SandboxView {
 
     // A file of LEVEL_DIRECTORY (name.json) in a reader, or null (with a message).
     readJson(name: string): JsonReader | null {
-        const file = Nri_LoadFile(`${LEVEL_DIRECTORY}${name}.json`);
+        const file = NriFile.load(`${LEVEL_DIRECTORY}${name}.json`);
         if (!file) {
             this.showMessage(`No level file ${name}.json`);
             return null;
         }
         const reader = new JsonReader();
-        if (reader.resize(Nri_GetFileSize(file))) {
-            Nri_CopyFileBytes(file, 0, reader.bytes.length, Ref(reader.bytes[0]));
+        if (reader.resize(file.getSize())) {
+            file.copyBytes(0, reader.bytes.length, Ref(reader.bytes[0]));
         }
-        Nri_DestroyFile(file);
+        file.destroy();
         return reader;
     }
 

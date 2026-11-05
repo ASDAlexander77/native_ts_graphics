@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace ComputeShaderDerivativesNri {
     // compute_shader_derivatives, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -77,22 +78,22 @@ namespace ComputeShaderDerivativesNri {
     // or of 4 in a row with -linear (NRI tells whether compute shaders have derivatives, not which
     // groups: the Donut example falls back to linear groups where quads are missing).
     class ComputeShaderDerivatives {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private computePipeline: NriPipelineHandle | null = null;
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private image: NriTextureHandle | null = null;
-        private imageStorage: NriDescriptorHandle | null = null;
-        private imageView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private computeSet: NriDescriptorSetHandle | null = null;
-        private drawSet: NriDescriptorSetHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private computePipeline: NriPipeline | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private image: NriTexture | null = null;
+        private imageStorage: NriDescriptor | null = null;
+        private imageView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private computeSet: NriDescriptorSet | null = null;
+        private drawSet: NriDescriptorSet | null = null;
         // The image is read by the draw (after the first frame).
         private imageDrawn: boolean = false;
         private imgui: boolean = false;
@@ -111,11 +112,11 @@ namespace ComputeShaderDerivativesNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -126,13 +127,13 @@ namespace ComputeShaderDerivativesNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -145,20 +146,20 @@ namespace ComputeShaderDerivativesNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the
             // Donut example blits into its back buffer).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -174,21 +175,21 @@ namespace ComputeShaderDerivativesNri {
                 this.unsupportedReason = "No D3D11 shaders (compute_shader_derivatives.hlsl needs shader model 6.6)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.ComputeShaderDerivatives) == 0) {
+            if (device.isFeatureSupported(NriFeature.ComputeShaderDerivatives) == 0) {
                 this.unsupportedReason = "This example needs derivatives in compute shaders (D3D12 shader model 6.6 or Vulkan's VK_KHR_compute_shader_derivatives)";
                 return 0;
             }
 
             // The layouts: the compute shader's image (u0); the draw's image (t0) and sampler (s0).
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout) {
@@ -201,52 +202,52 @@ namespace ComputeShaderDerivativesNri {
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/compute_shader_derivatives/${folder}/compute_shader_derivatives`;
             const entry = this.useLinear ? "derivatives_linear" : "derivatives_quad";
-            this.computePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_${entry}.bin`, entry);
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_fullscreen_vs.bin`, "fullscreen_vs") != 0;
+            this.computePipeline = device.createComputePipeline(computeLayout, `${shaders}_${entry}.bin`, entry);
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_fullscreen_vs.bin`, "fullscreen_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_fullscreen_ps.bin`, "fullscreen_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_fullscreen_ps.bin`, "fullscreen_ps") != 0;
             }
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.computePipeline || !this.drawPipeline) {
                 console.log("Cannot load the compute shader derivatives shaders");
                 return 0;
             }
 
             // Storage image for compute shader output, read through a linear, clamped sampler.
-            const image = Nri_CreateStorageTexture(device, this.queue, IMAGE_WIDTH, IMAGE_HEIGHT, NriFormat.RGBA8_UNORM);
+            const image = device.createStorageTexture(this.queue, IMAGE_WIDTH, IMAGE_HEIGHT, NriFormat.RGBA8_UNORM);
             this.image = image;
-            this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2, 1, 0, 1, 1, 0);
+            this.sampler = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            const descriptorPool = device.createDescriptorPool(2, 1, 0, 1, 1, 0);
             this.descriptorPool = descriptorPool;
             const sampler = this.sampler;
             if (!image || !sampler || !descriptorPool) {
                 console.log("Cannot create the image");
                 return 0;
             }
-            const imageStorage = Nri_CreateStorageTextureView(image, NriFormat.RGBA8_UNORM);
-            const imageView = Nri_CreateTextureView(image, NriFormat.RGBA8_UNORM);
+            const imageStorage = image.createStorageView(NriFormat.RGBA8_UNORM);
+            const imageView = image.createView(NriFormat.RGBA8_UNORM);
             this.imageStorage = imageStorage;
             this.imageView = imageView;
-            const computeSet = Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0);
-            const drawSet = Nri_AllocateDescriptorSet(descriptorPool, drawLayout, 0, 0);
+            const computeSet = descriptorPool.allocateDescriptorSet(computeLayout, 0, 0);
+            const drawSet = descriptorPool.allocateDescriptorSet(drawLayout, 0, 0);
             this.computeSet = computeSet;
             this.drawSet = drawSet;
             if (!computeSet || !drawSet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
-            Nri_UpdateDescriptor(computeSet, 0, 0, imageStorage);
-            Nri_UpdateDescriptor(drawSet, 0, 0, imageView);
-            Nri_UpdateDescriptor(drawSet, 1, 0, sampler);
+            computeSet.updateDescriptor(0, 0, imageStorage);
+            drawSet.updateDescriptor(0, 0, imageView);
+            drawSet.updateDescriptor(1, 0, sampler);
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -254,9 +255,9 @@ namespace ComputeShaderDerivativesNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -270,7 +271,7 @@ namespace ComputeShaderDerivativesNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -291,28 +292,28 @@ namespace ComputeShaderDerivativesNri {
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("Compute Shader Derivatives", 1) != 0) {
-                Nri_ImguiText("Visualization:");
-                Nri_ImguiText("- Blue: Base procedural radial pattern");
-                Nri_ImguiText("- Red/Yellow: Edges (high gradient magnitude)");
-                Nri_ImguiText("- Gradient magnitude = sqrt(dx^2 + dy^2)");
-                Nri_ImguiText("");
-                Nri_ImguiText("This demonstrates edge detection using compute shader");
-                Nri_ImguiText("derivatives, useful for LOD selection, filtering, and");
-                Nri_ImguiText("spatial analysis in compute pipelines.");
-                Nri_ImguiText("");
-                Nri_ImguiText(this.useLinear ? "Derivative groups: linear (4 threads in a row)" : "Derivative groups: quads (2 x 2 threads)");
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("Compute Shader Derivatives", 1) != 0) {
+                NriImgui.text("Visualization:");
+                NriImgui.text("- Blue: Base procedural radial pattern");
+                NriImgui.text("- Red/Yellow: Edges (high gradient magnitude)");
+                NriImgui.text("- Gradient magnitude = sqrt(dx^2 + dy^2)");
+                NriImgui.text("");
+                NriImgui.text("This demonstrates edge detection using compute shader");
+                NriImgui.text("derivatives, useful for LOD selection, filtering, and");
+                NriImgui.text("spatial analysis in compute pipelines.");
+                NriImgui.text("");
+                NriImgui.text(this.useLinear ? "Derivative groups: linear (4 threads in a row)" : "Derivative groups: quads (2 x 2 threads)");
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The compute shader: 512 x 512 image with 8 x 8 local size = 64 x 64 workgroups; then the
         // image goes to the draw.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const computePipeline = this.computePipeline;
             const descriptorPool = this.descriptorPool;
@@ -322,20 +323,20 @@ namespace ComputeShaderDerivativesNri {
                 return;
             }
             if (this.imageDrawn) {
-                Nri_CmdTextureBarrier(commandBuffer, image, NriTextureState.ShaderResource, NriTextureState.Storage);
+                commandBuffer.textureBarrier(image, NriTextureState.ShaderResource, NriTextureState.Storage);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-            Nri_CmdSetPipeline(commandBuffer, computePipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, computeSet);
-            Nri_CmdDispatch(commandBuffer, IMAGE_WIDTH / TILE_SIZE, IMAGE_HEIGHT / TILE_SIZE, 1);
-            Nri_CmdTextureBarrier(commandBuffer, image, NriTextureState.Storage, NriTextureState.ShaderResource);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setComputePipelineLayout(computeLayout);
+            commandBuffer.setPipeline(computePipeline);
+            commandBuffer.setComputeDescriptorSet(0, computeSet);
+            commandBuffer.dispatch(IMAGE_WIDTH / TILE_SIZE, IMAGE_HEIGHT / TILE_SIZE, 1);
+            commandBuffer.textureBarrier(image, NriTextureState.Storage, NriTextureState.ShaderResource);
             this.imageDrawn = true;
         }
 
-        // The computed image as a fullscreen triangle (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle) {
+        // The computed image as a fullscreen triangle (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const descriptorPool = this.descriptorPool;
@@ -343,13 +344,13 @@ namespace ComputeShaderDerivativesNri {
             if (!drawLayout || !drawPipeline || !descriptorPool || !drawSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, drawSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setDescriptorSet(0, drawSet);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
@@ -365,37 +366,37 @@ namespace ComputeShaderDerivativesNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the compute pass, the image over the frame, the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordCompute(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
                 this.recordDraw(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -411,12 +412,12 @@ namespace ComputeShaderDerivativesNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -426,65 +427,65 @@ namespace ComputeShaderDerivativesNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.imageStorage);
                 this.destroyDescriptor(this.imageView);
                 this.destroyDescriptor(this.sampler);
                 const image = this.image;
                 if (image) {
-                    Nri_DestroyTexture(image);
+                    image.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.destroyPipeline(this.computePipeline);
                 this.destroyPipeline(this.drawPipeline);
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const computeShaderDerivatives = new ComputeShaderDerivatives(sample);
         // -linear: linear derivative groups; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-linear");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-linear");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-linear") {
                 computeShaderDerivatives.useLinear = true;
             } else if (arg == "-noUI") {

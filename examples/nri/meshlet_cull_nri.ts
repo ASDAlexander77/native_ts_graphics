@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { MeshletModel } from "../../core/meshlet_model";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriFile, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 import {
     dot3, matrixInverse, matrixLookToRH, matrixMultiply, matrixPerspectiveFovRH,
     matrixScaling, matrixTranspose, normalize3, planeNormalize, row, transform3, transformCoord3,
@@ -13,7 +14,7 @@ namespace MeshletCullNri {
     // and NVRHI: the same shaders (meshlet_cull.hlsl's and meshlet_cull_visualizers.hlsl's) and models
     // (core/meshlet_model.cpp reads them), through the NRI calls core/nri/nri_interop.d.ts binds. This
     // example creates everything it runs, and does the rendering. The keys are Donut's Key values
-    // (GLFW's key codes), which Nri_IsKeyPressed takes.
+    // (GLFW's key codes), which NriSample.isKeyPressed takes.
 
     const WINDOW_TITLE = "NRI Example: D3D12 Mesh Shader Culling";
     const MEDIA_DIR = "media/meshlet_cull/";
@@ -88,7 +89,7 @@ namespace MeshletCullNri {
 
     // A buffer the shaders read and its view.
     class ShaderBuffer {
-        constructor(public buffer: NriBufferHandle, public view: NriDescriptorHandle) {
+        constructor(public buffer: NriBuffer, public view: NriDescriptor) {
         }
     }
 
@@ -228,8 +229,8 @@ namespace MeshletCullNri {
     // A mesh of a model: its GPU buffers (bound as root descriptors) and its meshlets, primitives,
     // unique vertex indices, positions and culling data on the CPU, for picking.
     class MeshletMesh {
-        meshInfo: NriBufferHandle;
-        meshInfoView: NriDescriptorHandle;
+        meshInfo: NriBuffer;
+        meshInfoView: NriDescriptor;
         vertices: ShaderBuffer;
         meshletBuffer: ShaderBuffer;
         uniqueVertexIndices: ShaderBuffer;
@@ -243,7 +244,7 @@ namespace MeshletCullNri {
         positions: f32[];
         cullFloats: f32[];
 
-        constructor(meshInfo: NriBufferHandle, meshInfoView: NriDescriptorHandle, vertices: ShaderBuffer, meshletBuffer: ShaderBuffer,
+        constructor(meshInfo: NriBuffer, meshInfoView: NriDescriptor, vertices: ShaderBuffer, meshletBuffer: ShaderBuffer,
             uniqueVertexIndices: ShaderBuffer, primitiveBuffer: ShaderBuffer, cullData: ShaderBuffer, meshletCount: int, indexSize: int) {
             this.meshInfo = meshInfo;
             this.meshInfoView = meshInfoView;
@@ -287,7 +288,7 @@ namespace MeshletCullNri {
             for (let i = 0; i < INSTANCE_FLOATS; i++) {
                 this.instanceConstants.push(0.0);
             }
-            Nri_StoreInt32(Ref(this.instanceConstants[FLAGS_FLOAT]), flags);
+            Nri.storeInt32(Ref(this.instanceConstants[FLAGS_FLOAT]), flags);
         }
     }
 
@@ -431,25 +432,25 @@ namespace MeshletCullNri {
     // (the sample's R8G8B8A8_UNORM back buffer) with a D32_FLOAT depth buffer; the sample's root
     // signatures' CBVs and SRVs are root descriptors.
     class MeshletCull {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private meshLayout: NriPipelineLayoutHandle | null = null;
-        private frustumLayout: NriPipelineLayoutHandle | null = null;
-        private cullDataLayout: NriPipelineLayoutHandle | null = null;
-        private meshPipeline: NriPipelineHandle | null = null;
-        private frustumPipeline: NriPipelineHandle | null = null;
-        private spherePipeline: NriPipelineHandle | null = null;
-        private conePipeline: NriPipelineHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private meshLayout: NriPipelineLayout | null = null;
+        private frustumLayout: NriPipelineLayout | null = null;
+        private cullDataLayout: NriPipelineLayout | null = null;
+        private meshPipeline: NriPipeline | null = null;
+        private frustumPipeline: NriPipeline | null = null;
+        private spherePipeline: NriPipeline | null = null;
+        private conePipeline: NriPipeline | null = null;
         // A queued frame's constants each, frameConstantsSize bytes apart; views of 512 and 256
         // bytes, bound with their offsets.
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantsView: NriDescriptorHandle | null = null;
-        private constants256View: NriDescriptorHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantsView: NriDescriptor | null = null;
+        private constants256View: NriDescriptor | null = null;
         private frameConstantsSize: int = 0;
         private objects: SceneObject[] = [];
         // What update wrote, for the frame's draws.
@@ -481,13 +482,13 @@ namespace MeshletCullNri {
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart; the
         // meshlet under the window's center selected before the second frame.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
         private frameNumber: int = 0;
         private selectBeforeFrame: int = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONSTANT_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -497,7 +498,7 @@ namespace MeshletCullNri {
             for (let i = 0; i < CULL_DATA_FLOATS; i++) {
                 this.cullDataConstants.push(0.0);
             }
-            Nri_StoreInt32(Ref(this.options[1]), 1);
+            Nri.storeInt32(Ref(this.options[1]), 1);
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -508,13 +509,13 @@ namespace MeshletCullNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -527,16 +528,16 @@ namespace MeshletCullNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
             if (this.test) {
                 this.mouseX = 640.0;
                 this.mouseY = 360.0;
@@ -544,7 +545,7 @@ namespace MeshletCullNri {
             }
 
             // Swap chain: rendered through UNORM views, as the sample's R8G8B8A8_UNORM back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.viewFormat;
@@ -552,7 +553,7 @@ namespace MeshletCullNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
 
-            if (Nri_IsFeatureSupported(device, NriFeature.MeshShader) == 0) {
+            if (device.isFeatureSupported(NriFeature.MeshShader) == 0) {
                 this.unsupportedReason = "The graphics device has no mesh shaders";
                 return 0;
             }
@@ -566,25 +567,25 @@ namespace MeshletCullNri {
             // The sample's root signatures, as root descriptors: CBV(b0), CBV(b1), CBV(b2), SRV(t0)
             // .. SRV(t4); the frustum's CBV(b0); the culling data's CBV(b0), RootConstants(b1, 2),
             // SRV(t0).
-            const meshLayoutDesc = Nri_CreatePipelineLayoutDesc();
+            const meshLayoutDesc = NriPipelineLayoutDesc.create();
             for (let b = 0; b < 3; b++) {
-                Nri_PipelineLayoutDescAddRootDescriptor(meshLayoutDesc, b, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
+                meshLayoutDesc.addRootDescriptor(b, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
             }
             for (let t = 0; t < 5; t++) {
-                Nri_PipelineLayoutDescAddRootDescriptor(meshLayoutDesc, t, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics);
+                meshLayoutDesc.addRootDescriptor(t, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics);
             }
-            this.meshLayout = Nri_CreatePipelineLayoutFromDesc(device, meshLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(meshLayoutDesc);
-            const frustumLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(frustumLayoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
-            this.frustumLayout = Nri_CreatePipelineLayoutFromDesc(device, frustumLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(frustumLayoutDesc);
-            const cullDataLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(cullDataLayoutDesc, 1, OPTIONS_SIZE, NriStage.AllGraphics);
-            Nri_PipelineLayoutDescAddRootDescriptor(cullDataLayoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
-            Nri_PipelineLayoutDescAddRootDescriptor(cullDataLayoutDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics);
-            this.cullDataLayout = Nri_CreatePipelineLayoutFromDesc(device, cullDataLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(cullDataLayoutDesc);
+            this.meshLayout = device.createPipelineLayoutFromDesc(meshLayoutDesc);
+            meshLayoutDesc.destroy();
+            const frustumLayoutDesc = NriPipelineLayoutDesc.create();
+            frustumLayoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
+            this.frustumLayout = device.createPipelineLayoutFromDesc(frustumLayoutDesc);
+            frustumLayoutDesc.destroy();
+            const cullDataLayoutDesc = NriPipelineLayoutDesc.create();
+            cullDataLayoutDesc.addRootConstants(1, OPTIONS_SIZE, NriStage.AllGraphics);
+            cullDataLayoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics);
+            cullDataLayoutDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics);
+            this.cullDataLayout = device.createPipelineLayoutFromDesc(cullDataLayoutDesc);
+            cullDataLayoutDesc.destroy();
             const meshLayout = this.meshLayout;
             const frustumLayout = this.frustumLayout;
             const cullDataLayout = this.cullDataLayout;
@@ -615,14 +616,14 @@ namespace MeshletCullNri {
 
             // The constants: a queued frame's each.
             this.frameConstantsSize = INSTANCES_OFFSET + MODEL_FILES.length * INSTANCE_SIZE;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.frameConstantsSize, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * this.frameConstantsSize, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!constantBuffer) {
                 console.log("Cannot create the constant buffer");
                 return 0;
             }
-            this.constantsView = Nri_CreateConstantBufferView(constantBuffer, 0, CONSTANTS_SIZE);
-            this.constants256View = Nri_CreateConstantBufferView(constantBuffer, 0, 256);
+            this.constantsView = constantBuffer.createConstantView(0, CONSTANTS_SIZE);
+            this.constants256View = constantBuffer.createConstantView(0, 256);
 
             // The sample's cameras: the main one at (0, 15, 40), the culling one at (0, 10, 21).
             this.mainCam.init(0.0, 15.0, 40.0);
@@ -637,9 +638,9 @@ namespace MeshletCullNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -647,53 +648,53 @@ namespace MeshletCullNri {
 
         // A mesh pipeline (with a task shader if taskPath isn't ""): kind 0 the meshlets', 1 the
         // frustum's, 2 the bounding sphere's, 3 the normal cone's. Null on failure.
-        createPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, taskPath: string, taskEntry: string, meshPath: string,
-            meshEntry: string, pixelPath: string, pixelEntry: string, kind: int): NriPipelineHandle | null {
-            const desc = Nri_CreatePipelineDesc();
+        createPipeline(device: NriDevice, layout: NriPipelineLayout, taskPath: string, taskEntry: string, meshPath: string,
+            meshEntry: string, pixelPath: string, pixelEntry: string, kind: int): NriPipeline | null {
+            const desc = NriPipelineDesc.create();
             let loaded = true;
             if (taskPath != "") {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Task, taskPath, taskEntry) != 0;
+                loaded = desc.addShader(NriShaderStage.Task, taskPath, taskEntry) != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Mesh, meshPath, meshEntry) != 0;
+                loaded = desc.addShader(NriShaderStage.Mesh, meshPath, meshEntry) != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, pixelPath, pixelEntry) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, pixelPath, pixelEntry) != 0;
             }
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
             if (kind == 1 || kind == 3) {
-                Nri_PipelineDescSetTopology(desc, NriTopology.LineList);
+                desc.setTopology(NriTopology.LineList);
             }
             if (kind == 1) {
-                Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
+                desc.setCullMode(NriCullMode.Back);
             }
             if (kind <= 1) {
-                Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+                desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
             } else {
-                Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.None, 0, 0);
+                desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.None, 0, 0);
             }
             if (kind == 2) {
-                Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+                desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                     NriBlendFactor.Zero, NriBlendFactor.One, NriBlendOp.Max);
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // A buffer of byteSize bytes of data (ints), structures stride bytes each (4: raw, a
         // ByteAddressBuffer), and its view; null on failure.
-        createShaderBuffer(device: NriDeviceHandle, data: int[], byteSize: int, stride: int): ShaderBuffer | null {
-            const buffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(data[0]), byteSize, stride);
+        createShaderBuffer(device: NriDevice, data: int[], byteSize: int, stride: int): ShaderBuffer | null {
+            const buffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(data[0]), byteSize, stride);
             if (!buffer) {
                 return null;
             }
-            const view = Nri_CreateStructuredBufferView(buffer, 0);
+            const view = buffer.createStructuredView(0);
             if (!view) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
                 return null;
             }
             return new ShaderBuffer(buffer, view);
@@ -701,15 +702,15 @@ namespace MeshletCullNri {
 
         // Model::LoadFromFile and UploadGpuResources, for an object: each mesh's buffers for the
         // shaders, its MeshInfo, and its data for picking.
-        loadObject(device: NriDeviceHandle, index: int): boolean {
+        loadObject(device: NriDevice, index: int): boolean {
             const path = MEDIA_DIR + MODEL_FILES[index];
-            const file = Nri_LoadFile(path);
+            const file = NriFile.load(path);
             if (!file) {
                 console.log(`Cannot load ${path} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                 return false;
             }
-            const loaded = MeshletModel.load(Nri_GetFileData(file), Nri_GetFileSize(file));
-            Nri_DestroyFile(file);
+            const loaded = MeshletModel.load(file.getData(), file.getSize());
+            file.destroy();
             if (loaded.isNull()) {
                 return false;
             }
@@ -738,7 +739,7 @@ namespace MeshletCullNri {
         }
 
         // A mesh's buffers and MeshInfo; for the view model's first mesh, its data for picking too.
-        loadMesh(device: NriDeviceHandle, model: MeshletModel, i: int): MeshletMesh | null {
+        loadMesh(device: NriDevice, model: MeshletModel, i: int): MeshletMesh | null {
             const vertexSize = model.getVertexBufferSize(i, 0);
             const meshletCount = model.getDataCount(i, MeshletModelData.Meshlets);
             const uniqueSize = model.getDataSize(i, MeshletModelData.UniqueVertexIndices);
@@ -780,17 +781,17 @@ namespace MeshletCullNri {
             const cullData = this.createShaderBuffer(device, cullInts, meshletCount * CULL_DATA_STRIDE, 4);
 
             // MeshInfo: index size, meshlet count, the last meshlet's vertex and primitive counts.
-            const meshInfo = Nri_CreateHostBuffer(device, MESH_INFO_SIZE, NriBufferUsage.ConstantBuffer);
+            const meshInfo = device.createHostBuffer(MESH_INFO_SIZE, NriBufferUsage.ConstantBuffer);
             if (!vertices || !meshlets || !uniqueVertexIndices || !primitives || !cullData || !meshInfo) {
                 return null;
             }
             const meshInfoData: f32[] = [0.0, 0.0, 0.0, 0.0];
-            Nri_StoreInt32(Ref(meshInfoData[0]), indexSize);
-            Nri_StoreInt32(Ref(meshInfoData[1]), meshletCount);
-            Nri_StoreInt32(Ref(meshInfoData[2]), meshletInts[(meshletCount - 1) * 4]);
-            Nri_StoreInt32(Ref(meshInfoData[3]), meshletInts[(meshletCount - 1) * 4 + 2]);
-            Nri_WriteBuffer(meshInfo, 0, Ref(meshInfoData[0]), 16);
-            const meshInfoView = Nri_CreateConstantBufferView(meshInfo, 0, MESH_INFO_SIZE);
+            Nri.storeInt32(Ref(meshInfoData[0]), indexSize);
+            Nri.storeInt32(Ref(meshInfoData[1]), meshletCount);
+            Nri.storeInt32(Ref(meshInfoData[2]), meshletInts[(meshletCount - 1) * 4]);
+            Nri.storeInt32(Ref(meshInfoData[3]), meshletInts[(meshletCount - 1) * 4 + 2]);
+            meshInfo.write(0, Ref(meshInfoData[0]), 16);
+            const meshInfoView = meshInfo.createConstantView(0, MESH_INFO_SIZE);
             if (!meshInfoView) {
                 return null;
             }
@@ -827,30 +828,30 @@ namespace MeshletCullNri {
         // meshlet (when pressed); Shift held, the culling camera takes the movement keys, not the
         // main one. The mouse position, once it has moved over the window.
         handleInput() {
-            const space = Nri_IsKeyPressed(this.sample, Key.Space) != 0;
+            const space = this.sample.isKeyPressed(Key.Space) != 0;
             if (space && !this.spaceDown) {
                 this.drawMeshlets = !this.drawMeshlets;
                 this.selectedIndex = -1;
                 this.highlightedIndex = -1;
             }
             this.spaceDown = space;
-            const tab = Nri_IsKeyPressed(this.sample, Key.Tab) != 0;
+            const tab = this.sample.isKeyPressed(Key.Tab) != 0;
             if (tab && !this.tabDown) {
                 this.selectedIndex = this.highlightedIndex;
             }
             this.tabDown = tab;
-            this.moveCam = Nri_IsKeyPressed(this.sample, Key.LeftShift) != 0 || Nri_IsKeyPressed(this.sample, Key.RightShift) != 0;
+            this.moveCam = this.sample.isKeyPressed(Key.LeftShift) != 0 || this.sample.isKeyPressed(Key.RightShift) != 0;
             for (const key of CAMERA_KEYS) {
-                const down = Nri_IsKeyPressed(this.sample, key) != 0;
+                const down = this.sample.isKeyPressed(key) != 0;
                 this.mainCam.onKey(key, down && !this.moveCam);
                 this.debugCam.onKey(key, down && this.moveCam);
             }
-            if (Nri_GetMouseDeltaX(this.sample) != 0.0 || Nri_GetMouseDeltaY(this.sample) != 0.0) {
+            if (this.sample.getMouseDeltaX() != 0.0 || this.sample.getMouseDeltaY() != 0.0) {
                 this.mouseMoved = true;
             }
             if (this.mouseMoved) {
-                this.mouseX = Nri_GetMouseX(this.sample);
-                this.mouseY = Nri_GetMouseY(this.sample);
+                this.mouseX = this.sample.getMouseX();
+                this.mouseY = this.sample.getMouseY();
             }
         }
 
@@ -869,7 +870,7 @@ namespace MeshletCullNri {
             if (!this.test) {
                 this.handleInput();
             }
-            const elapsed = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const elapsed = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             this.mainCam.update(elapsed);
             this.debugCam.update(elapsed);
 
@@ -941,7 +942,7 @@ namespace MeshletCullNri {
                     ic[16 + i] = worldInvTrans[i];
                 }
                 ic[32] = scaleOf(world);
-                Nri_WriteBuffer(constantBuffer, frameOffset + obj.instanceOffset, Ref(ic[0]), INSTANCE_FLOATS * 4);
+                constantBuffer.write(frameOffset + obj.instanceOffset, Ref(ic[0]), INSTANCE_FLOATS * 4);
             }
 
             // CullDataVisualizer::SetConstants, for the view model.
@@ -970,15 +971,15 @@ namespace MeshletCullNri {
 
             // The constants as they are before this frame's pick (as the sample's: the render
             // callback writes what OnUpdate set before it picked).
-            Nri_StoreInt32(Ref(c[HIGHLIGHTED_FLOAT]), this.highlightedIndex);
-            Nri_StoreInt32(Ref(c[SELECTED_FLOAT]), this.selectedIndex);
-            Nri_StoreInt32(Ref(c[DRAW_MESHLETS_FLOAT]), this.drawMeshlets ? 1 : 0);
+            Nri.storeInt32(Ref(c[HIGHLIGHTED_FLOAT]), this.highlightedIndex);
+            Nri.storeInt32(Ref(c[SELECTED_FLOAT]), this.selectedIndex);
+            Nri.storeInt32(Ref(c[DRAW_MESHLETS_FLOAT]), this.drawMeshlets ? 1 : 0);
             if (this.drawMeshlets) {
                 this.pick(view, proj);
             }
-            Nri_WriteBuffer(constantBuffer, frameOffset, Ref(c[0]), CONSTANT_FLOATS * 4);
-            Nri_WriteBuffer(constantBuffer, frameOffset + FRUSTUM_OFFSET, Ref(this.frustumConstants[0]), FRUSTUM_FLOATS * 4);
-            Nri_WriteBuffer(constantBuffer, frameOffset + CULL_DATA_OFFSET, Ref(cd[0]), CULL_DATA_FLOATS * 4);
+            constantBuffer.write(frameOffset, Ref(c[0]), CONSTANT_FLOATS * 4);
+            constantBuffer.write(frameOffset + FRUSTUM_OFFSET, Ref(this.frustumConstants[0]), FRUSTUM_FLOATS * 4);
+            constantBuffer.write(frameOffset + CULL_DATA_OFFSET, Ref(cd[0]), CULL_DATA_FLOATS * 4);
         }
 
         // Pick: the meshlet of the view model's first mesh whose triangle the ray from the camera
@@ -1030,9 +1031,9 @@ namespace MeshletCullNri {
             }
         }
 
-        // PopulateCommandList's draws (between Nri_CmdBeginRenderingWithDepth and
-        // Nri_CmdEndRendering), with the queued frame's constants at frameOffset.
-        recordDraws(commandBuffer: NriCommandBufferHandle, frameOffset: int) {
+        // PopulateCommandList's draws (between NriCommandBuffer.beginRenderingWithDepth and
+        // NriCommandBuffer.endRendering), with the queued frame's constants at frameOffset.
+        recordDraws(commandBuffer: NriCommandBuffer, frameOffset: int) {
             const meshLayout = this.meshLayout;
             const frustumLayout = this.frustumLayout;
             const cullDataLayout = this.cullDataLayout;
@@ -1046,47 +1047,47 @@ namespace MeshletCullNri {
                 || !constantsView || !constants256View) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
 
             // All scene objects with the same pipeline state, a thread per meshlet.
-            Nri_CmdSetPipelineLayout(commandBuffer, meshLayout);
-            Nri_CmdSetPipeline(commandBuffer, meshPipeline);
+            commandBuffer.setPipelineLayout(meshLayout);
+            commandBuffer.setPipeline(meshPipeline);
             for (const obj of this.objects) {
                 for (const mesh of obj.meshes) {
-                    Nri_CmdSetRootDescriptor(commandBuffer, 0, constantsView, frameOffset);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 1, mesh.meshInfoView, 0);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 2, constants256View, frameOffset + obj.instanceOffset);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 3, mesh.vertices.view, 0);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 4, mesh.meshletBuffer.view, 0);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 5, mesh.uniqueVertexIndices.view, 0);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 6, mesh.primitiveBuffer.view, 0);
-                    Nri_CmdSetRootDescriptor(commandBuffer, 7, mesh.cullData.view, 0);
-                    Nri_CmdDrawMeshTasks(commandBuffer, Math.floor((mesh.meshletCount + AS_GROUP_SIZE - 1) / AS_GROUP_SIZE), 1, 1);
+                    commandBuffer.setRootDescriptor(0, constantsView, frameOffset);
+                    commandBuffer.setRootDescriptor(1, mesh.meshInfoView, 0);
+                    commandBuffer.setRootDescriptor(2, constants256View, frameOffset + obj.instanceOffset);
+                    commandBuffer.setRootDescriptor(3, mesh.vertices.view, 0);
+                    commandBuffer.setRootDescriptor(4, mesh.meshletBuffer.view, 0);
+                    commandBuffer.setRootDescriptor(5, mesh.uniqueVertexIndices.view, 0);
+                    commandBuffer.setRootDescriptor(6, mesh.primitiveBuffer.view, 0);
+                    commandBuffer.setRootDescriptor(7, mesh.cullData.view, 0);
+                    commandBuffer.drawMeshTasks(Math.floor((mesh.meshletCount + AS_GROUP_SIZE - 1) / AS_GROUP_SIZE), 1, 1);
                 }
             }
 
             // The frustum bounds of the culling camera.
-            Nri_CmdSetPipelineLayout(commandBuffer, frustumLayout);
-            Nri_CmdSetPipeline(commandBuffer, frustumPipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, constants256View, frameOffset + FRUSTUM_OFFSET);
-            Nri_CmdDrawMeshTasks(commandBuffer, 1, 1, 1);
+            commandBuffer.setPipelineLayout(frustumLayout);
+            commandBuffer.setPipeline(frustumPipeline);
+            commandBuffer.setRootDescriptor(0, constants256View, frameOffset + FRUSTUM_OFFSET);
+            commandBuffer.drawMeshTasks(1, 1, 1);
 
             // The culling data of the selected meshlet, in meshlet viewing mode.
             if (this.drawMeshlets && this.selectedIndex != -1) {
                 const mesh = this.objects[VIEW_MODEL].meshes[0];
-                Nri_StoreInt32(Ref(this.options[0]), this.selectedIndex);
-                Nri_CmdSetPipelineLayout(commandBuffer, cullDataLayout);
-                Nri_CmdSetPipeline(commandBuffer, spherePipeline);
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.options[0]), OPTIONS_SIZE);
-                Nri_CmdSetRootDescriptor(commandBuffer, 0, constants256View, frameOffset + CULL_DATA_OFFSET);
-                Nri_CmdSetRootDescriptor(commandBuffer, 1, mesh.cullData.view, 0);
-                Nri_CmdDrawMeshTasks(commandBuffer, 1, 1, 1);
-                Nri_CmdSetPipeline(commandBuffer, conePipeline);
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.options[0]), OPTIONS_SIZE);
-                Nri_CmdSetRootDescriptor(commandBuffer, 0, constants256View, frameOffset + CULL_DATA_OFFSET);
-                Nri_CmdSetRootDescriptor(commandBuffer, 1, mesh.cullData.view, 0);
-                Nri_CmdDrawMeshTasks(commandBuffer, 1, 1, 1);
+                Nri.storeInt32(Ref(this.options[0]), this.selectedIndex);
+                commandBuffer.setPipelineLayout(cullDataLayout);
+                commandBuffer.setPipeline(spherePipeline);
+                commandBuffer.setRootConstants(0, Ref(this.options[0]), OPTIONS_SIZE);
+                commandBuffer.setRootDescriptor(0, constants256View, frameOffset + CULL_DATA_OFFSET);
+                commandBuffer.setRootDescriptor(1, mesh.cullData.view, 0);
+                commandBuffer.drawMeshTasks(1, 1, 1);
+                commandBuffer.setPipeline(conePipeline);
+                commandBuffer.setRootConstants(0, Ref(this.options[0]), OPTIONS_SIZE);
+                commandBuffer.setRootDescriptor(0, constants256View, frameOffset + CULL_DATA_OFFSET);
+                commandBuffer.setRootDescriptor(1, mesh.cullData.view, 0);
+                commandBuffer.drawMeshTasks(1, 1, 1);
             }
         }
 
@@ -1098,13 +1099,13 @@ namespace MeshletCullNri {
         }
 
         // The sample's depth buffer at the swap chain's size: D32, cleared to 1.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
@@ -1113,12 +1114,12 @@ namespace MeshletCullNri {
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): once the GPU is done with them, the swap
+        // The window was resized (NriSample.useResizableWindow): once the GPU is done with them, the swap
         // chain and the depth buffer made again at its size.
         resizeIfNeeded() {
             const device = this.device;
@@ -1128,7 +1129,7 @@ namespace MeshletCullNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -1149,14 +1150,14 @@ namespace MeshletCullNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: cleared, the meshlets, the frustum, the selected meshlet's culling data.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
+                    commandBuffer.clearDepth(1.0);
                     this.recordDraws(commandBuffer, frameOffset);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -1164,13 +1165,13 @@ namespace MeshletCullNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -1188,12 +1189,12 @@ namespace MeshletCullNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1203,12 +1204,12 @@ namespace MeshletCullNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 this.swapChain.destroy();
                 for (const obj of this.objects) {
                     for (const mesh of obj.meshes) {
-                        Nri_DestroyDescriptor(mesh.meshInfoView);
-                        Nri_DestroyBuffer(mesh.meshInfo);
+                        mesh.meshInfoView.destroy();
+                        mesh.meshInfo.destroy();
                         this.destroyShaderBuffer(mesh.vertices);
                         this.destroyShaderBuffer(mesh.meshletBuffer);
                         this.destroyShaderBuffer(mesh.uniqueVertexIndices);
@@ -1229,44 +1230,44 @@ namespace MeshletCullNri {
                 this.destroyLayout(this.frustumLayout);
                 this.destroyLayout(this.cullDataLayout);
                 this.frames.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyShaderBuffer(shaderBuffer: ShaderBuffer) {
-            Nri_DestroyDescriptor(shaderBuffer.view);
-            Nri_DestroyBuffer(shaderBuffer.buffer);
+            shaderBuffer.view.destroy();
+            shaderBuffer.buffer.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const meshletCull = new MeshletCull(sample);
         return meshletCull.run(argc, argv);
     }

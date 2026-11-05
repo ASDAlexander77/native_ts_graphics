@@ -1,4 +1,5 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
+import { NriBuffer } from "../core/nri";
 
 // powder_sandbox_nri's constants (the GPU sections' layout, the materials, the tools and their
 // toolbar, the HUD's probe, the sounds) and the small classes the sandbox's files share.
@@ -84,7 +85,7 @@ export const INT_SECTIONS = 6 + PARTICLE_TYPES + 10;
 export const I_EVENTS = 6 + PARTICLE_TYPES + 8;
 export const EVENT_COUNT = 4;
 export const EVENT_NAMES = ["splash", "fizz", "fire", "boom"];
-// Nri_PlaySound's sounds for them, the fewest events a sound needs, the time before it plays again
+// NriAudio.playSound's sounds for them, the fewest events a sound needs, the time before it plays again
 // (seconds), and its loudness at EVENTS_LOUD events.
 export const EVENT_MIN = [8, 1, 30, 3];
 export const EVENT_COOLDOWN = [0.12, 0.25, 0.07, 0.6];
@@ -669,6 +670,6 @@ export class QueuedFrame {
     public steps: int = 0;
     // The level's time after it (-1 before the level's strokes were painted), for its goal.
     public levelTime: number = -1.0;
-    constructor(public probeReadback: NriBufferHandle, public timestampReadback: NriBufferHandle | null) {
+    constructor(public probeReadback: NriBuffer, public timestampReadback: NriBuffer | null) {
     }
 }

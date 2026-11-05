@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { identity, rotate, radians, perspective } from "../../core/matrix";
 import { comboItems } from "../../core/text_format";
 import { LookAtCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace DynamicPrimitiveClippingNri {
     // dynamic_primitive_clipping, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -26,7 +27,7 @@ namespace DynamicPrimitiveClippingNri {
         "Half-space in clip space coordinates", "Clip space X", "Clip space Y", "Euclidean distance to center",
         "Manhattan distance to center", "Chebyshev distance to center"];
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // The sample's camera: a look-at camera at (0, 0, -50) turned by (0, 180, 0) degrees, a 60
@@ -96,22 +97,22 @@ namespace DynamicPrimitiveClippingNri {
     // clipping at the near and far planes: the sample's dynamic depth clip state
     // (VK_EXT_depth_clip_enable) is a pipeline of its own here, as in the Donut example.
     class DynamicPrimitiveClipping {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format and their views'.
         private swapChainFormat: NriFormat = 0;
         private swapChainViewFormat: NriFormat = 0;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
         // Without depth clipping, then with it.
-        private pipelines: (NriPipelineHandle | null)[] = [];
-        private models: NriGltfMeshHandle[] = [];
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantBufferView: NriDescriptorHandle | null = null;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
+        private pipelines: (NriPipeline | null)[] = [];
+        private models: NriGltfMesh[] = [];
+        private constantBuffer: NriBuffer | null = null;
+        private constantBufferView: NriDescriptor | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -136,11 +137,11 @@ namespace DynamicPrimitiveClippingNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             const teapot = rotate([10.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 1.0],
                 radians(180.0), 1.0, 0.0, 0.0);
             this.transforms = [teapot, identity(), identity()];
@@ -157,11 +158,11 @@ namespace DynamicPrimitiveClippingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -172,19 +173,19 @@ namespace DynamicPrimitiveClippingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -195,7 +196,7 @@ namespace DynamicPrimitiveClippingNri {
 
             // The models.
             for (const modelPath of MODEL_PATHS) {
-                const model = Nri_LoadGltfMesh(device, this.queue, modelPath);
+                const model = device.loadGltfMesh(this.queue, modelPath);
                 if (!model) {
                     console.log("Cannot load the models: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                     return 0;
@@ -204,10 +205,10 @@ namespace DynamicPrimitiveClippingNri {
             }
 
             // The layout: the UBO (b0), a root descriptor bound at each draw's slice.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -220,21 +221,21 @@ namespace DynamicPrimitiveClippingNri {
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
             const shaders = `shaders/dynamic_primitive_clipping/${folder}/dynamic_primitive_clipping`;
             for (let clip = 0; clip < 2; clip++) {
-                const desc = Nri_CreatePipelineDesc();
-                let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
+                const desc = NriPipelineDesc.create();
+                let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_main_vs.bin`, "main_vs") != 0;
                 if (loaded) {
-                    loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
+                    loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
                 }
-                Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-                Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, 12);
-                Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
-                Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
-                Nri_PipelineDescSetDepthClip(desc, clip);
-                let pipeline: NriPipelineHandle | null = null;
+                desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+                desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, 12);
+                desc.setColor(viewFormat, NriColorWrite.RGBA);
+                desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+                desc.setDepthClip(clip);
+                let pipeline: NriPipeline | null = null;
                 if (loaded) {
-                    pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                    pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
                 }
-                Nri_DestroyPipelineDesc(desc);
+                desc.destroy();
                 if (!pipeline) {
                     console.log("Cannot load the dynamic primitive clipping shaders");
                     return 0;
@@ -243,17 +244,17 @@ namespace DynamicPrimitiveClippingNri {
             }
 
             // The UBOs, two draws a queued frame; the depth buffer.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * 2 * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * 2 * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!constantBuffer || !this.createSizeTargets(device)) {
                 console.log("Cannot create the constant and depth buffers");
                 return 0;
             }
-            this.constantBufferView = Nri_CreateConstantBufferView(constantBuffer, 0, UBO_STRIDE);
+            this.constantBufferView = constantBuffer.createConstantView(0, UBO_STRIDE);
 
             // The sample's settings.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -261,9 +262,9 @@ namespace DynamicPrimitiveClippingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -277,9 +278,9 @@ namespace DynamicPrimitiveClippingNri {
         // The camera's mouse handling (ApiVulkanSample's), unless the settings window has the
         // mouse: the buttons' changes, then the cursor's position.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -287,29 +288,29 @@ namespace DynamicPrimitiveClippingNri {
                     this.buttons[button] = pressed;
                 }
             }
-            this.camera.mouseMove(Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample));
+            this.camera.mouseMove(this.sample.getMouseX(), this.sample.getMouseY());
         }
 
         // The sample's settings.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.objectIndex = Nri_ImguiCombo("Object type", this.objectIndex, comboItems(MODEL_NAMES));
-                this.usePrimitiveClipping = Nri_ImguiCheckbox("Use primitive clipping", this.usePrimitiveClipping ? 1 : 0) != 0;
-                this.visualization = Nri_ImguiCombo("Visualization", this.visualization, comboItems(VISUALIZATION_NAMES));
-                this.drawObject[0] = Nri_ImguiCheckbox("Draw object 1", this.drawObject[0] ? 1 : 0) != 0;
-                this.drawObject[1] = Nri_ImguiCheckbox("Draw object 2", this.drawObject[1] ? 1 : 0) != 0;
-                this.useDepthClipping = Nri_ImguiCheckbox("Use depth clipping", this.useDepthClipping ? 1 : 0) != 0;
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.objectIndex = NriImgui.combo("Object type", this.objectIndex, comboItems(MODEL_NAMES));
+                this.usePrimitiveClipping = NriImgui.checkbox("Use primitive clipping", this.usePrimitiveClipping ? 1 : 0) != 0;
+                this.visualization = NriImgui.combo("Visualization", this.visualization, comboItems(VISUALIZATION_NAMES));
+                this.drawObject[0] = NriImgui.checkbox("Draw object 1", this.drawObject[0] ? 1 : 0) != 0;
+                this.drawObject[1] = NriImgui.checkbox("Draw object 2", this.drawObject[1] ? 1 : 0) != 0;
+                this.useDepthClipping = NriImgui.checkbox("Use depth clipping", this.useDepthClipping ? 1 : 0) != 0;
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers for one draw (at offset in the constant buffer): its
         // color transformation and clip distance sign.
-        writeUniforms(constantBuffer: NriBufferHandle, offset: int, projection: number[], view: number[], colorScale: number,
+        writeUniforms(constantBuffer: NriBuffer, offset: int, projection: number[], view: number[], colorScale: number,
             colorOffset: number, sign: int) {
             const u = this.ubo;
             const model = this.transforms[this.objectIndex];
@@ -322,16 +323,16 @@ namespace DynamicPrimitiveClippingNri {
             u[UBO_COLOR_TRANSFORMATION + 1] = colorOffset;
             u[UBO_COLOR_TRANSFORMATION + 2] = 0.0;
             u[UBO_COLOR_TRANSFORMATION + 3] = 0.0;
-            Nri_StoreInt32(Ref(u[UBO_SCENE_TRANSFORMATION]), this.visualization);
-            Nri_StoreInt32(Ref(u[UBO_SCENE_TRANSFORMATION + 1]), sign);
+            Nri.storeInt32(Ref(u[UBO_SCENE_TRANSFORMATION]), this.visualization);
+            Nri.storeInt32(Ref(u[UBO_SCENE_TRANSFORMATION + 1]), sign);
             u[UBO_USE_PRIMITIVE_CLIPPING] = this.usePrimitiveClipping ? 1.0 : -1.0;
-            Nri_WriteBuffer(constantBuffer, offset, Ref(u[0]), UBO_FLOATS * 4);
+            constantBuffer.write(offset, Ref(u[0]), UBO_FLOATS * 4);
         }
 
         // The object, then (with primitive clipping) the same object with the clip distances negated
-        // (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering); this queued frame's UBOs
+        // (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering); this queued frame's UBOs
         // from frameOffset.
-        recordDraw(commandBuffer: NriCommandBufferHandle, frameOffset: int) {
+        recordDraw(commandBuffer: NriCommandBuffer, frameOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipelines[this.useDepthClipping ? 1 : 0];
             const constantBuffer = this.constantBuffer;
@@ -345,18 +346,18 @@ namespace DynamicPrimitiveClippingNri {
             this.writeUniforms(constantBuffer, frameOffset + UBO_STRIDE, projection, view, -1.0, 1.0, -1);
 
             const model = this.models[this.objectIndex];
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(model), 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(model), 0, VERTEX_SIZE);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setIndexBuffer(model.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, model.getVertexBuffer(), 0, VERTEX_SIZE);
             for (let draw = 0; draw < 2; draw++) {
                 if (!this.drawObject[draw] || (draw == 1 && !this.usePrimitiveClipping)) {
                     continue;
                 }
-                Nri_CmdSetRootDescriptor(commandBuffer, 0, constantBufferView, frameOffset + draw * UBO_STRIDE);
-                Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(model), 1, 0, 0, 0);
+                commandBuffer.setRootDescriptor(0, constantBufferView, frameOffset + draw * UBO_STRIDE);
+                commandBuffer.drawIndexed(model.getIndexCount(), 1, 0, 0, 0);
             }
         }
 
@@ -371,30 +372,30 @@ namespace DynamicPrimitiveClippingNri {
 
         // The window-size targets: the depth buffer (D32) and its attachment view; false if it can't
         // be created.
-        createSizeTargets(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createSizeTargets(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroySizeTargets() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the window-size targets made again at its
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the window-size targets made again at its
         // size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -427,21 +428,21 @@ namespace DynamicPrimitiveClippingNri {
 
                 // Record: color cleared to dark gray, depth to 1, the object's draws; then the
                 // settings window over them.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, 0.1, 0.1, 0.1, 0.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(0.1, 0.1, 0.1, 0.0);
+                    commandBuffer.clearDepth(1.0);
                     this.recordDraw(commandBuffer, queuedFrameIndex * 2 * UBO_STRIDE);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -449,18 +450,18 @@ namespace DynamicPrimitiveClippingNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -476,12 +477,12 @@ namespace DynamicPrimitiveClippingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -491,79 +492,79 @@ namespace DynamicPrimitiveClippingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const model of this.models) {
-                    Nri_DestroyGltfMesh(model);
+                    model.destroy();
                 }
                 this.destroyDescriptor(this.constantBufferView);
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 this.destroySizeTargets();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 for (const pipeline of this.pipelines) {
                     this.destroyPipeline(pipeline);
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const clipping = new DynamicPrimitiveClipping(sample);
         // -object <n>: 0 teapot, 1 torus knot, 2 sphere; -visualization <n>: the clip distance
         // function (0 ... 8, as the UI lists them); -noclipping: primitive clipping off; -depthclip:
         // depth clipping on; -only <n>: draw only object 1 or 2; -noUI: no settings window.
-        Nri_AddExampleOptionWithValues(sample, "-object", 1);
-        Nri_AddExampleOptionWithValues(sample, "-visualization", 1);
-        Nri_AddExampleOption(sample, "-noclipping");
-        Nri_AddExampleOption(sample, "-depthclip");
-        Nri_AddExampleOptionWithValues(sample, "-only", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-object", 1);
+        sample.addExampleOptionWithValues("-visualization", 1);
+        sample.addExampleOption("-noclipping");
+        sample.addExampleOption("-depthclip");
+        sample.addExampleOptionWithValues("-only", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         let only = 0;
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-object" && i + 1 < argc) {
-                clipping.objectIndex = Math.min(MODEL_NAMES.length - 1, Math.max(0, parseInt(Nri_GetArg(argc, argv, i + 1))));
+                clipping.objectIndex = Math.min(MODEL_NAMES.length - 1, Math.max(0, parseInt(Nri.getArg(argc, argv, i + 1))));
                 i++;
             } else if (arg == "-visualization" && i + 1 < argc) {
-                clipping.visualization = Math.min(VISUALIZATION_NAMES.length - 1, Math.max(0, parseInt(Nri_GetArg(argc, argv, i + 1))));
+                clipping.visualization = Math.min(VISUALIZATION_NAMES.length - 1, Math.max(0, parseInt(Nri.getArg(argc, argv, i + 1))));
                 i++;
             } else if (arg == "-noclipping") {
                 clipping.usePrimitiveClipping = false;
             } else if (arg == "-depthclip") {
                 clipping.useDepthClipping = true;
             } else if (arg == "-only" && i + 1 < argc) {
-                only = parseInt(Nri_GetArg(argc, argv, i + 1));
+                only = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-noUI") {
                 clipping.noUI = true;

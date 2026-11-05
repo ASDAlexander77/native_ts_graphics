@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { MsvcRandom } from "../../core/random";
+import { Nri, NriBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriMemory, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace SmallResourcesNri {
     // small_resources, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -36,7 +37,7 @@ namespace SmallResourcesNri {
 
     // A texture of the grid, its view and the descriptor set binding it.
     class GridTexture {
-        constructor(public texture: NriTextureHandle, public view: NriDescriptorHandle, public descriptorSet: NriDescriptorSetHandle) {
+        constructor(public texture: NriTexture, public view: NriDescriptor, public descriptorSet: NriDescriptorSet) {
         }
     }
 
@@ -126,20 +127,20 @@ namespace SmallResourcesNri {
     // (64 KB each on D3D12); Space switches between the two, the window title shows the resource
     // type and the device memory in use.
     class SmallResources {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format.
         private swapChainFormat: NriFormat = 0;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private textures: GridTexture[] = [];
         // The placed textures' memory, if they're placed.
-        private textureMemory: NriMemoryHandle | null = null;
+        private textureMemory: NriMemory | null = null;
         private width: int = 0;
         private height: int = 0;
         // Set by initialize on D3D11 ("" otherwise).
@@ -149,11 +150,11 @@ namespace SmallResourcesNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -164,13 +165,13 @@ namespace SmallResourcesNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -183,7 +184,7 @@ namespace SmallResourcesNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
@@ -194,13 +195,13 @@ namespace SmallResourcesNri {
                 this.unsupportedReason = "The Small Resources example can only run on D3D12 or Vulkan";
                 return 0;
             }
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)}), a placed 32 x 32 RGBA8 texture takes ${Nri_GetPlacedTextureSize(device, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM)} bytes`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()}), a placed 32 x 32 RGBA8 texture takes ${device.getPlacedTextureSize(TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM)} bytes`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: the sample's R8G8B8A8_UNORM back buffers, rendered into as they are.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -210,19 +211,19 @@ namespace SmallResourcesNri {
 
             // The root signature: a descriptor table of the texture (t0) and the sampler (s0), for the
             // pixel shader, as one descriptor set.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
                 return 0;
             }
-            this.descriptorPool = Nri_CreateDescriptorPool(device, TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT, 0, 0);
+            this.descriptorPool = device.createDescriptorPool(TEXTURE_COUNT, TEXTURE_COUNT, 0, TEXTURE_COUNT, 0, 0);
             // The sample's static sampler: linear, wrapping.
-            this.sampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
+            this.sampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
 
             // LoadAssets: a quad per texture, on a grid centered on the screen (the window's aspect
             // ratio applied to y), in float as the sample's.
@@ -252,7 +253,7 @@ namespace SmallResourcesNri {
                 }
                 y = Math.fround(y - Math.fround(offsetY + marginY));
             }
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
             if (!this.vertexBuffer) {
                 console.log("Cannot create the vertex buffer");
                 return 0;
@@ -267,28 +268,28 @@ namespace SmallResourcesNri {
             // triangle strips.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/small_resources/${folder}/small_resources`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 12);
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 12);
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setColor(format, NriColorWrite.RGBA);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                this.pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the small resources shaders");
                 return 0;
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -296,23 +297,23 @@ namespace SmallResourcesNri {
 
         releaseTextures() {
             for (const gridTexture of this.textures) {
-                Nri_DestroyDescriptor(gridTexture.view);
-                Nri_DestroyTexture(gridTexture.texture);
+                gridTexture.view.destroy();
+                gridTexture.texture.destroy();
             }
             this.textures = [];
             const textureMemory = this.textureMemory;
             if (textureMemory) {
-                Nri_FreeMemory(textureMemory);
+                textureMemory.free();
                 this.textureMemory = null;
             }
             const descriptorPool = this.descriptorPool;
             if (descriptorPool) {
-                Nri_ResetDescriptorPool(descriptorPool);
+                descriptorPool.reset();
             }
         }
 
         // CreateTextures: placed in one allocation, or committed; each with its descriptor set.
-        createTextures(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle) {
+        createTextures(device: NriDevice, pipelineLayout: NriPipelineLayout) {
             this.releaseTextures();
             const descriptorPool = this.descriptorPool;
             const sampler = this.sampler;
@@ -321,35 +322,35 @@ namespace SmallResourcesNri {
             }
             let placedSize = 0.0;
             if (this.usePlacedResources) {
-                placedSize = Nri_GetPlacedTextureSize(device, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
-                this.textureMemory = Nri_AllocateTextureMemory(device, TEXTURE_COUNT * placedSize, TEXTURE_WIDTH, TEXTURE_HEIGHT,
+                placedSize = device.getPlacedTextureSize(TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
+                this.textureMemory = device.allocateTextureMemory(TEXTURE_COUNT * placedSize, TEXTURE_WIDTH, TEXTURE_HEIGHT,
                     NriFormat.RGBA8_UNORM);
             }
 
             // Colors are random, the same for both kinds of resources.
             const random = new MsvcRandom(100);
             for (let n = 0; n < TEXTURE_COUNT; n++) {
-                let texture: NriTextureHandle | null = null;
+                let texture: NriTexture | null = null;
                 const textureMemory = this.textureMemory;
                 if (textureMemory) {
-                    texture = Nri_CreatePlacedTexture(device, textureMemory, n * placedSize, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
+                    texture = device.createPlacedTexture(textureMemory, n * placedSize, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
                 } else {
-                    texture = Nri_CreateCommittedTexture(device, TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
+                    texture = device.createCommittedTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, NriFormat.RGBA8_UNORM);
                 }
                 if (!texture) {
                     return false;
                 }
                 const data = generateTexture(random);
-                Nri_UploadTexture(this.queue, texture, Ref(data[0]), TEXTURE_WIDTH * TEXTURE_PIXEL_SIZE);
-                const view = Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM);
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
+                this.queue.uploadTexture(texture, Ref(data[0]), TEXTURE_WIDTH * TEXTURE_PIXEL_SIZE);
+                const view = texture.createView(NriFormat.RGBA8_UNORM);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
                 if (!descriptorSet) {
-                    Nri_DestroyDescriptor(view);
-                    Nri_DestroyTexture(texture);
+                    view.destroy();
+                    texture.destroy();
                     return false;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, view);
-                Nri_UpdateDescriptor(descriptorSet, 1, 0, sampler);
+                descriptorSet.updateDescriptor(0, 0, view);
+                descriptorSet.updateDescriptor(1, 0, sampler);
                 this.textures.push(new GridTexture(texture, view, descriptorSet));
             }
             return true;
@@ -364,14 +365,14 @@ namespace SmallResourcesNri {
             const pipelineLayout = this.pipelineLayout;
             if (device) {
                 if (pipelineLayout) {
-                    if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
-                        Nri_DeviceWaitIdle(device);
+                    if (this.sample.isKeyToggled(NriKey.Space) != 0) {
+                        device.waitIdle();
                         this.usePlacedResources = !this.usePlacedResources;
                         this.createTextures(device, pipelineLayout);
                     }
                     // OnRender's title: the resource type and the device memory in use.
                     const resourceType = this.usePlacedResources ? "Placed" : "Committed";
-                    Nri_SetWindowTitle(this.sample, `${WINDOW_TITLE}: [ResourceType: ${resourceType}] - Memory Used: ${formatMemoryUsage(Nri_GetDeviceMemoryUsage(device))}`);
+                    this.sample.setWindowTitle(`${WINDOW_TITLE}: [ResourceType: ${resourceType}] - Memory Used: ${formatMemoryUsage(device.getMemoryUsage())}`);
                 }
             }
         }
@@ -383,7 +384,7 @@ namespace SmallResourcesNri {
             this.swapChainFormat = this.swapChain.format();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its
+        // The window was resized (NriSample.useResizableWindow): the swap chain made again at its
         // size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -408,10 +409,10 @@ namespace SmallResourcesNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.2, 0.4, 1.0);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.2, 0.4, 1.0);
                 const pipelineLayout = this.pipelineLayout;
                 const pipeline = this.pipeline;
                 const vertexBuffer = this.vertexBuffer;
@@ -420,34 +421,34 @@ namespace SmallResourcesNri {
                     if (pipeline) {
                         if (vertexBuffer) {
                             if (descriptorPool) {
-                                Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-                                Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-                                Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-                                Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-                                Nri_CmdSetPipeline(commandBuffer, pipeline);
+                                commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+                                commandBuffer.setScissor(0, 0, this.width, this.height);
+                                commandBuffer.setDescriptorPool(descriptorPool);
+                                commandBuffer.setPipelineLayout(pipelineLayout);
+                                commandBuffer.setPipeline(pipeline);
                                 for (let n = 0; n < this.textures.length; n++) {
-                                    Nri_CmdSetDescriptorSet(commandBuffer, 0, this.textures[n].descriptorSet);
-                                    Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, n * 4 * VERTEX_STRIDE, VERTEX_STRIDE);
-                                    Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
+                                    commandBuffer.setDescriptorSet(0, this.textures[n].descriptorSet);
+                                    commandBuffer.setVertexBuffer(0, vertexBuffer, n * 4 * VERTEX_STRIDE, VERTEX_STRIDE);
+                                    commandBuffer.draw(4, 1, 0, 0);
                                 }
                             }
                         }
                     }
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -465,12 +466,12 @@ namespace SmallResourcesNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -480,50 +481,50 @@ namespace SmallResourcesNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 this.releaseTextures();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const sampler = this.sampler;
                 if (sampler) {
-                    Nri_DestroyDescriptor(sampler);
+                    sampler.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 const vertexBuffer = this.vertexBuffer;
                 if (vertexBuffer) {
-                    Nri_DestroyBuffer(vertexBuffer);
+                    vertexBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 if (this.unsupportedReason == "") {
                     this.frames.destroy();
                     this.swapChain.destroy();
                 }
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const smallResources = new SmallResources(sample);
         // -committed: start with committed resources (the sample starts with placed ones).
-        Nri_AddExampleOption(sample, "-committed");
+        sample.addExampleOption("-committed");
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "-committed") {
+            if (Nri.getArg(argc, argv, i) == "-committed") {
                 smallResources.usePlacedResources = false;
             }
         }

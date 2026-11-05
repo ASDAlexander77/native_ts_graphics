@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace ColorWriteEnableNri {
     // color_write_enable, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -19,7 +20,7 @@ namespace ColorWriteEnableNri {
 
     // One of the sample's three attachments: the texture, rendered into and read.
     class Target {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle, public view: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public colorAttachment: NriDescriptor, public view: NriDescriptor) {
         }
     }
 
@@ -65,26 +66,26 @@ namespace ColorWriteEnableNri {
     // write enable, so here a pipeline per combination, the disabled targets' write masks 0) and
     // picks the background color.
     class ColorWriteEnable {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format and their views'.
         private swapChainFormat: NriFormat = 0;
         private swapChainViewFormat: NriFormat = 0;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private triangleLayout: NriPipelineLayoutHandle | null = null;
-        private compositionLayout: NriPipelineLayoutHandle | null = null;
+        private triangleLayout: NriPipelineLayout | null = null;
+        private compositionLayout: NriPipelineLayout | null = null;
         // The triangle's pipelines by the enabled targets (bit 0 red, 1 green, 2 blue), made when
         // first needed; the composition's.
-        private trianglePipelines: (NriPipelineHandle | null)[] = [];
-        private compositionPipeline: NriPipelineHandle | null = null;
+        private trianglePipelines: (NriPipeline | null)[] = [];
+        private compositionPipeline: NriPipeline | null = null;
         private shaders: string = "";
         // The sample's three attachments (sRGB, as the swap chain's views), read by the composition
         // through its descriptor set.
         private targets: Target[] = [];
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private compositionSet: NriDescriptorSetHandle | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private compositionSet: NriDescriptorSet | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -101,11 +102,11 @@ namespace ColorWriteEnableNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -116,11 +117,11 @@ namespace ColorWriteEnableNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 console.log(this.unsupportedReason);
                 result = 1;
@@ -134,19 +135,19 @@ namespace ColorWriteEnableNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the Donut example's sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -157,11 +158,11 @@ namespace ColorWriteEnableNri {
 
             // The layouts: the triangle's binds nothing; the composition's has the three targets
             // (t0 to t2).
-            this.triangleLayout = Nri_CreatePipelineLayout(device);
-            const compositionLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(compositionLayoutDesc, 0, 0, 3, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            this.compositionLayout = Nri_CreatePipelineLayoutFromDesc(device, compositionLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(compositionLayoutDesc);
+            this.triangleLayout = device.createPipelineLayout();
+            const compositionLayoutDesc = NriPipelineLayoutDesc.create();
+            compositionLayoutDesc.addRange(0, 0, 3, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            this.compositionLayout = device.createPipelineLayoutFromDesc(compositionLayoutDesc);
+            compositionLayoutDesc.destroy();
             const compositionLayout = this.compositionLayout;
             if (!compositionLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -172,17 +173,17 @@ namespace ColorWriteEnableNri {
             // Donut example; back faces (clockwise front faces) culled, no depth, no blending.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : (graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv");
             this.shaders = `shaders/color_write_enable/${folder}/color_write_enable`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_composition_vs.bin`, "composition_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_composition_vs.bin`, "composition_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${this.shaders}_composition_ps.bin`, "composition_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${this.shaders}_composition_ps.bin`, "composition_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.compositionPipeline = Nri_CreatePipelineFromDesc(device, compositionLayout, desc);
+                this.compositionPipeline = device.createPipelineFromDesc(compositionLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             for (let i = 0; i < 8; i++) {
                 this.trianglePipelines.push(null);
             }
@@ -196,25 +197,25 @@ namespace ColorWriteEnableNri {
                 console.log("Cannot create the attachments");
                 return 0;
             }
-            const descriptorPool = Nri_CreateDescriptorPool(device, 1, 0, 0, 3, 0, 0);
+            const descriptorPool = device.createDescriptorPool(1, 0, 0, 3, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");
                 return 0;
             }
-            const compositionSet = Nri_AllocateDescriptorSet(descriptorPool, compositionLayout, 0, 0);
+            const compositionSet = descriptorPool.allocateDescriptorSet(compositionLayout, 0, 0);
             this.compositionSet = compositionSet;
             if (!compositionSet) {
                 console.log("Cannot create the descriptor set");
                 return 0;
             }
             for (let i = 0; i < 3; i++) {
-                Nri_UpdateDescriptor(compositionSet, 0, i, this.targets[i].view);
+                compositionSet.updateDescriptor(0, i, this.targets[i].view);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -222,9 +223,9 @@ namespace ColorWriteEnableNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -233,7 +234,7 @@ namespace ColorWriteEnableNri {
         // The sample's color pipeline for the enabled targets: back faces culled, no depth, no
         // blending; each target written in its one channel, or not at all when disabled. Null if
         // it can't be made.
-        trianglePipeline(enabled: int): NriPipelineHandle | null {
+        trianglePipeline(enabled: int): NriPipeline | null {
             const device = this.device;
             const triangleLayout = this.triangleLayout;
             if (!device || !triangleLayout) {
@@ -243,20 +244,20 @@ namespace ColorWriteEnableNri {
             if (made) {
                 return made;
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${this.shaders}_triangle_ps.bin`, "triangle_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${this.shaders}_triangle_ps.bin`, "triangle_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, (enabled & 1) != 0 ? NriColorWrite.R : NriColorWrite.None);
-            Nri_PipelineDescAddColor(desc, this.viewFormat, (enabled & 2) != 0 ? NriColorWrite.G : NriColorWrite.None);
-            Nri_PipelineDescAddColor(desc, this.viewFormat, (enabled & 4) != 0 ? NriColorWrite.B : NriColorWrite.None);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(this.viewFormat, (enabled & 1) != 0 ? NriColorWrite.R : NriColorWrite.None);
+            desc.addColor(this.viewFormat, (enabled & 2) != 0 ? NriColorWrite.G : NriColorWrite.None);
+            desc.addColor(this.viewFormat, (enabled & 4) != 0 ? NriColorWrite.B : NriColorWrite.None);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, triangleLayout, desc);
+                pipeline = device.createPipelineFromDesc(triangleLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             this.trianglePipelines[enabled] = pipeline;
             return pipeline;
         }
@@ -268,26 +269,26 @@ namespace ColorWriteEnableNri {
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Color Write Enable", 1);
-            Nri_ImguiPushItemWidth(110.0);
-            if (Nri_ImguiCollapsingHeader("Background color", 1) != 0) {
-                Nri_ImguiColorPicker3("", Ref(this.backgroundColor[0]), 200.0);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Color Write Enable", 1);
+            NriImgui.pushItemWidth(110.0);
+            if (NriImgui.collapsingHeader("Background color", 1) != 0) {
+                NriImgui.colorPicker3("", Ref(this.backgroundColor[0]), 200.0);
             }
-            if (Nri_ImguiCollapsingHeader("Enabled attachment", 1) != 0) {
-                this.rBitEnabled = Nri_ImguiCheckbox("Red bit", this.rBitEnabled ? 1 : 0) != 0;
-                this.gBitEnabled = Nri_ImguiCheckbox("Green bit", this.gBitEnabled ? 1 : 0) != 0;
-                this.bBitEnabled = Nri_ImguiCheckbox("Blue bit", this.bBitEnabled ? 1 : 0) != 0;
+            if (NriImgui.collapsingHeader("Enabled attachment", 1) != 0) {
+                this.rBitEnabled = NriImgui.checkbox("Red bit", this.rBitEnabled ? 1 : 0) != 0;
+                this.gBitEnabled = NriImgui.checkbox("Green bit", this.gBitEnabled ? 1 : 0) != 0;
+                this.bBitEnabled = NriImgui.checkbox("Blue bit", this.bBitEnabled ? 1 : 0) != 0;
             }
-            Nri_ImguiPopItemWidth();
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.popItemWidth();
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // First subpass: the attachments cleared, each to its channel of the background color, and
         // the triangle drawn into them; then they go to the composition.
-        recordTriangle(commandBuffer: NriCommandBufferHandle) {
+        recordTriangle(commandBuffer: NriCommandBuffer) {
             const triangleLayout = this.triangleLayout;
             const enabled = (this.rBitEnabled ? 1 : 0) | (this.gBitEnabled ? 2 : 0) | (this.bBitEnabled ? 4 : 0);
             const pipeline = this.trianglePipeline(enabled);
@@ -295,28 +296,28 @@ namespace ColorWriteEnableNri {
                 return;
             }
             for (const target of this.targets) {
-                Nri_CmdTextureBarrier(commandBuffer, target.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(target.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
             }
-            Nri_CmdBeginRenderingWithThreeColors(commandBuffer, this.targets[0].colorAttachment, this.targets[1].colorAttachment,
+            commandBuffer.beginRenderingWithThreeColors(this.targets[0].colorAttachment, this.targets[1].colorAttachment,
                 this.targets[2].colorAttachment);
             const background = this.backgroundColor;
-            Nri_CmdClearColorAttachment(commandBuffer, 0, background[0], 0.0, 0.0, 0.0);
-            Nri_CmdClearColorAttachment(commandBuffer, 1, 0.0, background[1], 0.0, 0.0);
-            Nri_CmdClearColorAttachment(commandBuffer, 2, 0.0, 0.0, background[2], 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, triangleLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.clearColorAttachment(0, background[0], 0.0, 0.0, 0.0);
+            commandBuffer.clearColorAttachment(1, 0.0, background[1], 0.0, 0.0);
+            commandBuffer.clearColorAttachment(2, 0.0, 0.0, background[2], 0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(triangleLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.endRendering();
             for (const target of this.targets) {
-                Nri_CmdTextureBarrier(commandBuffer, target.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+                commandBuffer.textureBarrier(target.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
             }
         }
 
-        // Second subpass: the attachments added up (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering).
-        recordComposition(commandBuffer: NriCommandBufferHandle) {
+        // Second subpass: the attachments added up (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering).
+        recordComposition(commandBuffer: NriCommandBuffer) {
             const compositionLayout = this.compositionLayout;
             const compositionPipeline = this.compositionPipeline;
             const descriptorPool = this.descriptorPool;
@@ -324,13 +325,13 @@ namespace ColorWriteEnableNri {
             if (!compositionLayout || !compositionPipeline || !descriptorPool || !compositionSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, compositionLayout);
-            Nri_CmdSetPipeline(commandBuffer, compositionPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, compositionSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(compositionLayout);
+            commandBuffer.setPipeline(compositionPipeline);
+            commandBuffer.setDescriptorSet(0, compositionSet);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -344,19 +345,19 @@ namespace ColorWriteEnableNri {
 
         // The window-size targets: the three attachments (the swap chain's size and view format), and
         // the composition set's slots pointing at them once it's there; false if one can't be created.
-        createSizeTargets(device: NriDeviceHandle): boolean {
+        createSizeTargets(device: NriDevice): boolean {
             const viewFormat = this.swapChainViewFormat;
             for (let i = 0; i < 3; i++) {
-                const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, viewFormat);
+                const texture = device.createRenderTargetTexture(this.queue, this.width, this.height, viewFormat);
                 if (!texture) {
                     return false;
                 }
-                this.targets.push(new Target(texture, Nri_CreateColorAttachmentView(texture, viewFormat), Nri_CreateTextureView(texture, viewFormat)));
+                this.targets.push(new Target(texture, texture.createColorAttachmentView(viewFormat), texture.createView(viewFormat)));
             }
             const compositionSet = this.compositionSet;
             if (compositionSet) {
                 for (let i = 0; i < 3; i++) {
-                    Nri_UpdateDescriptor(compositionSet, 0, i, this.targets[i].view);
+                    compositionSet.updateDescriptor(0, i, this.targets[i].view);
                 }
             }
             return true;
@@ -364,14 +365,14 @@ namespace ColorWriteEnableNri {
 
         destroySizeTargets() {
             for (const target of this.targets) {
-                Nri_DestroyDescriptor(target.colorAttachment);
-                Nri_DestroyDescriptor(target.view);
-                Nri_DestroyTexture(target.texture);
+                target.colorAttachment.destroy();
+                target.view.destroy();
+                target.texture.destroy();
             }
             this.targets = [];
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the window-size targets made again at its
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the window-size targets made again at its
         // size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -401,37 +402,37 @@ namespace ColorWriteEnableNri {
 
                 // Record: the triangle into the attachments; the swap chain texture cleared to
                 // transparent black, the attachments added up into it, the overlay over them.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 this.recordTriangle(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
                 this.recordComposition(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -447,12 +448,12 @@ namespace ColorWriteEnableNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -462,18 +463,18 @@ namespace ColorWriteEnableNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroySizeTargets();
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 for (const pipeline of this.trianglePipelines) {
                     this.destroyPipeline(pipeline);
@@ -483,38 +484,38 @@ namespace ColorWriteEnableNri {
                 this.destroyLayout(this.compositionLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const colorWriteEnable = new ColorWriteEnable(sample);
         // -nored, -nogreen, -noblue: the targets' initial write switches; -background <r> <g> <b>:
         // the initial background color; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-nored");
-        Nri_AddExampleOption(sample, "-nogreen");
-        Nri_AddExampleOption(sample, "-noblue");
-        Nri_AddExampleOptionWithValues(sample, "-background", 3);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-nored");
+        sample.addExampleOption("-nogreen");
+        sample.addExampleOption("-noblue");
+        sample.addExampleOptionWithValues("-background", 3);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-nored") {
                 colorWriteEnable.rBitEnabled = false;
             } else if (arg == "-nogreen") {
@@ -523,7 +524,7 @@ namespace ColorWriteEnableNri {
                 colorWriteEnable.bBitEnabled = false;
             } else if (arg == "-background" && i + 3 < argc) {
                 for (let k = 0; k < 3; k++) {
-                    colorWriteEnable.backgroundColor[k] = parseFloat(Nri_GetArg(argc, argv, i + 1 + k));
+                    colorWriteEnable.backgroundColor[k] = parseFloat(Nri.getArg(argc, argv, i + 1 + k));
                 }
                 i += 3;
             } else if (arg == "-noUI") {

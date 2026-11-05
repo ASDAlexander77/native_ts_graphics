@@ -10,6 +10,7 @@ import {
     SQUID_ROOM_VERTEX_STRIDE,
 } from "../../core/squid_room";
 import { DonutBlit } from "../../core/nri_donut_blit";
+import { Nri, NriBuffer, NriCommandAllocator, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriDrawList, NriDrawPass, NriFence, NriFile, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace MultithreadingNri {
     // multithreading (DirectX-Graphics-Samples' D3D12Multithreading, as examples/multithreading.ts
@@ -43,7 +44,7 @@ namespace MultithreadingNri {
     // Test mode: the frames rendered, each 1/60 s.
     const TEST_FRAMES = 60;
 
-    // GLFW's arrow key codes (Nri_IsKeyPressed's).
+    // GLFW's arrow key codes (NriSample.isKeyPressed's).
     const KEY_RIGHT = 262;
     const KEY_LEFT = 263;
     const KEY_DOWN = 264;
@@ -162,11 +163,11 @@ namespace MultithreadingNri {
     // blit and the present), the workers' (a shadow pass and a scene pass each, with allocators of
     // their own), and its sets (its copies of the constants).
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public preCommandBuffer: NriCommandBufferHandle,
-            public midCommandBuffer: NriCommandBufferHandle, public postCommandBuffer: NriCommandBufferHandle,
-            public workerAllocators: NriCommandAllocatorHandle[], public shadowCommandBuffers: NriCommandBufferHandle[],
-            public sceneCommandBuffers: NriCommandBufferHandle[], public sceneSet: NriDescriptorSetHandle,
-            public shadowSet: NriDescriptorSetHandle) {
+        constructor(public commandAllocator: NriCommandAllocator, public preCommandBuffer: NriCommandBuffer,
+            public midCommandBuffer: NriCommandBuffer, public postCommandBuffer: NriCommandBuffer,
+            public workerAllocators: NriCommandAllocator[], public shadowCommandBuffers: NriCommandBuffer[],
+            public sceneCommandBuffers: NriCommandBuffer[], public sceneSet: NriDescriptorSet,
+            public shadowSet: NriDescriptorSet) {
         }
     }
 
@@ -180,9 +181,9 @@ namespace MultithreadingNri {
     // textures, the color blitted into the UNORM swap chain texture, as the Donut example's. Arrow
     // keys turn the camera, Space pauses the lights.
     class Multithreading {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
-        private frameFence: NriFenceHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
+        private frameFence: NriFence;
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
@@ -196,44 +197,44 @@ namespace MultithreadingNri {
         singleThreaded: boolean = false;
 
         // The mesh, the textures (by the sample's index), the targets.
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private textures: NriTextureHandle[] = [];
-        private textureViews: NriDescriptorHandle[] = [];
-        private colorBuffer: NriTextureHandle | null = null;
-        private colorAttachment: NriDescriptorHandle | null = null;
-        private colorView: NriDescriptorHandle | null = null;
-        private depthBuffer: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private shadowMap: NriTextureHandle | null = null;
-        private shadowAttachment: NriDescriptorHandle | null = null;
-        private shadowView: NriDescriptorHandle | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private textures: NriTexture[] = [];
+        private textureViews: NriDescriptor[] = [];
+        private colorBuffer: NriTexture | null = null;
+        private colorAttachment: NriDescriptor | null = null;
+        private colorView: NriDescriptor | null = null;
+        private depthBuffer: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private shadowMap: NriTexture | null = null;
+        private shadowAttachment: NriDescriptor | null = null;
+        private shadowView: NriDescriptor | null = null;
 
         // The layouts (the scene pass: set 0 the pass's constants, the shadow map and the samplers,
         // set 1 (register space 1) a draw's diffuse and normal maps; the shadow pass: its constants),
         // the pipelines, the samplers (linear wrapping for the textures, point clamped for the shadow
         // map), the blit.
-        private sceneLayout: NriPipelineLayoutHandle | null = null;
-        private shadowLayout: NriPipelineLayoutHandle | null = null;
-        private scenePipeline: NriPipelineHandle | null = null;
-        private shadowPipeline: NriPipelineHandle | null = null;
-        private wrapSampler: NriDescriptorHandle | null = null;
-        private clampSampler: NriDescriptorHandle | null = null;
+        private sceneLayout: NriPipelineLayout | null = null;
+        private shadowLayout: NriPipelineLayout | null = null;
+        private scenePipeline: NriPipeline | null = null;
+        private shadowPipeline: NriPipeline | null = null;
+        private wrapSampler: NriDescriptor | null = null;
+        private clampSampler: NriDescriptor | null = null;
         private blit: DonutBlit = new DonutBlit();
 
         // The constant buffer: a queued frame's scene and shadow constants.
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantViews: NriDescriptorHandle[] = [];
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private constantViews: NriDescriptor[] = [];
+        private descriptorPool: NriDescriptorPool | null = null;
         // The materials' sets by diffuse texture (made as draws need them), the blit's.
-        private materialSets: NriDescriptorSetHandle[] = [];
-        private blitSet: NriDescriptorSetHandle | null = null;
+        private materialSets: NriDescriptorSet[] = [];
+        private blitSet: NriDescriptorSet | null = null;
 
         // The contexts' draw lists (every third draw) and passes: shadow and scene.
-        private shadowLists: NriDrawListHandle[] = [];
-        private sceneLists: NriDrawListHandle[] = [];
-        private shadowPasses: NriDrawPassHandle[] = [];
-        private scenePasses: NriDrawPassHandle[] = [];
+        private shadowLists: NriDrawList[] = [];
+        private sceneLists: NriDrawList[] = [];
+        private shadowPasses: NriDrawPass[] = [];
+        private scenePasses: NriDrawPass[] = [];
 
         private sceneConstants: f32[] = zeros(CONSTANTS_FLOATS);
         private shadowConstants: f32[] = zeros(CONSTANTS_FLOATS);
@@ -243,11 +244,11 @@ namespace MultithreadingNri {
         private animate: boolean = true;
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < NUM_LIGHTS; i++) {
                 const light = new Light();
                 this.lights.push(light);
@@ -267,11 +268,11 @@ namespace MultithreadingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -282,22 +283,22 @@ namespace MultithreadingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
-            this.test = Nri_IsTest(this.sample) != 0;
-            Nri_SetWindowTitle(this.sample, `${WINDOW_TITLE} ${this.singleThreaded ? "(single-threaded)" : "(3 threads)"}`);
+            this.queue = device.getGraphicsQueue();
+            this.frameFence = device.createFence(0);
+            this.test = this.sample.isTest() != 0;
+            this.sample.setWindowTitle(`${WINDOW_TITLE} ${this.singleThreaded ? "(single-threaded)" : "(3 threads)"}`);
 
             // Swap chain: the UNORM textures blitted into as they are (the Donut example's UNORM back
             // buffers, the sample's R8G8B8A8_UNORM).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -309,51 +310,51 @@ namespace MultithreadingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
         }
 
         // The color buffer (RGBA8_UNORM), the depth buffer and the shadow map (D32).
-        createTargets(device: NriDeviceHandle) {
-            const colorBuffer = Nri_CreateRenderTargetTexture(device, this.queue, WIDTH, HEIGHT, NriFormat.RGBA8_UNORM);
+        createTargets(device: NriDevice) {
+            const colorBuffer = device.createRenderTargetTexture(this.queue, WIDTH, HEIGHT, NriFormat.RGBA8_UNORM);
             this.colorBuffer = colorBuffer;
-            const depthBuffer = Nri_CreateDepthTexture(device, this.queue, WIDTH, HEIGHT, NriFormat.D32_SFLOAT);
+            const depthBuffer = device.createDepthTexture(this.queue, WIDTH, HEIGHT, NriFormat.D32_SFLOAT);
             this.depthBuffer = depthBuffer;
-            const shadowMap = Nri_CreateSampledDepthTexture(device, this.queue, WIDTH, HEIGHT, NriFormat.D32_SFLOAT);
+            const shadowMap = device.createSampledDepthTexture(this.queue, WIDTH, HEIGHT, NriFormat.D32_SFLOAT);
             this.shadowMap = shadowMap;
             if (!colorBuffer || !depthBuffer || !shadowMap) {
                 console.log("Cannot create the render targets");
                 return false;
             }
-            this.colorAttachment = Nri_CreateColorAttachmentView(colorBuffer, NriFormat.RGBA8_UNORM);
-            this.colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA8_UNORM);
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthBuffer, NriFormat.D32_SFLOAT);
-            this.shadowAttachment = Nri_CreateDepthAttachmentView(shadowMap, NriFormat.D32_SFLOAT);
-            this.shadowView = Nri_CreateTextureView(shadowMap, NriFormat.D32_SFLOAT);
+            this.colorAttachment = colorBuffer.createColorAttachmentView(NriFormat.RGBA8_UNORM);
+            this.colorView = colorBuffer.createView(NriFormat.RGBA8_UNORM);
+            this.depthAttachment = depthBuffer.createDepthAttachmentView(NriFormat.D32_SFLOAT);
+            this.shadowAttachment = shadowMap.createDepthAttachmentView(NriFormat.D32_SFLOAT);
+            this.shadowView = shadowMap.createView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         // The sample's root signature: the pass's constant buffer, the shadow map and the samplers
         // (register space 0), and the draw's diffuse and normal maps (space 1). The shadow pass reads its
         // constant buffer only.
-        createLayouts(device: NriDeviceHandle) {
-            const sceneDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 0, 0, 2, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(sceneDesc, 1, 1, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescSetRegisterSpace(sceneDesc, 1, 1);
-            this.sceneLayout = Nri_CreatePipelineLayoutFromDesc(device, sceneDesc);
-            Nri_DestroyPipelineLayoutDesc(sceneDesc);
+        createLayouts(device: NriDevice) {
+            const sceneDesc = NriPipelineLayoutDesc.create();
+            sceneDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            sceneDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            sceneDesc.addRange(0, 0, 2, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            sceneDesc.addRange(1, 1, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            sceneDesc.setRegisterSpace(1, 1);
+            this.sceneLayout = device.createPipelineLayoutFromDesc(sceneDesc);
+            sceneDesc.destroy();
 
-            const shadowDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(shadowDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex, NriRangeFlags.None);
-            this.shadowLayout = Nri_CreatePipelineLayoutFromDesc(device, shadowDesc);
-            Nri_DestroyPipelineLayoutDesc(shadowDesc);
+            const shadowDesc = NriPipelineLayoutDesc.create();
+            shadowDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex, NriRangeFlags.None);
+            this.shadowLayout = device.createPipelineLayoutFromDesc(shadowDesc);
+            shadowDesc.destroy();
 
             if (!this.sceneLayout || !this.shadowLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -366,37 +367,37 @@ namespace MultithreadingNri {
         // clipped at the near and far planes (D3D12's default); the shadow pass's without a pixel
         // shader. The sample's 44-byte vertices: position, normal, texture coordinates, tangent; the
         // shadow pass reads the positions only.
-        createPipelines(device: NriDeviceHandle, folder: string) {
+        createPipelines(device: NriDevice, folder: string) {
             const sceneLayout = this.sceneLayout;
             const shadowLayout = this.shadowLayout;
             if (!sceneLayout || !shadowLayout) {
                 return false;
             }
             const shaders = `shaders/multithreading/${folder}`;
-            const sceneDesc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(sceneDesc, NriShaderStage.Vertex, `${shaders}/multithreading_VSMain.bin`, "VSMain") != 0;
+            const sceneDesc = NriPipelineDesc.create();
+            let loaded = sceneDesc.addShader(NriShaderStage.Vertex, `${shaders}/multithreading_VSMain.bin`, "VSMain") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(sceneDesc, NriShaderStage.Pixel, `${shaders}/multithreading_PSMain.bin`, "PSMain") != 0;
+                loaded = sceneDesc.addShader(NriShaderStage.Pixel, `${shaders}/multithreading_PSMain.bin`, "PSMain") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(sceneDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(sceneDesc, "NORMAL", NriFormat.RGB32_SFLOAT, 12);
-            Nri_PipelineDescAddVertexAttribute(sceneDesc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
-            Nri_PipelineDescAddVertexAttribute(sceneDesc, "TANGENT", NriFormat.RGB32_SFLOAT, 32);
-            Nri_PipelineDescSetCullMode(sceneDesc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(sceneDesc, NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(sceneDesc, NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
-            Nri_PipelineDescSetDepthClip(sceneDesc, 1);
-            this.scenePipeline = loaded ? Nri_CreatePipelineFromDesc(device, sceneLayout, sceneDesc) : null;
-            Nri_DestroyPipelineDesc(sceneDesc);
+            sceneDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            sceneDesc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, 12);
+            sceneDesc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+            sceneDesc.addVertexAttribute("TANGENT", NriFormat.RGB32_SFLOAT, 32);
+            sceneDesc.setCullMode(NriCullMode.Back);
+            sceneDesc.setColor(NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            sceneDesc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
+            sceneDesc.setDepthClip(1);
+            this.scenePipeline = loaded ? device.createPipelineFromDesc(sceneLayout, sceneDesc) : null;
+            sceneDesc.destroy();
 
-            const shadowDesc = Nri_CreatePipelineDesc();
-            loaded = Nri_PipelineDescAddShader(shadowDesc, NriShaderStage.Vertex, `${shaders}/multithreading_VSShadow.bin`, "VSShadow") != 0;
-            Nri_PipelineDescAddVertexAttribute(shadowDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetCullMode(shadowDesc, NriCullMode.Back);
-            Nri_PipelineDescSetDepth(shadowDesc, NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
-            Nri_PipelineDescSetDepthClip(shadowDesc, 1);
-            this.shadowPipeline = loaded ? Nri_CreatePipelineFromDesc(device, shadowLayout, shadowDesc) : null;
-            Nri_DestroyPipelineDesc(shadowDesc);
+            const shadowDesc = NriPipelineDesc.create();
+            loaded = shadowDesc.addShader(NriShaderStage.Vertex, `${shaders}/multithreading_VSShadow.bin`, "VSShadow") != 0;
+            shadowDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            shadowDesc.setCullMode(NriCullMode.Back);
+            shadowDesc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
+            shadowDesc.setDepthClip(1);
+            this.shadowPipeline = loaded ? device.createPipelineFromDesc(shadowLayout, shadowDesc) : null;
+            shadowDesc.destroy();
 
             if (!this.scenePipeline || !this.shadowPipeline) {
                 console.log("Cannot load the multithreading shaders");
@@ -409,15 +410,15 @@ namespace MultithreadingNri {
         // the queued frames' sets and command buffers; the materials' sets (a set per diffuse texture:
         // the sample's descriptor table of the diffuse texture and the one after it as the normal map)
         // and the contexts' draw lists and passes.
-        loadAssets(device: NriDeviceHandle, queuedFrameNum: int) {
-            const file = Nri_LoadFile(DATA_FILE);
+        loadAssets(device: NriDevice, queuedFrameNum: int) {
+            const file = NriFile.load(DATA_FILE);
             if (!file) {
                 console.log(`Cannot load ${DATA_FILE} (the sample's data: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                 return false;
             }
-            const vertexBuffer = Nri_CreateUploadedBufferFromFile(device, this.queue, file, SQUID_ROOM_VERTEX_DATA_OFFSET,
+            const vertexBuffer = device.createUploadedBufferFromFile(this.queue, file, SQUID_ROOM_VERTEX_DATA_OFFSET,
                 SQUID_ROOM_VERTEX_DATA_SIZE, NriBufferUsage.VertexBuffer);
-            const indexBuffer = Nri_CreateUploadedBufferFromFile(device, this.queue, file, SQUID_ROOM_INDEX_DATA_OFFSET,
+            const indexBuffer = device.createUploadedBufferFromFile(this.queue, file, SQUID_ROOM_INDEX_DATA_OFFSET,
                 SQUID_ROOM_INDEX_DATA_SIZE, NriBufferUsage.IndexBuffer);
             this.vertexBuffer = vertexBuffer;
             this.indexBuffer = indexBuffer;
@@ -426,19 +427,19 @@ namespace MultithreadingNri {
             for (let i = 0; i < textureCount; i++) {
                 const t = i * SQUID_ROOM_TEXTURE_FIELDS;
                 const format = SQUID_ROOM_TEXTURES[t + 2] == 0 ? NriFormat.BC1_RGBA_UNORM : NriFormat.RGBA8_UNORM;
-                const texture = Nri_CreateCommittedTexture(device, SQUID_ROOM_TEXTURES[t], SQUID_ROOM_TEXTURES[t + 1], format);
+                const texture = device.createCommittedTexture(SQUID_ROOM_TEXTURES[t], SQUID_ROOM_TEXTURES[t + 1], format);
                 if (!texture) {
                     uploaded = false;
                     break;
                 }
                 this.textures.push(texture);
-                if (Nri_UploadTextureFromFile(this.queue, texture, file, SQUID_ROOM_TEXTURES[t + 3], SQUID_ROOM_TEXTURES[t + 4]) == 0) {
+                if (this.queue.uploadTextureFromFile(texture, file, SQUID_ROOM_TEXTURES[t + 3], SQUID_ROOM_TEXTURES[t + 4]) == 0) {
                     uploaded = false;
                     break;
                 }
-                this.textureViews.push(Nri_CreateTextureView(texture, format));
+                this.textureViews.push(texture.createView(format));
             }
-            Nri_DestroyFile(file);
+            file.destroy();
             if (!vertexBuffer || !indexBuffer || !uploaded) {
                 console.log(`Cannot create the room from ${DATA_FILE}`);
                 return false;
@@ -462,13 +463,13 @@ namespace MultithreadingNri {
 
             // The sample's samplers: linear and wrapping for the textures, point and clamped for the
             // shadow map.
-            const wrapSampler = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 1);
-            const clampSampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
+            const wrapSampler = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 1);
+            const clampSampler = device.createSampler(NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
             this.wrapSampler = wrapSampler;
             this.clampSampler = clampSampler;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * 2 * CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * 2 * CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2 * queuedFrameNum + textureCount + 1,
+            const descriptorPool = device.createDescriptorPool(2 * queuedFrameNum + textureCount + 1,
                 2 * queuedFrameNum + 1, 2 * queuedFrameNum, queuedFrameNum + 2 * textureCount + 1, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!wrapSampler || !clampSampler || !constantBuffer || !descriptorPool) {
@@ -479,38 +480,38 @@ namespace MultithreadingNri {
             // A queued frame's: its sets (the scene pass's constants, shadow map and samplers; the shadow
             // pass's constants) and command buffers.
             for (let i = 0; i < queuedFrameNum; i++) {
-                const sceneSet = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
-                const shadowSet = Nri_AllocateDescriptorSet(descriptorPool, shadowLayout, 0, 0);
-                const sceneView = Nri_CreateConstantBufferView(constantBuffer, this.sceneOffset(i), CONSTANTS_SIZE);
-                const shadowConstantsView = Nri_CreateConstantBufferView(constantBuffer, this.shadowOffset(i), CONSTANTS_SIZE);
+                const sceneSet = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
+                const shadowSet = descriptorPool.allocateDescriptorSet(shadowLayout, 0, 0);
+                const sceneView = constantBuffer.createConstantView(this.sceneOffset(i), CONSTANTS_SIZE);
+                const shadowConstantsView = constantBuffer.createConstantView(this.shadowOffset(i), CONSTANTS_SIZE);
                 if (!sceneSet || !shadowSet || !sceneView || !shadowConstantsView) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
                 this.constantViews.push(sceneView);
                 this.constantViews.push(shadowConstantsView);
-                Nri_UpdateDescriptor(sceneSet, 0, 0, sceneView);
-                Nri_UpdateDescriptor(sceneSet, 1, 0, shadowView);
-                Nri_UpdateDescriptor(sceneSet, 2, 0, wrapSampler);
-                Nri_UpdateDescriptor(sceneSet, 2, 1, clampSampler);
-                Nri_UpdateDescriptor(shadowSet, 0, 0, shadowConstantsView);
+                sceneSet.updateDescriptor(0, 0, sceneView);
+                sceneSet.updateDescriptor(1, 0, shadowView);
+                sceneSet.updateDescriptor(2, 0, wrapSampler);
+                sceneSet.updateDescriptor(2, 1, clampSampler);
+                shadowSet.updateDescriptor(0, 0, shadowConstantsView);
 
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-                const workerAllocators: NriCommandAllocatorHandle[] = [];
-                const shadowCommandBuffers: NriCommandBufferHandle[] = [];
-                const sceneCommandBuffers: NriCommandBufferHandle[] = [];
+                const commandAllocator = this.queue.createCommandAllocator();
+                const workerAllocators: NriCommandAllocator[] = [];
+                const shadowCommandBuffers: NriCommandBuffer[] = [];
+                const sceneCommandBuffers: NriCommandBuffer[] = [];
                 for (let c = 0; c < NUM_CONTEXTS; c++) {
                     // Each pass records on a thread of its own, at the same time as the others: an
                     // allocator each.
-                    const shadowAllocator = Nri_CreateCommandAllocator(this.queue);
-                    const sceneAllocator = Nri_CreateCommandAllocator(this.queue);
+                    const shadowAllocator = this.queue.createCommandAllocator();
+                    const sceneAllocator = this.queue.createCommandAllocator();
                     workerAllocators.push(shadowAllocator);
                     workerAllocators.push(sceneAllocator);
-                    shadowCommandBuffers.push(Nri_CreateCommandBuffer(shadowAllocator));
-                    sceneCommandBuffers.push(Nri_CreateCommandBuffer(sceneAllocator));
+                    shadowCommandBuffers.push(shadowAllocator.createCommandBuffer());
+                    sceneCommandBuffers.push(sceneAllocator.createCommandBuffer());
                 }
-                this.queuedFrames.push(new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator),
-                    Nri_CreateCommandBuffer(commandAllocator), Nri_CreateCommandBuffer(commandAllocator), workerAllocators,
+                this.queuedFrames.push(new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(),
+                    commandAllocator.createCommandBuffer(), commandAllocator.createCommandBuffer(), workerAllocators,
                     shadowCommandBuffers, sceneCommandBuffers, sceneSet, shadowSet));
             }
             const blitSet = this.blit.createSet(descriptorPool, colorView);
@@ -523,10 +524,10 @@ namespace MultithreadingNri {
             // The contexts' draw lists: context c draws c, c + 3, ...; the scene pass binds each draw's
             // material set (set 1).
             for (let c = 0; c < NUM_CONTEXTS; c++) {
-                const shadowList = Nri_CreateDrawList();
-                const sceneList = Nri_CreateDrawList();
-                Nri_DrawListSetPipeline(shadowList, 0);
-                Nri_DrawListSetPipeline(sceneList, 0);
+                const shadowList = NriDrawList.create();
+                const sceneList = NriDrawList.create();
+                shadowList.setPipeline(0);
+                sceneList.setPipeline(0);
                 this.shadowLists.push(shadowList);
                 this.sceneLists.push(sceneList);
             }
@@ -540,13 +541,13 @@ namespace MultithreadingNri {
                 const d = j * SQUID_ROOM_DRAW_FIELDS;
                 const diffuse = SQUID_ROOM_DRAWS[d];
                 if (materialSetIndices[diffuse] < 0) {
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 1, 0);
+                    const set = descriptorPool.allocateDescriptorSet(sceneLayout, 1, 0);
                     if (!set) {
                         console.log("Cannot create the descriptor sets");
                         return false;
                     }
-                    Nri_UpdateDescriptor(set, 0, 0, this.textureViews[diffuse]);
-                    Nri_UpdateDescriptor(set, 0, 1, this.textureViews[diffuse + 1]);
+                    set.updateDescriptor(0, 0, this.textureViews[diffuse]);
+                    set.updateDescriptor(0, 1, this.textureViews[diffuse + 1]);
                     materialSetIndices[diffuse] = this.materialSets.length;
                     this.materialSets.push(set);
                 }
@@ -554,28 +555,28 @@ namespace MultithreadingNri {
                 const indexCount = SQUID_ROOM_DRAWS[d + 2];
                 const baseVertex = SQUID_ROOM_DRAWS[d + 3];
                 const c = j % NUM_CONTEXTS;
-                Nri_DrawListDrawIndexed(this.shadowLists[c], indexCount, 1, startIndex, baseVertex, 0);
-                Nri_DrawListSetDescriptorSet(this.sceneLists[c], 1, this.materialSets[materialSetIndices[diffuse]]);
-                Nri_DrawListDrawIndexed(this.sceneLists[c], indexCount, 1, startIndex, baseVertex, 0);
+                this.shadowLists[c].drawIndexed(indexCount, 1, startIndex, baseVertex, 0);
+                this.sceneLists[c].setDescriptorSet(1, this.materialSets[materialSetIndices[diffuse]]);
+                this.sceneLists[c].drawIndexed(indexCount, 1, startIndex, baseVertex, 0);
             }
 
             // The contexts' passes: the shadow pass into the shadow map alone, the scene pass into the
             // color and depth buffers; neither clears (the main thread's command buffer does, before
             // them). Their set 0 is the queued frame's, set before each recording.
             for (let c = 0; c < NUM_CONTEXTS; c++) {
-                const shadowPass = Nri_CreateDrawPass(this.shadowLists[c], null, shadowAttachment, WIDTH, HEIGHT, shadowLayout,
+                const shadowPass = this.shadowLists[c].createDrawPass(null, shadowAttachment, WIDTH, HEIGHT, shadowLayout,
                     descriptorPool);
-                Nri_DrawPassSetClearEnabled(shadowPass, 0);
-                Nri_DrawPassSetIndexBuffer(shadowPass, indexBuffer);
-                Nri_DrawPassSetVertexBuffer(shadowPass, vertexBuffer, SQUID_ROOM_VERTEX_STRIDE);
-                Nri_DrawPassSetPipeline(shadowPass, 0, shadowPipeline);
+                shadowPass.setClearEnabled(0);
+                shadowPass.setIndexBuffer(indexBuffer);
+                shadowPass.setVertexBuffer(vertexBuffer, SQUID_ROOM_VERTEX_STRIDE);
+                shadowPass.setPipeline(0, shadowPipeline);
                 this.shadowPasses.push(shadowPass);
-                const scenePass = Nri_CreateDrawPass(this.sceneLists[c], colorAttachment, depthAttachment, WIDTH, HEIGHT, sceneLayout,
+                const scenePass = this.sceneLists[c].createDrawPass(colorAttachment, depthAttachment, WIDTH, HEIGHT, sceneLayout,
                     descriptorPool);
-                Nri_DrawPassSetClearEnabled(scenePass, 0);
-                Nri_DrawPassSetIndexBuffer(scenePass, indexBuffer);
-                Nri_DrawPassSetVertexBuffer(scenePass, vertexBuffer, SQUID_ROOM_VERTEX_STRIDE);
-                Nri_DrawPassSetPipeline(scenePass, 0, scenePipeline);
+                scenePass.setClearEnabled(0);
+                scenePass.setIndexBuffer(indexBuffer);
+                scenePass.setVertexBuffer(vertexBuffer, SQUID_ROOM_VERTEX_STRIDE);
+                scenePass.setPipeline(0, scenePipeline);
                 this.scenePasses.push(scenePass);
             }
             return true;
@@ -594,10 +595,10 @@ namespace MultithreadingNri {
         latencySleep(frameIndex: int) {
             const queuedFrameNum = this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frameFence.wait(frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
+            queuedFrame.commandAllocator.reset();
             for (const workerAllocator of queuedFrame.workerAllocators) {
-                Nri_ResetCommandAllocator(workerAllocator);
+                workerAllocator.reset();
             }
         }
 
@@ -607,19 +608,19 @@ namespace MultithreadingNri {
             const frameTime = Math.fround(elapsedSeconds);
             const frameChange = Math.fround(2.0 * frameTime);
             if (!this.test) {
-                if (Nri_IsKeyPressed(this.sample, KEY_LEFT) != 0) {
+                if (this.sample.isKeyPressed(KEY_LEFT) != 0) {
                     this.camera.rotateYaw(-frameChange);
                 }
-                if (Nri_IsKeyPressed(this.sample, KEY_RIGHT) != 0) {
+                if (this.sample.isKeyPressed(KEY_RIGHT) != 0) {
                     this.camera.rotateYaw(frameChange);
                 }
-                if (Nri_IsKeyPressed(this.sample, KEY_UP) != 0) {
+                if (this.sample.isKeyPressed(KEY_UP) != 0) {
                     this.camera.rotatePitch(frameChange);
                 }
-                if (Nri_IsKeyPressed(this.sample, KEY_DOWN) != 0) {
+                if (this.sample.isKeyPressed(KEY_DOWN) != 0) {
                     this.camera.rotatePitch(-frameChange);
                 }
-                if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+                if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                     this.animate = !this.animate;
                 }
             }
@@ -665,7 +666,7 @@ namespace MultithreadingNri {
             constants[49] = Math.fround(0.2);
             constants[50] = Math.fround(0.3);
             constants[51] = 1.0;
-            Nri_StoreInt32(Ref(constants[52]), sampleShadowMap);
+            Nri.storeInt32(Ref(constants[52]), sampleShadowMap);
             for (let i = 0; i < NUM_LIGHTS; i++) {
                 const light = this.lights[i];
                 const base = CONSTANTS_LIGHTS + i * LIGHT_FLOATS;
@@ -690,7 +691,7 @@ namespace MultithreadingNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // The window was resized (NriSample.useResizableWindow): the swap chain made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -715,9 +716,9 @@ namespace MultithreadingNri {
             if (!constantBuffer) {
                 return;
             }
-            this.update(this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample));
-            Nri_WriteBuffer(constantBuffer, this.sceneOffset(queuedFrameIndex), Ref(this.sceneConstants[0]), CONSTANTS_SIZE);
-            Nri_WriteBuffer(constantBuffer, this.shadowOffset(queuedFrameIndex), Ref(this.shadowConstants[0]), CONSTANTS_SIZE);
+            this.update(this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime());
+            constantBuffer.write(this.sceneOffset(queuedFrameIndex), Ref(this.sceneConstants[0]), CONSTANTS_SIZE);
+            constantBuffer.write(this.shadowOffset(queuedFrameIndex), Ref(this.shadowConstants[0]), CONSTANTS_SIZE);
 
             // Acquire a swap chain texture
             const index = this.swapChain.acquire(frameIndex);
@@ -726,7 +727,7 @@ namespace MultithreadingNri {
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.queue.signal(this.frameFence, 1 + frameIndex);
         }
 
         // Records the frame (the workers' passes on their threads unless -singleThreaded), submits it
@@ -745,77 +746,77 @@ namespace MultithreadingNri {
 
             // The workers: each context's shadow pass, then its scene pass, with this frame's sets.
             for (let c = 0; c < NUM_CONTEXTS; c++) {
-                Nri_DrawPassSetDescriptorSet(this.shadowPasses[c], 0, queuedFrame.shadowSet);
-                Nri_DrawPassSetDescriptorSet(this.scenePasses[c], 0, queuedFrame.sceneSet);
+                this.shadowPasses[c].setDescriptorSet(0, queuedFrame.shadowSet);
+                this.scenePasses[c].setDescriptorSet(0, queuedFrame.sceneSet);
                 if (this.singleThreaded) {
-                    Nri_RecordDrawPass(this.shadowPasses[c], queuedFrame.shadowCommandBuffers[c]);
-                    Nri_RecordDrawPass(this.scenePasses[c], queuedFrame.sceneCommandBuffers[c]);
+                    this.shadowPasses[c].record(queuedFrame.shadowCommandBuffers[c]);
+                    this.scenePasses[c].record(queuedFrame.sceneCommandBuffers[c]);
                 } else {
-                    Nri_RecordDrawPassAsync(this.shadowPasses[c], queuedFrame.shadowCommandBuffers[c]);
-                    Nri_RecordDrawPassAsync(this.scenePasses[c], queuedFrame.sceneCommandBuffers[c]);
+                    this.shadowPasses[c].recordAsync(queuedFrame.shadowCommandBuffers[c]);
+                    this.scenePasses[c].recordAsync(queuedFrame.sceneCommandBuffers[c]);
                 }
             }
 
             // The sample's BeginFrame: the shadow map cleared to 1, the color buffer to black (alpha
             // 1), the depth buffer to 1.
             const pre = queuedFrame.preCommandBuffer;
-            Nri_BeginCommandBuffer(pre);
-            Nri_CmdTextureBarrier(pre, shadowMap, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-            Nri_CmdBeginRenderingDepthOnly(pre, shadowAttachment);
-            Nri_CmdClearDepth(pre, 1.0);
-            Nri_CmdEndRendering(pre);
-            Nri_CmdTextureBarrier(pre, colorBuffer, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRenderingWithDepth(pre, colorAttachment, depthAttachment);
-            Nri_CmdClearColor(pre, 0.0, 0.0, 0.0, 1.0);
-            Nri_CmdClearDepth(pre, 1.0);
-            Nri_CmdEndRendering(pre);
-            Nri_EndCommandBuffer(pre);
+            pre.begin();
+            pre.textureBarrier(shadowMap, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+            pre.beginRenderingDepthOnly(shadowAttachment);
+            pre.clearDepth(1.0);
+            pre.endRendering();
+            pre.textureBarrier(colorBuffer, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            pre.beginRenderingWithDepth(colorAttachment, depthAttachment);
+            pre.clearColor(0.0, 0.0, 0.0, 1.0);
+            pre.clearDepth(1.0);
+            pre.endRendering();
+            pre.end();
 
             // Between the passes: the shadow map read by the scene pass.
             const mid = queuedFrame.midCommandBuffer;
-            Nri_BeginCommandBuffer(mid);
-            Nri_CmdTextureBarrier(mid, shadowMap, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
-            Nri_EndCommandBuffer(mid);
+            mid.begin();
+            mid.textureBarrier(shadowMap, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+            mid.end();
 
             // The color buffer blitted into the swap chain texture (Donut's blit).
             const post = queuedFrame.postCommandBuffer;
-            Nri_BeginCommandBuffer(post);
-            Nri_CmdSetDescriptorPool(post, descriptorPool);
-            Nri_CmdTextureBarrier(post, colorBuffer, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
-            Nri_CmdTextureBarrier(post, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(post, this.swapChain.colorAttachment(index));
+            post.begin();
+            post.setDescriptorPool(descriptorPool);
+            post.textureBarrier(colorBuffer, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            post.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            post.beginRendering(this.swapChain.colorAttachment(index));
             this.blit.record(post, blitSet, this.width, this.height);
-            Nri_CmdEndRendering(post);
+            post.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(post, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(post, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    post.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    post.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(post, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(post);
+            post.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            post.end();
 
             if (!this.singleThreaded) {
                 for (let c = 0; c < NUM_CONTEXTS; c++) {
-                    Nri_WaitDrawPass(this.shadowPasses[c]);
-                    Nri_WaitDrawPass(this.scenePasses[c]);
+                    this.shadowPasses[c].wait();
+                    this.scenePasses[c].wait();
                 }
             }
 
             // Submit in the sample's order: the clears, the shadow passes, the scene passes; then the
             // blit, and present.
-            Nri_QueueSubmitCommandBuffer(this.queue, pre);
+            this.queue.submitCommandBuffer(pre);
             for (let c = 0; c < NUM_CONTEXTS; c++) {
-                Nri_QueueSubmitCommandBuffer(this.queue, queuedFrame.shadowCommandBuffers[c]);
+                this.queue.submitCommandBuffer(queuedFrame.shadowCommandBuffers[c]);
             }
-            Nri_QueueSubmitCommandBuffer(this.queue, mid);
+            this.queue.submitCommandBuffer(mid);
             for (let c = 0; c < NUM_CONTEXTS; c++) {
-                Nri_QueueSubmitCommandBuffer(this.queue, queuedFrame.sceneCommandBuffers[c]);
+                this.queue.submitCommandBuffer(queuedFrame.sceneCommandBuffers[c]);
             }
             this.swapChain.submit(post, index);
             this.swapChain.present(index);
@@ -828,12 +829,12 @@ namespace MultithreadingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -843,96 +844,96 @@ namespace MultithreadingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 // (Destroying a pass waits for its worker.)
                 for (const pass of this.shadowPasses) {
-                    Nri_DestroyDrawPass(pass);
+                    pass.destroy();
                 }
                 for (const pass of this.scenePasses) {
-                    Nri_DestroyDrawPass(pass);
+                    pass.destroy();
                 }
                 for (const list of this.shadowLists) {
-                    Nri_DestroyDrawList(list);
+                    list.destroy();
                 }
                 for (const list of this.sceneLists) {
-                    Nri_DestroyDrawList(list);
+                    list.destroy();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.preCommandBuffer);
-                    Nri_DestroyCommandBuffer(queuedFrame.midCommandBuffer);
-                    Nri_DestroyCommandBuffer(queuedFrame.postCommandBuffer);
+                    queuedFrame.preCommandBuffer.destroy();
+                    queuedFrame.midCommandBuffer.destroy();
+                    queuedFrame.postCommandBuffer.destroy();
                     for (let c = 0; c < NUM_CONTEXTS; c++) {
-                        Nri_DestroyCommandBuffer(queuedFrame.shadowCommandBuffers[c]);
-                        Nri_DestroyCommandBuffer(queuedFrame.sceneCommandBuffers[c]);
+                        queuedFrame.shadowCommandBuffers[c].destroy();
+                        queuedFrame.sceneCommandBuffers[c].destroy();
                     }
                     for (const workerAllocator of queuedFrame.workerAllocators) {
-                        Nri_DestroyCommandAllocator(workerAllocator);
+                        workerAllocator.destroy();
                     }
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
+                    queuedFrame.commandAllocator.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.blit.destroy();
                 const descriptors = [this.colorAttachment, this.colorView, this.depthAttachment, this.shadowAttachment, this.shadowView,
                     this.wrapSampler, this.clampSampler];
                 for (const descriptor of descriptors) {
                     if (descriptor) {
-                        Nri_DestroyDescriptor(descriptor);
+                        descriptor.destroy();
                     }
                 }
                 for (const view of this.textureViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const view of this.constantViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const texture of this.textures) {
-                    Nri_DestroyTexture(texture);
+                    texture.destroy();
                 }
                 const targets = [this.colorBuffer, this.depthBuffer, this.shadowMap];
                 for (const texture of targets) {
                     if (texture) {
-                        Nri_DestroyTexture(texture);
+                        texture.destroy();
                     }
                 }
                 const buffers = [this.vertexBuffer, this.indexBuffer, this.constantBuffer, this.readbackBuffer];
                 for (const buffer of buffers) {
                     if (buffer) {
-                        Nri_DestroyBuffer(buffer);
+                        buffer.destroy();
                     }
                 }
                 const pipelines = [this.scenePipeline, this.shadowPipeline];
                 for (const pipeline of pipelines) {
                     if (pipeline) {
-                        Nri_DestroyPipeline(pipeline);
+                        pipeline.destroy();
                     }
                 }
                 const layouts = [this.sceneLayout, this.shadowLayout];
                 for (const layout of layouts) {
                     if (layout) {
-                        Nri_DestroyPipelineLayout(layout);
+                        layout.destroy();
                     }
                 }
-                Nri_DestroyFence(this.frameFence);
+                this.frameFence.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const multithreading = new Multithreading(sample);
         // -singleThreaded: record the draws on the main thread. -noUI: accepted, as Donut's examples
         // accept it (the example has no UI).
-        Nri_AddExampleOption(sample, "-singleThreaded");
-        Nri_AddExampleOption(sample, "-noUI");
+        sample.addExampleOption("-singleThreaded");
+        sample.addExampleOption("-noUI");
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "-singleThreaded") {
+            if (Nri.getArg(argc, argv, i) == "-singleThreaded") {
                 multithreading.singleThreaded = true;
             }
         }

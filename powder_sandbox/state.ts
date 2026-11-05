@@ -10,42 +10,43 @@ import { NriGpuProfiler } from "../core/nri_gpu_profiler";
 import { NriSlider } from "../core/nri_slider";
 import { NriTabRow } from "../core/nri_tab_row";
 import { NriSwapChain } from "../core/nri_swap_chain";
+import { NriAudio, NriBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriQueryPool, NriQueue, NriSample } from "../core/nri";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
 // each of its parts extends in turn with what it does: view.ts, levels.ts, saves.ts,
 // simulation.ts, ui.ts, sandbox.ts (the app) and checks.ts.
 export class SandboxState {
-    protected device: NriDeviceHandle | null = null;
-    protected queue: NriQueueHandle;
+    protected device: NriDevice | null = null;
+    protected queue: NriQueue;
     protected frames: NriFrameRing = new NriFrameRing();
     protected swapChain: NriSwapChain = new NriSwapChain();
     protected viewFormat: NriFormat = NriFormat.Unknown;
     protected queuedFrames: QueuedFrame[] = [];
-    protected computeLayout: NriPipelineLayoutHandle | null = null;
-    protected drawLayout: NriPipelineLayoutHandle | null = null;
-    protected pipelines: NriPipelineHandle[] = [];
-    protected drawPipeline: NriPipelineHandle | null = null;
+    protected computeLayout: NriPipelineLayout | null = null;
+    protected drawLayout: NriPipelineLayout | null = null;
+    protected pipelines: NriPipeline[] = [];
+    protected drawPipeline: NriPipeline | null = null;
     protected imgui: boolean = false;
 
     // u0 .. u4 of the compute entries, t0 .. t2 of the display.
-    protected buffers: NriBufferHandle[] = [];
-    protected storageViews: NriDescriptorHandle[] = [];
-    protected shaderViews: NriDescriptorHandle[] = [];
+    protected buffers: NriBuffer[] = [];
+    protected storageViews: NriDescriptor[] = [];
+    protected shaderViews: NriDescriptor[] = [];
     // Their descriptor sets (plain sets, not root descriptors: Vulkan's need push descriptors,
     // which many Android devices lack).
-    protected descriptorPool: NriDescriptorPoolHandle;
-    protected computeSet: NriDescriptorSetHandle;
-    protected drawSet: NriDescriptorSetHandle;
-    protected testReadback: NriBufferHandle | null = null;
-    protected cellsReadback: NriBufferHandle | null = null;
+    protected descriptorPool: NriDescriptorPool;
+    protected computeSet: NriDescriptorSet;
+    protected drawSet: NriDescriptorSet;
+    protected testReadback: NriBuffer | null = null;
+    protected cellsReadback: NriBuffer | null = null;
     // -test: the last frame, read back.
-    protected frameReadback: NriBufferHandle | null = null;
+    protected frameReadback: NriBuffer | null = null;
     // The byte sizes of this.buffers, and of the state (STATE_BUFFERS' together).
     protected bufferSizes: int[] = [];
     protected stateSize: int = 0;
     // Undo: UNDO_DEPTH snapshot buffers (in CopyDestination between uses), the newest's index and
     // how many hold a state.
-    protected undoBuffers: NriBufferHandle[] = [];
+    protected undoBuffers: NriBuffer[] = [];
     protected undoTop: int = 0;
     protected undoCount: int = 0;
     // The grid's size each snapshot was taken at.
@@ -59,8 +60,8 @@ export class SandboxState {
     protected loadRequested: boolean = false;
     // This frame's save (read back, written once the frame is done) or load (uploaded from the
     // file).
-    protected saveReadback: NriBufferHandle | null = null;
-    protected loadBuffer: NriBufferHandle | null = null;
+    protected saveReadback: NriBuffer | null = null;
+    protected loadBuffer: NriBuffer | null = null;
     // The loaded save's grid size, and whether it's still to be copied in.
     protected loadW: int = 0;
     protected loadH: int = 0;
@@ -128,7 +129,7 @@ export class SandboxState {
     protected frameRate: number = 0.0;
     // The GPU's time for the simulation (a queued frame's two timestamps), the last frame's that
     // stepped, per step.
-    protected queryPool: NriQueryPoolHandle | null = null;
+    protected queryPool: NriQueryPool | null = null;
     // -profile: each entry's GPU time (dispatch marks them), reported now and then.
     profile: boolean = false;
     protected profiler: NriGpuProfiler | null = null;
@@ -236,7 +237,7 @@ export class SandboxState {
     // frame's last step's, times its steps), each sound's time till it may play again.
     mute: boolean = false;
     soundCheck: boolean = false;
-    protected audio: NriAudioHandle | null = null;
+    protected audio: NriAudio | null = null;
     protected eventTotals: int[] = [];
     protected soundCooldowns: number[] = [];
     // The grid's cells along its shorter side (-gridHeight N, MIN_GRID_HEIGHT .. DEFAULT_GRID_HEIGHT:
@@ -253,7 +254,7 @@ export class SandboxState {
     protected qualitySum: number = 0.0;
     protected qualityCount: int = 0;
     // -test: the float sections, read back at the end (the pressure equation's residual).
-    protected floatReadback: NriBufferHandle | null = null;
+    protected floatReadback: NriBuffer | null = null;
     // The brush mode of the scene's stroke this frame (0: none), for spark_cs.
     protected strokeBrush: int = 0;
     // -testFrames N: the test's length instead of TEST_FRAMES.
@@ -261,7 +262,7 @@ export class SandboxState {
     protected test: boolean = false;
     protected frameIndex: int = 0;
 
-    constructor(protected sample: NriSampleHandle) {
+    constructor(protected sample: NriSample) {
     }
 
     // A message shown on the HUD for MESSAGE_TIME seconds, and logged.

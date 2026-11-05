@@ -5,6 +5,7 @@ import { TranscodedTexture } from "../../core/transcoded_texture";
 import { radians, perspective } from "../../core/matrix";
 import { formatFixed, comboItems } from "../../core/text_format";
 import { SampleView } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture, NriTextureLevels } from "../../core/nri";
 
 namespace TextureCompressionBasisuNri {
     // texture_compression_basisu, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -73,7 +74,7 @@ namespace TextureCompressionBasisuNri {
 
     // A frame in flight's own data: its descriptor set (its copy of the UBO).
     class QueuedFrame {
-        constructor(public descriptorSet: NriDescriptorSetHandle | null, public uboView: NriDescriptorHandle | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public uboView: NriDescriptor | null) {
         }
     }
 
@@ -130,21 +131,21 @@ namespace TextureCompressionBasisuNri {
     // mouse button turns the quad, the right one zooms, the middle one pans (ApiVulkanSample's
     // controls).
     class TextureCompressionBasisu {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private uniformBuffer: NriBufferHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private uniformBuffer: NriBuffer | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -154,8 +155,8 @@ namespace TextureCompressionBasisuNri {
         private swapChainViewFormat: NriFormat = 0;
 
         // The transcoded texture and its view.
-        private texture: NriTextureHandle | null = null;
-        private textureView: NriDescriptorHandle | null = null;
+        private texture: NriTexture | null = null;
+        private textureView: NriDescriptor | null = null;
 
         // The device's targets (indices into TARGET_*), and the sample's choices.
         targets: int[] = [];
@@ -183,11 +184,11 @@ namespace TextureCompressionBasisuNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
             }
@@ -201,11 +202,11 @@ namespace TextureCompressionBasisuNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -216,21 +217,21 @@ namespace TextureCompressionBasisuNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // The device's transcode targets, as the Donut example asks NVRHI: sampled textures.
             for (let i = 0; i < TARGET_TEXTURE_FORMATS.length; i++) {
                 const targetFormat = TARGET_TEXTURE_FORMATS[i];
-                const support = targetFormat == NriFormat.Unknown ? 0 : Nri_GetFormatSupport(device, targetFormat);
+                const support = targetFormat == NriFormat.Unknown ? 0 : device.getFormatSupport(targetFormat);
                 if ((support & SUPPORT_TEXTURE) != 0) {
                     this.targets.push(i);
                 }
@@ -244,7 +245,7 @@ namespace TextureCompressionBasisuNri {
             this.selectedTranscodeTargetFormat = Math.min(this.requestedTarget, this.targets.length - 1);
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -258,12 +259,12 @@ namespace TextureCompressionBasisuNri {
             }
 
             // The layout: the UBO (b0, both stages), the texture (t0) and the sampler (s0).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -274,20 +275,20 @@ namespace TextureCompressionBasisuNri {
             // Donut example; no culling, depth tested (greater) and written.
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/texture_compression_basisu/${folder}/texture_compression_basisu`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_texture_vs.bin`, "texture_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_texture_vs.bin`, "texture_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_texture_ps.bin`, "texture_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_texture_ps.bin`, "texture_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 12);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 12);
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                this.pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the texture compression basisu shaders");
                 return 0;
@@ -296,19 +297,19 @@ namespace TextureCompressionBasisuNri {
             // The quad.
             const vertices = QUAD_VERTICES.map((v): f32 => v);
             const indices = QUAD_INDICES.map((v): int => v);
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
 
             // The sample's sampler: trilinear, clamped, all the levels, the device's widest
             // anisotropic filtering.
-            this.sampler = Nri_CreateSamplerWithLodRange(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge,
-                Nri_GetMaxSamplerAnisotropy(device), 0.0, 1000.0);
+            this.sampler = device.createSamplerWithLodRange(NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge,
+                device.getMaxSamplerAnisotropy(), 0.0, 1000.0);
 
             // A queued frame's UBO copy each, in its own descriptor set (the texture's view set when
             // it's transcoded).
-            const uniformBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
+            const uniformBuffer = device.createHostBuffer(queuedFrameNum * UBO_STRIDE, NriBufferUsage.ConstantBuffer);
             this.uniformBuffer = uniformBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum, queuedFrameNum, queuedFrameNum, queuedFrameNum, 0, 0);
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum, queuedFrameNum, queuedFrameNum, queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             const sampler = this.sampler;
             if (!uniformBuffer || !descriptorPool || !sampler) {
@@ -317,20 +318,20 @@ namespace TextureCompressionBasisuNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
-                const uboView = Nri_CreateConstantBufferView(uniformBuffer, i * UBO_STRIDE, UBO_STRIDE);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
+                const uboView = uniformBuffer.createConstantView(i * UBO_STRIDE, UBO_STRIDE);
                 this.queuedFrames.push(new QueuedFrame(descriptorSet, uboView));
                 if (!descriptorSet || !uboView) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, uboView);
-                Nri_UpdateDescriptor(descriptorSet, 2, 0, sampler);
+                descriptorSet.updateDescriptor(0, 0, uboView);
+                descriptorSet.updateDescriptor(2, 0, sampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -338,9 +339,9 @@ namespace TextureCompressionBasisuNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -355,30 +356,30 @@ namespace TextureCompressionBasisuNri {
         }
 
         // The depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -388,7 +389,7 @@ namespace TextureCompressionBasisuNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -410,13 +411,13 @@ namespace TextureCompressionBasisuNri {
             }
             const target = this.targets[this.selectedTranscodeTargetFormat];
             const name = TEXTURE_FILE_NAMES[this.selectedInputTexture];
-            const file = Nri_LoadFile(TEXTURE_DIR + name);
+            const file = NriFile.load(TEXTURE_DIR + name);
             if (!file) {
                 return false;
             }
-            const transcoded = TranscodedTexture.transcodeKtx2(Nri_GetFileData(file), Nri_GetFileSize(file), TARGET_TRANSCODE_FORMATS[target],
+            const transcoded = TranscodedTexture.transcodeKtx2(file.getData(), file.getSize(), TARGET_TRANSCODE_FORMATS[target],
                 Ref(this.stats[0]));
-            Nri_DestroyFile(file);
+            file.destroy();
             if (transcoded.isNull()) {
                 return false;
             }
@@ -424,26 +425,26 @@ namespace TextureCompressionBasisuNri {
             this.lastTranscodeTime = this.stats[0];
 
             const levelNum = image.getLevelCount();
-            const levels = Nri_CreateTextureLevels(image.getWidth(), image.getHeight(), levelNum, TARGET_TEXTURE_FORMATS[target]);
+            const levels = NriTextureLevels.create(image.getWidth(), image.getHeight(), levelNum, TARGET_TEXTURE_FORMATS[target]);
             for (let level = 0; level < levelNum; level++) {
-                Nri_SetTextureLevel(levels, level, image.getLevelData(level), image.getLevelRowPitch(level));
+                levels.setTextureLevel(level, image.getLevelData(level), image.getLevelRowPitch(level));
             }
             image.destroy();
 
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyTexture();
-            const texture = Nri_CreateTextureFromLevels(device, this.queue, levels);
-            Nri_DestroyTextureLevels(levels);
+            const texture = device.createTextureFromLevels(this.queue, levels);
+            levels.destroy();
             if (!texture) {
                 return false;
             }
             this.texture = texture;
-            const textureView = Nri_CreateTextureView(texture, TARGET_TEXTURE_FORMATS[target]);
+            const textureView = texture.createView(TARGET_TEXTURE_FORMATS[target]);
             this.textureView = textureView;
             for (const queuedFrame of this.queuedFrames) {
                 const descriptorSet = queuedFrame.descriptorSet;
                 if (descriptorSet) {
-                    Nri_UpdateDescriptor(descriptorSet, 1, 0, textureView);
+                    descriptorSet.updateDescriptor(1, 0, textureView);
                 }
             }
             return true;
@@ -452,11 +453,11 @@ namespace TextureCompressionBasisuNri {
         destroyTexture() {
             const textureView = this.textureView;
             if (textureView) {
-                Nri_DestroyDescriptor(textureView);
+                textureView.destroy();
             }
             const texture = this.texture;
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
             this.textureView = null;
             this.texture = null;
@@ -465,9 +466,9 @@ namespace TextureCompressionBasisuNri {
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: the buttons' changes,
         // then the move.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.view.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -475,32 +476,32 @@ namespace TextureCompressionBasisuNri {
                     this.buttons[button] = pressed;
                 }
             }
-            this.mouseX += Nri_GetMouseDeltaX(this.sample);
-            this.mouseY += Nri_GetMouseDeltaY(this.sample);
+            this.mouseX += this.sample.getMouseDeltaX();
+            this.mouseY += this.sample.getMouseDeltaY();
             this.view.mouseMove(this.mouseX, this.mouseY);
         }
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Basis Universal texture loading", 1);
-            if (Nri_ImguiCollapsingHeader("Input", 1) != 0) {
-                Nri_ImguiText("Input image:");
-                Nri_ImguiPushItemWidth(180.0);
-                this.selectedInputTexture = Nri_ImguiCombo("##img", this.selectedInputTexture, comboItems(TEXTURE_FILE_NAMES));
-                Nri_ImguiPopItemWidth();
-                Nri_ImguiText("Transcode target:");
-                Nri_ImguiPushItemWidth(180.0);
-                this.selectedTranscodeTargetFormat = Nri_ImguiCombo("##tt", this.selectedTranscodeTargetFormat, this.targetNames);
-                Nri_ImguiPopItemWidth();
-                if (Nri_ImguiButton("Transcode") != 0) {
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Basis Universal texture loading", 1);
+            if (NriImgui.collapsingHeader("Input", 1) != 0) {
+                NriImgui.text("Input image:");
+                NriImgui.pushItemWidth(180.0);
+                this.selectedInputTexture = NriImgui.combo("##img", this.selectedInputTexture, comboItems(TEXTURE_FILE_NAMES));
+                NriImgui.popItemWidth();
+                NriImgui.text("Transcode target:");
+                NriImgui.pushItemWidth(180.0);
+                this.selectedTranscodeTargetFormat = NriImgui.combo("##tt", this.selectedTranscodeTargetFormat, this.targetNames);
+                NriImgui.popItemWidth();
+                if (NriImgui.button("Transcode") != 0) {
                     this.transcodePending = true;
                 }
-                Nri_ImguiText(`Transcoded in ${formatFixed(this.lastTranscodeTime, 2)} ms`);
+                NriImgui.text(`Transcoded in ${formatFixed(this.lastTranscodeTime, 2)} ms`);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: its projection (clip y negated for Donut's shaders),
@@ -516,12 +517,12 @@ namespace TextureCompressionBasisuNri {
                 this.ubo[UBO_PROJECTION + i] = i % 4 == 1 ? -projection[i] : projection[i];
                 this.ubo[UBO_MODEL + i] = model[i];
             }
-            Nri_WriteBuffer(uniformBuffer, queuedFrameIndex * UBO_STRIDE, Ref(this.ubo[0]), UBO_FLOATS * 4);
+            uniformBuffer.write(queuedFrameIndex * UBO_STRIDE, Ref(this.ubo[0]), UBO_FLOATS * 4);
         }
 
-        // The quad (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering), once there's a
+        // The quad (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering), once there's a
         // texture.
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.layout;
             const pipeline = this.pipeline;
             const descriptorPool = this.descriptorPool;
@@ -531,15 +532,15 @@ namespace TextureCompressionBasisuNri {
             if (!this.texture || !layout || !pipeline || !descriptorPool || !descriptorSet || !vertexBuffer || !indexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, QUAD_INDICES.length, 1, 0, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(QUAD_INDICES.length, 1, 0, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
@@ -566,21 +567,21 @@ namespace TextureCompressionBasisuNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the scene (color cleared to dark gray, depth to 0), then the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraw(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -588,18 +589,18 @@ namespace TextureCompressionBasisuNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -615,12 +616,12 @@ namespace TextureCompressionBasisuNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -630,16 +631,16 @@ namespace TextureCompressionBasisuNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.uboView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyTexture();
                 this.destroyDescriptor(this.sampler);
@@ -650,50 +651,50 @@ namespace TextureCompressionBasisuNri {
                 this.destroyBuffer(this.readbackBuffer);
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const basisu = new TextureCompressionBasisu(sample);
         // -image <n>: the input image (0-7, the sample's list), -target <n>: the transcode target (an
         // index into the device's list), both transcoded at start; -noUI: no overlay.
-        Nri_AddExampleOptionWithValues(sample, "-image", 1);
-        Nri_AddExampleOptionWithValues(sample, "-target", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-image", 1);
+        sample.addExampleOptionWithValues("-target", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-image" && i + 1 < argc) {
                 i++;
-                basisu.requestedImage = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), 0), TEXTURE_FILE_NAMES.length - 1);
+                basisu.requestedImage = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), 0), TEXTURE_FILE_NAMES.length - 1);
             } else if (arg == "-target" && i + 1 < argc) {
                 i++;
-                basisu.requestedTarget = Math.max(parseInt(Nri_GetArg(argc, argv, i)), 0);
+                basisu.requestedTarget = Math.max(parseInt(Nri.getArg(argc, argv, i)), 0);
             } else if (arg == "-noUI") {
                 basisu.noUI = true;
             }

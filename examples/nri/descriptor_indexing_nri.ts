@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriRandomEngine, NriSample, NriTexture } from "../../core/nri";
 
 namespace DescriptorIndexingNri {
     // descriptor_indexing, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -36,7 +37,7 @@ namespace DescriptorIndexingNri {
 
     // A test image and its view.
     class TestImage {
-        constructor(public texture: NriTextureHandle, public view: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public view: NriDescriptor) {
         }
     }
 
@@ -52,7 +53,7 @@ namespace DescriptorIndexingNri {
     // The sample's create_image: 16 x 16 RGBA8, a pattern picked by the seed (a checkerboard,
     // stripes or diagonals of 4-texel cells) in the color, the dark cells at a quarter, each
     // channel plus noise in [0, 0.1) from the sample's random engine; packed 4 bytes per int.
-    function createImageData(rgb: number[], imageSeed: int, rng: NriRandomEngineHandle) {
+    function createImageData(rgb: number[], imageSeed: int, rng: NriRandomEngine) {
         const texels: int[] = [];
         for (let y = 0; y < IMAGE_SIZE; y++) {
             for (let x = 0; x < IMAGE_SIZE; x++) {
@@ -70,7 +71,7 @@ namespace DescriptorIndexingNri {
                 const patternColor = pattern != 0 ? 0.25 : 1.0;
                 let texel = 0;
                 for (let i = 0; i < 3; i++) {
-                    const noise = Nri_RandomUniformFloat(rng, 0.0, 0.1);
+                    const noise = rng.randomUniformFloat(0.0, 0.1);
                     texel |= floatToUnorm8(Math.fround(Math.fround(patternColor * rgb[i]) + noise)) << (i * 8);
                 }
                 // Alpha 0xff.
@@ -125,22 +126,22 @@ namespace DescriptorIndexingNri {
     // writing the quad's texture into the next slot of a 2048-slot set already bound (update after
     // bind), its shader reading that slot from a push constant. D3D12 and Vulkan.
     class DescriptorIndexing {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format and their views'.
         private swapChainFormat: NriFormat = 0;
         private swapChainViewFormat: NriFormat = 0;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private nonUniformPipeline: NriPipelineHandle | null = null;
-        private updateAfterBindPipeline: NriPipelineHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private nonUniformPipeline: NriPipeline | null = null;
+        private updateAfterBindPipeline: NriPipeline | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // The sample's two descriptor sets: the 64 textures, and the streamed one.
-        private nonUniformSet: NriDescriptorSetHandle | null = null;
-        private updateAfterBindSet: NriDescriptorSetHandle | null = null;
+        private nonUniformSet: NriDescriptorSet | null = null;
+        private updateAfterBindSet: NriDescriptorSet | null = null;
         private images: TestImage[] = [];
-        private quadIndexBuffer: NriBufferHandle | null = null;
+        private quadIndexBuffer: NriBuffer | null = null;
         private descriptorOffset: int = 0;
         private width: int = 0;
         private height: int = 0;
@@ -155,11 +156,11 @@ namespace DescriptorIndexingNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -170,13 +171,13 @@ namespace DescriptorIndexingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -189,25 +190,25 @@ namespace DescriptorIndexingNri {
         }
 
         // The sample's pipelines: triangle strips, no culling, no depth, no blending.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, vs: string, ps: string,
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, vs: string, ps: string,
             colorFormat: NriFormat) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(desc, colorFormat, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setColor(colorFormat, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
@@ -217,13 +218,13 @@ namespace DescriptorIndexingNri {
                 this.unsupportedReason = "Descriptor indexing needs bindless descriptor tables: run with -dx12 or -vk";
                 return 0;
             }
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -235,14 +236,14 @@ namespace DescriptorIndexingNri {
             // The layout: the push constants (b0) and the immutable sampler (s0: linear, the nearest
             // level, clamped) in register space 0; the bindless texture array (t0, space 1) as set 0,
             // up to 2048 long, partially bound, updated after binding.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 0, PUSH_SIZE, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRootSampler(layoutDesc, 0, NriFilter.Linear, NriFilter.Nearest, NriAddressMode.ClampToEdge, NriStage.Pixel);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, NUM_DESCRIPTORS_STREAMING, NriDescriptorType.Texture, NriStage.Pixel,
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootConstants(0, PUSH_SIZE, NriStage.VertexPixel);
+            layoutDesc.addRootSampler(0, NriFilter.Linear, NriFilter.Nearest, NriAddressMode.ClampToEdge, NriStage.Pixel);
+            layoutDesc.addRange(0, 0, NUM_DESCRIPTORS_STREAMING, NriDescriptorType.Texture, NriStage.Pixel,
                 NriRangeFlags.PartiallyBound | NriRangeFlags.Array | NriRangeFlags.VariableSizedArray | NriRangeFlags.UpdateAfterSet);
-            Nri_PipelineLayoutDescSetRegisterSpace(layoutDesc, 0, 1);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            layoutDesc.setRegisterSpace(0, 1);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -251,14 +252,14 @@ namespace DescriptorIndexingNri {
 
             // The sample's two descriptor sets of it. Room for two whole arrays: NRI's D3D12 pool gives
             // every set the range's descriptorNum, whatever its variableDescriptorNum.
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2, 0, 0, 2 * NUM_DESCRIPTORS_STREAMING, 0, 1);
+            const descriptorPool = device.createDescriptorPool(2, 0, 0, 2 * NUM_DESCRIPTORS_STREAMING, 0, 1);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");
                 return 0;
             }
-            this.nonUniformSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, NUM_DESCRIPTORS_NON_UNIFORM);
-            this.updateAfterBindSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, NUM_DESCRIPTORS_STREAMING);
+            this.nonUniformSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, NUM_DESCRIPTORS_NON_UNIFORM);
+            this.updateAfterBindSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, NUM_DESCRIPTORS_STREAMING);
             if (!this.nonUniformSet || !this.updateAfterBindSet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
@@ -266,7 +267,7 @@ namespace DescriptorIndexingNri {
 
             // A quad's corners as a triangle strip.
             const quadIndices: int[] = [0, 1, 2, 3];
-            this.quadIndexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(quadIndices[0]), 16, NriBufferUsage.IndexBuffer);
+            this.quadIndexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(quadIndices[0]), 16, NriBufferUsage.IndexBuffer);
             if (!this.quadIndexBuffer) {
                 console.log("Cannot create the index buffer");
                 return 0;
@@ -287,9 +288,9 @@ namespace DescriptorIndexingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -297,30 +298,30 @@ namespace DescriptorIndexingNri {
 
         // The sample's create_images: 64 colors in [0.2, 0.8) from its random engine (seed 42),
         // then each image made with its color, and written into the non-uniform set.
-        createImages(device: NriDeviceHandle) {
+        createImages(device: NriDevice) {
             const nonUniformSet = this.nonUniformSet;
             if (!nonUniformSet) {
                 return false;
             }
-            const rng = Nri_CreateRandomEngine(42);
+            const rng = NriRandomEngine.create(42);
             const colors: number[] = [];
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM * 3; i++) {
-                colors.push(Nri_RandomUniformFloat(rng, 0.2, 0.8));
+                colors.push(rng.randomUniformFloat(0.2, 0.8));
             }
             let created = true;
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM; i++) {
                 const texels = createImageData([colors[i * 3], colors[i * 3 + 1], colors[i * 3 + 2]], i, rng);
-                const texture = Nri_CreateCommittedTexture(device, IMAGE_SIZE, IMAGE_SIZE, NriFormat.RGBA8_UNORM);
+                const texture = device.createCommittedTexture(IMAGE_SIZE, IMAGE_SIZE, NriFormat.RGBA8_UNORM);
                 if (!texture) {
                     created = false;
                     break;
                 }
-                Nri_UploadTexture(this.queue, texture, Ref(texels[0]), IMAGE_SIZE * 4);
-                const view = Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM);
-                Nri_UpdateDescriptor(nonUniformSet, 0, i, view);
+                this.queue.uploadTexture(texture, Ref(texels[0]), IMAGE_SIZE * 4);
+                const view = texture.createView(NriFormat.RGBA8_UNORM);
+                nonUniformSet.updateDescriptor(0, i, view);
                 this.images.push(new TestImage(texture, view));
             }
-            Nri_DestroyRandomEngine(rng);
+            rng.destroy();
             return created;
         }
 
@@ -329,8 +330,8 @@ namespace DescriptorIndexingNri {
             this.frames.wait(frameIndex);
         }
 
-        // The two grids (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordGrids(commandBuffer: NriCommandBufferHandle) {
+        // The two grids (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordGrids(commandBuffer: NriCommandBuffer) {
             const pipelineLayout = this.pipelineLayout;
             const nonUniformPipeline = this.nonUniformPipeline;
             const updateAfterBindPipeline = this.updateAfterBindPipeline;
@@ -344,31 +345,31 @@ namespace DescriptorIndexingNri {
             if (!nonUniformSet || !updateAfterBindSet || !quadIndexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetIndexBuffer(commandBuffer, quadIndexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setIndexBuffer(quadIndexBuffer, 0, NriIndexType.UInt32);
 
             this.push[0] = Math.fround(Math.fround(2.0 * Math.PI) * this.accumulatedTime);
 
             // The left grid: one draw of 64 instances, each indexing the set with its own index.
-            Nri_CmdSetPipeline(commandBuffer, nonUniformPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, nonUniformSet);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.push[0]), PUSH_SIZE);
-            Nri_CmdDrawIndexed(commandBuffer, 4, NUM_DESCRIPTORS_NON_UNIFORM, 0, 0, 0);
+            commandBuffer.setPipeline(nonUniformPipeline);
+            commandBuffer.setDescriptorSet(0, nonUniformSet);
+            commandBuffer.setRootConstants(0, Ref(this.push[0]), PUSH_SIZE);
+            commandBuffer.drawIndexed(4, NUM_DESCRIPTORS_NON_UNIFORM, 0, 0, 0);
 
             // The right grid: per quad, its texture written into the streamed set's next slot (the
             // set already bound), the slot passed in the push constants.
-            Nri_CmdSetPipeline(commandBuffer, updateAfterBindPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, updateAfterBindSet);
+            commandBuffer.setPipeline(updateAfterBindPipeline);
+            commandBuffer.setDescriptorSet(0, updateAfterBindSet);
             for (let i = 0; i < NUM_DESCRIPTORS_NON_UNIFORM; i++) {
-                Nri_UpdateDescriptor(updateAfterBindSet, 0, this.descriptorOffset, this.images[i].view);
-                Nri_StoreInt32(Ref(this.push[1]), this.descriptorOffset);
-                Nri_StoreInt32(Ref(this.push[2]), i);
+                updateAfterBindSet.updateDescriptor(0, this.descriptorOffset, this.images[i].view);
+                Nri.storeInt32(Ref(this.push[1]), this.descriptorOffset);
+                Nri.storeInt32(Ref(this.push[2]), i);
                 this.descriptorOffset = (this.descriptorOffset + 1) % NUM_DESCRIPTORS_STREAMING;
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.push[0]), PUSH_SIZE);
-                Nri_CmdDrawIndexed(commandBuffer, 4, 1, 0, 0, 0);
+                commandBuffer.setRootConstants(0, Ref(this.push[0]), PUSH_SIZE);
+                commandBuffer.drawIndexed(4, 1, 0, 0, 0);
             }
         }
 
@@ -380,7 +381,7 @@ namespace DescriptorIndexingNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its
+        // The window was resized (NriSample.useResizableWindow): the swap chain made again at its
         // size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -398,7 +399,7 @@ namespace DescriptorIndexingNri {
             this.resizeIfNeeded();
             // The sample's render: the time accumulated in float, wrapped to [0, 1). In test mode
             // 1/60 second a frame, as Donut's test mode.
-            const deltaTime = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const deltaTime = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             const time = Math.fround(this.accumulatedTime + Math.fround(Math.fround(0.2) * deltaTime));
             this.accumulatedTime = Math.fround(time - Math.floor(time));
 
@@ -409,25 +410,25 @@ namespace DescriptorIndexingNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], 0.0);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], 0.0);
                 this.recordGrids(commandBuffer);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -445,12 +446,12 @@ namespace DescriptorIndexingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -460,48 +461,48 @@ namespace DescriptorIndexingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const image of this.images) {
-                    Nri_DestroyDescriptor(image.view);
-                    Nri_DestroyTexture(image.texture);
+                    image.view.destroy();
+                    image.texture.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const nonUniformPipeline = this.nonUniformPipeline;
                 if (nonUniformPipeline) {
-                    Nri_DestroyPipeline(nonUniformPipeline);
+                    nonUniformPipeline.destroy();
                 }
                 const updateAfterBindPipeline = this.updateAfterBindPipeline;
                 if (updateAfterBindPipeline) {
-                    Nri_DestroyPipeline(updateAfterBindPipeline);
+                    updateAfterBindPipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 const quadIndexBuffer = this.quadIndexBuffer;
                 if (quadIndexBuffer) {
-                    Nri_DestroyBuffer(quadIndexBuffer);
+                    quadIndexBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 if (this.unsupportedReason == "") {
                     this.frames.destroy();
                     this.swapChain.destroy();
                 }
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const descriptorIndexing = new DescriptorIndexing(sample);
         return descriptorIndexing.run(argc, argv);
     }

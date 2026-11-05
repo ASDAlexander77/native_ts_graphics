@@ -6,6 +6,7 @@ import {
     rotationY, transpose, inverse, cross3, dot3, normalize3, multiplyF32,
 } from "../../core/matrix";
 import { formatFixed } from "../../core/text_format";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriImgui, NriImguiFont, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueryPool, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace BokehNri {
     // bokeh, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
@@ -117,16 +118,16 @@ namespace BokehNri {
     // slices and textures; the bokeh passes' BokehCB and textures), the views of its constants, the
     // buffer its timestamps are copied into and whether it holds ones not read yet.
     class QueuedFrame {
-        objectSets: NriDescriptorSetHandle[] = [];
-        constantViews: NriDescriptorHandle[] = [];
-        rgbzSet: NriDescriptorSetHandle | null = null;
-        downsampleSet: NriDescriptorSetHandle | null = null;
-        quadPointSet: NriDescriptorSetHandle | null = null;
-        recombineSet: NriDescriptorSetHandle | null = null;
+        objectSets: NriDescriptorSet[] = [];
+        constantViews: NriDescriptor[] = [];
+        rgbzSet: NriDescriptorSet | null = null;
+        downsampleSet: NriDescriptorSet | null = null;
+        quadPointSet: NriDescriptorSet | null = null;
+        recombineSet: NriDescriptorSet | null = null;
         timestampsPending: boolean = false;
 
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public timestampBuffer: NriBufferHandle | null) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public timestampBuffer: NriBuffer | null) {
         }
     }
 
@@ -134,7 +135,7 @@ namespace BokehNri {
     class Target {
         state: NriTextureState = NriTextureState.ShaderResource;
 
-        constructor(public texture: NriTextureHandle, public attachment: NriDescriptorHandle, public shaderResource: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public attachment: NriDescriptor, public shaderResource: NriDescriptor) {
         }
     }
 
@@ -221,8 +222,8 @@ namespace BokehNri {
     // file): its vertex and index buffers, its mesh parts (one per subset, drawn with their mesh's
     // buffers), and its materials' diffuse colors and textures.
     class Model {
-        vertexBuffers: NriBufferHandle[] = [];
-        indexBuffers: NriBufferHandle[] = [];
+        vertexBuffers: NriBuffer[] = [];
+        indexBuffers: NriBuffer[] = [];
         index32: boolean[] = [];
         partVertexBuffers: int[] = [];
         partIndexBuffers: int[] = [];
@@ -232,20 +233,20 @@ namespace BokehNri {
         partVertexOffsets: int[] = [];
         // Per material: the diffuse color (RGB) and alpha, the diffuse texture and its view.
         materialColors: number[] = [];
-        materialTextures: NriTextureHandle[] = [];
-        materialViews: NriDescriptorHandle[] = [];
+        materialTextures: NriTexture[] = [];
+        materialViews: NriDescriptor[] = [];
         vertexStride: int = 0;
 
         // The file's buffers uploaded on the queue, its materials' textures loaded (DirectXTK's
         // EffectTextureFactory: DDS files as they are). False (after printing why) on failure.
-        load(device: NriDeviceHandle, queue: NriQueueHandle, file: string) {
-            const binaryFile = Nri_LoadFile(MEDIA_DIR + file);
+        load(device: NriDevice, queue: NriQueue, file: string) {
+            const binaryFile = NriFile.load(MEDIA_DIR + file);
             if (!binaryFile) {
                 return false;
             }
-            const mesh = SdkMesh.load(Nri_GetFileData(binaryFile), Nri_GetFileSize(binaryFile));
+            const mesh = SdkMesh.load(binaryFile.getData(), binaryFile.getSize());
             if (mesh.isNull()) {
-                Nri_DestroyFile(binaryFile);
+                binaryFile.destroy();
                 return false;
             }
 
@@ -259,7 +260,7 @@ namespace BokehNri {
                     console.log(`${file}: unexpected vertex layout`);
                     ok = false;
                 }
-                const buffer = Nri_CreateUploadedBufferFromPointer(device, queue, mesh.getVertexBufferData(i), mesh.getVertexBufferSize(i),
+                const buffer = device.createUploadedBufferFromPointer(queue, mesh.getVertexBufferData(i), mesh.getVertexBufferSize(i),
                     NriBufferUsage.VertexBuffer);
                 if (!buffer) {
                     ok = false;
@@ -268,7 +269,7 @@ namespace BokehNri {
                 }
             }
             for (let i = 0; i < mesh.getIndexBufferCount(); i++) {
-                const buffer = Nri_CreateUploadedBufferFromPointer(device, queue, mesh.getIndexBufferData(i), mesh.getIndexBufferSize(i),
+                const buffer = device.createUploadedBufferFromPointer(queue, mesh.getIndexBufferData(i), mesh.getIndexBufferSize(i),
                     NriBufferUsage.IndexBuffer);
                 if (!buffer) {
                     ok = false;
@@ -303,13 +304,13 @@ namespace BokehNri {
                     this.materialColors.push(colors[3] != 1.0 && colors[3] != 0.0 ? colors[3] : 1.0);
                 }
                 const textureName = mesh.getMaterialTexture(m, 0);
-                const texture = textureName == "" ? null : Nri_LoadTexture(device, queue, MEDIA_DIR + textureName, 0);
+                const texture = textureName == "" ? null : device.loadTexture(queue, MEDIA_DIR + textureName, 0);
                 if (!texture) {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
                     ok = false;
                 } else {
                     this.materialTextures.push(texture);
-                    this.materialViews.push(Nri_CreateTextureView(texture, Nri_GetTextureFormat(texture)));
+                    this.materialViews.push(texture.createView(texture.getFormat()));
                 }
             }
 
@@ -330,22 +331,22 @@ namespace BokehNri {
             }
 
             mesh.destroy();
-            Nri_DestroyFile(binaryFile);
+            binaryFile.destroy();
             return ok;
         }
 
         destroy() {
             for (const buffer of this.vertexBuffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             for (const buffer of this.indexBuffers) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
             for (const view of this.materialViews) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
             for (const texture of this.materialTextures) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
     }
@@ -365,59 +366,59 @@ namespace BokehNri {
     // The sample's gamepad controls are keys here (see buildUI); its HUD's timings are the GPU's,
     // from timestamp queries.
     class Bokeh {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private unsupportedReason: string = "";
         private models: Model[] = [];
-        private irisTexture: NriTextureHandle | null = null;
-        private irisView: NriDescriptorHandle | null = null;
+        private irisTexture: NriTexture | null = null;
+        private irisView: NriDescriptor | null = null;
         // The 1D weights texture (64 x 1 here) and the energy shader's 8x8x64 scratch memory.
-        private energiesTexture: NriTextureHandle | null = null;
-        private energiesView: NriDescriptorHandle | null = null;
-        private energiesStorageView: NriDescriptorHandle | null = null;
+        private energiesTexture: NriTexture | null = null;
+        private energiesView: NriDescriptor | null = null;
+        private energiesStorageView: NriDescriptor | null = null;
         private energiesState: NriTextureState = NriTextureState.Storage;
-        private scratchBuffer: NriBufferHandle | null = null;
-        private scratchView: NriDescriptorHandle | null = null;
-        private anisotropicSampler: NriDescriptorHandle | null = null;
-        private bokehSampler: NriDescriptorHandle | null = null;
-        private bilinearBorderSampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private sceneLayout: NriPipelineLayoutHandle | null = null;
-        private rgbzLayout: NriPipelineLayoutHandle | null = null;
-        private downsampleLayout: NriPipelineLayoutHandle | null = null;
-        private quadPointLayout: NriPipelineLayoutHandle | null = null;
-        private recombineLayout: NriPipelineLayoutHandle | null = null;
-        private copyLayout: NriPipelineLayoutHandle | null = null;
-        private energyLayout: NriPipelineLayoutHandle | null = null;
-        private scenePipeline: NriPipelineHandle | null = null;
-        private rgbzPipeline: NriPipelineHandle | null = null;
-        private downsamplePipeline: NriPipelineHandle | null = null;
-        private quadPointPipeline: NriPipelineHandle | null = null;
-        private quadPointFastPipeline: NriPipelineHandle | null = null;
-        private recombinePipeline: NriPipelineHandle | null = null;
-        private copyPipeline: NriPipelineHandle | null = null;
-        private energyPipeline: NriPipelineHandle | null = null;
-        private energySet: NriDescriptorSetHandle | null = null;
-        private copySet: NriDescriptorSetHandle | null = null;
+        private scratchBuffer: NriBuffer | null = null;
+        private scratchView: NriDescriptor | null = null;
+        private anisotropicSampler: NriDescriptor | null = null;
+        private bokehSampler: NriDescriptor | null = null;
+        private bilinearBorderSampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private sceneLayout: NriPipelineLayout | null = null;
+        private rgbzLayout: NriPipelineLayout | null = null;
+        private downsampleLayout: NriPipelineLayout | null = null;
+        private quadPointLayout: NriPipelineLayout | null = null;
+        private recombineLayout: NriPipelineLayout | null = null;
+        private copyLayout: NriPipelineLayout | null = null;
+        private energyLayout: NriPipelineLayout | null = null;
+        private scenePipeline: NriPipeline | null = null;
+        private rgbzPipeline: NriPipeline | null = null;
+        private downsamplePipeline: NriPipeline | null = null;
+        private quadPointPipeline: NriPipeline | null = null;
+        private quadPointFastPipeline: NriPipeline | null = null;
+        private recombinePipeline: NriPipeline | null = null;
+        private copyPipeline: NriPipeline | null = null;
+        private energyPipeline: NriPipeline | null = null;
+        private energySet: NriDescriptorSet | null = null;
+        private copySet: NriDescriptorSet | null = null;
         // The window-sized targets: the scene's FP16 color and depth, the DOF target (the layers' six
         // viewports), the RGBZ copies at full and quarter size.
         private sceneColor: Target | null = null;
-        private sceneDepth: NriTextureHandle | null = null;
-        private sceneDepthAttachment: NriDescriptorHandle | null = null;
-        private sceneDepthView: NriDescriptorHandle | null = null;
+        private sceneDepth: NriTexture | null = null;
+        private sceneDepthAttachment: NriDescriptor | null = null;
+        private sceneDepthView: NriDescriptor | null = null;
         private dofColor: Target | null = null;
         private rgbzCopy: Target | null = null;
         private rgbzHalfCopy: Target | null = null;
         private dofHeight: int = 0;
         private imgui: boolean = false;
-        private font: NriImguiFontHandle | null = null;
+        private font: NriImguiFont | null = null;
 
-        private queryPool: NriQueryPoolHandle | null = null;
+        private queryPool: NriQueryPool | null = null;
         private querySize: int = 0;
         private timerSums: number[] = [0.0, 0.0, 0.0, 0.0];
         private timerSamples: int = 0;
@@ -457,10 +458,10 @@ namespace BokehNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < BOKEH_CB_FLOATS + 4; i++) {
                 this.bokehConstants.push(0.0);
             }
@@ -481,13 +482,13 @@ namespace BokehNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -508,20 +509,20 @@ namespace BokehNri {
                 this.unsupportedReason = "NRI's D3D11 backend has no structured buffers of 4-byte structures (the energy shader's scratch memory)";
                 return 0;
             }
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's R8G8B8A8_UNORM back buffers
             // (its FP16 scene copied as is).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const width = this.frameWidth;
@@ -531,10 +532,10 @@ namespace BokehNri {
             // Donut's AnisotropicWrap (trilinear, the device's maximum anisotropy) for the scene;
             // BokehRS's s0: FILTER_MIN_MAG_LINEAR_MIP_POINT, CreateEnergyTexRS's:
             // FILTER_MIN_MAG_MIP_LINEAR, both bordered in transparent black.
-            const anisotropicSampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
-                Nri_GetMaxSamplerAnisotropy(device));
-            const bokehSampler = Nri_CreateBorderSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Nearest, 0);
-            const bilinearBorderSampler = Nri_CreateBorderSampler(device, NriFilter.Linear, 0);
+            const anisotropicSampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
+                device.getMaxSamplerAnisotropy());
+            const bokehSampler = device.createBorderSamplerWithMipFilter(NriFilter.Linear, NriFilter.Nearest, 0);
+            const bilinearBorderSampler = device.createBorderSampler(NriFilter.Linear, 0);
             this.anisotropicSampler = anisotropicSampler;
             this.bokehSampler = bokehSampler;
             this.bilinearBorderSampler = bilinearBorderSampler;
@@ -552,33 +553,33 @@ namespace BokehNri {
                 }
                 this.models.push(model);
             }
-            const irisTexture = Nri_LoadDdsTexture(device, this.queue, MEDIA_DIR + "irishexa32.dds", 0);
+            const irisTexture = device.loadDdsTexture(this.queue, MEDIA_DIR + "irishexa32.dds", 0);
             this.irisTexture = irisTexture;
             if (!loaded || !irisTexture) {
                 console.log("Cannot load the sample's models and textures: set XBOX_ATG_SAMPLES_DIR when configuring");
                 return 0;
             }
-            const irisView = Nri_CreateTextureView(irisTexture, Nri_GetTextureFormat(irisTexture));
+            const irisView = irisTexture.createView(irisTexture.getFormat());
             this.irisView = irisView;
 
             // The energy weights (written by the compute shader, read by the geometry shader) and the
             // scratch memory (zeroed: the shader's last groups may read sums still in flight).
-            const energiesTexture = Nri_CreateStorageTexture(device, this.queue, NUM_RADII_WEIGHTS, 1, NriFormat.R32_SFLOAT);
+            const energiesTexture = device.createStorageTexture(this.queue, NUM_RADII_WEIGHTS, 1, NriFormat.R32_SFLOAT);
             this.energiesTexture = energiesTexture;
             const scratchCount = (NUM_RADII_WEIGHTS / 8) * (NUM_RADII_WEIGHTS / 8) * NUM_RADII_WEIGHTS;
             const zeros: int[] = [];
             for (let i = 0; i < scratchCount; i++) {
                 zeros.push(0);
             }
-            const scratchBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), scratchCount * 4, 4, NriBufferState.Storage);
+            const scratchBuffer = device.createStorageBufferFromInts(this.queue, Ref(zeros[0]), scratchCount * 4, 4, NriBufferState.Storage);
             this.scratchBuffer = scratchBuffer;
             if (!energiesTexture || !scratchBuffer) {
                 console.log("Cannot create the energy weights");
                 return 0;
             }
-            const energiesView = Nri_CreateTextureView(energiesTexture, NriFormat.R32_SFLOAT);
-            const energiesStorageView = Nri_CreateStorageTextureView(energiesTexture, NriFormat.R32_SFLOAT);
-            const scratchView = Nri_CreateStructuredBufferView(scratchBuffer, 1);
+            const energiesView = energiesTexture.createView(NriFormat.R32_SFLOAT);
+            const energiesStorageView = energiesTexture.createStorageView(NriFormat.R32_SFLOAT);
+            const scratchView = scratchBuffer.createStructuredView(1);
             this.energiesView = energiesView;
             this.energiesStorageView = energiesStorageView;
             this.scratchView = scratchView;
@@ -647,7 +648,7 @@ namespace BokehNri {
             this.copyPipeline = this.createFullscreenPipeline(device, copyLayout, shaders, "copy_ps", format);
             this.quadPointPipeline = this.createQuadPointPipeline(device, quadPointLayout, shaders, "OPTIMISE=0");
             this.quadPointFastPipeline = this.createQuadPointPipeline(device, quadPointLayout, shaders, "OPTIMISE=1");
-            this.energyPipeline = Nri_CreateComputePipeline(device, energyLayout, `${shaders}bokeh_energy_create_energy_tex_cs.bin`,
+            this.energyPipeline = device.createComputePipeline(energyLayout, `${shaders}bokeh_energy_create_energy_tex_cs.bin`,
                 "create_energy_tex_cs");
             if (!this.scenePipeline || !this.rgbzPipeline || !this.downsamplePipeline || !this.recombinePipeline || !this.copyPipeline
                 || !this.quadPointPipeline || !this.quadPointFastPipeline || !this.energyPipeline) {
@@ -656,20 +657,20 @@ namespace BokehNri {
             }
 
             // A queued frame's timestamps.
-            const queryPool = Nri_CreateTimestampQueryPool(device, queuedFrameNum * TIMESTAMPS);
+            const queryPool = device.createTimestampQueryPool(queuedFrameNum * TIMESTAMPS);
             this.queryPool = queryPool;
             if (!queryPool) {
                 console.log("Cannot create the timestamp queries");
                 return 0;
             }
-            this.querySize = Nri_GetQuerySize(queryPool);
+            this.querySize = queryPool.getQuerySize();
 
             // The constants, a queued frame's each; per queued frame the objects' sets and the bokeh
             // passes' sets; the copy's and the energy shader's sets.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * FRAME_CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             const setNum = queuedFrameNum * (OBJECT_COUNT + 4) + 2;
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, setNum, queuedFrameNum * (OBJECT_COUNT + 4) + 1,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(setNum, queuedFrameNum * (OBJECT_COUNT + 4) + 1,
                 queuedFrameNum * (OBJECT_COUNT + 4), queuedFrameNum * (OBJECT_COUNT + 9) + 2, 1, 0, 1, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool || !energiesView || !energiesStorageView || !scratchView) {
@@ -679,24 +680,24 @@ namespace BokehNri {
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let q = 0; q < queuedFrameNum; q++) {
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
-                const timestampBuffer = Nri_CreateReadbackBuffer(device, TIMESTAMPS * this.querySize);
+                const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
                 const queuedFrame = new QueuedFrame(this.frames.commandBuffer(q), timestampBuffer);
                 this.queuedFrames.push(queuedFrame);
                 const base = q * FRAME_CONSTANTS_SIZE;
                 for (let o = 0; o < OBJECT_COUNT; o++) {
-                    const view = Nri_CreateConstantBufferView(constantBuffer, base + o * PARAMETERS_SLICE_SIZE, PARAMETERS_SLICE_SIZE);
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
+                    const view = constantBuffer.createConstantView(base + o * PARAMETERS_SLICE_SIZE, PARAMETERS_SLICE_SIZE);
+                    const set = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
                     if (!view || !set) {
                         console.log("Cannot create the descriptor sets");
                         return 0;
                     }
                     queuedFrame.constantViews.push(view);
                     queuedFrame.objectSets.push(set);
-                    Nri_UpdateDescriptor(set, 0, 0, view);
-                    Nri_UpdateDescriptor(set, 1, 0, this.models[OBJECT_MODELS[o]].materialViews[0]);
-                    Nri_UpdateDescriptor(set, 2, 0, anisotropicSampler);
+                    set.updateDescriptor(0, 0, view);
+                    set.updateDescriptor(1, 0, this.models[OBJECT_MODELS[o]].materialViews[0]);
+                    set.updateDescriptor(2, 0, anisotropicSampler);
                 }
-                const bokehView = Nri_CreateConstantBufferView(constantBuffer, base + OBJECT_COUNT * PARAMETERS_SLICE_SIZE, BOKEH_CB_SIZE);
+                const bokehView = constantBuffer.createConstantView(base + OBJECT_COUNT * PARAMETERS_SLICE_SIZE, BOKEH_CB_SIZE);
                 if (!bokehView || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -724,12 +725,12 @@ namespace BokehNri {
 
             // The sample's HUD, in the sample's font.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
                 this.imgui = true;
-                this.font = Nri_ImguiCreateFont(FONT_PATH, FONT_SIZE);
+                this.font = NriImgui.createFont(FONT_PATH, FONT_SIZE);
                 if (!this.font) {
                     console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
                     return 0;
@@ -737,9 +738,9 @@ namespace BokehNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * height);
             }
             return 1;
         }
@@ -747,7 +748,7 @@ namespace BokehNri {
         // The frame-sized targets (BokehEffect::ResizeResources): the scene's FP16 color and depth,
         // the DOF target (two viewports at a quarter of the size one below the other, two at a
         // sixteenth and two at a 64th along the bottom), the RGBZ copies; false on failure.
-        createSizeTargets(device: NriDeviceHandle): boolean {
+        createSizeTargets(device: NriDevice): boolean {
             const width = this.frameWidth;
             const height = this.frameHeight;
             this.dofHeight = Math.floor(2 * height / FIRST_DOWNSAMPLE) + Math.floor(height / (2 * FIRST_DOWNSAMPLE))
@@ -760,13 +761,13 @@ namespace BokehNri {
             this.dofColor = dofColor;
             this.rgbzCopy = rgbzCopy;
             this.rgbzHalfCopy = rgbzHalfCopy;
-            const sceneDepth = Nri_CreateSampledDepthTexture(device, this.queue, width, height, NriFormat.D32_SFLOAT);
+            const sceneDepth = device.createSampledDepthTexture(this.queue, width, height, NriFormat.D32_SFLOAT);
             this.sceneDepth = sceneDepth;
             if (!sceneColor || !dofColor || !rgbzCopy || !rgbzHalfCopy || !sceneDepth) {
                 return false;
             }
-            this.sceneDepthAttachment = Nri_CreateDepthAttachmentView(sceneDepth, NriFormat.D32_SFLOAT);
-            this.sceneDepthView = Nri_CreateTextureView(sceneDepth, NriFormat.D32_SFLOAT);
+            this.sceneDepthAttachment = sceneDepth.createDepthAttachmentView(NriFormat.D32_SFLOAT);
+            this.sceneDepthView = sceneDepth.createView(NriFormat.D32_SFLOAT);
             return true;
         }
 
@@ -801,127 +802,127 @@ namespace BokehNri {
             for (const queuedFrame of this.queuedFrames) {
                 const rgbzSet = queuedFrame.rgbzSet;
                 if (rgbzSet) {
-                    Nri_UpdateDescriptor(rgbzSet, 1, 0, sceneColor.shaderResource);
-                    Nri_UpdateDescriptor(rgbzSet, 2, 0, sceneDepthView);
+                    rgbzSet.updateDescriptor(1, 0, sceneColor.shaderResource);
+                    rgbzSet.updateDescriptor(2, 0, sceneDepthView);
                 }
                 const downsampleSet = queuedFrame.downsampleSet;
                 if (downsampleSet) {
-                    Nri_UpdateDescriptor(downsampleSet, 1, 0, rgbzCopy.shaderResource);
+                    downsampleSet.updateDescriptor(1, 0, rgbzCopy.shaderResource);
                 }
                 const quadPointSet = queuedFrame.quadPointSet;
                 if (quadPointSet) {
-                    Nri_UpdateDescriptor(quadPointSet, 1, 0, rgbzHalfCopy.shaderResource);
+                    quadPointSet.updateDescriptor(1, 0, rgbzHalfCopy.shaderResource);
                 }
                 const recombineSet = queuedFrame.recombineSet;
                 if (recombineSet) {
-                    Nri_UpdateDescriptor(recombineSet, 1, 0, dofColor.shaderResource);
-                    Nri_UpdateDescriptor(recombineSet, 2, 0, sceneDepthView);
-                    Nri_UpdateDescriptor(recombineSet, 3, 0, rgbzCopy.shaderResource);
+                    recombineSet.updateDescriptor(1, 0, dofColor.shaderResource);
+                    recombineSet.updateDescriptor(2, 0, sceneDepthView);
+                    recombineSet.updateDescriptor(3, 0, rgbzCopy.shaderResource);
                 }
             }
             const copySet = this.copySet;
             if (copySet) {
-                Nri_UpdateDescriptor(copySet, 0, 0, sceneColor.shaderResource);
+                copySet.updateDescriptor(0, 0, sceneColor.shaderResource);
             }
         }
 
         // A width x height FP16 render target, left as a shader resource; null on failure.
-        createTarget(device: NriDeviceHandle, width: int, height: int): Target | null {
-            const texture = Nri_CreateRenderTargetTexture(device, this.queue, width, height, NriFormat.RGBA16_SFLOAT);
+        createTarget(device: NriDevice, width: int, height: int): Target | null {
+            const texture = device.createRenderTargetTexture(this.queue, width, height, NriFormat.RGBA16_SFLOAT);
             if (!texture) {
                 return null;
             }
-            return new Target(texture, Nri_CreateColorAttachmentView(texture, NriFormat.RGBA16_SFLOAT),
-                Nri_CreateTextureView(texture, NriFormat.RGBA16_SFLOAT));
+            return new Target(texture, texture.createColorAttachmentView(NriFormat.RGBA16_SFLOAT),
+                texture.createView(NriFormat.RGBA16_SFLOAT));
         }
 
         // A layout of one set: ranges of types at registers (one descriptor each) seen by stages.
-        createLayout(device: NriDeviceHandle, types: NriDescriptorType[], registers: int[], stages: NriStage) {
-            const desc = Nri_CreatePipelineLayoutDesc();
+        createLayout(device: NriDevice, types: NriDescriptorType[], registers: int[], stages: NriStage) {
+            const desc = NriPipelineLayoutDesc.create();
             for (let i = 0; i < types.length; i++) {
-                Nri_PipelineLayoutDescAddRange(desc, 0, registers[i], 1, types[i], stages, NriRangeFlags.None);
+                desc.addRange(0, registers[i], 1, types[i], stages, NriRangeFlags.None);
             }
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, desc);
-            Nri_DestroyPipelineLayoutDesc(desc);
+            const layout = device.createPipelineLayoutFromDesc(desc);
+            desc.destroy();
             return layout;
         }
 
         // A set of the layout with the descriptors, range by range; null on failure.
-        createSet(descriptorPool: NriDescriptorPoolHandle, layout: NriPipelineLayoutHandle, descriptors: NriDescriptorHandle[]) {
-            const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+        createSet(descriptorPool: NriDescriptorPool, layout: NriPipelineLayout, descriptors: NriDescriptor[]) {
+            const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
             if (!set) {
                 return null;
             }
             for (let i = 0; i < descriptors.length; i++) {
-                Nri_UpdateDescriptor(set, i, 0, descriptors[i]);
+                set.updateDescriptor(i, 0, descriptors[i]);
             }
             return set;
         }
 
         // The scene's: opaque, DepthDefault (less or equal), CullCounterClockwise (clockwise front
         // faces, the back ones culled); depth clip off (the Donut example's default).
-        createScenePipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}bokeh_scene_scene_vs.bin`, "scene_vs") != 0;
+        createScenePipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}bokeh_scene_scene_vs.bin`, "scene_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}bokeh_scene_scene_ps.bin`, "scene_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}bokeh_scene_scene_ps.bin`, "scene_ps") != 0;
             }
             // The models' vertices: position, normal, texture coordinates.
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "NORMAL", NriFormat.RGB32_SFLOAT, 12);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 24);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetDepthClip(desc, 0);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("NORMAL", NriFormat.RGB32_SFLOAT, 12);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 24);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setDepthClip(0);
+            desc.setColor(NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.LessEqual, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The full-screen passes (quad_vs and the pixel shader ps) into a color target of format: no
         // depth, nothing culled (the triangles face the camera anyway).
-        createFullscreenPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, ps: string, format: NriFormat) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}bokeh_quad_vs.bin`, "quad_vs") != 0;
+        createFullscreenPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, ps: string, format: NriFormat) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}bokeh_quad_vs.bin`, "quad_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}bokeh_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}bokeh_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescSetDepthClip(desc, 0);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setDepthClip(0);
+            desc.setColor(format, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The quad point PSOs (the geometry shader's permutation "OPTIMISE=0" or "=1"): points
         // expanded by the geometry shader, added together (One + One).
-        createQuadPointPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, permutation: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}bokeh_quad_point_vs.bin`, "quad_point_vs") != 0;
+        createQuadPointPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, permutation: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}bokeh_quad_point_vs.bin`, "quad_point_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Geometry, `${shaders}bokeh_quad_point_gs.bin`, "quad_point_gs",
+                loaded = desc.addShaderPermutation(NriShaderStage.Geometry, `${shaders}bokeh_quad_point_gs.bin`, "quad_point_gs",
                     permutation) != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}bokeh_quad_point_ps.bin`, "quad_point_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}bokeh_quad_point_ps.bin`, "quad_point_ps") != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.PointList);
-            Nri_PipelineDescSetDepthClip(desc, 0);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
-            Nri_PipelineDescSetBlend(desc, NriBlendFactor.One, NriBlendFactor.One, NriBlendOp.Add, NriBlendFactor.One, NriBlendFactor.One,
+            desc.setTopology(NriTopology.PointList);
+            desc.setDepthClip(0);
+            desc.setColor(NriFormat.RGBA16_SFLOAT, NriColorWrite.RGBA);
+            desc.setBlend(NriBlendFactor.One, NriBlendFactor.One, NriBlendOp.Add, NriBlendFactor.One, NriBlendFactor.One,
                 NriBlendOp.Add);
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -965,10 +966,10 @@ namespace BokehNri {
         // The Donut example's onKey: Up and Down when pressed, the held keys' state.
         pollKeys() {
             for (const key of HELD_KEYS) {
-                this.held[key] = Nri_IsKeyPressed(this.sample, key) != 0;
+                this.held[key] = this.sample.isKeyPressed(key) != 0;
             }
             for (let i = 0; i < PRESS_KEYS.length; i++) {
-                const down = Nri_IsKeyPressed(this.sample, PRESS_KEYS[i]) != 0;
+                const down = this.sample.isKeyPressed(PRESS_KEYS[i]) != 0;
                 if (down && !this.wasDown[i]) {
                     if (PRESS_KEYS[i] == Key.Up) {
                         // Toggle fast bokeh shader
@@ -998,7 +999,7 @@ namespace BokehNri {
         // Sample::Update: the held controls, a step per 1/60 s (the test takes 1/60 second a frame,
         // as Donut's test mode, without input).
         animate() {
-            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             if (!this.test) {
                 this.pollKeys();
             }
@@ -1173,14 +1174,14 @@ namespace BokehNri {
         // The sample's HUD (SpriteFont text in the title-safe area): its timings at the top, its
         // controls at the bottom, here as keys.
         line(x: number, y: number, text: string) {
-            Nri_ImguiDrawText(x, y, text, GREEN_R, GREEN_G, GREEN_B, 1.0, 0);
+            NriImgui.drawText(x, y, text, GREEN_R, GREEN_G, GREEN_B, 1.0, 0);
         }
 
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             const font = this.font;
             if (!font) {
-                Nri_ImguiRender(this.sample);
+                this.sample.imguiRender();
                 return;
             }
             // SimpleMath::Viewport::ComputeTitleSafeArea
@@ -1190,7 +1191,7 @@ namespace BokehNri {
             const top: int = Math.floor(safeH);
             const bottom: int = Math.floor(this.frameHeight - safeH + 0.5);
 
-            Nri_ImguiPushFont(font);
+            font.pushFont();
             let y = top + 0.0;
             this.line(left, y, "Bokeh Sample");
             y += LINE_SPACING;
@@ -1209,8 +1210,8 @@ namespace BokehNri {
             this.line(left, y + LINE_SPACING * 5.0, `[7][8] CoC Far: ${formatFixed(this.maxCoCSizeFar, 1)}`);
             this.line(left, y + LINE_SPACING * 6.0, "[A][D] [W][S] [Q][E] Camera");
             this.line(left, y + LINE_SPACING * 7.0, "[Esc] Exit");
-            Nri_ImguiPopFont();
-            Nri_ImguiRender(this.sample);
+            NriImgui.popFont();
+            this.sample.imguiRender();
         }
 
         // Waits for the frame that last used this frame's command allocator (and its constants).
@@ -1227,7 +1228,7 @@ namespace BokehNri {
                 return;
             }
             for (let i = 0; i < TIMER_COUNT; i++) {
-                const ms = Nri_ReadTimestampIntervalMs(device, timestampBuffer, 2 * i * this.querySize, (2 * i + 1) * this.querySize);
+                const ms = device.readTimestampIntervalMs(timestampBuffer, 2 * i * this.querySize, (2 * i + 1) * this.querySize);
                 if (ms >= 0.0) {
                     this.timerSums[i] += ms;
                 }
@@ -1237,12 +1238,12 @@ namespace BokehNri {
         }
 
         // Writes this queued frame's timestamp for timer's start (end: 0) or end (1).
-        writeTimestamp(commandBuffer: NriCommandBufferHandle, queuedFrameIndex: int, timer: int, end: int) {
+        writeTimestamp(commandBuffer: NriCommandBuffer, queuedFrameIndex: int, timer: int, end: int) {
             const queryPool = this.queryPool;
             if (!queryPool) {
                 return;
             }
-            Nri_CmdWriteTimestamp(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS + 2 * timer + end);
+            commandBuffer.writeTimestamp(queryPool, queuedFrameIndex * TIMESTAMPS + 2 * timer + end);
         }
 
         // The swap chain's size and formats (its views in the textures' format).
@@ -1252,7 +1253,7 @@ namespace BokehNri {
             this.swapChainFormat = this.swapChain.format();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the frame-sized targets
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the frame-sized targets
         // (BokehEffect::ResizeResources) made again at its size, once the GPU is done with the old
         // ones, and the sets pointed at them. The new targets start as shader resources, as their
         // Targets' states say; the passes' viewports, the DOF slices and the HUD read the size every
@@ -1265,7 +1266,7 @@ namespace BokehNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizeTargets();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -1296,33 +1297,33 @@ namespace BokehNri {
         }
 
         // Moves a target to state (if it isn't in it: D3D12 rejects barriers between equal states).
-        transition(commandBuffer: NriCommandBufferHandle, target: Target, state: NriTextureState) {
+        transition(commandBuffer: NriCommandBuffer, target: Target, state: NriTextureState) {
             if (target.state != state) {
-                Nri_CmdTextureBarrier(commandBuffer, target.texture, target.state, state);
+                commandBuffer.textureBarrier(target.texture, target.state, state);
                 target.state = state;
             }
         }
 
         // A full-screen triangle into the target (cleared first if clear), of the pipeline with the
         // set; the target's size the viewport.
-        drawFullscreen(commandBuffer: NriCommandBufferHandle, target: Target, width: int, height: int, layout: NriPipelineLayoutHandle | null,
-            pipeline: NriPipelineHandle | null, set: NriDescriptorSetHandle | null) {
+        drawFullscreen(commandBuffer: NriCommandBuffer, target: Target, width: int, height: int, layout: NriPipelineLayout | null,
+            pipeline: NriPipeline | null, set: NriDescriptorSet | null) {
             if (!layout || !pipeline || !set) {
                 return;
             }
             this.transition(commandBuffer, target, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, target.attachment);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, width, height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, width, height);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.beginRendering(target.attachment);
+            commandBuffer.setViewport(0.0, 0.0, width, height);
+            commandBuffer.setScissor(0, 0, width, height);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, set);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.endRendering();
         }
 
         // The scene: the city and the microscopes into the FP16 target and the depth, cleared.
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordScene(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const sceneColor = this.sceneColor;
             const sceneDepth = this.sceneDepth;
             const sceneDepthAttachment = this.sceneDepthAttachment;
@@ -1332,32 +1333,32 @@ namespace BokehNri {
                 return;
             }
             this.transition(commandBuffer, sceneColor, NriTextureState.ColorAttachment);
-            Nri_CmdTextureBarrier(commandBuffer, sceneDepth, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, sceneColor.attachment, sceneDepthAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdClearDepth(commandBuffer, 1.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.frameWidth, this.frameHeight);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.frameWidth, this.frameHeight);
-            Nri_CmdSetPipelineLayout(commandBuffer, sceneLayout);
-            Nri_CmdSetPipeline(commandBuffer, scenePipeline);
+            commandBuffer.textureBarrier(sceneDepth, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+            commandBuffer.beginRenderingWithDepth(sceneColor.attachment, sceneDepthAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.clearDepth(1.0);
+            commandBuffer.setViewport(0.0, 0.0, this.frameWidth, this.frameHeight);
+            commandBuffer.setScissor(0, 0, this.frameWidth, this.frameHeight);
+            commandBuffer.setPipelineLayout(sceneLayout);
+            commandBuffer.setPipeline(scenePipeline);
             // render the city and microscopes
             for (let o = 0; o < OBJECT_COUNT; o++) {
                 const model = this.models[OBJECT_MODELS[o]];
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.objectSets[o]);
+                commandBuffer.setDescriptorSet(0, queuedFrame.objectSets[o]);
                 for (let p = 0; p < model.partIndexCounts.length; p++) {
-                    Nri_CmdSetVertexBuffer(commandBuffer, 0, model.vertexBuffers[model.partVertexBuffers[p]], 0, model.vertexStride);
+                    commandBuffer.setVertexBuffer(0, model.vertexBuffers[model.partVertexBuffers[p]], 0, model.vertexStride);
                     const ib = model.partIndexBuffers[p];
-                    Nri_CmdSetIndexBuffer(commandBuffer, model.indexBuffers[ib], 0, model.index32[ib] ? NriIndexType.UInt32 : NriIndexType.UInt16);
-                    Nri_CmdDrawIndexed(commandBuffer, model.partIndexCounts[p], 1, model.partStartIndices[p], model.partVertexOffsets[p], 0);
+                    commandBuffer.setIndexBuffer(model.indexBuffers[ib], 0, model.index32[ib] ? NriIndexType.UInt32 : NriIndexType.UInt16);
+                    commandBuffer.drawIndexed(model.partIndexCounts[p], 1, model.partStartIndices[p], model.partVertexOffsets[p], 0);
                 }
             }
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, sceneDepth, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(sceneDepth, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
             this.transition(commandBuffer, sceneColor, NriTextureState.ShaderResource);
         }
 
         // find iris texture weights
-        recordEnergy(commandBuffer: NriCommandBufferHandle) {
+        recordEnergy(commandBuffer: NriCommandBuffer) {
             const energiesTexture = this.energiesTexture;
             const scratchBuffer = this.scratchBuffer;
             const energyLayout = this.energyLayout;
@@ -1367,23 +1368,23 @@ namespace BokehNri {
                 return;
             }
             if (this.energiesState != NriTextureState.Storage) {
-                Nri_CmdTextureBarrier(commandBuffer, energiesTexture, this.energiesState, NriTextureState.Storage);
+                commandBuffer.textureBarrier(energiesTexture, this.energiesState, NriTextureState.Storage);
             }
             // The previous frame's scratch writes before this frame's.
-            Nri_CmdBufferBarrier(commandBuffer, scratchBuffer, NriBufferState.Storage, NriBufferState.Storage);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, energyLayout);
-            Nri_CmdSetPipeline(commandBuffer, energyPipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, energySet);
-            Nri_CmdDispatch(commandBuffer, NUM_RADII_WEIGHTS / 8, NUM_RADII_WEIGHTS / 8, NUM_RADII_WEIGHTS);
+            commandBuffer.bufferBarrier(scratchBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            commandBuffer.setComputePipelineLayout(energyLayout);
+            commandBuffer.setPipeline(energyPipeline);
+            commandBuffer.setComputeDescriptorSet(0, energySet);
+            commandBuffer.dispatch(NUM_RADII_WEIGHTS / 8, NUM_RADII_WEIGHTS / 8, NUM_RADII_WEIGHTS);
             // Read by the quad point passes' geometry shader.
-            Nri_CmdTextureBarrier(commandBuffer, energiesTexture, NriTextureState.Storage, NriTextureState.GeometryShaderResource);
+            commandBuffer.textureBarrier(energiesTexture, NriTextureState.Storage, NriTextureState.GeometryShaderResource);
             this.energiesState = NriTextureState.GeometryShaderResource;
         }
 
         // BokehEffect::Render: the energy weights; the RGBZ copy and its downsampled copy; the
         // multi-viewport DOF target, split into slices, the CoC DOF; the viewports combined into the
         // scene's target.
-        recordBokeh(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordBokeh(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const dofColor = this.dofColor;
             const rgbzCopy = this.rgbzCopy;
             const rgbzHalfCopy = this.rgbzHalfCopy;
@@ -1410,21 +1411,21 @@ namespace BokehNri {
 
             // prepare the multi-viewport dof render target: split into slices, do the CoC DOF
             this.transition(commandBuffer, dofColor, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, dofColor.attachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+            commandBuffer.beginRendering(dofColor.attachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
             const viewports: f32[] = [];
             for (let i = 0; i < 6; i++) {
                 for (let which = 0; which < 4; which++) {
                     viewports.push(this.viewportValue(i, which, width, height));
                 }
             }
-            Nri_CmdSetViewportsAndScissors(commandBuffer, Ref(viewports[0]), 6);
-            Nri_CmdSetPipelineLayout(commandBuffer, quadPointLayout);
-            Nri_CmdSetPipeline(commandBuffer, quadPointPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, quadPointSet);
+            commandBuffer.setViewportsAndScissors(Ref(viewports[0]), 6);
+            commandBuffer.setPipelineLayout(quadPointLayout);
+            commandBuffer.setPipeline(quadPointPipeline);
+            commandBuffer.setDescriptorSet(0, quadPointSet);
             // each GS can output up to 4 triangles
-            Nri_CmdDraw(commandBuffer, Math.floor(width * height / (FIRST_DOWNSAMPLE * FIRST_DOWNSAMPLE * 2 * 2)), 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.draw(Math.floor(width * height / (FIRST_DOWNSAMPLE * FIRST_DOWNSAMPLE * 2 * 2)), 1, 0, 0);
+            commandBuffer.endRendering();
             this.transition(commandBuffer, dofColor, NriTextureState.ShaderResource);
 
             // combine the resulting viewports
@@ -1453,18 +1454,18 @@ namespace BokehNri {
             this.updateScene(view, proj);
             this.updateBokehConstants(width, height, inverse(proj));
             const base = queuedFrameIndex * FRAME_CONSTANTS_SIZE;
-            Nri_WriteBuffer(constantBuffer, base, Ref(this.parameters[0]), PARAMETERS_SLICE_SIZE * OBJECT_COUNT);
-            Nri_WriteBuffer(constantBuffer, base + OBJECT_COUNT * PARAMETERS_SLICE_SIZE, Ref(this.bokehConstants[0]), BOKEH_CB_SIZE);
+            constantBuffer.write(base, Ref(this.parameters[0]), PARAMETERS_SLICE_SIZE * OBJECT_COUNT);
+            constantBuffer.write(base + OBJECT_COUNT * PARAMETERS_SLICE_SIZE, Ref(this.bokehConstants[0]), BOKEH_CB_SIZE);
 
             const commandBuffer = queuedFrame.commandBuffer;
-            Nri_BeginCommandBuffer(commandBuffer);
+            commandBuffer.begin();
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.setDescriptorPool(descriptorPool);
             const queryPool = this.queryPool;
             if (queryPool) {
-                Nri_CmdResetQueries(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS);
+                commandBuffer.resetQueries(queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS);
             }
             this.writeTimestamp(commandBuffer, queuedFrameIndex, TI_FRAME, 0);
 
@@ -1482,27 +1483,27 @@ namespace BokehNri {
 
             //------------------------------
             // Copy (the HUD over it)
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
             this.writeTimestamp(commandBuffer, queuedFrameIndex, TI_COPY, 0);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, width, height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, width, height);
-            Nri_CmdSetPipelineLayout(commandBuffer, copyLayout);
-            Nri_CmdSetPipeline(commandBuffer, copyPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, copySet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+            commandBuffer.setViewport(0.0, 0.0, width, height);
+            commandBuffer.setScissor(0, 0, width, height);
+            commandBuffer.setPipelineLayout(copyLayout);
+            commandBuffer.setPipeline(copyPipeline);
+            commandBuffer.setDescriptorSet(0, copySet);
+            commandBuffer.draw(3, 1, 0, 0);
             this.writeTimestamp(commandBuffer, queuedFrameIndex, TI_COPY, 1);
             this.writeTimestamp(commandBuffer, queuedFrameIndex, TI_FRAME, 1);
             if (this.imgui) {
-                Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, this.swapChainFormat);
+                this.sample.drawImguiUnconverted(commandBuffer, this.swapChainFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The timestamps, into this queued frame's buffer, read when its turn comes again.
             const timestampBuffer = queuedFrame.timestampBuffer;
             if (queryPool) {
                 if (timestampBuffer) {
-                    Nri_CmdCopyQueries(commandBuffer, queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS, timestampBuffer, 0);
+                    commandBuffer.copyQueries(queryPool, queuedFrameIndex * TIMESTAMPS, TIMESTAMPS, timestampBuffer, 0);
                     queuedFrame.timestampsPending = true;
                 }
             }
@@ -1512,18 +1513,18 @@ namespace BokehNri {
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), width, height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), width, height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -1535,12 +1536,12 @@ namespace BokehNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.frameWidth * this.frameHeight; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.frameWidth, this.frameHeight, this.swapChainFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.frameWidth, this.frameHeight, this.swapChainFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1550,19 +1551,19 @@ namespace BokehNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     for (const view of queuedFrame.constantViews) {
-                        Nri_DestroyDescriptor(view);
+                        view.destroy();
                     }
                     this.destroyBuffer(queuedFrame.timestampBuffer);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const model of this.models) {
                     model.destroy();
@@ -1582,7 +1583,7 @@ namespace BokehNri {
                 this.destroyBuffer(this.readbackBuffer);
                 const queryPool = this.queryPool;
                 if (queryPool) {
-                    Nri_DestroyQueryPool(queryPool);
+                    queryPool.destroy();
                 }
                 this.destroyPipeline(this.scenePipeline);
                 this.destroyPipeline(this.rgbzPipeline);
@@ -1601,66 +1602,66 @@ namespace BokehNri {
                 this.destroyPipelineLayout(this.energyLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyTarget(target: Target | null) {
             if (!target) {
                 return;
             }
-            Nri_DestroyDescriptor(target.attachment);
-            Nri_DestroyDescriptor(target.shaderResource);
-            Nri_DestroyTexture(target.texture);
+            target.attachment.destroy();
+            target.shaderResource.destroy();
+            target.texture.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyPipelineLayout(pipelineLayout: NriPipelineLayoutHandle | null) {
+        destroyPipelineLayout(pipelineLayout: NriPipelineLayout | null) {
             if (pipelineLayout) {
-                Nri_DestroyPipelineLayout(pipelineLayout);
+                pipelineLayout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const bokeh = new Bokeh(sample);
         // -preset N: start with preset scene N (0..3; Down cycles them); -slow: start with the full
         // (not the fast) bokeh geometry shader (Up toggles it); -noUI: no HUD.
-        Nri_AddExampleOptionWithValues(sample, "-preset", 1);
-        Nri_AddExampleOption(sample, "-slow");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOptionWithValues("-preset", 1);
+        sample.addExampleOption("-slow");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-preset" && i + 1 < argc) {
                 i++;
-                bokeh.presetScene = Math.floor(parseFloat(Nri_GetArg(argc, argv, i))) % PRESET_SCENE_COUNT;
+                bokeh.presetScene = Math.floor(parseFloat(Nri.getArg(argc, argv, i))) % PRESET_SCENE_COUNT;
             } else if (arg == "-slow") {
                 bokeh.useFastShader = false;
             } else if (arg == "-noUI") {

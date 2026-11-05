@@ -409,14 +409,14 @@ export class NriAsyncComputeLoop {
     // On the render thread: the number of the next texture the loop finished (in NriTextureState.Storage),
     // making the work submitted to graphicsQueue from now on wait for its run; -1 if none is finished.
     // (Nri_AcquireAsyncComputeTexture)
-    acquireAsyncComputeTexture(graphicsQueue: NriQueue): int {
+    acquireTexture(graphicsQueue: NriQueue): int {
         return Nri_AcquireAsyncComputeTexture(this.handle, graphicsQueue.handle);
     }
 
     // Adds a texture for the loop to write, by its descriptor set (its storage view at u0); before
     // starting it. The textures are numbered from 0 in the order they're added.
     // (Nri_AddAsyncComputeTexture)
-    addAsyncComputeTexture(descriptorSet: NriDescriptorSet) {
+    addTexture(descriptorSet: NriDescriptorSet) {
         Nri_AddAsyncComputeTexture(this.handle, descriptorSet.handle);
     }
 
@@ -428,27 +428,27 @@ export class NriAsyncComputeLoop {
 
     // Runs the worker has submitted so far.
     // (Nri_GetAsyncComputeRunCount)
-    getAsyncComputeRunCount(): int {
+    getRunCount(): int {
         return Nri_GetAsyncComputeRunCount(this.handle);
     }
 
     // On the render thread: gives the texture numbered index back to the loop, in NriTextureState.Storage
     // once the graphics queue signals graphicsFence with lastUse.
     // (Nri_ReleaseAsyncComputeTexture)
-    releaseAsyncComputeTexture(index: int, lastUse: int) {
+    releaseTexture(index: int, lastUse: int) {
         Nri_ReleaseAsyncComputeTexture(this.handle, index, lastUse);
     }
 
     // The root constants of the loop's runs from now on (byteSize bytes from data, copied; the layout's
     // root constants must be that size), instead of the run index.
     // (Nri_SetAsyncComputeConstants)
-    setAsyncComputeConstants(data: Ref<f32>, byteSize: int) {
+    setConstants(data: Ref<f32>, byteSize: int) {
         Nri_SetAsyncComputeConstants(this.handle, data, byteSize);
     }
 
     // 1: the worker starts no more runs until resumed with 0 (the run under way finishes).
     // (Nri_SetAsyncComputePaused)
-    setAsyncComputePaused(paused: int) {
+    setPaused(paused: int) {
         Nri_SetAsyncComputePaused(this.handle, paused);
     }
 
@@ -667,27 +667,27 @@ export class NriCalibratedTimestamps {
         Nri_DestroyCalibratedTimestamps(this.handle);
     }
 
+    // (Nri_GetCalibratedTimestampsMaxDeviation)
+    getMaxDeviation(): number {
+        return Nri_GetCalibratedTimestampsMaxDeviation(this.handle);
+    }
+
     // (Nri_GetCalibratedTimeDomain)
-    getCalibratedTimeDomain(index: int): int {
+    getTimeDomain(index: int): int {
         return Nri_GetCalibratedTimeDomain(this.handle, index);
     }
 
     // Its time domains: their number, and each one's NriTimeDomain (-1 out of range).
     // (Nri_GetCalibratedTimeDomainCount)
-    getCalibratedTimeDomainCount(): int {
+    getTimeDomainCount(): int {
         return Nri_GetCalibratedTimeDomainCount(this.handle);
     }
 
     // The last sample's timestamp of domain index, in its domain's ticks (the device's: of Nri_GetTimestampPeriod
     // nanoseconds); the sample's maximum deviation between the domains in nanoseconds (0 on D3D12).
     // (Nri_GetCalibratedTimestamp)
-    getCalibratedTimestamp(index: int): number {
+    getTimestamp(index: int): number {
         return Nri_GetCalibratedTimestamp(this.handle, index);
-    }
-
-    // (Nri_GetCalibratedTimestampsMaxDeviation)
-    getMaxDeviation(): number {
-        return Nri_GetCalibratedTimestampsMaxDeviation(this.handle);
     }
 
     // Samples the timestamps of all its domains at once; 0 on failure.
@@ -2026,7 +2026,7 @@ export class NriDonutAnimatedScene {
     }
 
     // (Nri_ApplyDonutAnimation)
-    applyDonutAnimation(index: int, time: number) {
+    applyAnimation(index: int, time: number) {
         Nri_ApplyDonutAnimation(this.handle, index, time);
     }
 
@@ -2038,43 +2038,13 @@ export class NriDonutAnimatedScene {
     // The animations (the scene graph's order), each's duration in seconds; an animation's nodes posed at
     // time seconds into it (SceneGraphAnimation::Apply(float(time))).
     // (Nri_GetDonutAnimationCount)
-    getDonutAnimationCount(): int {
+    getAnimationCount(): int {
         return Nri_GetDonutAnimationCount(this.handle);
     }
 
     // (Nri_GetDonutAnimationDuration)
-    getDonutAnimationDuration(index: int): number {
+    getAnimationDuration(index: int): number {
         return Nri_GetDonutAnimationDuration(this.handle, index);
-    }
-
-    // The skinned instances, each's joint count and joint matrices (float4x4 each: Donut's skinning shader's
-    // t1) written into a host buffer at offset, its SkinningConstants (15 uints into dst, Ref of an f32
-    // array element; SkinningFlag_FirstFrame the first time only): dispatch numVertices (the first) / 256
-    // groups, rounded up.
-    // (Nri_GetDonutSkinnedInstanceCount)
-    getDonutSkinnedInstanceCount(): int {
-        return Nri_GetDonutSkinnedInstanceCount(this.handle);
-    }
-
-    // (Nri_GetDonutSkinnedJointCount)
-    getDonutSkinnedJointCount(skinned: int): int {
-        return Nri_GetDonutSkinnedJointCount(this.handle, skinned);
-    }
-
-    // (Nri_GetDonutSkinnedVertexBufferSize)
-    getDonutSkinnedVertexBufferSize(): int {
-        return Nri_GetDonutSkinnedVertexBufferSize(this.handle);
-    }
-
-    // The skinned instance's vertex count (SkinningConstants::numVertices).
-    // (Nri_GetDonutSkinnedVertexCount)
-    getDonutSkinnedVertexCount(skinned: int): int {
-        return Nri_GetDonutSkinnedVertexCount(this.handle, skinned);
-    }
-
-    // (Nri_GetDonutSkinningConstants)
-    getDonutSkinningConstants(skinned: int, dst: Ref<f32>) {
-        Nri_GetDonutSkinningConstants(this.handle, skinned, dst);
     }
 
     // The instances' InstanceData (bindless.h's): size and stride in bytes; written into a host buffer at offset.
@@ -2091,6 +2061,36 @@ export class NriDonutAnimatedScene {
     // (Nri_GetDonutAnimatedSceneScene)
     getScene(): NriDonutScene {
         return new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
+    }
+
+    // The skinned instances, each's joint count and joint matrices (float4x4 each: Donut's skinning shader's
+    // t1) written into a host buffer at offset, its SkinningConstants (15 uints into dst, Ref of an f32
+    // array element; SkinningFlag_FirstFrame the first time only): dispatch numVertices (the first) / 256
+    // groups, rounded up.
+    // (Nri_GetDonutSkinnedInstanceCount)
+    getSkinnedInstanceCount(): int {
+        return Nri_GetDonutSkinnedInstanceCount(this.handle);
+    }
+
+    // (Nri_GetDonutSkinnedJointCount)
+    getSkinnedJointCount(skinned: int): int {
+        return Nri_GetDonutSkinnedJointCount(this.handle, skinned);
+    }
+
+    // (Nri_GetDonutSkinnedVertexBufferSize)
+    getSkinnedVertexBufferSize(): int {
+        return Nri_GetDonutSkinnedVertexBufferSize(this.handle);
+    }
+
+    // The skinned instance's vertex count (SkinningConstants::numVertices).
+    // (Nri_GetDonutSkinnedVertexCount)
+    getSkinnedVertexCount(skinned: int): int {
+        return Nri_GetDonutSkinnedVertexCount(this.handle, skinned);
+    }
+
+    // (Nri_GetDonutSkinningConstants)
+    getSkinningConstants(skinned: int, dst: Ref<f32>) {
+        Nri_GetDonutSkinningConstants(this.handle, skinned, dst);
     }
 
     // An animated Donut scene: a scene file (Donut's .scene.json: models instanced by a node graph) or a glTF
@@ -2112,14 +2112,14 @@ export class NriDonutAnimatedScene {
         Nri_RefreshDonutAnimatedScene(this.handle);
     }
 
-    // (Nri_WriteDonutSkinnedJoints)
-    writeDonutSkinnedJoints(skinned: int, buffer: NriBuffer, offset: int) {
-        Nri_WriteDonutSkinnedJoints(this.handle, skinned, buffer.handle, offset);
-    }
-
     // (Nri_WriteDonutAnimatedSceneInstances)
     writeInstances(buffer: NriBuffer, offset: int) {
         Nri_WriteDonutAnimatedSceneInstances(this.handle, buffer.handle, offset);
+    }
+
+    // (Nri_WriteDonutSkinnedJoints)
+    writeSkinnedJoints(skinned: int, buffer: NriBuffer, offset: int) {
+        Nri_WriteDonutSkinnedJoints(this.handle, skinned, buffer.handle, offset);
     }
 }
 
@@ -2135,7 +2135,7 @@ export class NriDonutAnimatedSceneAccelStructs {
     }
 
     // (Nri_GetDonutAnimatedSceneTopLevelAS)
-    getDonutAnimatedSceneTopLevelAS(): NriTopLevelAS {
+    getTopLevelAS(): NriTopLevelAS {
         return new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
     }
 }
@@ -2298,7 +2298,7 @@ export class NriDonutSceneAccelStructs {
     }
 
     // (Nri_GetDonutSceneTopLevelAS)
-    getDonutSceneTopLevelAS(): NriTopLevelAS {
+    getTopLevelAS(): NriTopLevelAS {
         return new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
     }
 }
@@ -2655,14 +2655,14 @@ export class NriImguiFont {
 
     // Draws with the font until Nri_ImguiPopFont.
     // (Nri_ImguiPushFont)
-    imguiPushFont() {
+    pushFont() {
         Nri_ImguiPushFont(this.handle);
     }
 
     // Draws with the font at this size (pixels, as Nri_ImguiCreateFont's) until Nri_ImguiPopFont: one font
     // serves every size.
     // (Nri_ImguiPushFontSized)
-    imguiPushFontSized(size: number) {
+    pushFontSized(size: number) {
         Nri_ImguiPushFontSized(this.handle, size);
     }
 }

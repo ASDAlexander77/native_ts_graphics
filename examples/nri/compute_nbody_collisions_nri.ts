@@ -3,12 +3,13 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspProjD3DStyleReverse } from "../../core/matrix";
 import { DonutThirdPersonCamera } from "../../core/donut_third_person_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace ComputeNBodyCollisionsNri {
     // compute_nbody_collisions, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead
     // of Donut and NVRHI: the same shaders (compute_nbody_collisions.hlsl's and
     // compute_nbody_collisions_post.hlsl's), Donut's ThirdPersonCamera and PlanarViewConstants as Donut
-    // computes them (core/donut_third_person_camera.ts, Nri_FillDonutPlanarViewConstants), through the
+    // computes them (core/donut_third_person_camera.ts, Nri.fillDonutPlanarViewConstants), through the
     // NRI calls core/nri/nri_interop.d.ts binds. This example creates everything it runs, and does the
     // rendering.
 
@@ -206,7 +207,7 @@ namespace ComputeNBodyCollisionsNri {
     // Constant buffer views' alignment (D3D12: their size a multiple of 256 bytes).
     const CONSTANTS_ALIGNMENT = 256;
 
-    // GLFW's key codes (Nri_IsKeyToggled): the example's keys.
+    // GLFW's key codes (NriSample.isKeyToggled): the example's keys.
     const KEY_C = 67;
     const KEY_H = 72;
     const KEY_P = 80;
@@ -273,7 +274,7 @@ namespace ComputeNBodyCollisionsNri {
 
     // What a frame in flight records into.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBufferHandle) {
+        constructor(public commandBuffer: NriCommandBuffer) {
         }
     }
 
@@ -299,8 +300,8 @@ namespace ComputeNBodyCollisionsNri {
     // binding set); the scene is drawn into an RGBA16F target, bloomed by compute passes and
     // composited into the swap chain.
     class NBodyCollisions {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format.
@@ -313,61 +314,61 @@ namespace ComputeNBodyCollisionsNri {
 
         // The simulation's layout and pipelines: the SimulationConstants (root constants, b0), the
         // particles, contacts, free slots and pending particles (u0 to u3, a descriptor set).
-        private computeLayout: NriPipelineLayoutHandle | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
         // The simulation's descriptor set (the particles, contacts, free slots and pending particles)
         // and its pool.
-        private computePool: NriDescriptorPoolHandle | null = null;
-        private computeSet: NriDescriptorSetHandle | null = null;
-        private calculatePipeline: NriPipelineHandle | null = null;
-        private countPipeline: NriPipelineHandle | null = null;
-        private collidePipeline: NriPipelineHandle | null = null;
-        private absorbPipeline: NriPipelineHandle | null = null;
-        private killPipeline: NriPipelineHandle | null = null;
-        private collectFreePipeline: NriPipelineHandle | null = null;
-        private fragmentPipeline: NriPipelineHandle | null = null;
-        private splitPipeline: NriPipelineHandle | null = null;
-        private integratePipeline: NriPipelineHandle | null = null;
+        private computePool: NriDescriptorPool | null = null;
+        private computeSet: NriDescriptorSet | null = null;
+        private calculatePipeline: NriPipeline | null = null;
+        private countPipeline: NriPipeline | null = null;
+        private collidePipeline: NriPipeline | null = null;
+        private absorbPipeline: NriPipeline | null = null;
+        private killPipeline: NriPipeline | null = null;
+        private collectFreePipeline: NriPipeline | null = null;
+        private fragmentPipeline: NriPipeline | null = null;
+        private splitPipeline: NriPipeline | null = null;
+        private integratePipeline: NriPipeline | null = null;
         // The draws' layouts: the particles' and planes' (view b1, particles t0, trail b3), the
         // gizmo's (b2), the composite's (a set: the scene t4, the bloom t5, the sampler s0), the
         // bloom passes' (a set: input t0, sampler s0, output u0; BlurConstants root constants b0).
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private gizmoLayout: NriPipelineLayoutHandle | null = null;
-        private compositeLayout: NriPipelineLayoutHandle | null = null;
-        private blurLayout: NriPipelineLayoutHandle | null = null;
-        private graphicsPipeline: NriPipelineHandle | null = null;
-        private trailPipeline: NriPipelineHandle | null = null;
-        private planePipeline: NriPipelineHandle | null = null;
-        private gizmoPipeline: NriPipelineHandle | null = null;
-        private compositePipeline: NriPipelineHandle | null = null;
-        private thresholdPipeline: NriPipelineHandle | null = null;
-        private blurDownPipeline: NriPipelineHandle | null = null;
-        private blurUpPipeline: NriPipelineHandle | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private gizmoLayout: NriPipelineLayout | null = null;
+        private compositeLayout: NriPipelineLayout | null = null;
+        private blurLayout: NriPipelineLayout | null = null;
+        private graphicsPipeline: NriPipeline | null = null;
+        private trailPipeline: NriPipeline | null = null;
+        private planePipeline: NriPipeline | null = null;
+        private gizmoPipeline: NriPipeline | null = null;
+        private compositePipeline: NriPipeline | null = null;
+        private thresholdPipeline: NriPipeline | null = null;
+        private blurDownPipeline: NriPipeline | null = null;
+        private blurUpPipeline: NriPipeline | null = null;
 
         // The particles (Storage while the passes run, VertexShaderResource for the draws), their
         // contacts, the free slots (u_Free: 2 counts, then up to numParticles indices) and the
         // particles absorb_cs and fragment_cs leave for the next pass to write back (u_Pending).
-        private particleBuffer: NriBufferHandle | null = null;
-        private contactBuffer: NriBufferHandle | null = null;
-        private freeBuffer: NriBufferHandle | null = null;
-        private pendingBuffer: NriBufferHandle | null = null;
-        private particlesStorage: NriDescriptorHandle | null = null;
-        private particlesView: NriDescriptorHandle | null = null;
-        private contactsStorage: NriDescriptorHandle | null = null;
-        private freeStorage: NriDescriptorHandle | null = null;
-        private pendingStorage: NriDescriptorHandle | null = null;
+        private particleBuffer: NriBuffer | null = null;
+        private contactBuffer: NriBuffer | null = null;
+        private freeBuffer: NriBuffer | null = null;
+        private pendingBuffer: NriBuffer | null = null;
+        private particlesStorage: NriDescriptor | null = null;
+        private particlesView: NriDescriptor | null = null;
+        private contactsStorage: NriDescriptor | null = null;
+        private freeStorage: NriDescriptor | null = null;
+        private pendingStorage: NriDescriptor | null = null;
         private particleState: NriBufferState = NriBufferState.Storage;
         // The particles copied back (for the alive count and the test).
-        private particleReadbackBuffer: NriBufferHandle | null = null;
+        private particleReadbackBuffer: NriBuffer | null = null;
         // The alive count's copy: asked for this frame, and recorded in a frame submitted since.
         private aliveCopyRequested: boolean = false;
         private aliveCopyPending: boolean = false;
 
         // A queued frame's PlanarViewConstants, trail constants and gizmo constants, frameStride
         // bytes apart (a view of each, bound at the frame's offset).
-        private constantBuffer: NriBufferHandle | null = null;
-        private viewConstantsView: NriDescriptorHandle | null = null;
-        private trailView: NriDescriptorHandle | null = null;
-        private gizmoView: NriDescriptorHandle | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private viewConstantsView: NriDescriptor | null = null;
+        private trailView: NriDescriptor | null = null;
+        private gizmoView: NriDescriptor | null = null;
         private viewSize: int = 0;
         private viewStride: int = 0;
         private trailStride: int = 0;
@@ -377,20 +378,20 @@ namespace ComputeNBodyCollisionsNri {
         // The bloom's targets, for the frame's size: the HDR target (rendered into, read by the
         // threshold pass and the composite), the blur chain (written and read by the passes, level
         // BLOOM_INDEX read by the composite); their states; the sets.
-        private hdrTarget: NriTextureHandle | null = null;
-        private hdrAttachment: NriDescriptorHandle | null = null;
-        private hdrView: NriDescriptorHandle | null = null;
+        private hdrTarget: NriTexture | null = null;
+        private hdrAttachment: NriDescriptor | null = null;
+        private hdrView: NriDescriptor | null = null;
         private hdrState: NriTextureState = NriTextureState.ShaderResource;
-        private blurChain: NriTextureHandle[] = [];
-        private blurViews: NriDescriptorHandle[] = [];
-        private blurStorages: NriDescriptorHandle[] = [];
+        private blurChain: NriTexture[] = [];
+        private blurViews: NriDescriptor[] = [];
+        private blurStorages: NriDescriptor[] = [];
         private blurStates: NriTextureState[] = [];
-        private linearClamp: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private thresholdSet: NriDescriptorSetHandle | null = null;
-        private blurDownSets: NriDescriptorSetHandle[] = [];
-        private blurUpSets: NriDescriptorSetHandle[] = [];
-        private compositeSet: NriDescriptorSetHandle | null = null;
+        private linearClamp: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private thresholdSet: NriDescriptorSet | null = null;
+        private blurDownSets: NriDescriptorSet[] = [];
+        private blurUpSets: NriDescriptorSet[] = [];
+        private compositeSet: NriDescriptorSet | null = null;
         private blurConstants: f32[] = zeros(BLUR_FLOATS);
 
         private camera: DonutThirdPersonCamera = new DonutThirdPersonCamera();
@@ -486,13 +487,13 @@ namespace ComputeNBodyCollisionsNri {
 
         // -test: the last frame and the particles after it are read back.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
         // Set by initialize when the example can't run ("" otherwise).
         private unsupportedReason: string = "";
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             this.resetSimulationConstants();
         }
 
@@ -504,13 +505,13 @@ namespace ComputeNBodyCollisionsNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -523,19 +524,19 @@ namespace ComputeNBodyCollisionsNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
             this.autoRotate = !this.test;
 
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -558,7 +559,7 @@ namespace ComputeNBodyCollisionsNri {
             }
 
             // The common passes' linear clamp sampler.
-            this.linearClamp = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            this.linearClamp = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
 
             this.fragmentRoom = this.argFragmentRoom;
             this.uiFragmentRoom = this.argFragmentRoom;
@@ -568,26 +569,26 @@ namespace ComputeNBodyCollisionsNri {
                 console.log("Cannot create the particles");
                 return 0;
             }
-            Nri_StoreInt32(Ref(this.simulationConstants[2]), 1);
-            Nri_StoreInt32(Ref(this.simulationConstants[3]), 1);
+            Nri.storeInt32(Ref(this.simulationConstants[2]), 1);
+            Nri.storeInt32(Ref(this.simulationConstants[3]), 1);
 
             // The constant buffer: a queued frame's PlanarViewConstants, trail constants and gizmo
             // constants.
-            this.viewSize = Nri_GetDonutConstantsSize(0);
+            this.viewSize = Nri.getDonutConstantsSize(0);
             this.viewConstants = zeros(this.viewSize / 4);
             this.viewStride = align(this.viewSize);
             this.trailStride = align(TRAIL_CONSTANTS_SIZE);
             this.gizmoStride = align(GIZMO_FLOATS * 4);
             this.frameStride = this.viewStride + this.trailStride + this.gizmoStride;
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.frameStride, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * this.frameStride, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!constantBuffer || !this.linearClamp) {
                 console.log("Cannot create the constant buffer");
                 return 0;
             }
-            this.viewConstantsView = Nri_CreateConstantBufferView(constantBuffer, 0, this.viewStride);
-            this.trailView = Nri_CreateConstantBufferView(constantBuffer, 0, this.trailStride);
-            this.gizmoView = Nri_CreateConstantBufferView(constantBuffer, 0, this.gizmoStride);
+            this.viewConstantsView = constantBuffer.createConstantView(0, this.viewStride);
+            this.trailView = constantBuffer.createConstantView(0, this.trailStride);
+            this.gizmoView = constantBuffer.createConstantView(0, this.gizmoStride);
             if (!this.viewConstantsView || !this.trailView || !this.gizmoView) {
                 console.log("Cannot create the constant buffer views");
                 return 0;
@@ -612,7 +613,7 @@ namespace ComputeNBodyCollisionsNri {
 
             // The settings window.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -620,49 +621,49 @@ namespace ComputeNBodyCollisionsNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
         }
 
         // The layouts, as the Donut example's binding layouts. False (after printing why) on failure.
-        createLayouts(device: NriDeviceHandle): boolean {
-            const computeDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeDesc, 0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
+        createLayouts(device: NriDevice): boolean {
+            const computeDesc = NriPipelineLayoutDesc.create();
+            computeDesc.addRootConstants(0, SIMULATION_CONSTANTS_SIZE, NriStage.Compute);
             // The particles, contacts, free slots and pending particles (u0 to u3) in a descriptor set,
             // as the Donut example's binding set.
-            Nri_PipelineLayoutDescAddRange(computeDesc, 0, 0, 4, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeDesc);
-            Nri_DestroyPipelineLayoutDesc(computeDesc);
+            computeDesc.addRange(0, 0, 4, NriDescriptorType.StorageStructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeDesc);
+            computeDesc.destroy();
 
-            const drawDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(drawDesc, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawDesc, 0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(drawDesc, 3, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawDesc);
-            Nri_DestroyPipelineLayoutDesc(drawDesc);
+            const drawDesc = NriPipelineLayoutDesc.create();
+            drawDesc.addRootDescriptor(1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            drawDesc.addRootDescriptor(0, NriDescriptorType.StructuredBuffer, NriStage.Vertex);
+            drawDesc.addRootDescriptor(3, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawDesc);
+            drawDesc.destroy();
 
-            const gizmoDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(gizmoDesc, 2, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            this.gizmoLayout = Nri_CreatePipelineLayoutFromDesc(device, gizmoDesc);
-            Nri_DestroyPipelineLayoutDesc(gizmoDesc);
+            const gizmoDesc = NriPipelineLayoutDesc.create();
+            gizmoDesc.addRootDescriptor(2, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            this.gizmoLayout = device.createPipelineLayoutFromDesc(gizmoDesc);
+            gizmoDesc.destroy();
 
-            const compositeDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(compositeDesc, 0, 4, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(compositeDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.compositeLayout = Nri_CreatePipelineLayoutFromDesc(device, compositeDesc);
-            Nri_DestroyPipelineLayoutDesc(compositeDesc);
+            const compositeDesc = NriPipelineLayoutDesc.create();
+            compositeDesc.addRange(0, 4, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            compositeDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.compositeLayout = device.createPipelineLayoutFromDesc(compositeDesc);
+            compositeDesc.destroy();
 
-            const blurDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(blurDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blurDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blurDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(blurDesc, 0, BLUR_SIZE, NriStage.Compute);
-            this.blurLayout = Nri_CreatePipelineLayoutFromDesc(device, blurDesc);
-            Nri_DestroyPipelineLayoutDesc(blurDesc);
+            const blurDesc = NriPipelineLayoutDesc.create();
+            blurDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
+            blurDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
+            blurDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            blurDesc.addRootConstants(0, BLUR_SIZE, NriStage.Compute);
+            this.blurLayout = device.createPipelineLayoutFromDesc(blurDesc);
+            blurDesc.destroy();
 
             if (!this.computeLayout || !this.drawLayout || !this.gizmoLayout || !this.compositeLayout || !this.blurLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -673,7 +674,7 @@ namespace ComputeNBodyCollisionsNri {
 
         // The pipelines: the shaders as compiled for the Donut example (the simulation's with
         // SIMULATION=1). False (after printing why) on failure.
-        createPipelines(device: NriDeviceHandle, folder: string): boolean {
+        createPipelines(device: NriDevice, folder: string): boolean {
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             const gizmoLayout = this.gizmoLayout;
@@ -692,9 +693,9 @@ namespace ComputeNBodyCollisionsNri {
             this.fragmentPipeline = this.createSimulationPipeline(device, computeLayout, shaders, "fragment_cs");
             this.splitPipeline = this.createSimulationPipeline(device, computeLayout, shaders, "split_cs");
             this.integratePipeline = this.createSimulationPipeline(device, computeLayout, shaders, "integrate_cs");
-            this.thresholdPipeline = Nri_CreateComputePipeline(device, blurLayout, `${shaders}_post_threshold_cs.bin`, "threshold_cs");
-            this.blurDownPipeline = Nri_CreateComputePipeline(device, blurLayout, `${shaders}_post_blur_down_cs.bin`, "blur_down_cs");
-            this.blurUpPipeline = Nri_CreateComputePipeline(device, blurLayout, `${shaders}_post_blur_up_cs.bin`, "blur_up_cs");
+            this.thresholdPipeline = device.createComputePipeline(blurLayout, `${shaders}_post_threshold_cs.bin`, "threshold_cs");
+            this.blurDownPipeline = device.createComputePipeline(blurLayout, `${shaders}_post_blur_down_cs.bin`, "blur_down_cs");
+            this.blurUpPipeline = device.createComputePipeline(blurLayout, `${shaders}_post_blur_up_cs.bin`, "blur_up_cs");
 
             // Into the HDR target (createHdrPipeline: no depth): the balls additively, the trails
             // alpha blended. Into the swap chain: the composite not blended, the planes and the gizmo
@@ -715,33 +716,33 @@ namespace ComputeNBodyCollisionsNri {
             return true;
         }
 
-        createSimulationPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, entry: string) {
-            return Nri_CreateComputePipelinePermutation(device, layout, `${shaders}_${entry}.bin`, entry, "SIMULATION=1");
+        createSimulationPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, entry: string) {
+            return device.createComputePipelinePermutation(layout, `${shaders}_${entry}.bin`, entry, "SIMULATION=1");
         }
 
         // A draw's pipeline into a target of format: blend 0 none, 1 Donut's additive (color one +
         // one, alpha srcAlpha + dstAlpha), 2 Donut's alpha blending (color srcAlpha + invSrcAlpha,
         // alpha invSrcAlpha + zero); back faces culled, no depth.
-        createPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, shaders: string, vs: string, ps: string,
+        createPipeline(device: NriDevice, layout: NriPipelineLayout, shaders: string, vs: string, ps: string,
             format: NriFormat, blend: int) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${vs}.bin`, vs) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${ps}.bin`, ps) != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(format, NriColorWrite.RGBA);
             if (blend == 1) {
-                Nri_PipelineDescSetAdditiveBlend(desc);
+                desc.setAdditiveBlend();
             } else if (blend == 2) {
-                Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+                desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                     NriBlendFactor.OneMinusSrcAlpha, NriBlendFactor.Zero, NriBlendOp.Add);
             }
-            let pipeline: NriPipelineHandle | null = null;
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -753,7 +754,7 @@ namespace ComputeNBodyCollisionsNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the bloom targets (with
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the bloom targets (with
         // their pool and sets) again at its size, once the GPU is done with the old ones. The gizmo,
         // the projection and the settings window follow the stored size each frame.
         resizeIfNeeded() {
@@ -774,7 +775,7 @@ namespace ComputeNBodyCollisionsNri {
         destroyBloomTargets() {
             const descriptorPool = this.descriptorPool;
             if (descriptorPool) {
-                Nri_DestroyDescriptorPool(descriptorPool);
+                descriptorPool.destroy();
             }
             this.descriptorPool = null;
             this.thresholdSet = null;
@@ -785,16 +786,16 @@ namespace ComputeNBodyCollisionsNri {
             this.destroyDescriptor(this.hdrView);
             const hdrTarget = this.hdrTarget;
             if (hdrTarget) {
-                Nri_DestroyTexture(hdrTarget);
+                hdrTarget.destroy();
             }
             this.hdrAttachment = null;
             this.hdrView = null;
             this.hdrTarget = null;
             this.hdrState = NriTextureState.ShaderResource;
             for (let i = 0; i < this.blurChain.length; i++) {
-                Nri_DestroyDescriptor(this.blurViews[i]);
-                Nri_DestroyDescriptor(this.blurStorages[i]);
-                Nri_DestroyTexture(this.blurChain[i]);
+                this.blurViews[i].destroy();
+                this.blurStorages[i].destroy();
+                this.blurChain[i].destroy();
             }
             this.blurChain = [];
             this.blurViews = [];
@@ -804,39 +805,39 @@ namespace ComputeNBodyCollisionsNri {
 
         // The HDR target, the blur chain, their views and the sets over them, for the stored (window's)
         // size. False (after printing why) on failure.
-        createBloomTargets(device: NriDeviceHandle): boolean {
+        createBloomTargets(device: NriDevice): boolean {
             const compositeLayout = this.compositeLayout;
             const blurLayout = this.blurLayout;
             const linearClamp = this.linearClamp;
             if (!compositeLayout || !blurLayout || !linearClamp) {
                 return false;
             }
-            const hdrTarget = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+            const hdrTarget = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
             this.hdrTarget = hdrTarget;
             if (!hdrTarget) {
                 console.log("Cannot create the HDR target");
                 return false;
             }
-            this.hdrAttachment = Nri_CreateColorAttachmentView(hdrTarget, NriFormat.RGBA16_SFLOAT);
-            const hdrView = Nri_CreateTextureView(hdrTarget, NriFormat.RGBA16_SFLOAT);
+            this.hdrAttachment = hdrTarget.createColorAttachmentView(NriFormat.RGBA16_SFLOAT);
+            const hdrView = hdrTarget.createView(NriFormat.RGBA16_SFLOAT);
             this.hdrView = hdrView;
             for (let level = 1; level <= BLUR_LEVELS; level++) {
-                const texture = Nri_CreateStorageTexture(device, this.queue, levelSize(this.width, level), levelSize(this.height, level),
+                const texture = device.createStorageTexture(this.queue, levelSize(this.width, level), levelSize(this.height, level),
                     NriFormat.RGBA16_SFLOAT);
                 if (!texture) {
                     console.log("Cannot create the blur chain");
                     return false;
                 }
                 this.blurChain.push(texture);
-                this.blurViews.push(Nri_CreateTextureView(texture, NriFormat.RGBA16_SFLOAT));
-                this.blurStorages.push(Nri_CreateStorageTextureView(texture, NriFormat.RGBA16_SFLOAT));
+                this.blurViews.push(texture.createView(NriFormat.RGBA16_SFLOAT));
+                this.blurStorages.push(texture.createStorageView(NriFormat.RGBA16_SFLOAT));
                 this.blurStates.push(NriTextureState.Storage);
             }
 
             // A set per bloom pass (the threshold pass, BLUR_LEVELS - 1 down, BLUR_LEVELS - 2 up) and
             // the composite's.
             const blurSetNum = 1 + (BLUR_LEVELS - 1) + (BLUR_LEVELS - 2);
-            const descriptorPool = Nri_CreateDescriptorPool(device, blurSetNum + 1, blurSetNum + 1, 0, blurSetNum + 2, blurSetNum, 0);
+            const descriptorPool = device.createDescriptorPool(blurSetNum + 1, blurSetNum + 1, 0, blurSetNum + 2, blurSetNum, 0);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");
@@ -857,29 +858,29 @@ namespace ComputeNBodyCollisionsNri {
                 }
                 this.blurUpSets.push(set);
             }
-            const compositeSet = Nri_AllocateDescriptorSet(descriptorPool, compositeLayout, 0, 0);
+            const compositeSet = descriptorPool.allocateDescriptorSet(compositeLayout, 0, 0);
             this.compositeSet = compositeSet;
             if (!this.thresholdSet || !compositeSet) {
                 console.log("Cannot create the descriptor sets");
                 return false;
             }
-            Nri_UpdateDescriptor(compositeSet, 0, 0, hdrView);
-            Nri_UpdateDescriptor(compositeSet, 0, 1, this.blurViews[BLOOM_INDEX]);
-            Nri_UpdateDescriptor(compositeSet, 1, 0, linearClamp);
+            compositeSet.updateDescriptor(0, 0, hdrView);
+            compositeSet.updateDescriptor(0, 1, this.blurViews[BLOOM_INDEX]);
+            compositeSet.updateDescriptor(1, 0, linearClamp);
             return true;
         }
 
         // A bloom pass's set: its input and sampler, its output.
-        createBlurSet(descriptorPool: NriDescriptorPoolHandle, layout: NriPipelineLayoutHandle, sampler: NriDescriptorHandle,
-            input: NriDescriptorHandle, output: NriDescriptorHandle) {
-            const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+        createBlurSet(descriptorPool: NriDescriptorPool, layout: NriPipelineLayout, sampler: NriDescriptor,
+            input: NriDescriptor, output: NriDescriptor) {
+            const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
             if (!set) {
                 console.log("Cannot create the descriptor sets");
                 return null;
             }
-            Nri_UpdateDescriptor(set, 0, 0, input);
-            Nri_UpdateDescriptor(set, 1, 0, sampler);
-            Nri_UpdateDescriptor(set, 2, 0, output);
+            set.updateDescriptor(0, 0, input);
+            set.updateDescriptor(1, 0, sampler);
+            set.updateDescriptor(2, 0, output);
             return set;
         }
 
@@ -890,7 +891,7 @@ namespace ComputeNBodyCollisionsNri {
 
         // 1 if the key (a GLFW key code) was pressed since the last frame.
         toggled(key: int) {
-            return Nri_IsKeyToggled(this.sample, key) != 0;
+            return this.sample.isKeyToggled(key) != 0;
         }
 
         // The Donut example's input callbacks and onAnimate: a restart asked for (before this frame's
@@ -904,19 +905,19 @@ namespace ComputeNBodyCollisionsNri {
             }
 
             // In test mode 1/60 second a frame in float32, as Donut's test mode passes it.
-            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample));
+            const elapsedSeconds = Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime());
             if (this.toggled(NriKey.Space)) {
                 this.paused = !this.paused;
                 this.idleSeconds = 0.0;
             }
             if (this.toggled(KEY_C)) {
                 this.collisions = !this.collisions;
-                Nri_StoreInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
+                Nri.storeInt32(Ref(this.simulationConstants[2]), this.collisions ? 1 : 0);
                 this.idleSeconds = 0.0;
             }
             if (this.toggled(KEY_H)) {
                 this.heating = !this.heating;
-                Nri_StoreInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
+                Nri.storeInt32(Ref(this.simulationConstants[3]), this.heating ? 1 : 0);
                 this.idleSeconds = 0.0;
             }
             if (this.toggled(KEY_P)) {
@@ -927,7 +928,7 @@ namespace ComputeNBodyCollisionsNri {
                 this.showTrails = !this.showTrails;
                 this.idleSeconds = 0.0;
             }
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             if (this.camera.mouse(this.sample, !overlay)) {
                 this.idleSeconds = 0.0;
             }
@@ -953,7 +954,7 @@ namespace ComputeNBodyCollisionsNri {
 
             const collisionsInfo = (this.collisions ? "collisions on" : "collisions off")
                 + (this.heating ? ", heating on" : ", heating off");
-            Nri_SetWindowTitle(this.sample, this.paused
+            this.sample.setWindowTitle(this.paused
                 ? `${WINDOW_TITLE} - ${this.aliveCount} particles, ${collisionsInfo} (paused)`
                 : `${WINDOW_TITLE} - ${this.aliveCount} particles, ${collisionsInfo}`);
         }
@@ -971,32 +972,32 @@ namespace ComputeNBodyCollisionsNri {
                 this.viewMatrix[i] = worldToView[i];
                 this.projMatrix[i] = projection[i];
             }
-            Nri_FillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
+            Nri.fillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
                 Ref(this.viewConstants[0]));
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.viewConstants[0]), this.viewSize);
+            constantBuffer.write(offset, Ref(this.viewConstants[0]), this.viewSize);
 
             // The trails' constants and the balls' switches, read by both.
             this.trailConstants[0] = this.simulationConstants[CONSTANT_TIME_FACTOR] * this.trailSeconds;
             this.trailConstants[2] = this.litSpheres ? 1.0 : 0.0;
             this.trailConstants[3] = this.spinMarks ? 1.0 : 0.0;
-            Nri_WriteBuffer(constantBuffer, offset + this.viewStride, Ref(this.trailConstants[0]), TRAIL_CONSTANTS_SIZE);
+            constantBuffer.write(offset + this.viewStride, Ref(this.trailConstants[0]), TRAIL_CONSTANTS_SIZE);
 
             this.buildGizmo(this.width, this.height);
-            Nri_WriteBuffer(constantBuffer, offset + this.viewStride + this.trailStride, Ref(this.gizmoConstants[0]), GIZMO_FLOATS * 4);
+            constantBuffer.write(offset + this.viewStride + this.trailStride, Ref(this.gizmoConstants[0]), GIZMO_FLOATS * 4);
         }
 
         // A barrier moving the particles to state, unless they're in it.
-        setParticleState(commandBuffer: NriCommandBufferHandle, state: NriBufferState) {
+        setParticleState(commandBuffer: NriCommandBuffer, state: NriBufferState) {
             const particleBuffer = this.particleBuffer;
             if (!particleBuffer || this.particleState == state) {
                 return;
             }
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, this.particleState, state);
+            commandBuffer.bufferBarrier(particleBuffer, this.particleState, state);
             this.particleState = state;
         }
 
         // Copies the particles to particleReadbackBuffer.
-        recordParticleReadback(commandBuffer: NriCommandBufferHandle) {
+        recordParticleReadback(commandBuffer: NriCommandBuffer) {
             const particleBuffer = this.particleBuffer;
             const particleReadbackBuffer = this.particleReadbackBuffer;
             if (!particleBuffer || !particleReadbackBuffer) {
@@ -1004,14 +1005,14 @@ namespace ComputeNBodyCollisionsNri {
             }
             const state = this.particleState;
             this.setParticleState(commandBuffer, NriBufferState.CopySource);
-            Nri_CmdCopyBuffer(commandBuffer, particleReadbackBuffer, particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
+            commandBuffer.copyBuffer(particleReadbackBuffer, particleBuffer, this.numParticles * PARTICLE_FLOATS * 4);
             this.setParticleState(commandBuffer, state);
         }
 
         // One simulation pass over the particles (rounded up: the shaders skip the threads past
         // particleCount), then the barriers NVRHI puts between passes on one binding set: what it
         // wrote, the next one sees.
-        dispatch(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null) {
+        dispatch(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null) {
             const particleBuffer = this.particleBuffer;
             const contactBuffer = this.contactBuffer;
             const freeBuffer = this.freeBuffer;
@@ -1029,34 +1030,34 @@ namespace ComputeNBodyCollisionsNri {
                 return;
             }
             const groups: int = Math.floor((this.numParticles + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, computeSet);
-            Nri_CmdDispatch(commandBuffer, groups, 1, 1);
-            Nri_CmdBufferBarrier(commandBuffer, particleBuffer, NriBufferState.Storage, NriBufferState.Storage);
-            Nri_CmdBufferBarrier(commandBuffer, contactBuffer, NriBufferState.Storage, NriBufferState.Storage);
-            Nri_CmdBufferBarrier(commandBuffer, freeBuffer, NriBufferState.Storage, NriBufferState.Storage);
-            Nri_CmdBufferBarrier(commandBuffer, pendingBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setComputeRootConstants(0, Ref(this.simulationConstants[0]), SIMULATION_CONSTANTS_SIZE);
+            commandBuffer.setComputeDescriptorSet(0, computeSet);
+            commandBuffer.dispatch(groups, 1, 1);
+            commandBuffer.bufferBarrier(particleBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(contactBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(freeBuffer, NriBufferState.Storage, NriBufferState.Storage);
+            commandBuffer.bufferBarrier(pendingBuffer, NriBufferState.Storage, NriBufferState.Storage);
         }
 
         // Gravity, collisions, integration. Paused, nothing moves: the collision pass would still
         // push overlapping particles apart.
-        recordSimulation(commandBuffer: NriCommandBufferHandle) {
+        recordSimulation(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const freeBuffer = this.freeBuffer;
             if (this.paused || !computeLayout || !freeBuffer) {
                 return;
             }
             this.setParticleState(commandBuffer, NriBufferState.Storage);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
+            commandBuffer.setComputePipelineLayout(computeLayout);
             this.dispatch(commandBuffer, this.calculatePipeline);
             const fragmenting = this.collisions && this.simulationConstants[CONSTANT_FRAGMENT_SPEED] > 0.0;
             if (fragmenting) {
                 // The free slots' counts zeroed (the Donut example writes the two; the indices after
                 // them are written before they're read).
-                Nri_CmdBufferBarrier(commandBuffer, freeBuffer, NriBufferState.Storage, NriBufferState.CopyDestination);
-                Nri_CmdZeroBuffer(commandBuffer, freeBuffer);
-                Nri_CmdBufferBarrier(commandBuffer, freeBuffer, NriBufferState.CopyDestination, NriBufferState.Storage);
+                commandBuffer.bufferBarrier(freeBuffer, NriBufferState.Storage, NriBufferState.CopyDestination);
+                commandBuffer.zeroBuffer(freeBuffer);
+                commandBuffer.bufferBarrier(freeBuffer, NriBufferState.CopyDestination, NriBufferState.Storage);
             }
             if (this.collisions) {
                 this.dispatch(commandBuffer, this.countPipeline);
@@ -1080,7 +1081,7 @@ namespace ComputeNBodyCollisionsNri {
 
         // vertexNum vertices of a pipeline of the draw layout: the view, the particles, the trails'
         // constants, at the queued frame's offset.
-        drawParticles(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, offset: int, vertexNum: int) {
+        drawParticles(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, offset: int, vertexNum: int) {
             const drawLayout = this.drawLayout;
             const viewConstantsView = this.viewConstantsView;
             const particlesView = this.particlesView;
@@ -1088,58 +1089,58 @@ namespace ComputeNBodyCollisionsNri {
             if (!drawLayout || !pipeline || !viewConstantsView || !particlesView || !trailView) {
                 return;
             }
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootDescriptor(commandBuffer, 0, viewConstantsView, offset);
-            Nri_CmdSetRootDescriptor(commandBuffer, 1, particlesView, 0);
-            Nri_CmdSetRootDescriptor(commandBuffer, 2, trailView, offset + this.viewStride);
-            Nri_CmdDraw(commandBuffer, vertexNum, 1, 0, 0);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootDescriptor(0, viewConstantsView, offset);
+            commandBuffer.setRootDescriptor(1, particlesView, 0);
+            commandBuffer.setRootDescriptor(2, trailView, offset + this.viewStride);
+            commandBuffer.draw(vertexNum, 1, 0, 0);
         }
 
         // A barrier moving the HDR target to state, unless it's in it.
-        setHdrState(commandBuffer: NriCommandBufferHandle, state: NriTextureState) {
+        setHdrState(commandBuffer: NriCommandBuffer, state: NriTextureState) {
             const hdrTarget = this.hdrTarget;
             if (!hdrTarget) {
                 return;
             }
             if (needsBarrier(this.hdrState, state)) {
-                Nri_CmdTextureBarrier(commandBuffer, hdrTarget, this.hdrState, state);
+                commandBuffer.textureBarrier(hdrTarget, this.hdrState, state);
             }
             this.hdrState = state;
         }
 
         // The HDR target cleared, the trails (as long as the time scale makes them, under the balls:
         // they add up to a haze in the pile), the balls; then it goes to the bloom and the composite.
-        recordScene(commandBuffer: NriCommandBufferHandle, offset: int) {
+        recordScene(commandBuffer: NriCommandBuffer, offset: int) {
             const hdrAttachment = this.hdrAttachment;
             if (!hdrAttachment) {
                 return;
             }
             this.setParticleState(commandBuffer, NriBufferState.VertexShaderResource);
             this.setHdrState(commandBuffer, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, hdrAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+            commandBuffer.beginRendering(hdrAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
             if (this.showTrails && this.trailSeconds > 0.0) {
                 this.drawParticles(commandBuffer, this.trailPipeline, offset, this.numParticles * VERTICES_PER_PARTICLE);
             }
             this.drawParticles(commandBuffer, this.graphicsPipeline, offset, this.numParticles * VERTICES_PER_PARTICLE);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
             this.setHdrState(commandBuffer, NriTextureState.AllShaderResource);
         }
 
         // A barrier moving blur chain level index to state, unless it's in it.
-        setBlurState(commandBuffer: NriCommandBufferHandle, index: int, state: NriTextureState) {
+        setBlurState(commandBuffer: NriCommandBuffer, index: int, state: NriTextureState) {
             if (needsBarrier(this.blurStates[index], state)) {
-                Nri_CmdTextureBarrier(commandBuffer, this.blurChain[index], this.blurStates[index], state);
+                commandBuffer.textureBarrier(this.blurChain[index], this.blurStates[index], state);
             }
             this.blurStates[index] = state;
         }
 
         // One bloom pass: its input (a blur level, or -1: the HDR target) read, its output written,
         // a thread per texel of the output.
-        dispatchBlurPass(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, set: NriDescriptorSetHandle | null,
+        dispatchBlurPass(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, set: NriDescriptorSet | null,
             input: int, output: int, width: int, height: int, inputWidth: int, inputHeight: int) {
             if (!pipeline || !set) {
                 return;
@@ -1149,32 +1150,32 @@ namespace ComputeNBodyCollisionsNri {
             }
             this.setBlurState(commandBuffer, output, NriTextureState.Storage);
             const b = this.blurConstants;
-            Nri_StoreInt32(Ref(b[0]), width);
-            Nri_StoreInt32(Ref(b[1]), height);
+            Nri.storeInt32(Ref(b[0]), width);
+            Nri.storeInt32(Ref(b[1]), height);
             b[2] = 1.0 / width;
             b[3] = 1.0 / height;
             b[4] = 1.0 / inputWidth;
             b[5] = 1.0 / inputHeight;
             b[6] = this.bloomThreshold;
             b[7] = this.bloomOn ? this.bloomStrength : 0.0;
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(b[0]), BLUR_SIZE);
-            Nri_CmdDispatch(commandBuffer, Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE),
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setComputeDescriptorSet(0, set);
+            commandBuffer.setComputeRootConstants(0, Ref(b[0]), BLUR_SIZE);
+            commandBuffer.dispatch(Math.floor((width + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE),
                 Math.floor((height + BLUR_GROUP_SIZE - 1) / BLUR_GROUP_SIZE), 1);
         }
 
         // A threshold pass into the first blur level, then blurring down the levels and back up to
         // the second (async_compute's "very basic and dumb HDR Bloom pipeline"). With no strength, the
         // chain stays black: the passes still run, as the composite reads it.
-        recordBloom(commandBuffer: NriCommandBufferHandle) {
+        recordBloom(commandBuffer: NriCommandBuffer) {
             const blurLayout = this.blurLayout;
             if (!blurLayout) {
                 return;
             }
             const w = this.width;
             const h = this.height;
-            Nri_CmdSetComputePipelineLayout(commandBuffer, blurLayout);
+            commandBuffer.setComputePipelineLayout(blurLayout);
             this.dispatchBlurPass(commandBuffer, this.thresholdPipeline, this.thresholdSet, -1, 0, levelSize(w, 1), levelSize(h, 1), w, h);
             for (let index = 1; index < BLUR_LEVELS; index++) {
                 this.dispatchBlurPass(commandBuffer, this.blurDownPipeline, this.blurDownSets[index - 1], index - 1, index,
@@ -1188,9 +1189,9 @@ namespace ComputeNBodyCollisionsNri {
         }
 
         // The scene and its bloom into the swap chain, the coordinate planes (under the gizmo), the
-        // axes (over the particles, in the top left corner). Between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering.
-        recordComposite(commandBuffer: NriCommandBufferHandle, offset: int) {
+        // axes (over the particles, in the top left corner). Between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering.
+        recordComposite(commandBuffer: NriCommandBuffer, offset: int) {
             const compositeLayout = this.compositeLayout;
             const compositePipeline = this.compositePipeline;
             const compositeSet = this.compositeSet;
@@ -1200,22 +1201,22 @@ namespace ComputeNBodyCollisionsNri {
             if (!compositeLayout || !compositePipeline || !compositeSet || !gizmoLayout || !gizmoPipeline || !gizmoView) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, compositeLayout);
-            Nri_CmdSetPipeline(commandBuffer, compositePipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, compositeSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(compositeLayout);
+            commandBuffer.setPipeline(compositePipeline);
+            commandBuffer.setDescriptorSet(0, compositeSet);
+            commandBuffer.draw(3, 1, 0, 0);
 
             if (this.showPlanes) {
                 this.drawParticles(commandBuffer, this.planePipeline, offset, PLANE_LINE_COUNT * VERTICES_PER_PARTICLE);
             }
 
             if (this.showGizmo) {
-                Nri_CmdSetPipelineLayout(commandBuffer, gizmoLayout);
-                Nri_CmdSetPipeline(commandBuffer, gizmoPipeline);
-                Nri_CmdSetRootDescriptor(commandBuffer, 0, gizmoView, offset + this.viewStride + this.trailStride);
-                Nri_CmdDraw(commandBuffer, this.gizmoSegments * VERTICES_PER_PARTICLE, 1, 0, 0);
+                commandBuffer.setPipelineLayout(gizmoLayout);
+                commandBuffer.setPipeline(gizmoPipeline);
+                commandBuffer.setRootDescriptor(0, gizmoView, offset + this.viewStride + this.trailStride);
+                commandBuffer.draw(this.gizmoSegments * VERTICES_PER_PARTICLE, 1, 0, 0);
             }
         }
 
@@ -1252,8 +1253,8 @@ namespace ComputeNBodyCollisionsNri {
             // step, as the Donut example counts them); the simulation; the scene into the HDR target,
             // its bloom; the composite, the planes, the gizmo and the settings window into the swap
             // chain.
-            Nri_BeginCommandBuffer(commandBuffer);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.begin();
+            commandBuffer.setDescriptorPool(descriptorPool);
             if (this.aliveCopyRequested) {
                 this.aliveCopyRequested = false;
                 this.recordParticleReadback(commandBuffer);
@@ -1262,41 +1263,41 @@ namespace ComputeNBodyCollisionsNri {
             // The simulation's set is in a pool of its own (D3D12: its heap bound while it's used).
             const computePool = this.computePool;
             if (computePool) {
-                Nri_CmdSetDescriptorPool(commandBuffer, computePool);
+                commandBuffer.setDescriptorPool(computePool);
                 this.recordSimulation(commandBuffer);
-                Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                commandBuffer.setDescriptorPool(descriptorPool);
             }
             this.recordScene(commandBuffer, offset);
             this.recordBloom(commandBuffer);
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
             this.recordComposite(commandBuffer, offset);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImgui(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back, and the particles after it
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                     this.recordParticleReadback(commandBuffer);
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -1471,7 +1472,7 @@ namespace ComputeNBodyCollisionsNri {
         // compute_nbody's particles around their attractors, uploaded once, with collision radii;
         // the contacts' and free slots' buffers (written before they're read), the views, the
         // particles' readback buffer. False on failure.
-        createParticles(device: NriDeviceHandle): boolean {
+        createParticles(device: NriDevice): boolean {
             const clouds: number[] = [];
             const heavies: number[] = [];
             this.layoutAttractors(clouds, heavies);
@@ -1606,33 +1607,33 @@ namespace ComputeNBodyCollisionsNri {
             this.initialMomentum = this.linearMomentum(particles);
             this.initialEnergy = this.totalEnergy(particles);
 
-            const particleBuffer = Nri_CreateStorageBuffer(device, this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4,
+            const particleBuffer = device.createStorageBuffer(this.queue, Ref(particles[0]), this.numParticles * PARTICLE_FLOATS * 4,
                 PARTICLE_FLOATS * 4);
             // The contacts, free slots and pending particles zeroed, as the Donut example's new buffers come.
             const zeros: int[] = [];
             for (let i = 0; i < Math.max(this.numParticles * PARTICLE_FLOATS, this.numParticles + 2); i++) {
                 zeros.push(0);
             }
-            const contactBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), this.numParticles * CONTACT_FLOATS * 4,
+            const contactBuffer = device.createStorageBufferFromInts(this.queue, Ref(zeros[0]), this.numParticles * CONTACT_FLOATS * 4,
                 CONTACT_FLOATS * 4, NriBufferState.Storage);
-            const freeBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), (this.numParticles + 2) * 4, 4,
+            const freeBuffer = device.createStorageBufferFromInts(this.queue, Ref(zeros[0]), (this.numParticles + 2) * 4, 4,
                 NriBufferState.Storage);
-            const pendingBuffer = Nri_CreateStorageBufferFromInts(device, this.queue, Ref(zeros[0]), this.numParticles * PARTICLE_FLOATS * 4,
+            const pendingBuffer = device.createStorageBufferFromInts(this.queue, Ref(zeros[0]), this.numParticles * PARTICLE_FLOATS * 4,
                 PARTICLE_FLOATS * 4, NriBufferState.Storage);
             this.particleBuffer = particleBuffer;
             this.contactBuffer = contactBuffer;
             this.freeBuffer = freeBuffer;
             this.pendingBuffer = pendingBuffer;
             this.particleState = NriBufferState.Storage;
-            this.particleReadbackBuffer = Nri_CreateReadbackBuffer(device, this.numParticles * PARTICLE_FLOATS * 4);
+            this.particleReadbackBuffer = device.createReadbackBuffer(this.numParticles * PARTICLE_FLOATS * 4);
             if (!particleBuffer || !contactBuffer || !freeBuffer || !pendingBuffer || !this.particleReadbackBuffer) {
                 return false;
             }
-            this.particlesStorage = Nri_CreateStructuredBufferView(particleBuffer, 1);
-            this.particlesView = Nri_CreateStructuredBufferView(particleBuffer, 0);
-            this.contactsStorage = Nri_CreateStructuredBufferView(contactBuffer, 1);
-            this.freeStorage = Nri_CreateStructuredBufferView(freeBuffer, 1);
-            this.pendingStorage = Nri_CreateStructuredBufferView(pendingBuffer, 1);
+            this.particlesStorage = particleBuffer.createStructuredView(1);
+            this.particlesView = particleBuffer.createStructuredView(0);
+            this.contactsStorage = contactBuffer.createStructuredView(1);
+            this.freeStorage = freeBuffer.createStructuredView(1);
+            this.pendingStorage = pendingBuffer.createStructuredView(1);
             const particlesStorage = this.particlesStorage;
             const contactsStorage = this.contactsStorage;
             const freeStorage = this.freeStorage;
@@ -1642,18 +1643,18 @@ namespace ComputeNBodyCollisionsNri {
                 return false;
             }
             // The simulation's set, in a pool of its own (made again with the buffers).
-            const computePool = Nri_CreateDescriptorPoolWithBuffers(device, 1, 0, 0, 0, 0, 0, 4, 0);
+            const computePool = device.createDescriptorPoolWithBuffers(1, 0, 0, 0, 0, 0, 4, 0);
             this.computePool = computePool;
-            const computeSet = computePool ? Nri_AllocateDescriptorSet(computePool, computeLayout, 0, 0) : null;
+            const computeSet = computePool ? computePool.allocateDescriptorSet(computeLayout, 0, 0) : null;
             this.computeSet = computeSet;
             if (!computeSet) {
                 return false;
             }
-            Nri_UpdateDescriptor(computeSet, 0, 0, particlesStorage);
-            Nri_UpdateDescriptor(computeSet, 0, 1, contactsStorage);
-            Nri_UpdateDescriptor(computeSet, 0, 2, freeStorage);
-            Nri_UpdateDescriptor(computeSet, 0, 3, pendingStorage);
-            Nri_StoreInt32(Ref(this.simulationConstants[1]), this.numParticles);
+            computeSet.updateDescriptor(0, 0, particlesStorage);
+            computeSet.updateDescriptor(0, 1, contactsStorage);
+            computeSet.updateDescriptor(0, 2, freeStorage);
+            computeSet.updateDescriptor(0, 3, pendingStorage);
+            Nri.storeInt32(Ref(this.simulationConstants[1]), this.numParticles);
             this.aliveCount = this.placedCount;
             return true;
         }
@@ -1662,7 +1663,7 @@ namespace ComputeNBodyCollisionsNri {
         destroyParticles() {
             const computePool = this.computePool;
             if (computePool) {
-                Nri_DestroyDescriptorPool(computePool);
+                computePool.destroy();
             }
             this.computePool = null;
             this.computeSet = null;
@@ -1810,7 +1811,7 @@ namespace ComputeNBodyCollisionsNri {
                 return [];
             }
             const particles = zeros(this.numParticles * PARTICLE_FLOATS);
-            if (Nri_ReadBufferFloats(particleReadbackBuffer, Ref(particles[0]), particles.length) == 0) {
+            if (particleReadbackBuffer.readFloats(Ref(particles[0]), particles.length) == 0) {
                 return [];
             }
             return particles;
@@ -1827,7 +1828,7 @@ namespace ComputeNBodyCollisionsNri {
             }
             if (this.aliveCopyPending) {
                 this.aliveCopyPending = false;
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const particles = this.readParticles();
                 if (particles.length > 0) {
                     let alive = 0;
@@ -1844,7 +1845,7 @@ namespace ComputeNBodyCollisionsNri {
 
         setFullGravity(full: boolean) {
             this.fullGravity = full;
-            Nri_StoreInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
+            Nri.storeInt32(Ref(this.simulationConstants[CONSTANT_FULL_GRAVITY]), full ? 1 : 0);
         }
 
         setCooling(seconds: number) {
@@ -1875,10 +1876,10 @@ namespace ComputeNBodyCollisionsNri {
             this.simulationConstants[CONSTANT_MERGE_SPEED] = this.mergeOn ? this.mergeValue : 0.0;
             this.simulationConstants[CONSTANT_HOT_MERGE_SPEED] = this.hotStickOn ? this.hotStickValue : 0.0;
             this.simulationConstants[CONSTANT_FRAGMENT_SPEED] = this.breakOn ? this.breakValue : 0.0;
-            Nri_StoreInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
+            Nri.storeInt32(Ref(this.simulationConstants[CONSTANT_CONTACT_SPRINGS]), this.contactSprings ? 1 : 0);
             this.simulationConstants[CONSTANT_RESTITUTION_SPEED] = this.restitutionSpeedOn ? this.restitutionSpeedValue : 0.0;
             this.simulationConstants[CONSTANT_ROLLING_RESISTANCE] = this.rollingOn ? this.rollingValue : 0.0;
-            Nri_StoreInt32(Ref(this.simulationConstants[CONSTANT_SIZE_SOFTENING]), this.sizeSoftening ? 1 : 0);
+            Nri.storeInt32(Ref(this.simulationConstants[CONSTANT_SIZE_SOFTENING]), this.sizeSoftening ? 1 : 0);
         }
 
         // The simulation's live settings back to their defaults (the UI's Defaults button); the
@@ -1905,7 +1906,7 @@ namespace ComputeNBodyCollisionsNri {
             if (!device) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyParticles();
             this.aliveCopyRequested = false;
             this.aliveCopyPending = false;
@@ -1932,7 +1933,7 @@ namespace ComputeNBodyCollisionsNri {
             if (!device) {
                 return "cannot read the particles back";
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const particles = this.readParticles();
             if (particles.length == 0) {
                 return "cannot read the particles back";
@@ -2135,7 +2136,7 @@ namespace ComputeNBodyCollisionsNri {
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -2146,29 +2147,29 @@ namespace ComputeNBodyCollisionsNri {
 
         // A checkbox for value; its new state.
         checkbox(label: string, value: boolean): boolean {
-            return Nri_ImguiCheckbox(label, value ? 1 : 0) != 0;
+            return NriImgui.checkbox(label, value ? 1 : 0) != 0;
         }
 
         // The settings window, top right. Slider and checkbox values are written back to the
         // simulation as they change.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPosPivot(this.width - 10.0, 10.0, 1.0, 0.0);
-            Nri_ImguiBegin("N-Body Collisions", 1);
-            Nri_ImguiPushItemWidth(180.0);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPosPivot(this.width - 10.0, 10.0, 1.0, 0.0);
+            NriImgui.begin("N-Body Collisions", 1);
+            NriImgui.pushItemWidth(180.0);
 
             // Every feature has a switch; a slider beneath one sets how much, while it is on.
-            if (Nri_ImguiCollapsingHeader("Simulation", 1) != 0) {
+            if (NriImgui.collapsingHeader("Simulation", 1) != 0) {
                 this.paused = this.checkbox("Paused (Space)", this.paused);
                 const collisions = this.checkbox("Collisions (C)", this.collisions);
                 if (collisions != this.collisions) {
                     this.collisions = collisions;
-                    Nri_StoreInt32(Ref(this.simulationConstants[2]), collisions ? 1 : 0);
+                    Nri.storeInt32(Ref(this.simulationConstants[2]), collisions ? 1 : 0);
                 }
                 const heating = this.checkbox("Heating (H)", this.heating);
                 if (heating != this.heating) {
                     this.heating = heating;
-                    Nri_StoreInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
+                    Nri.storeInt32(Ref(this.simulationConstants[3]), heating ? 1 : 0);
                 }
                 const fullGravity = this.checkbox("Gravity between all pairs", this.fullGravity);
                 if (fullGravity != this.fullGravity) {
@@ -2177,47 +2178,47 @@ namespace ComputeNBodyCollisionsNri {
                 this.contactSprings = this.checkbox("Contact springs (off: push-outs)", this.contactSprings);
                 this.frictionOn = this.checkbox("Friction", this.frictionOn);
                 if (this.frictionOn) {
-                    this.frictionValue = Nri_ImguiSliderFloat("Friction mu", this.frictionValue, 0.0, 1.0);
+                    this.frictionValue = NriImgui.sliderFloat("Friction mu", this.frictionValue, 0.0, 1.0);
                 }
                 this.rollingOn = this.checkbox("Rolling resistance", this.rollingOn);
                 if (this.rollingOn) {
-                    this.rollingValue = Nri_ImguiSliderFloat("Rolling mu_r", this.rollingValue, 0.0, ROLLING_RESISTANCE_MAX);
+                    this.rollingValue = NriImgui.sliderFloat("Rolling mu_r", this.rollingValue, 0.0, ROLLING_RESISTANCE_MAX);
                 }
                 this.restitutionSpeedOn = this.checkbox("Hard hits bounce less", this.restitutionSpeedOn);
                 if (this.restitutionSpeedOn) {
-                    this.restitutionSpeedValue = Nri_ImguiSliderFloat("Above (u/s)", this.restitutionSpeedValue, 0.0, RESTITUTION_SPEED_MAX);
+                    this.restitutionSpeedValue = NriImgui.sliderFloat("Above (u/s)", this.restitutionSpeedValue, 0.0, RESTITUTION_SPEED_MAX);
                 }
                 this.sizeSoftening = this.checkbox("Gravity softened by size", this.sizeSoftening);
                 this.mergeOn = this.checkbox("Merging", this.mergeOn);
                 if (this.mergeOn) {
-                    this.mergeValue = Nri_ImguiSliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
+                    this.mergeValue = NriImgui.sliderFloat("Merge below (u/s)", this.mergeValue, 0.0, MERGE_SPEED_MAX);
                     this.hotStickOn = this.checkbox("Hot particles stick", this.hotStickOn);
                     if (this.hotStickOn) {
-                        this.hotStickValue = Nri_ImguiSliderFloat("Glowing: + (u/s)", this.hotStickValue, 0.0, HOT_MERGE_SPEED_MAX);
+                        this.hotStickValue = NriImgui.sliderFloat("Glowing: + (u/s)", this.hotStickValue, 0.0, HOT_MERGE_SPEED_MAX);
                     }
                 }
                 this.breakOn = this.checkbox("Breaking", this.breakOn);
                 if (this.breakOn) {
-                    this.breakValue = Nri_ImguiSliderFloat("Break above (u/s)", this.breakValue, 0.0, FRAGMENT_SPEED_MAX);
+                    this.breakValue = NriImgui.sliderFloat("Break above (u/s)", this.breakValue, 0.0, FRAGMENT_SPEED_MAX);
                 }
                 this.applySwitches();
 
-                this.simulationConstants[CONSTANT_TIME_FACTOR] = Nri_ImguiSliderFloat("Time scale (sim s / s)",
+                this.simulationConstants[CONSTANT_TIME_FACTOR] = NriImgui.sliderFloat("Time scale (sim s / s)",
                     this.simulationConstants[CONSTANT_TIME_FACTOR], 0.0, 0.2);
-                this.simulationConstants[CONSTANT_GRAVITY] = Nri_ImguiSliderFloat("Gravity G",
+                this.simulationConstants[CONSTANT_GRAVITY] = NriImgui.sliderFloat("Gravity G",
                     this.simulationConstants[CONSTANT_GRAVITY], 0.0, 0.01);
-                this.simulationConstants[CONSTANT_RESTITUTION] = Nri_ImguiSliderFloat("Bounciness e",
+                this.simulationConstants[CONSTANT_RESTITUTION] = NriImgui.sliderFloat("Bounciness e",
                     this.simulationConstants[CONSTANT_RESTITUTION], 0.0, 1.0);
-                this.simulationConstants[CONSTANT_HEAT_FACTOR] = Nri_ImguiSliderFloat("Heat per energy",
+                this.simulationConstants[CONSTANT_HEAT_FACTOR] = NriImgui.sliderFloat("Heat per energy",
                     this.simulationConstants[CONSTANT_HEAT_FACTOR], 0.0, 0.02);
-                this.simulationConstants[CONSTANT_COOL_SECONDS] = Nri_ImguiSliderFloat("Cooling time (s)",
+                this.simulationConstants[CONSTANT_COOL_SECONDS] = NriImgui.sliderFloat("Cooling time (s)",
                     this.simulationConstants[CONSTANT_COOL_SECONDS], 0.5, 10.0);
-                if (Nri_ImguiButton("Defaults") != 0) {
+                if (NriImgui.button("Defaults") != 0) {
                     this.resetSimulationConstants();
                 }
             }
 
-            if (Nri_ImguiCollapsingHeader("Display", 1) != 0) {
+            if (NriImgui.collapsingHeader("Display", 1) != 0) {
                 this.showPlanes = this.checkbox("Planes (P)", this.showPlanes);
                 this.showGizmo = this.checkbox("Axis gizmo", this.showGizmo);
                 this.autoRotate = this.checkbox("Orbit when idle", this.autoRotate);
@@ -2225,81 +2226,81 @@ namespace ComputeNBodyCollisionsNri {
                 this.spinMarks = this.checkbox("Spin marks", this.spinMarks);
                 this.showTrails = this.checkbox("Trails (T)", this.showTrails);
                 if (this.showTrails) {
-                    this.trailSeconds = Nri_ImguiSliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
+                    this.trailSeconds = NriImgui.sliderFloat("Trail length (s)", this.trailSeconds, 0.0, TRAIL_SECONDS_MAX);
                 }
                 this.bloomOn = this.checkbox("Bloom", this.bloomOn);
                 if (this.bloomOn) {
-                    this.bloomStrength = Nri_ImguiSliderFloat("Bloom strength", this.bloomStrength, 0.0, 2.0);
-                    this.bloomThreshold = Nri_ImguiSliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
+                    this.bloomStrength = NriImgui.sliderFloat("Bloom strength", this.bloomStrength, 0.0, 2.0);
+                    this.bloomThreshold = NriImgui.sliderFloat("Bloom threshold", this.bloomThreshold, 0.0, 2.0);
                 }
             }
 
             // What the sliders' units are: the simulation's own (its scene units, simulated seconds,
             // the masses it places), and compute_nbody's softened gravity.
-            if (Nri_ImguiCollapsingHeader("Units", 0) != 0) {
-                Nri_ImguiText("u: scene unit; the planes' grid lines are 2 u apart");
-                Nri_ImguiText("s: second. Speeds are in u per simulated second;");
-                Nri_ImguiText("  the time scale is simulated seconds per real one;");
-                Nri_ImguiText("  trail length and cooling time are real seconds");
-                Nri_ImguiText("Masses follow the volume: 20 at radius 0.04 (312 at 0.1),");
-                Nri_ImguiText("  90000 at the attractors' radius 0.5");
-                Nri_ImguiText("Gravity: a = G m r / (r^2 + s)^0.75 (not 1 / r^2), s = 0.05,");
-                Nri_ImguiText("  softened by size: at least the two's mean radius^2");
-                Nri_ImguiText("e: speed apart after a bounce over speed together before;");
-                Nri_ImguiText("  hard hits: e (above / impact speed)^(1/4)");
-                Nri_ImguiText("mu: friction impulse over the normal one, at most");
-                Nri_ImguiText("Merging: below the merge speed, plus as much as");
-                Nri_ImguiText("  'Glowing: +' times the pair's glow (1 - e^-heat)");
-                Nri_ImguiText("mu_r: rolling couple over contact radius times the");
-                Nri_ImguiText("  normal impulse, at most");
-                Nri_ImguiText("Heat rises by heat per energy times the kinetic");
-                Nri_ImguiText("  energy lost per unit of the particle's mass (u^2/s^2)");
-                Nri_ImguiText("Cooling time: the heat falls to 1/e in it");
-                Nri_ImguiText("Fragment room: free slots at the start, a share of");
-                Nri_ImguiText("  the particles placed");
+            if (NriImgui.collapsingHeader("Units", 0) != 0) {
+                NriImgui.text("u: scene unit; the planes' grid lines are 2 u apart");
+                NriImgui.text("s: second. Speeds are in u per simulated second;");
+                NriImgui.text("  the time scale is simulated seconds per real one;");
+                NriImgui.text("  trail length and cooling time are real seconds");
+                NriImgui.text("Masses follow the volume: 20 at radius 0.04 (312 at 0.1),");
+                NriImgui.text("  90000 at the attractors' radius 0.5");
+                NriImgui.text("Gravity: a = G m r / (r^2 + s)^0.75 (not 1 / r^2), s = 0.05,");
+                NriImgui.text("  softened by size: at least the two's mean radius^2");
+                NriImgui.text("e: speed apart after a bounce over speed together before;");
+                NriImgui.text("  hard hits: e (above / impact speed)^(1/4)");
+                NriImgui.text("mu: friction impulse over the normal one, at most");
+                NriImgui.text("Merging: below the merge speed, plus as much as");
+                NriImgui.text("  'Glowing: +' times the pair's glow (1 - e^-heat)");
+                NriImgui.text("mu_r: rolling couple over contact radius times the");
+                NriImgui.text("  normal impulse, at most");
+                NriImgui.text("Heat rises by heat per energy times the kinetic");
+                NriImgui.text("  energy lost per unit of the particle's mass (u^2/s^2)");
+                NriImgui.text("Cooling time: the heat falls to 1/e in it");
+                NriImgui.text("Fragment room: free slots at the start, a share of");
+                NriImgui.text("  the particles placed");
             }
 
-            if (Nri_ImguiCollapsingHeader("New simulation", 1) != 0) {
-                this.uiAttractors = Nri_ImguiSliderInt("Attractors", this.uiAttractors, 1, MAX_ATTRACTORS);
-                const choice = Nri_ImguiCombo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
+            if (NriImgui.collapsingHeader("New simulation", 1) != 0) {
+                this.uiAttractors = NriImgui.sliderInt("Attractors", this.uiAttractors, 1, MAX_ATTRACTORS);
+                const choice = NriImgui.combo("Particles each", particleChoiceIndex(this.uiParticles), PARTICLE_CHOICES);
                 if (choice >= 0 && choice != particleChoiceIndex(this.uiParticles)) {
                     this.uiParticles = particleChoice(choice);
                 }
-                this.uiAttractorLayout = Nri_ImguiCombo("Attractor layout", this.uiAttractorLayout, ATTRACTOR_LAYOUTS);
+                this.uiAttractorLayout = NriImgui.combo("Attractor layout", this.uiAttractorLayout, ATTRACTOR_LAYOUTS);
                 if (this.uiAttractorLayout != AttractorLayout.Preset) {
-                    this.uiLayoutRadius = Nri_ImguiSliderFloat("Layout radius (u)", this.uiLayoutRadius, 1.0, LAYOUT_RADIUS_MAX);
+                    this.uiLayoutRadius = NriImgui.sliderFloat("Layout radius (u)", this.uiLayoutRadius, 1.0, LAYOUT_RADIUS_MAX);
                 }
-                this.uiHeavyRadius = Nri_ImguiSliderFloat("Attractor radius (u)", this.uiHeavyRadius, 0.1, HEAVY_RADIUS_MAX);
-                this.uiParticleLayout = Nri_ImguiCombo("Particle layout", this.uiParticleLayout, PARTICLE_LAYOUTS);
-                this.uiLightRadiusMin = Nri_ImguiSliderFloat("Particle radius min (u)", this.uiLightRadiusMin,
+                this.uiHeavyRadius = NriImgui.sliderFloat("Attractor radius (u)", this.uiHeavyRadius, 0.1, HEAVY_RADIUS_MAX);
+                this.uiParticleLayout = NriImgui.combo("Particle layout", this.uiParticleLayout, PARTICLE_LAYOUTS);
+                this.uiLightRadiusMin = NriImgui.sliderFloat("Particle radius min (u)", this.uiLightRadiusMin,
                     LIGHT_RADIUS_SLIDER_MIN, LIGHT_RADIUS_SLIDER_MAX);
-                this.uiLightRadiusMax = Nri_ImguiSliderFloat("Particle radius max (u)", this.uiLightRadiusMax,
+                this.uiLightRadiusMax = NriImgui.sliderFloat("Particle radius max (u)", this.uiLightRadiusMax,
                     LIGHT_RADIUS_SLIDER_MIN, LIGHT_RADIUS_SLIDER_MAX);
                 if (this.uiLightRadiusMax < this.uiLightRadiusMin) {
                     this.uiLightRadiusMax = this.uiLightRadiusMin;
                 }
-                this.uiSpread = Nri_ImguiSliderFloat("Cloud spread (u)", this.uiSpread, 0.2, 3.0);
-                this.uiFragmentRoom = 0.01 * Nri_ImguiSliderFloat("Fragment room (%)", 100.0 * this.uiFragmentRoom, 0.0, 100.0);
-                this.uiSeed = Nri_ImguiSliderInt("Random seed", this.uiSeed, 1, 99999);
-                if (Nri_ImguiButton("Restart") != 0) {
+                this.uiSpread = NriImgui.sliderFloat("Cloud spread (u)", this.uiSpread, 0.2, 3.0);
+                this.uiFragmentRoom = 0.01 * NriImgui.sliderFloat("Fragment room (%)", 100.0 * this.uiFragmentRoom, 0.0, 100.0);
+                this.uiSeed = NriImgui.sliderInt("Random seed", this.uiSeed, 1, 99999);
+                if (NriImgui.button("Restart") != 0) {
                     this.restartRequested = true;
                 }
-                Nri_ImguiText(this.aliveCount == this.numParticles
+                NriImgui.text(this.aliveCount == this.numParticles
                     ? `${this.numParticles} particles running`
                     : `${this.aliveCount} particles running, in ${this.numParticles} slots`);
             }
 
-            Nri_ImguiPopItemWidth();
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.popItemWidth();
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 this.destroyBloomTargets();
                 this.destroyParticles();
@@ -2333,38 +2334,38 @@ namespace ComputeNBodyCollisionsNri {
                 this.destroyLayout(this.blurLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const nbody = new NBodyCollisions(sample);
         // -attractors <n>: heavy centers, 1 to MAX_ATTRACTORS (6 by default), each with its group of
         // particles; -particles <n>: particles per attractor, the heavy center first (1024 by
@@ -2373,36 +2374,36 @@ namespace ComputeNBodyCollisionsNri {
         // <percent>: free slots left for fragments at the start, a share of the particles placed;
         // -nocool: the heat never cools off (for the energy check); -fullgravity: every pair pulls
         // both ways (see SimulationConstants.fullGravity); -noUI: no settings window.
-        Nri_AddExampleOptionWithValues(sample, "-attractors", 1);
-        Nri_AddExampleOptionWithValues(sample, "-particles", 1);
-        Nri_AddExampleOptionWithValues(sample, "-merge", 1);
-        Nri_AddExampleOptionWithValues(sample, "-fragment", 1);
-        Nri_AddExampleOptionWithValues(sample, "-room", 1);
-        Nri_AddExampleOption(sample, "-nocool");
-        Nri_AddExampleOption(sample, "-fullgravity");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOptionWithValues("-attractors", 1);
+        sample.addExampleOptionWithValues("-particles", 1);
+        sample.addExampleOptionWithValues("-merge", 1);
+        sample.addExampleOptionWithValues("-fragment", 1);
+        sample.addExampleOptionWithValues("-room", 1);
+        sample.addExampleOption("-nocool");
+        sample.addExampleOption("-fullgravity");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-attractors" && i + 1 < argc) {
-                nbody.numAttractors = parseInt(Nri_GetArg(argc, argv, i + 1));
+                nbody.numAttractors = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-particles" && i + 1 < argc) {
-                nbody.particlesPerAttractor = parseInt(Nri_GetArg(argc, argv, i + 1));
+                nbody.particlesPerAttractor = parseInt(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-fragment" && i + 1 < argc) {
-                nbody.argFragmentSpeed = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                nbody.argFragmentSpeed = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-room" && i + 1 < argc) {
-                nbody.argFragmentRoom = parseFloat(Nri_GetArg(argc, argv, i + 1)) / 100.0;
+                nbody.argFragmentRoom = parseFloat(Nri.getArg(argc, argv, i + 1)) / 100.0;
                 i++;
             } else if (arg == "-nocool") {
                 nbody.argNoCool = true;
             } else if (arg == "-fullgravity") {
                 nbody.argFullGravity = true;
             } else if (arg == "-merge" && i + 1 < argc) {
-                nbody.argMergeSpeed = parseFloat(Nri_GetArg(argc, argv, i + 1));
+                nbody.argMergeSpeed = parseFloat(Nri.getArg(argc, argv, i + 1));
                 i++;
             } else if (arg == "-noUI") {
                 nbody.noUI = true;

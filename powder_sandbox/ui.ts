@@ -11,6 +11,7 @@ import {
     fanDirectionOf, sectionMaterial, materialName, starText
 } from "./defs";
 import { SandboxSimulation } from "./simulation";
+import { NriImgui } from "../core/nri";
 
 // The toolbar and input: the tabs and tiles, the brush's size slider and radial menu, the readout,
 // and the mouse, touch and keys they're driven by.
@@ -159,13 +160,13 @@ export class SandboxUI extends SandboxSimulation {
     // The pointer (mouse or touch): taps on the toolbar, strokes of the brush on the grid. The
     // brush's constants for this frame.
     handleInput(): int {
-        const mx = Nri_GetMouseX(this.sample);
-        const my = Nri_GetMouseY(this.sample);
+        const mx = this.sample.getMouseX();
+        const my = this.sample.getMouseY();
         // The middle button (two fingers on Android) pans and zooms the view; the left one
         // doesn't paint meanwhile.
-        const middle = Nri_IsButtonPressed(this.sample, MOUSE_MIDDLE) != 0;
-        const down = Nri_IsButtonPressed(this.sample, 0) != 0 && !middle;
-        const control = Nri_IsKeyPressed(this.sample, KEY_LEFT_CONTROL) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT_CONTROL) != 0;
+        const middle = this.sample.isButtonPressed(MOUSE_MIDDLE) != 0;
+        const down = this.sample.isButtonPressed(0) != 0 && !middle;
+        const control = this.sample.isKeyPressed(KEY_LEFT_CONTROL) != 0 || this.sample.isKeyPressed(KEY_RIGHT_CONTROL) != 0;
         const overToolbar = my >= this.height - this.toolbarHeight;
 
         // Two fingers down (or the middle button): if the first finger has only just begun a
@@ -188,7 +189,7 @@ export class SandboxUI extends SandboxSimulation {
 
         // The wheel over the toolbar scrolls it (half a tile a notch); over the grid it zooms
         // (with Control, or the middle button down: a pinch), or sizes the brush.
-        const wheel = Nri_GetMouseWheel(this.sample);
+        const wheel = this.sample.getMouseWheel();
         if (overToolbar && wheel != 0.0 && this.onTabRow(my)) {
             this.tabs.scrollTo(this.tabs.offset() + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
         } else if (overToolbar && wheel != 0.0) {
@@ -205,11 +206,11 @@ export class SandboxUI extends SandboxSimulation {
         const gy = (my - this.viewY) / this.cellPixels;
         this.mouseGridX = gx;
         this.mouseGridY = gy;
-        if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+        if (this.sample.isKeyToggled(NriKey.Space) != 0) {
             this.paused = !this.paused;
         }
         // Ctrl+Z (each press of Z while Control is down).
-        const z = Nri_IsKeyPressed(this.sample, KEY_Z) != 0;
+        const z = this.sample.isKeyPressed(KEY_Z) != 0;
         if (control && z && !this.zWasDown) {
             this.undoRequested = true;
         }
@@ -353,15 +354,15 @@ export class SandboxUI extends SandboxSimulation {
 
     // The toolbar and the readout.
     buildUI() {
-        Nri_ImguiNewFrame(this.sample);
+        this.sample.imguiNewFrame();
         const tileWidth = this.tileWidth;
         const pad = Math.max(2.0, Math.min(tileWidth, this.tileHeight) * 0.06);
-        const labelHeight = Nri_ImguiGetFontSize() + 4.0;
+        const labelHeight = NriImgui.getFontSize() + 4.0;
         const tabTop = this.height - this.toolbarHeight;
         const top = tabTop + this.tabHeight;
         const bottom = this.height;
-        Nri_ImguiDrawRect(0.0, tabTop, this.width, top, 0.13, 0.13, 0.16, 1.0);
-        Nri_ImguiDrawRect(0.0, top, this.width, bottom, 0.08, 0.08, 0.1, 1.0);
+        NriImgui.drawRect(0.0, tabTop, this.width, top, 0.13, 0.13, 0.16, 1.0);
+        NriImgui.drawRect(0.0, top, this.width, bottom, 0.08, 0.08, 0.1, 1.0);
         // The tabs: each as wide as its label and a gap, spread over the row when they fit; the
         // group shown lit as a selected tile is, and under a tab whose group holds the tool, a bar of the tool's color.
         this.tabs.layout(this.groups, this.width);
@@ -381,9 +382,9 @@ export class SandboxUI extends SandboxSimulation {
             const selected = tile.tool == this.tool || (tile.tool == ACTION_PAUSE && this.paused)
                 || (tile.tool == ACTION_GRAVITY && this.tool == GRAVITY_PLACE);
             if (selected) {
-                Nri_ImguiDrawRect(x0 + 1.0, top + 1.0, x0 + tileWidth - 1.0, bottom - 1.0, 0.95, 0.95, 0.95, 1.0);
+                NriImgui.drawRect(x0 + 1.0, top + 1.0, x0 + tileWidth - 1.0, bottom - 1.0, 0.95, 0.95, 0.95, 1.0);
             }
-            Nri_ImguiDrawRect(x0 + pad, top + pad, x0 + tileWidth - pad, bottom - pad - labelHeight, tile.r, tile.g, tile.b, 1.0);
+            NriImgui.drawRect(x0 + pad, top + pad, x0 + tileWidth - pad, bottom - pad - labelHeight, tile.r, tile.g, tile.b, 1.0);
             let label = tile.label;
             if (tile.tool == ACTION_PAUSE && this.paused) {
                 label = "Play";
@@ -402,10 +403,10 @@ export class SandboxUI extends SandboxSimulation {
                 const cx = x0 + tileWidth * 0.5;
                 const cy = (top + bottom - labelHeight) * 0.5;
                 const half = tileWidth * 0.15;
-                Nri_ImguiDrawRect(cx - half, cy - half, cx + half, cy + half, emitted.r, emitted.g, emitted.b, 1.0);
+                NriImgui.drawRect(cx - half, cy - half, cx + half, cy + half, emitted.r, emitted.g, emitted.b, 1.0);
             }
-            const textWidth = Nri_ImguiCalcTextWidth(label);
-            Nri_ImguiDrawText(x0 + (tileWidth - textWidth) * 0.5, bottom - pad - labelHeight + 2.0, label,
+            const textWidth = NriImgui.calcTextWidth(label);
+            NriImgui.drawText(x0 + (tileWidth - textWidth) * 0.5, bottom - pad - labelHeight + 2.0, label,
                 selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, 1.0, 0);
         }
         // When the tiles' row scrolls, a bar along its top: how much of it shows, and where (the
@@ -414,7 +415,7 @@ export class SandboxUI extends SandboxSimulation {
             const total = this.groupTiles.length * tileWidth;
             const barX0 = this.toolbarScroll / total * this.width;
             const barX1 = (this.toolbarScroll + this.width) / total * this.width;
-            Nri_ImguiDrawRect(barX0, top, barX1, top + 3.0, 0.7, 0.7, 0.75, 1.0);
+            NriImgui.drawRect(barX0, top, barX1, top + 3.0, 0.7, 0.7, 0.75, 1.0);
         }
 
         // The size slider: "Size N", then its track and knob.
@@ -423,7 +424,7 @@ export class SandboxUI extends SandboxSimulation {
             const sliderTop = this.sliderTop();
             const sliderHeight = this.sliderHeight();
             const sizeLabel = `Size ${formatFixed(this.brushRadius, this.brushRadius < 1.0 ? 1 : 0)}`;
-            const x0 = 8.0 + Nri_ImguiCalcTextWidth("Size 30.0") + sliderHeight;
+            const x0 = 8.0 + NriImgui.calcTextWidth("Size 30.0") + sliderHeight;
             const x1 = Math.min(this.width - 8.0 - sliderHeight * 0.5, x0 + this.width * 0.6);
             this.slider.place(0.0, x0, x1, sliderTop, sliderHeight);
             this.slider.draw(sizeLabel, (this.brushRadius - MIN_BRUSH) / (MAX_BRUSH - MIN_BRUSH), labelHeight);
@@ -436,11 +437,11 @@ export class SandboxUI extends SandboxSimulation {
                 const cx = this.menuIconX(k);
                 const cy = this.menuIconY(k);
                 const lit = k == this.brushShape;
-                Nri_ImguiDrawRect(cx - half, cy - half, cx + half, cy + half, lit ? 0.95 : 0.12, lit ? 0.95 : 0.12, lit ? 0.95 : 0.15, 0.92);
+                NriImgui.drawRect(cx - half, cy - half, cx + half, cy + half, lit ? 0.95 : 0.12, lit ? 0.95 : 0.12, lit ? 0.95 : 0.15, 0.92);
                 this.drawShapeIcon(k, cx, cy - labelHeight * 0.35, half * 0.5, lit ? 0.1 : 0.9);
                 const name = SHAPE_NAMES[k];
                 const shade = lit ? 0.0 : 1.0;
-                Nri_ImguiDrawText(cx - Nri_ImguiCalcTextWidth(name) * 0.5, cy + half - labelHeight, name, shade, shade, shade, 1.0, 0);
+                NriImgui.drawText(cx - NriImgui.calcTextWidth(name) * 0.5, cy + half - labelHeight, name, shade, shade, shade, 1.0, 0);
             }
         }
 
@@ -489,9 +490,9 @@ export class SandboxUI extends SandboxSimulation {
             y = this.drawWrapped([`${level.name}: ${level.goalText} ${progress}`, `${formatFixed(time, 1)} s`, stars], y, labelHeight, 1.0);
         }
         if (this.messageTime > 0.0) {
-            Nri_ImguiDrawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
+            NriImgui.drawText(8.0, y, this.message, 1.0, 0.9, 0.4, 1.0, 0);
         }
-        Nri_ImguiRender(this.sample);
+        this.sample.imguiRender();
     }
 
     // A shape's glyph (SHAPE_NAMES' k) at (cx, cy), r in size, in gray: a disc, a square, a
@@ -502,41 +503,41 @@ export class SandboxUI extends SandboxSimulation {
             for (let i = -rows; i < rows; i++) {
                 const y = (i + 0.5) / rows;
                 const w = r * Math.sqrt(Math.max(1.0 - y * y, 0.0));
-                Nri_ImguiDrawRect(cx - w, cy + i * r / rows, cx + w, cy + (i + 1) * r / rows, gray, gray, gray, 1.0);
+                NriImgui.drawRect(cx - w, cy + i * r / rows, cx + w, cy + (i + 1) * r / rows, gray, gray, gray, 1.0);
             }
         } else if (k == SHAPE_SQUARE) {
-            Nri_ImguiDrawRect(cx - r * 0.85, cy - r * 0.85, cx + r * 0.85, cy + r * 0.85, gray, gray, gray, 1.0);
+            NriImgui.drawRect(cx - r * 0.85, cy - r * 0.85, cx + r * 0.85, cy + r * 0.85, gray, gray, gray, 1.0);
         } else if (k == SHAPE_LINE) {
             const steps = Math.max(Math.floor(r), 6);
             const t = Math.max(r * 0.12, 2.0);
             for (let i = 0; i <= steps; i++) {
                 const f = -1.0 + 2.0 * i / steps;
-                Nri_ImguiDrawRect(cx + f * r - t, cy - f * r - t, cx + f * r + t, cy - f * r + t, gray, gray, gray, 1.0);
+                NriImgui.drawRect(cx + f * r - t, cy - f * r - t, cx + f * r + t, cy - f * r + t, gray, gray, gray, 1.0);
             }
         } else {
             const t = Math.max(r * 0.14, 2.0);
-            Nri_ImguiDrawRect(cx - r, cy - r, cx + r, cy - r + t, gray, gray, gray, 1.0);
-            Nri_ImguiDrawRect(cx - r, cy + r - t, cx + r, cy + r, gray, gray, gray, 1.0);
-            Nri_ImguiDrawRect(cx - r, cy - r, cx - r + t, cy + r, gray, gray, gray, 1.0);
-            Nri_ImguiDrawRect(cx + r - t, cy - r, cx + r, cy + r, gray, gray, gray, 1.0);
+            NriImgui.drawRect(cx - r, cy - r, cx + r, cy - r + t, gray, gray, gray, 1.0);
+            NriImgui.drawRect(cx - r, cy + r - t, cx + r, cy + r, gray, gray, gray, 1.0);
+            NriImgui.drawRect(cx - r, cy - r, cx - r + t, cy + r, gray, gray, gray, 1.0);
+            NriImgui.drawRect(cx + r - t, cy - r, cx + r, cy + r, gray, gray, gray, 1.0);
         }
     }
 
     // The HUD's parts (empty ones left out) on a line from y, three spaces apart, wrapped onto
     // more lines where the window is too narrow (a phone held upright); the y under them.
     drawWrapped(parts: string[], y: number, lineHeight: number, gray: number): number {
-        const gap = Nri_ImguiCalcTextWidth("   ");
+        const gap = NriImgui.calcTextWidth("   ");
         let x = 8.0;
         for (const part of parts) {
             if (part == "") {
                 continue;
             }
-            const width = Nri_ImguiCalcTextWidth(part);
+            const width = NriImgui.calcTextWidth(part);
             if (x > 8.0 && x + width > this.width - 8.0) {
                 x = 8.0;
                 y += lineHeight;
             }
-            Nri_ImguiDrawText(x, y, part, gray, gray, gray, 1.0, 0);
+            NriImgui.drawText(x, y, part, gray, gray, gray, 1.0, 0);
             x += width + gap;
         }
         return y + lineHeight;

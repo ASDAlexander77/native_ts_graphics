@@ -4,10 +4,11 @@
 //
 // Imported with `import { NriSlider } from "../core/nri_slider";`, and listed in the app's
 // add_tslang_nri_example sources. Each frame, place (where it is) and draw (between the app's
-// Nri_ImguiNewFrame and Nri_ImguiRender); contains and fraction read where it was last placed.
+// NriSample.imguiNewFrame and NriSample.imguiRender); contains and fraction read where it was last placed.
 // What the fraction means (a size, rounded, say) is the app's.
 
 /// <reference path="nri/nri_interop.d.ts" />
+import { NriImgui } from "./nri";
 
 @final
 export class NriSlider {
@@ -39,13 +40,13 @@ export class NriSlider {
     // Its backing, label (labelHeight: the font's line), track and knob at fraction (0 .. 1).
     draw(label: string, fraction: number, labelHeight: number) {
         const h = this.height;
-        Nri_ImguiDrawRect(this.left, this.top - 2.0, this.x1 + h, this.top + h + 2.0, 0.08, 0.08, 0.1, 0.8);
-        Nri_ImguiDrawText(this.left + 8.0, this.top + (h - labelHeight) * 0.5 + 2.0, label, 1.0, 1.0, 1.0, 1.0, 0);
+        NriImgui.drawRect(this.left, this.top - 2.0, this.x1 + h, this.top + h + 2.0, 0.08, 0.08, 0.1, 0.8);
+        NriImgui.drawText(this.left + 8.0, this.top + (h - labelHeight) * 0.5 + 2.0, label, 1.0, 1.0, 1.0, 1.0, 0);
         const mid = this.top + h * 0.5;
-        Nri_ImguiDrawRect(this.x0, mid - 2.0, this.x1, mid + 2.0, 0.45, 0.45, 0.5, 1.0);
+        NriImgui.drawRect(this.x0, mid - 2.0, this.x1, mid + 2.0, 0.45, 0.45, 0.5, 1.0);
         const knobX = this.x0 + fraction * (this.x1 - this.x0);
         const knob = h * 0.3;
-        Nri_ImguiDrawRect(this.x0, mid - 2.0, knobX, mid + 2.0, 0.95, 0.95, 0.95, 1.0);
-        Nri_ImguiDrawRect(knobX - knob, mid - knob * 1.4, knobX + knob, mid + knob * 1.4, 0.95, 0.95, 0.95, 1.0);
+        NriImgui.drawRect(this.x0, mid - 2.0, knobX, mid + 2.0, 0.95, 0.95, 0.95, 1.0);
+        NriImgui.drawRect(knobX - knob, mid - knob * 1.4, knobX + knob, mid + knob * 1.4, 0.95, 0.95, 0.95, 1.0);
     }
 }

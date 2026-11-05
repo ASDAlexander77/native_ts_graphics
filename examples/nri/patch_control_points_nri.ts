@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { radians, perspective } from "../../core/matrix";
 import { FirstPersonCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace PatchControlPointsNri {
     // patch_control_points, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead
@@ -20,7 +21,7 @@ namespace PatchControlPointsNri {
     // in CMakeLists.txt).
     const MODEL_PATH = "media/patch_control_points/terrain.gltf";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // struct UBO { float4x4 projection, view; } and struct UBOTessellation { float
@@ -58,8 +59,8 @@ namespace PatchControlPointsNri {
     // A frame in flight's own data: its descriptor set (its slices of
     // the UBO and of the tessellation UBO) with their views.
     class QueuedFrame {
-        constructor(public descriptorSet: NriDescriptorSetHandle | null, public uboView: NriDescriptorHandle | null,
-            public tessView: NriDescriptorHandle | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public uboView: NriDescriptor | null,
+            public tessView: NriDescriptor | null) {
         }
     }
 
@@ -122,22 +123,22 @@ namespace PatchControlPointsNri {
     // example, and draw the same. Drawn straight into the sRGB swap chain view (Donut's sRGB back
     // buffer), with a D32 depth buffer.
     class PatchControlPoints {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         // The swap chain textures' format and their views' (sRGB).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private staticPipeline: NriPipelineHandle | null = null;
-        private dynamicPipeline: NriPipelineHandle | null = null;
-        private model: NriGltfMeshHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private staticPipeline: NriPipeline | null = null;
+        private dynamicPipeline: NriPipeline | null = null;
+        private model: NriGltfMesh | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -160,11 +161,11 @@ namespace PatchControlPointsNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < UBO_FLOATS; i++) {
                 this.ubo.push(0.0);
             }
@@ -178,11 +179,11 @@ namespace PatchControlPointsNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -193,19 +194,19 @@ namespace PatchControlPointsNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -216,7 +217,7 @@ namespace PatchControlPointsNri {
                 return 0;
             }
 
-            this.model = Nri_LoadGltfMesh(device, this.queue, MODEL_PATH);
+            this.model = device.loadGltfMesh(this.queue, MODEL_PATH);
             if (!this.model) {
                 console.log("Cannot load the model: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
@@ -225,11 +226,11 @@ namespace PatchControlPointsNri {
             // The layout: the sample's descriptor set (the UBO at b0, the tessellation UBO at b1) and
             // push constants (the model's direction, at b2: root constants), seen by every stage.
             const stages = NriStage.VertexTessellationPixel;
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 2, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, PUSH_REGISTER, PUSH_FLOATS * 4, stages);
-            const pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 2, NriDescriptorType.ConstantBuffer, stages, NriRangeFlags.None);
+            layoutDesc.addRootConstants(PUSH_REGISTER, PUSH_FLOATS * 4, stages);
+            const pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.pipelineLayout = pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -248,9 +249,9 @@ namespace PatchControlPointsNri {
 
             // A queued frame's UBO and tessellation UBO, in its own descriptor set (both pipelines
             // get the same tessellation factor).
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * 2 * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * 2 * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum, 0, 2 * queuedFrameNum, 0, 0, 0);
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum, 0, 2 * queuedFrameNum, 0, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
                 console.log("Cannot create the constant buffers");
@@ -258,22 +259,22 @@ namespace PatchControlPointsNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
-                const uboView = Nri_CreateConstantBufferView(constantBuffer, 2 * i * CONST_STRIDE, CONST_STRIDE);
-                const tessView = Nri_CreateConstantBufferView(constantBuffer, (2 * i + 1) * CONST_STRIDE, CONST_STRIDE);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
+                const uboView = constantBuffer.createConstantView(2 * i * CONST_STRIDE, CONST_STRIDE);
+                const tessView = constantBuffer.createConstantView((2 * i + 1) * CONST_STRIDE, CONST_STRIDE);
                 this.queuedFrames.push(new QueuedFrame(descriptorSet,
                     uboView, tessView));
                 if (!descriptorSet || !uboView || !tessView) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, uboView);
-                Nri_UpdateDescriptor(descriptorSet, 0, 1, tessView);
+                descriptorSet.updateDescriptor(0, 0, uboView);
+                descriptorSet.updateDescriptor(0, 1, tessView);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -281,9 +282,9 @@ namespace PatchControlPointsNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -298,30 +299,30 @@ namespace PatchControlPointsNri {
         }
 
         // The D32 depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -331,7 +332,7 @@ namespace PatchControlPointsNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -341,33 +342,33 @@ namespace PatchControlPointsNri {
         // The sample's create_pipelines: the position of the glTF loader's vertices, patches of 3
         // control points, wireframe, front faces (counter-clockwise) culled, alpha blended, reversed
         // depth (greater) tested and written.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_tess_vs.bin`, "tess_vs") != 0;
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_tess_vs.bin`, "tess_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Hull, `${shaders}_tess_hs.bin`, "tess_hs") != 0;
+                loaded = desc.addShader(NriShaderStage.Hull, `${shaders}_tess_hs.bin`, "tess_hs") != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Domain, `${shaders}_tess_ds.bin`, "tess_ds") != 0;
+                loaded = desc.addShader(NriShaderStage.Domain, `${shaders}_tess_ds.bin`, "tess_ds") != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_tess_ps.bin`, "tess_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_tess_ps.bin`, "tess_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetTopology(desc, NriTopology.PatchList);
-            Nri_PipelineDescSetPatchControlPoints(desc, 3);
-            Nri_PipelineDescSetWireframe(desc, 1);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Front);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetBlend(desc, NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.setTopology(NriTopology.PatchList);
+            desc.setPatchControlPoints(3);
+            desc.setWireframe(1);
+            desc.setCullMode(NriCullMode.Front);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            desc.setBlend(NriBlendFactor.SrcAlpha, NriBlendFactor.OneMinusSrcAlpha, NriBlendOp.Add,
                 NriBlendFactor.One, NriBlendFactor.Zero, NriBlendOp.Add);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -379,9 +380,9 @@ namespace PatchControlPointsNri {
         // The camera's input (ApiVulkanSample's), the mouse unless the overlay has it; then its
         // movement over the frame's time (Donut's test mode: 1/60 s, as a float).
         handleInput() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -390,37 +391,37 @@ namespace PatchControlPointsNri {
                 }
             }
             if (!overlay) {
-                this.camera.mouseMove(Nri_GetMouseX(this.sample), Nri_GetMouseY(this.sample));
+                this.camera.mouseMove(this.sample.getMouseX(), this.sample.getMouseY());
             }
             for (let k = 0; k < 4; k++) {
-                const pressed = Nri_IsKeyPressed(this.sample, CAMERA_KEYS[k]) != 0;
+                const pressed = this.sample.isKeyPressed(CAMERA_KEYS[k]) != 0;
                 if (pressed != this.keys[k]) {
                     this.camera.key(<Key>CAMERA_KEYS[k], <Action>(pressed ? 1 : 0));
                     this.keys[k] = pressed;
                 }
             }
-            this.camera.update(this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample));
+            this.camera.update(this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime());
         }
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Patch Control Points", 1);
-            Nri_ImguiPushItemWidth(110.0);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.tessellation = Nri_ImguiCheckbox("Tessellation Enable", this.tessellation ? 1 : 0) != 0;
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Patch Control Points", 1);
+            NriImgui.pushItemWidth(110.0);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.tessellation = NriImgui.checkbox("Tessellation Enable", this.tessellation ? 1 : 0) != 0;
                 // Maximum tessellation level is set to 7.0
-                this.tessLevel = Nri_ImguiSliderFloat("Tessellation level", this.tessLevel, 3.0, 7.0);
+                this.tessLevel = NriImgui.sliderFloat("Tessellation level", this.tessLevel, 3.0, 7.0);
             }
-            Nri_ImguiPopItemWidth();
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.popItemWidth();
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: its projection (clip y negated, as the Donut example
         // gives it) and view; the tessellation factor (1 when tessellation is off).
-        writeConstants(constantBuffer: NriBufferHandle, queuedFrameIndex: int) {
+        writeConstants(constantBuffer: NriBuffer, queuedFrameIndex: int) {
             const projection = perspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             const view = this.camera.view();
             for (let i = 0; i < 16; i++) {
@@ -428,13 +429,13 @@ namespace PatchControlPointsNri {
                 this.ubo[UBO_VIEW + i] = view[i];
             }
             this.tess[0] = this.tessellation ? this.tessLevel : 1.0;
-            Nri_WriteBuffer(constantBuffer, 2 * queuedFrameIndex * CONST_STRIDE, Ref(this.ubo[0]), UBO_FLOATS * 4);
-            Nri_WriteBuffer(constantBuffer, (2 * queuedFrameIndex + 1) * CONST_STRIDE, Ref(this.tess[0]), TESS_FLOATS * 4);
+            constantBuffer.write(2 * queuedFrameIndex * CONST_STRIDE, Ref(this.ubo[0]), UBO_FLOATS * 4);
+            constantBuffer.write((2 * queuedFrameIndex + 1) * CONST_STRIDE, Ref(this.tess[0]), TESS_FLOATS * 4);
         }
 
-        // The model with a pipeline, at its direction (between Nri_CmdBeginRenderingWithDepth and
-        // Nri_CmdEndRendering).
-        drawModel(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, model: int) {
+        // The model with a pipeline, at its direction (between NriCommandBuffer.beginRenderingWithDepth and
+        // NriCommandBuffer.endRendering).
+        drawModel(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, model: int) {
             const mesh = this.model;
             if (!pipeline || !mesh) {
                 return;
@@ -442,26 +443,26 @@ namespace PatchControlPointsNri {
             for (let i = 0; i < 3; i++) {
                 this.push[i] = DIRECTIONS[model * 3 + i];
             }
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.push[0]), PUSH_FLOATS * 4);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(mesh), 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(mesh), 0, VERTEX_SIZE);
-            Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(mesh), 1, 0, 0, 0);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootConstants(0, Ref(this.push[0]), PUSH_FLOATS * 4);
+            commandBuffer.setIndexBuffer(mesh.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, mesh.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.drawIndexed(mesh.getIndexCount(), 1, 0, 0, 0);
         }
 
         // The model with each pipeline.
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const pipelineLayout = this.pipelineLayout;
             const descriptorPool = this.descriptorPool;
             const descriptorSet = queuedFrame.descriptorSet;
             if (!pipelineLayout || !descriptorPool || !descriptorSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
             this.drawModel(commandBuffer, this.staticPipeline, 0);
             this.drawModel(commandBuffer, this.dynamicPipeline, 1);
         }
@@ -488,21 +489,21 @@ namespace PatchControlPointsNri {
 
                 // Record: color cleared to transparent black, depth to 0 (reversed), the two models;
                 // then the overlay over them.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraw(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -510,18 +511,18 @@ namespace PatchControlPointsNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -537,12 +538,12 @@ namespace PatchControlPointsNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -552,9 +553,9 @@ namespace PatchControlPointsNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.uboView);
@@ -562,12 +563,12 @@ namespace PatchControlPointsNri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDepth();
                 const model = this.model;
                 if (model) {
-                    Nri_DestroyGltfMesh(model);
+                    model.destroy();
                 }
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
@@ -575,50 +576,50 @@ namespace PatchControlPointsNri {
                 this.destroyPipeline(this.dynamicPipeline);
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const patchControlPoints = new PatchControlPoints(sample);
         // -notessellation, -level <3..7>: the settings' initial values; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-notessellation");
-        Nri_AddExampleOptionWithValues(sample, "-level", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-notessellation");
+        sample.addExampleOptionWithValues("-level", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-notessellation") {
                 patchControlPoints.tessellation = false;
             } else if (arg == "-level" && i + 1 < argc) {
                 i++;
-                patchControlPoints.tessLevel = Math.min(Math.max(parseFloat(Nri_GetArg(argc, argv, i)), 3.0), 7.0);
+                patchControlPoints.tessLevel = Math.min(Math.max(parseFloat(Nri.getArg(argc, argv, i)), 3.0), 7.0);
             } else if (arg == "-noUI") {
                 patchControlPoints.noUI = true;
             }

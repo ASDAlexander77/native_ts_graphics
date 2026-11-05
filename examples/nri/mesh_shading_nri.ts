@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriDevice, NriPipeline, NriPipelineLayout, NriQueue, NriSample } from "../../core/nri";
 
 namespace MeshShadingNri {
     // mesh_shading, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -68,12 +69,12 @@ namespace MeshShadingNri {
     // Port of Vulkan-Samples' mesh_shading (as examples/mesh_shading.ts ports it) to NRI: the
     // simplest mesh shader pipeline, no vertex input and no amplification (task) shader.
     class MeshShading {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
-        private pipelineLayout: NriPipelineLayoutHandle;
-        private pipeline: NriPipelineHandle | null = null;
+        private pipelineLayout: NriPipelineLayout;
+        private pipeline: NriPipeline | null = null;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
         private height: int = 0;
@@ -85,11 +86,11 @@ namespace MeshShadingNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -100,13 +101,13 @@ namespace MeshShadingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -119,23 +120,23 @@ namespace MeshShadingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
-            if (Nri_IsFeatureSupported(device, NriFeature.MeshShader) == 0) {
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
+            if (device.isFeatureSupported(NriFeature.MeshShader) == 0) {
                 this.unsupportedReason = "The graphics device does not support mesh shaders";
                 return 0;
             }
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -146,10 +147,10 @@ namespace MeshShadingNri {
 
             // Pipeline: mesh_shading.hlsl's shaders, as compiled for the Donut example. The sample's
             // pipeline: no culling, no depth test, no blending.
-            this.pipelineLayout = Nri_CreatePipelineLayout(device);
+            this.pipelineLayout = device.createPipelineLayout();
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/mesh_shading/${folder}/mesh_shading`;
-            const pipeline = Nri_CreateMeshPipeline(device, this.pipelineLayout,
+            const pipeline = device.createMeshPipeline(this.pipelineLayout,
                 `${shaders}_triangle_ms.bin`, "triangle_ms", `${shaders}_triangle_ps.bin`, "triangle_ps", viewFormat);
             if (!pipeline) {
                 console.log("Cannot load the mesh shading shaders");
@@ -158,9 +159,9 @@ namespace MeshShadingNri {
             this.pipeline = pipeline;
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -174,7 +175,7 @@ namespace MeshShadingNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (and what has the window's
+        // The window was resized (NriSample.useResizableWindow): the swap chain (and what has the window's
         // size) made again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -204,31 +205,31 @@ namespace MeshShadingNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
                 if (pipeline) {
-                    Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-                    Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-                    Nri_CmdSetPipelineLayout(commandBuffer, this.pipelineLayout);
-                    Nri_CmdSetPipeline(commandBuffer, pipeline);
-                    Nri_CmdDrawMeshTasks(commandBuffer, 1, 1, 1);
+                    commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+                    commandBuffer.setScissor(0, 0, this.width, this.height);
+                    commandBuffer.setPipelineLayout(this.pipelineLayout);
+                    commandBuffer.setPipeline(pipeline);
+                    commandBuffer.drawMeshTasks(1, 1, 1);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -246,12 +247,12 @@ namespace MeshShadingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -262,29 +263,29 @@ namespace MeshShadingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 if (this.unsupportedReason == "") {
-                    Nri_DestroyPipelineLayout(this.pipelineLayout);
+                    this.pipelineLayout.destroy();
                     this.frames.destroy();
                     this.swapChain.destroy();
                 }
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const meshShading = new MeshShading(sample);
         return meshShading.run(argc, argv);
     }

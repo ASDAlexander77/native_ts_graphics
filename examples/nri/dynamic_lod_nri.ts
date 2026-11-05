@@ -7,13 +7,14 @@ import {
     planeNormalize, row, vadd, vsub, XM_PI,
 } from "../../core/directx_math";
 import { SimpleCamera } from "../../core/simple_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFile, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace DynamicLodNri {
     // dynamic_lod, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
     // and NVRHI: the same shaders (dynamic_lod.hlsl's) and models (core/meshlet_model.cpp reads
     // them), through the NRI calls core/nri/nri_interop.d.ts binds. This example creates everything
     // it runs, and does the rendering. SimpleCamera's keys are Donut's Key values (GLFW's key codes),
-    // which Nri_IsKeyPressed takes.
+    // which NriSample.isKeyPressed takes.
 
     const WINDOW_TITLE = "NRI Example: D3D12 Mesh Shader Dynamic LOD";
     const MEDIA_DIR = "media/dynamic_lod/";
@@ -79,7 +80,7 @@ namespace DynamicLodNri {
 
     // A buffer the shaders read and its view.
     class ShaderBuffer {
-        constructor(public buffer: NriBufferHandle, public view: NriDescriptorHandle) {
+        constructor(public buffer: NriBuffer, public view: NriDescriptor) {
         }
     }
 
@@ -144,23 +145,23 @@ namespace DynamicLodNri {
     // Drawn into the UNORM swap chain texture (the sample's R8G8B8A8_UNORM back buffer) with a
     // D32_FLOAT depth buffer.
     class DynamicLod {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // A queued frame's each (their constants differ).
-        private descriptorSets: NriDescriptorSetHandle[] = [];
-        private constantBuffer: NriBufferHandle | null = null;
-        private constantViews: NriDescriptorHandle[] = [];
+        private descriptorSets: NriDescriptorSet[] = [];
+        private constantBuffer: NriBuffer | null = null;
+        private constantViews: NriDescriptor[] = [];
         // MeshInfo per LOD slot.
-        private meshInfoBuffer: NriBufferHandle | null = null;
-        private meshInfoViews: NriDescriptorHandle[] = [];
+        private meshInfoBuffer: NriBuffer | null = null;
+        private meshInfoViews: NriDescriptor[] = [];
         private lods: Lod[] = [];
         // Bound to the arrays' unused slots, as the sample's null descriptors: a zeroed raw buffer,
         // meshlet and primitive.
@@ -190,11 +191,11 @@ namespace DynamicLodNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONSTANT_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -211,13 +212,13 @@ namespace DynamicLodNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -230,19 +231,19 @@ namespace DynamicLodNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through UNORM views, as the sample's R8G8B8A8_UNORM back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -250,7 +251,7 @@ namespace DynamicLodNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
 
-            if (Nri_IsFeatureSupported(device, NriFeature.MeshShader) == 0) {
+            if (device.isFeatureSupported(NriFeature.MeshShader) == 0) {
                 this.unsupportedReason = "The graphics device has no mesh shaders";
                 return 0;
             }
@@ -263,22 +264,22 @@ namespace DynamicLodNri {
             // The sample's root signature: CBV(b0), RootConstants(b1, 2), a descriptor table of
             // CBV(b2, 8) and SRV(t0, 32) (vertices, meshlets, unique vertex indices, primitives: 8
             // each), SRV(t32). Here one descriptor set (space 0) with the root constants.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 1, DRAW_PARAMS_SIZE, NriStage.AllGraphics);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 2, MAX_LOD_LEVELS, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics,
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootConstants(1, DRAW_PARAMS_SIZE, NriStage.AllGraphics);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics, NriRangeFlags.None);
+            layoutDesc.addRange(0, 2, MAX_LOD_LEVELS, NriDescriptorType.ConstantBuffer, NriStage.AllGraphics,
                 NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
+            layoutDesc.addRange(0, 0, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
                 NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 8, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
+            layoutDesc.addRange(0, 8, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
                 NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 16, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
+            layoutDesc.addRange(0, 16, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
                 NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 24, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
+            layoutDesc.addRange(0, 24, MAX_LOD_LEVELS, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics,
                 NriRangeFlags.Array);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 32, 1, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics, NriRangeFlags.None);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            layoutDesc.addRange(0, 32, 1, NriDescriptorType.StructuredBuffer, NriStage.AllGraphics, NriRangeFlags.None);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout) {
                 console.log("Cannot create the pipeline layout");
@@ -290,37 +291,37 @@ namespace DynamicLodNri {
             // depth state (less, writes).
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/dynamic_lod/${folder}/dynamic_lod`;
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Task, `${shaders}_main_as.bin`, "main_as") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Task, `${shaders}_main_as.bin`, "main_as") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Mesh, `${shaders}_main_ms.bin`, "main_ms") != 0;
+                loaded = desc.addShader(NriShaderStage.Mesh, `${shaders}_main_ms.bin`, "main_ms") != 0;
             }
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_main_ps.bin`, "main_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(format, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Less, 1, 0);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                this.pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the dynamic LOD shaders");
                 return 0;
             }
 
             // The constants, a queued frame's each; MeshInfo per LOD slot.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONSTANTS_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const meshInfoBuffer = Nri_CreateHostBuffer(device, MAX_LOD_LEVELS * MESH_INFO_SIZE, NriBufferUsage.ConstantBuffer);
+            const meshInfoBuffer = device.createHostBuffer(MAX_LOD_LEVELS * MESH_INFO_SIZE, NriBufferUsage.ConstantBuffer);
             this.meshInfoBuffer = meshInfoBuffer;
             if (!constantBuffer || !meshInfoBuffer) {
                 console.log("Cannot create the constant buffers");
                 return 0;
             }
             for (let i = 0; i < queuedFrameNum; i++) {
-                const view = Nri_CreateConstantBufferView(constantBuffer, i * CONSTANTS_SIZE, CONSTANTS_SIZE);
+                const view = constantBuffer.createConstantView(i * CONSTANTS_SIZE, CONSTANTS_SIZE);
                 if (!view) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
@@ -328,7 +329,7 @@ namespace DynamicLodNri {
                 this.constantViews.push(view);
             }
             for (let i = 0; i < MAX_LOD_LEVELS; i++) {
-                const view = Nri_CreateConstantBufferView(meshInfoBuffer, i * MESH_INFO_SIZE, MESH_INFO_SIZE);
+                const view = meshInfoBuffer.createConstantView(i * MESH_INFO_SIZE, MESH_INFO_SIZE);
                 if (!view) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
@@ -345,7 +346,7 @@ namespace DynamicLodNri {
             }
 
             // The descriptor sets.
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, queuedFrameNum, 0, (1 + MAX_LOD_LEVELS) * queuedFrameNum, 0, 0,
+            const descriptorPool = device.createDescriptorPoolWithBuffers(queuedFrameNum, 0, (1 + MAX_LOD_LEVELS) * queuedFrameNum, 0, 0,
                 (4 * MAX_LOD_LEVELS + 1) * queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
@@ -353,7 +354,7 @@ namespace DynamicLodNri {
                 return 0;
             }
             for (let i = 0; i < queuedFrameNum; i++) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
+                const set = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
                 if (!set) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -372,9 +373,9 @@ namespace DynamicLodNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -382,14 +383,14 @@ namespace DynamicLodNri {
 
         // A buffer of byteSize bytes of data (ints), structures stride bytes each (4: raw, a
         // ByteAddressBuffer), and its view; null on failure.
-        createShaderBuffer(device: NriDeviceHandle, data: int[], byteSize: int, stride: int): ShaderBuffer | null {
-            const buffer = Nri_CreateUploadedStructuredBufferFromInts(device, this.queue, Ref(data[0]), byteSize, stride);
+        createShaderBuffer(device: NriDevice, data: int[], byteSize: int, stride: int): ShaderBuffer | null {
+            const buffer = device.createUploadedStructuredBufferFromInts(this.queue, Ref(data[0]), byteSize, stride);
             if (!buffer) {
                 return null;
             }
-            const view = Nri_CreateStructuredBufferView(buffer, 0);
+            const view = buffer.createStructuredView(0);
             if (!view) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
                 return null;
             }
             return new ShaderBuffer(buffer, view);
@@ -397,17 +398,17 @@ namespace DynamicLodNri {
 
         // Model::LoadFromFile and UploadGpuResources, for each LOD's first mesh: its MeshInfo and
         // buffers for the shaders; then the placeholders.
-        loadLods(device: NriDeviceHandle, meshInfoBuffer: NriBufferHandle): boolean {
+        loadLods(device: NriDevice, meshInfoBuffer: NriBuffer): boolean {
             const meshInfo: f32[] = [0.0, 0.0, 0.0, 0.0];
             for (let l = 0; l < LOD_FILES.length; l++) {
                 const path = MEDIA_DIR + LOD_FILES[l];
-                const file = Nri_LoadFile(path);
+                const file = NriFile.load(path);
                 if (!file) {
                     console.log(`Cannot load ${path} (the sample's model: build with DIRECTX_GRAPHICS_SAMPLES_DIR set)`);
                     return false;
                 }
-                const loaded = MeshletModel.load(Nri_GetFileData(file), Nri_GetFileSize(file));
-                Nri_DestroyFile(file);
+                const loaded = MeshletModel.load(file.getData(), file.getSize());
+                file.destroy();
                 if (loaded.isNull()) {
                     return false;
                 }
@@ -430,11 +431,11 @@ namespace DynamicLodNri {
                     meshlets.push(0);
                 }
                 model.copyData(0, MeshletModelData.Meshlets, Ref(meshlets[0]));
-                Nri_StoreInt32(Ref(meshInfo[0]), model.getIndexSize(0));
-                Nri_StoreInt32(Ref(meshInfo[1]), meshletCount);
-                Nri_StoreInt32(Ref(meshInfo[2]), meshlets[(meshletCount - 1) * 4]);
-                Nri_StoreInt32(Ref(meshInfo[3]), meshlets[(meshletCount - 1) * 4 + 2]);
-                Nri_WriteBuffer(meshInfoBuffer, l * MESH_INFO_SIZE, Ref(meshInfo[0]), 16);
+                Nri.storeInt32(Ref(meshInfo[0]), model.getIndexSize(0));
+                Nri.storeInt32(Ref(meshInfo[1]), meshletCount);
+                Nri.storeInt32(Ref(meshInfo[2]), meshlets[(meshletCount - 1) * 4]);
+                Nri.storeInt32(Ref(meshInfo[3]), meshlets[(meshletCount - 1) * 4 + 2]);
+                meshInfoBuffer.write(l * MESH_INFO_SIZE, Ref(meshInfo[0]), 16);
 
                 // The vertices (24-byte records) as a raw buffer.
                 const vertexSize = model.getVertexBufferSize(0, 0);
@@ -476,7 +477,7 @@ namespace DynamicLodNri {
                 meshInfo[k] = 0.0;
             }
             for (let l = LOD_FILES.length; l < MAX_LOD_LEVELS; l++) {
-                Nri_WriteBuffer(meshInfoBuffer, l * MESH_INFO_SIZE, Ref(meshInfo[0]), 16);
+                meshInfoBuffer.write(l * MESH_INFO_SIZE, Ref(meshInfo[0]), 16);
             }
             const zeros: int[] = [0, 0, 0, 0];
             const raw = this.createShaderBuffer(device, zeros, 16, 4);
@@ -492,23 +493,23 @@ namespace DynamicLodNri {
 
         // A queued frame's descriptor set: its constants, the LODs' buffers in the arrays' first
         // slots, placeholders in the rest.
-        updateDescriptorSet(set: NriDescriptorSetHandle, queuedFrameIndex: int) {
-            Nri_UpdateDescriptor(set, RANGE_CONSTANTS, 0, this.constantViews[queuedFrameIndex]);
+        updateDescriptorSet(set: NriDescriptorSet, queuedFrameIndex: int) {
+            set.updateDescriptor(RANGE_CONSTANTS, 0, this.constantViews[queuedFrameIndex]);
             const raw = this.placeholders[0];
             const meshlet = this.placeholders[1];
             for (let i = 0; i < MAX_LOD_LEVELS; i++) {
-                Nri_UpdateDescriptor(set, RANGE_MESH_INFO, i, this.meshInfoViews[i]);
+                set.updateDescriptor(RANGE_MESH_INFO, i, this.meshInfoViews[i]);
                 if (i < this.lods.length) {
                     const lod = this.lods[i];
-                    Nri_UpdateDescriptor(set, RANGE_VERTICES, i, lod.vertices.view);
-                    Nri_UpdateDescriptor(set, RANGE_MESHLETS, i, lod.meshlets.view);
-                    Nri_UpdateDescriptor(set, RANGE_UNIQUE_VERTEX_INDICES, i, lod.uniqueVertexIndices.view);
-                    Nri_UpdateDescriptor(set, RANGE_PRIMITIVE_INDICES, i, lod.primitives.view);
+                    set.updateDescriptor(RANGE_VERTICES, i, lod.vertices.view);
+                    set.updateDescriptor(RANGE_MESHLETS, i, lod.meshlets.view);
+                    set.updateDescriptor(RANGE_UNIQUE_VERTEX_INDICES, i, lod.uniqueVertexIndices.view);
+                    set.updateDescriptor(RANGE_PRIMITIVE_INDICES, i, lod.primitives.view);
                 } else {
-                    Nri_UpdateDescriptor(set, RANGE_VERTICES, i, raw.view);
-                    Nri_UpdateDescriptor(set, RANGE_MESHLETS, i, meshlet.view);
-                    Nri_UpdateDescriptor(set, RANGE_UNIQUE_VERTEX_INDICES, i, raw.view);
-                    Nri_UpdateDescriptor(set, RANGE_PRIMITIVE_INDICES, i, raw.view);
+                    set.updateDescriptor(RANGE_VERTICES, i, raw.view);
+                    set.updateDescriptor(RANGE_MESHLETS, i, meshlet.view);
+                    set.updateDescriptor(RANGE_UNIQUE_VERTEX_INDICES, i, raw.view);
+                    set.updateDescriptor(RANGE_PRIMITIVE_INDICES, i, raw.view);
                 }
             }
         }
@@ -530,22 +531,22 @@ namespace DynamicLodNri {
             this.instanceCount = width * width * width;
 
             if (this.instanceCount > this.instanceCapacity) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 this.destroyInstanceBuffer();
                 this.instanceCapacity = this.instanceCount;
-                const buffer = Nri_CreateHostBufferWithStride(device, this.instanceCapacity * INSTANCE_STRIDE, NriBufferUsage.StructuredBuffer,
+                const buffer = device.createHostBufferWithStride(this.instanceCapacity * INSTANCE_STRIDE, NriBufferUsage.StructuredBuffer,
                     INSTANCE_STRIDE);
                 if (!buffer) {
                     return false;
                 }
-                const view = Nri_CreateStructuredBufferView(buffer, 0);
+                const view = buffer.createStructuredView(0);
                 if (!view) {
-                    Nri_DestroyBuffer(buffer);
+                    buffer.destroy();
                     return false;
                 }
                 this.instanceBuffer = new ShaderBuffer(buffer, view);
                 for (const set of this.descriptorSets) {
-                    Nri_UpdateDescriptor(set, RANGE_INSTANCES, 0, view);
+                    set.updateDescriptor(RANGE_INSTANCES, 0, view);
                 }
             }
 
@@ -575,8 +576,8 @@ namespace DynamicLodNri {
         destroyInstanceBuffer() {
             const instanceBuffer = this.instanceBuffer;
             if (instanceBuffer) {
-                Nri_DestroyDescriptor(instanceBuffer.view);
-                Nri_DestroyBuffer(instanceBuffer.buffer);
+                instanceBuffer.view.destroy();
+                instanceBuffer.buffer.destroy();
             }
             this.instanceBuffer = null;
         }
@@ -590,7 +591,7 @@ namespace DynamicLodNri {
         handleKeys() {
             for (let k = 0; k < ACTION_KEYS.length; k++) {
                 const key = ACTION_KEYS[k];
-                const down = Nri_IsKeyPressed(this.sample, key) != 0;
+                const down = this.sample.isKeyPressed(key) != 0;
                 const pressed = down && !this.keysDown[k];
                 this.keysDown[k] = down;
                 if (!pressed) {
@@ -622,10 +623,10 @@ namespace DynamicLodNri {
                 this.handleKeys();
             }
             for (const key of CAMERA_KEYS) {
-                this.camera.onKey(key, Nri_IsKeyPressed(this.sample, key) != 0);
+                this.camera.onKey(key, this.sample.isKeyPressed(key) != 0);
             }
-            this.camera.update(Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample)));
-            Nri_SetWindowTitle(this.sample, `${WINDOW_TITLE} (${this.instanceCount} instances)`);
+            this.camera.update(Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime()));
+            this.sample.setWindowTitle(`${WINDOW_TITLE} (${this.instanceCount} instances)`);
 
             const view = this.camera.viewMatrix();
             const proj = matrixPerspectiveFovRH(this.fovY, Math.fround(this.width / this.height), 1.0, 10000.0);
@@ -660,9 +661,9 @@ namespace DynamicLodNri {
                 c[56 + i] = viewPosition[i];
             }
             c[59] = Math.fround(1.0 / Math.fround(Math.tan(Math.fround(this.fovY * 0.5))));
-            Nri_StoreInt32(Ref(c[RENDER_MODE_FLOAT]), this.renderMode);
-            Nri_StoreInt32(Ref(c[LOD_COUNT_FLOAT]), LOD_FILES.length);
-            Nri_WriteBuffer(constantBuffer, constantsOffset, Ref(c[0]), CONSTANT_FLOATS * 4);
+            Nri.storeInt32(Ref(c[RENDER_MODE_FLOAT]), this.renderMode);
+            Nri.storeInt32(Ref(c[LOD_COUNT_FLOAT]), LOD_FILES.length);
+            constantBuffer.write(constantsOffset, Ref(c[0]), CONSTANT_FLOATS * 4);
 
             // Only upload instance data if it changed (the GPU done with the old: see
             // regenerateInstances, and the wait here).
@@ -671,30 +672,30 @@ namespace DynamicLodNri {
                 const device = this.device;
                 if (instanceBuffer) {
                     if (device) {
-                        Nri_DeviceWaitIdle(device);
+                        device.waitIdle();
                     }
-                    Nri_WriteBuffer(instanceBuffer.buffer, 0, Ref(this.instanceData[0]), this.instanceCount * INSTANCE_STRIDE);
+                    instanceBuffer.buffer.write(0, Ref(this.instanceData[0]), this.instanceCount * INSTANCE_STRIDE);
                 }
                 this.updateInstances = false;
             }
         }
 
-        // PopulateCommandList's draws (between Nri_CmdBeginRenderingWithDepth and
-        // Nri_CmdEndRendering): an amplification shader group per instance, in batches of at most
+        // PopulateCommandList's draws (between NriCommandBuffer.beginRenderingWithDepth and
+        // NriCommandBuffer.endRendering): an amplification shader group per instance, in batches of at most
         // MAX_GROUP_DISPATCH_COUNT, starting at dispatchCount * i as the sample's.
-        recordDraw(commandBuffer: NriCommandBufferHandle, set: NriDescriptorSetHandle) {
+        recordDraw(commandBuffer: NriCommandBuffer, set: NriDescriptorSet) {
             const pipelineLayout = this.pipelineLayout;
             const pipeline = this.pipeline;
             const descriptorPool = this.descriptorPool;
             if (!pipelineLayout || !pipeline || !descriptorPool) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, set);
             const dispatchCount = Math.floor((this.instanceCount + MAX_GROUP_DISPATCH_COUNT - 1) / MAX_GROUP_DISPATCH_COUNT);
             for (let i = 0; i < dispatchCount; i++) {
                 const offset = dispatchCount * i;
@@ -702,10 +703,10 @@ namespace DynamicLodNri {
                 if (count > MAX_GROUP_DISPATCH_COUNT) {
                     count = MAX_GROUP_DISPATCH_COUNT;
                 }
-                Nri_StoreInt32(Ref(this.drawParams[0]), offset);
-                Nri_StoreInt32(Ref(this.drawParams[1]), count);
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.drawParams[0]), DRAW_PARAMS_SIZE);
-                Nri_CmdDrawMeshTasks(commandBuffer, count, 1, 1);
+                Nri.storeInt32(Ref(this.drawParams[0]), offset);
+                Nri.storeInt32(Ref(this.drawParams[1]), count);
+                commandBuffer.setRootConstants(0, Ref(this.drawParams[0]), DRAW_PARAMS_SIZE);
+                commandBuffer.drawMeshTasks(count, 1, 1);
             }
         }
 
@@ -718,31 +719,31 @@ namespace DynamicLodNri {
         }
 
         // The depth buffer at the swap chain's size.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 console.log("Cannot create the depth buffer");
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -752,7 +753,7 @@ namespace DynamicLodNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -772,14 +773,14 @@ namespace DynamicLodNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: cleared, the dragons.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 1.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_R, CLEAR_G, CLEAR_B, 1.0);
+                    commandBuffer.clearDepth(1.0);
                     this.recordDraw(commandBuffer, this.descriptorSets[queuedFrameIndex]);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -787,13 +788,13 @@ namespace DynamicLodNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -811,12 +812,12 @@ namespace DynamicLodNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -826,16 +827,16 @@ namespace DynamicLodNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const view of this.constantViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const view of this.meshInfoViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const lod of this.lods) {
                     this.destroyShaderBuffer(lod.vertices);
@@ -852,50 +853,50 @@ namespace DynamicLodNri {
                 this.destroyBuffer(this.readbackBuffer);
                 const depthAttachment = this.depthAttachment;
                 if (depthAttachment) {
-                    Nri_DestroyDescriptor(depthAttachment);
+                    depthAttachment.destroy();
                 }
                 const depthTexture = this.depthTexture;
                 if (depthTexture) {
-                    Nri_DestroyTexture(depthTexture);
+                    depthTexture.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyShaderBuffer(shaderBuffer: ShaderBuffer) {
-            Nri_DestroyDescriptor(shaderBuffer.view);
-            Nri_DestroyBuffer(shaderBuffer.buffer);
+            shaderBuffer.view.destroy();
+            shaderBuffer.buffer.destroy();
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const dynamicLod = new DynamicLod(sample);
         // -instanceLevel <n>: start at instance level n (0 by default, as the sample; 2 for -test).
-        Nri_AddExampleOptionWithValues(sample, "-instanceLevel", 1);
+        sample.addExampleOptionWithValues("-instanceLevel", 1);
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-instanceLevel" && i + 1 < argc) {
                 i++;
-                dynamicLod.instanceLevel = parseInt(Nri_GetArg(argc, argv, i));
+                dynamicLod.instanceLevel = parseInt(Nri.getArg(argc, argv, i));
             }
         }
         return dynamicLod.run(argc, argv);

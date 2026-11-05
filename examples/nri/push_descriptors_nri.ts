@@ -3,6 +3,7 @@ import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { rotate, radians, perspective, translation } from "../../core/matrix";
 import { LookAtCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace PushDescriptorsNri {
     // push_descriptors, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -28,7 +29,7 @@ namespace PushDescriptorsNri {
         "media/push_descriptors/crate02_color_height_rgba.dds",
     ];
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 uv.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 uv.
     const VERTEX_SIZE = 32;
     const UV_OFFSET = 24;
 
@@ -61,7 +62,7 @@ namespace PushDescriptorsNri {
 
     // A cube's texture, its view and the descriptor set holding it with the sampler.
     class CubeTexture {
-        constructor(public texture: NriTextureHandle, public view: NriDescriptorHandle, public descriptorSet: NriDescriptorSetHandle | null) {
+        constructor(public texture: NriTexture, public view: NriDescriptor, public descriptorSet: NriDescriptorSet | null) {
         }
     }
 
@@ -100,24 +101,24 @@ namespace PushDescriptorsNri {
     // are an ordinary descriptor set's (allocated once), bound with it. Vulkan only, as the sample and
     // the Donut example. The left mouse button turns the camera, the wheel zooms it.
     class PushDescriptors {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         // The swap chain textures' format and their views' (sRGB).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private cube: NriGltfMeshHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private cube: NriGltfMesh | null = null;
         private cubeTextures: CubeTexture[] = [];
-        private sampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private sceneView: NriDescriptorHandle | null = null;
-        private modelView: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private sampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private sceneView: NriDescriptor | null = null;
+        private modelView: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -146,11 +147,11 @@ namespace PushDescriptorsNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < SCENE_FLOATS; i++) {
                 this.scene.push(0.0);
             }
@@ -167,13 +168,13 @@ namespace PushDescriptorsNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -186,19 +187,19 @@ namespace PushDescriptorsNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -213,7 +214,7 @@ namespace PushDescriptorsNri {
                 this.unsupportedReason = "The Push Descriptors example can only run on Vulkan API.";
                 return 0;
             }
-            this.maxPushDescriptors = Nri_GetRootDescriptorMaxNum(device);
+            this.maxPushDescriptors = device.getRootDescriptorMaxNum();
             if (this.maxPushDescriptors == 0) {
                 this.unsupportedReason = "The device doesn't support push descriptors (VK_KHR_push_descriptor).";
                 return 0;
@@ -228,21 +229,21 @@ namespace PushDescriptorsNri {
             // load_assets: the cube and its textures (sRGB); ApiVulkanSample::load_texture's
             // sampler: trilinear, repeating, all the levels, the device's widest anisotropic
             // filtering.
-            this.cube = Nri_LoadGltfMesh(device, this.queue, CUBE_PATH);
-            const textures: NriTextureHandle[] = [];
+            this.cube = device.loadGltfMesh(this.queue, CUBE_PATH);
+            const textures: NriTexture[] = [];
             for (let i = 0; i < 2; i++) {
-                const texture = Nri_LoadDdsTexture(device, this.queue, TEXTURE_PATHS[i], 1);
+                const texture = device.loadDdsTexture(this.queue, TEXTURE_PATHS[i], 1);
                 if (texture) {
                     textures.push(texture);
-                    this.cubeTextures.push(new CubeTexture(texture, Nri_CreateTextureView(texture, NriFormat.RGBA8_SRGB), null));
+                    this.cubeTextures.push(new CubeTexture(texture, texture.createView(NriFormat.RGBA8_SRGB), null));
                 }
             }
             if (!this.cube || this.cubeTextures.length != 2) {
                 console.log("Cannot load the cube and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
-                Nri_GetMaxSamplerAnisotropy(device));
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat,
+                device.getMaxSamplerAnisotropy());
             this.sampler = sampler;
             if (!sampler) {
                 console.log("Cannot create the sampler");
@@ -252,14 +253,14 @@ namespace PushDescriptorsNri {
             // The sample's setup_descriptor_set_layout: the scene's and the cube's uniform buffers
             // (b0, b1: the vertex shader's) pushed, as root descriptors; the texture and sampler (t0,
             // s0 in space 1: the pixel shader's) in a set of their own.
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 0, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRootDescriptor(layoutDesc, 1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescSetRegisterSpace(layoutDesc, 0, 1);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootDescriptor(0, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            layoutDesc.addRootDescriptor(1, NriDescriptorType.ConstantBuffer, NriStage.Vertex);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.setRegisterSpace(0, 1);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -269,20 +270,20 @@ namespace PushDescriptorsNri {
             // The sample's prepare_pipelines: position and texture coordinates; back faces
             // (counter-clockwise ones) culled, depth tested (greater: reversed) and written.
             const shaders = "shaders/push_descriptors_nri/spirv/push_descriptors_nri";
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_cube_vs.bin`, "cube_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_cube_vs.bin`, "cube_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_cube_ps.bin`, "cube_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_cube_ps.bin`, "cube_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, UV_OFFSET);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, UV_OFFSET);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
             if (loaded) {
-                this.pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                this.pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             if (!this.pipeline) {
                 console.log("Cannot load the push descriptors shaders");
                 return 0;
@@ -290,36 +291,36 @@ namespace PushDescriptorsNri {
 
             // prepare_uniform_buffers: a queued frame's scene and cubes' each, in one buffer the CPU
             // writes; one view of each kind, bound at the frame's (and the cube's) offset.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
             if (!constantBuffer) {
                 console.log("Cannot create the uniform buffers");
                 return 0;
             }
-            this.sceneView = Nri_CreateConstantBufferView(constantBuffer, 0, CONSTANT_VIEW_SIZE);
-            this.modelView = Nri_CreateConstantBufferView(constantBuffer, 0, CONSTANT_VIEW_SIZE);
+            this.sceneView = constantBuffer.createConstantView(0, CONSTANT_VIEW_SIZE);
+            this.modelView = constantBuffer.createConstantView(0, CONSTANT_VIEW_SIZE);
 
             // Each cube's texture with the sampler, in a set allocated once.
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2, 2, 0, 2, 0, 0);
+            const descriptorPool = device.createDescriptorPool(2, 2, 0, 2, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!descriptorPool) {
                 console.log("Cannot create the descriptor pool");
                 return 0;
             }
             for (const cubeTexture of this.cubeTextures) {
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
                 cubeTexture.descriptorSet = descriptorSet;
                 if (!descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, cubeTexture.view);
-                Nri_UpdateDescriptor(descriptorSet, 1, 0, sampler);
+                descriptorSet.updateDescriptor(0, 0, cubeTexture.view);
+                descriptorSet.updateDescriptor(1, 0, sampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -327,9 +328,9 @@ namespace PushDescriptorsNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -343,9 +344,9 @@ namespace PushDescriptorsNri {
         // The camera's mouse handling, unless the overlay has the mouse: the buttons' changes, the
         // move, the wheel.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -353,10 +354,10 @@ namespace PushDescriptorsNri {
                     this.buttons[button] = pressed;
                 }
             }
-            this.mouseX += Nri_GetMouseDeltaX(this.sample);
-            this.mouseY += Nri_GetMouseDeltaY(this.sample);
+            this.mouseX += this.sample.getMouseDeltaX();
+            this.mouseY += this.sample.getMouseDeltaY();
             this.camera.mouseMove(this.mouseX, this.mouseY);
-            const wheel = Nri_GetMouseWheel(this.sample);
+            const wheel = this.sample.getMouseWheel();
             if (wheel != 0.0 && !overlay) {
                 this.camera.mouseScroll(wheel);
             }
@@ -364,17 +365,17 @@ namespace PushDescriptorsNri {
 
         // The sample's overlay.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Push descriptors", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.animate = Nri_ImguiCheckbox("Animate", this.animate ? 1 : 0) != 0;
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Push descriptors", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.animate = NriImgui.checkbox("Animate", this.animate ? 1 : 0) != 0;
             }
-            if (Nri_ImguiCollapsingHeader("Device properties", 1) != 0) {
-                Nri_ImguiText(`maxPushDescriptors: ${this.maxPushDescriptors}`);
+            if (NriImgui.collapsingHeader("Device properties", 1) != 0) {
+                NriImgui.text(`maxPushDescriptors: ${this.maxPushDescriptors}`);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers (its projection, clip y negated as the Donut example
@@ -392,7 +393,7 @@ namespace PushDescriptorsNri {
                 this.scene[i] = i % 4 == 1 ? -projection[i] : projection[i];
                 this.scene[16 + i] = view[i];
             }
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.scene[0]), SCENE_FLOATS * 4);
+            constantBuffer.write(offset, Ref(this.scene[0]), SCENE_FLOATS * 4);
             for (let i = 0; i < 2; i++) {
                 let m = translation(CUBE_POSITIONS[i * 3], CUBE_POSITIONS[i * 3 + 1], CUBE_POSITIONS[i * 3 + 2]);
                 const rx = i == 0 ? this.rotations[0] : 0.0;
@@ -403,7 +404,7 @@ namespace PushDescriptorsNri {
                 for (let k = 0; k < 16; k++) {
                     this.model[k] = m[k];
                 }
-                Nri_WriteBuffer(constantBuffer, offset + (1 + i) * CONSTANT_VIEW_SIZE, Ref(this.model[0]), MODEL_FLOATS * 4);
+                constantBuffer.write(offset + (1 + i) * CONSTANT_VIEW_SIZE, Ref(this.model[0]), MODEL_FLOATS * 4);
             }
             if (this.animate) {
                 for (let i = 0; i < 2; i++) {
@@ -416,8 +417,8 @@ namespace PushDescriptorsNri {
         }
 
         // Two cubes, each with its uniform buffers pushed (no set allocated for them) and its
-        // texture's set bound (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrameIndex: int) {
+        // texture's set bound (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrameIndex: int) {
             const layout = this.layout;
             const pipeline = this.pipeline;
             const cube = this.cube;
@@ -428,22 +429,22 @@ namespace PushDescriptorsNri {
                 return;
             }
             const offset = queuedFrameIndex * FRAME_CONSTANTS_STRIDE;
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(cube), 0, NriIndexType.UInt32);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(cube), 0, VERTEX_SIZE);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setIndexBuffer(cube.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.setVertexBuffer(0, cube.getVertexBuffer(), 0, VERTEX_SIZE);
             for (let i = 0; i < 2; i++) {
                 const descriptorSet = this.cubeTextures[i].descriptorSet;
                 if (!descriptorSet) {
                     return;
                 }
-                Nri_CmdSetRootDescriptor(commandBuffer, 0, sceneView, offset);
-                Nri_CmdSetRootDescriptor(commandBuffer, 1, modelView, offset + (1 + i) * CONSTANT_VIEW_SIZE);
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
-                Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(cube), 1, 0, 0, 0);
+                commandBuffer.setRootDescriptor(0, sceneView, offset);
+                commandBuffer.setRootDescriptor(1, modelView, offset + (1 + i) * CONSTANT_VIEW_SIZE);
+                commandBuffer.setDescriptorSet(0, descriptorSet);
+                commandBuffer.drawIndexed(cube.getIndexCount(), 1, 0, 0, 0);
             }
         }
 
@@ -456,30 +457,30 @@ namespace PushDescriptorsNri {
         }
 
         // The D32 depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -489,7 +490,7 @@ namespace PushDescriptorsNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -504,7 +505,7 @@ namespace PushDescriptorsNri {
             }
             this.handleMouse();
             // In test mode 1/60 second a frame in float32, as Donut's test mode passes it.
-            this.writeConstants(queuedFrameIndex, Math.fround(this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample)));
+            this.writeConstants(queuedFrameIndex, Math.fround(this.test ? 1.0 / 60.0 : this.sample.getFrameTime()));
 
             // Acquire a swap chain texture
             const index = this.swapChain.acquire(frameIndex);
@@ -515,21 +516,21 @@ namespace PushDescriptorsNri {
 
                 // Record: color cleared to the default clear color, depth to 0; the cubes; then the
                 // overlay over them.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(CLEAR_COLOR, CLEAR_COLOR, CLEAR_COLOR, 1.0);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraw(commandBuffer, queuedFrameIndex);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -537,18 +538,18 @@ namespace PushDescriptorsNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -564,12 +565,12 @@ namespace PushDescriptorsNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -579,17 +580,17 @@ namespace PushDescriptorsNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const cubeTexture of this.cubeTextures) {
-                    Nri_DestroyDescriptor(cubeTexture.view);
-                    Nri_DestroyTexture(cubeTexture.texture);
+                    cubeTexture.view.destroy();
+                    cubeTexture.texture.destroy();
                 }
                 this.destroyDescriptor(this.sceneView);
                 this.destroyDescriptor(this.modelView);
@@ -597,48 +598,48 @@ namespace PushDescriptorsNri {
                 this.destroyDepth();
                 const cube = this.cube;
                 if (cube) {
-                    Nri_DestroyGltfMesh(cube);
+                    cube.destroy();
                 }
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const pushDescriptors = new PushDescriptors(sample);
         // -noanimate: the cubes don't turn; -noUI: no overlay.
-        Nri_AddExampleOption(sample, "-noanimate");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-noanimate");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-noanimate") {
                 pushDescriptors.animate = false;
             } else if (arg == "-noUI") {

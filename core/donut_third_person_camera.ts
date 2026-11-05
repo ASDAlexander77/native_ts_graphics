@@ -7,6 +7,7 @@
 // (from examples/nri/), and listed in the example's add_tslang_nri_example sources.
 
 /// <reference path="nri/nri_interop.d.ts" />
+import { NriSample } from "./nri";
 
 function f(x: number) {
     return Math.fround(x);
@@ -67,12 +68,12 @@ export class DonutThirdPersonCamera {
     // last frame, once the button was down then too), MouseScrollUpdate with the wheel. mouseFree:
     // the overlay doesn't have the mouse. True if there was any input (a drag or a turn of the wheel:
     // the examples' idle orbit starts again from it).
-    mouse(sample: NriSampleHandle, mouseFree: boolean): boolean {
-        const pressed = mouseFree && Nri_IsButtonPressed(sample, 0) != 0;
+    mouse(sample: NriSample, mouseFree: boolean): boolean {
+        const pressed = mouseFree && sample.isButtonPressed(0) != 0;
         let input = pressed;
         if (pressed && this.orbiting) {
-            this.yaw = f(this.yaw - f(this.rotateSpeed * f(Nri_GetMouseDeltaX(sample))));
-            this.pitch = f(this.pitch + f(this.rotateSpeed * f(Nri_GetMouseDeltaY(sample))));
+            this.yaw = f(this.yaw - f(this.rotateSpeed * f(sample.getMouseDeltaX())));
+            this.pitch = f(this.pitch + f(this.rotateSpeed * f(sample.getMouseDeltaY())));
             // clamp(m_Pitch, PI_f * -0.5f, PI_f * 0.5f) (explicit: tslang's Math.max gets negative
             // numbers wrong).
             if (this.pitch < f(-0.5 * Math.PI)) {
@@ -83,7 +84,7 @@ export class DonutThirdPersonCamera {
             }
         }
         this.orbiting = pressed;
-        const wheel = mouseFree ? Nri_GetMouseWheel(sample) : 0.0;
+        const wheel = mouseFree ? sample.getMouseWheel() : 0.0;
         if (wheel != 0.0) {
             const scrollFactor = f(1.15);
             this.distance = f(wheel < 0.0 ? this.distance * scrollFactor : this.distance * f(1.0 / scrollFactor));

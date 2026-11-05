@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, radians, samplePerspective } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace FragmentShaderBarycentricNri {
     // fragment_shader_barycentric, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework
@@ -26,7 +27,7 @@ namespace FragmentShaderBarycentricNri {
     const ENVMAP_PATH = "media/fragment_shader_barycentric/uffizi_rgba16f_cube.dds";
     const CUBE_TEXTURE_PATH = "media/fragment_shader_barycentric/checkerboard_rgba.dds";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // struct UBO { float4x4 projection, modelview; }, as f32 offsets; a queued frame's in a 256-byte
@@ -58,8 +59,8 @@ namespace FragmentShaderBarycentricNri {
     // A frame in flight's own data: its descriptor sets (the
     // skybox's and the object's: the UBO's slice, a texture, the sampler) with the UBO's view.
     class QueuedFrame {
-        constructor(public skyboxSet: NriDescriptorSetHandle | null, public objectSet: NriDescriptorSetHandle | null,
-            public constantBufferView: NriDescriptorHandle | null) {
+        constructor(public skyboxSet: NriDescriptorSet | null, public objectSet: NriDescriptorSet | null,
+            public constantBufferView: NriDescriptor | null) {
         }
     }
 
@@ -112,26 +113,26 @@ namespace FragmentShaderBarycentricNri {
     // nearest vertex, a texture lookup. Drawn straight into the sRGB swap chain view, where the Donut
     // example draws into an sRGB color buffer and blits it; neither tests depth.
     class FragmentShaderBarycentric {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         // The swap chain textures' format and their views' (sRGB).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private pipelineLayout: NriPipelineLayoutHandle | null = null;
-        private skyboxPipeline: NriPipelineHandle | null = null;
-        private objectPipeline: NriPipelineHandle | null = null;
-        private skybox: NriGltfMeshHandle | null = null;
-        private object: NriGltfMeshHandle | null = null;
-        private envmap: NriTextureHandle | null = null;
-        private envmapView: NriDescriptorHandle | null = null;
-        private cubeTexture: NriTextureHandle | null = null;
-        private cubeTextureView: NriDescriptorHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private pipelineLayout: NriPipelineLayout | null = null;
+        private skyboxPipeline: NriPipeline | null = null;
+        private objectPipeline: NriPipeline | null = null;
+        private skybox: NriGltfMesh | null = null;
+        private object: NriGltfMesh | null = null;
+        private envmap: NriTexture | null = null;
+        private envmapView: NriDescriptor | null = null;
+        private cubeTexture: NriTexture | null = null;
+        private cubeTextureView: NriDescriptor | null = null;
+        private sampler: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -157,11 +158,11 @@ namespace FragmentShaderBarycentricNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -175,13 +176,13 @@ namespace FragmentShaderBarycentricNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -194,20 +195,20 @@ namespace FragmentShaderBarycentricNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as the sample's sRGB color buffer (which the
             // Donut example blits into its back buffer).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -217,41 +218,41 @@ namespace FragmentShaderBarycentricNri {
                 this.unsupportedReason = "No D3D11 shaders (fragment_shader_barycentric.hlsl needs shader model 6.1)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.Barycentrics) == 0) {
+            if (device.isFeatureSupported(NriFeature.Barycentrics) == 0) {
                 this.unsupportedReason = "This example needs barycentrics in pixel shaders (D3D12 shader model 6.1 or Vulkan's VK_KHR_fragment_shader_barycentric)";
                 return 0;
             }
 
             // The models and textures: the environment map as is, the checkerboard as sRGB (KTX 1
             // files have no color space: the framework takes color textures as sRGB).
-            this.skybox = Nri_LoadGltfMesh(device, this.queue, SKYBOX_PATH);
-            this.object = Nri_LoadGltfMesh(device, this.queue, OBJECT_PATH);
-            const envmap = Nri_LoadDdsTexture(device, this.queue, ENVMAP_PATH, 0);
-            const cubeTexture = Nri_LoadDdsTexture(device, this.queue, CUBE_TEXTURE_PATH, 1);
+            this.skybox = device.loadGltfMesh(this.queue, SKYBOX_PATH);
+            this.object = device.loadGltfMesh(this.queue, OBJECT_PATH);
+            const envmap = device.loadDdsTexture(this.queue, ENVMAP_PATH, 0);
+            const cubeTexture = device.loadDdsTexture(this.queue, CUBE_TEXTURE_PATH, 1);
             this.envmap = envmap;
             this.cubeTexture = cubeTexture;
             if (!this.modelsLoaded() || !envmap || !cubeTexture) {
                 console.log("Cannot load the models and textures: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const envmapView = Nri_CreateTextureCubeView(envmap, NriFormat.RGBA16_SFLOAT);
-            const cubeTextureView = Nri_CreateTextureView(cubeTexture, NriFormat.RGBA8_SRGB);
+            const envmapView = envmap.createCubeView(NriFormat.RGBA16_SFLOAT);
+            const cubeTextureView = cubeTexture.createView(NriFormat.RGBA8_SRGB);
             this.envmapView = envmapView;
             this.cubeTextureView = cubeTextureView;
             // The framework's texture samplers: trilinear, wrapped, anisotropy 16 (Donut's
             // AnisotropicWrap).
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 16);
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Linear, NriFilter.Linear, NriAddressMode.Repeat, 16);
             this.sampler = sampler;
 
             // The layout: the sample's descriptor set (the UBO at b0, a texture at t0, the sampler at
             // s0) and push constants (the effect, at b1: root constants).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 1, 4, NriStage.Pixel);
-            this.pipelineLayout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRootConstants(1, 4, NriStage.Pixel);
+            this.pipelineLayout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             const pipelineLayout = this.pipelineLayout;
             if (!pipelineLayout || !sampler) {
                 console.log("Cannot create the pipeline layout");
@@ -271,9 +272,9 @@ namespace FragmentShaderBarycentricNri {
             }
 
             // The UBO, a queued frame's each; a queued frame's descriptor sets.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2 * queuedFrameNum, 2 * queuedFrameNum, 2 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPool(2 * queuedFrameNum, 2 * queuedFrameNum, 2 * queuedFrameNum,
                 2 * queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
@@ -282,26 +283,26 @@ namespace FragmentShaderBarycentricNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantBufferView = Nri_CreateConstantBufferView(constantBuffer, i * CONST_STRIDE, CONST_STRIDE);
-                const skyboxSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
-                const objectSet = Nri_AllocateDescriptorSet(descriptorPool, pipelineLayout, 0, 0);
+                const constantBufferView = constantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
+                const skyboxSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
+                const objectSet = descriptorPool.allocateDescriptorSet(pipelineLayout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(skyboxSet, objectSet,
                     constantBufferView));
                 if (!constantBufferView || !skyboxSet || !objectSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(skyboxSet, 0, 0, constantBufferView);
-                Nri_UpdateDescriptor(skyboxSet, 1, 0, envmapView);
-                Nri_UpdateDescriptor(skyboxSet, 2, 0, sampler);
-                Nri_UpdateDescriptor(objectSet, 0, 0, constantBufferView);
-                Nri_UpdateDescriptor(objectSet, 1, 0, cubeTextureView);
-                Nri_UpdateDescriptor(objectSet, 2, 0, sampler);
+                skyboxSet.updateDescriptor(0, 0, constantBufferView);
+                skyboxSet.updateDescriptor(1, 0, envmapView);
+                skyboxSet.updateDescriptor(2, 0, sampler);
+                objectSet.updateDescriptor(0, 0, constantBufferView);
+                objectSet.updateDescriptor(1, 0, cubeTextureView);
+                objectSet.updateDescriptor(2, 0, sampler);
             }
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -309,9 +310,9 @@ namespace FragmentShaderBarycentricNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -327,22 +328,22 @@ namespace FragmentShaderBarycentricNri {
 
         // A pipeline of the shaders <name>_vs and <name>_ps: the position from the models' vertices,
         // no depth, counter-clockwise front faces, cullMode culled.
-        createPipeline(device: NriDeviceHandle, pipelineLayout: NriPipelineLayoutHandle, shaders: string, name: string,
+        createPipeline(device: NriDevice, pipelineLayout: NriPipelineLayout, shaders: string, name: string,
             cullMode: NriCullMode) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_${name}_vs.bin`, `${name}_vs`) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_${name}_vs.bin`, `${name}_vs`) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_${name}_ps.bin`, `${name}_ps`) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_${name}_ps.bin`, `${name}_ps`) != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetCullMode(desc, cullMode);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.setCullMode(cullMode);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, pipelineLayout, desc);
+                pipeline = device.createPipelineFromDesc(pipelineLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -354,15 +355,15 @@ namespace FragmentShaderBarycentricNri {
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: dragging with the left
         // button rotates the camera, with the right one zooms, with the middle one pans.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (!pressed || !overlay) {
                     this.buttons[button] = pressed;
                 }
             }
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.buttons[0]) {
@@ -382,18 +383,18 @@ namespace FragmentShaderBarycentricNri {
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.selectedEffect = Nri_ImguiCombo("Effects", this.selectedEffect, EFFECT_NAMES);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.selectedEffect = NriImgui.combo("Effects", this.selectedEffect, EFFECT_NAMES);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: its camera's matrices, into this frame's slice.
-        updateConstants(constantBuffer: NriBufferHandle, offset: int) {
+        updateConstants(constantBuffer: NriBuffer, offset: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -406,26 +407,26 @@ namespace FragmentShaderBarycentricNri {
                 c[CONST_PROJECTION + i] = projection[i];
                 c[CONST_MODELVIEW + i] = view[i];
             }
-            Nri_WriteBuffer(constantBuffer, offset, Ref(c[0]), CONST_FLOATS * 4);
+            constantBuffer.write(offset, Ref(c[0]), CONST_FLOATS * 4);
         }
 
         // A model with its pipeline and descriptor set, the effect in the push constants.
-        drawModel(commandBuffer: NriCommandBufferHandle, pipeline: NriPipelineHandle | null, set: NriDescriptorSetHandle | null,
-            mesh: NriGltfMeshHandle | null) {
+        drawModel(commandBuffer: NriCommandBuffer, pipeline: NriPipeline | null, set: NriDescriptorSet | null,
+            mesh: NriGltfMesh | null) {
             if (!pipeline || !set || !mesh) {
                 return;
             }
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, set);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.pushConstants[0]), 4);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(mesh), 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(mesh), 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(mesh), 1, 0, 0, 0);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, set);
+            commandBuffer.setRootConstants(0, Ref(this.pushConstants[0]), 4);
+            commandBuffer.setVertexBuffer(0, mesh.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(mesh.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(mesh.getIndexCount(), 1, 0, 0, 0);
         }
 
-        // The skybox, then the object with the selected effect (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame, frameOffset: int) {
+        // The skybox, then the object with the selected effect (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame, frameOffset: int) {
             const pipelineLayout = this.pipelineLayout;
             const descriptorPool = this.descriptorPool;
             const constantBuffer = this.constantBuffer;
@@ -433,16 +434,16 @@ namespace FragmentShaderBarycentricNri {
                 return;
             }
             this.updateConstants(constantBuffer, frameOffset);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, pipelineLayout);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(pipelineLayout);
 
             // skybox
             this.drawModel(commandBuffer, this.skyboxPipeline, queuedFrame.skyboxSet, this.skybox);
 
             // object, with the selected effect in its push constants
-            Nri_StoreInt32(Ref(this.pushConstants[0]), this.selectedEffect);
+            Nri.storeInt32(Ref(this.pushConstants[0]), this.selectedEffect);
             this.drawModel(commandBuffer, this.objectPipeline, queuedFrame.objectSet, this.object);
         }
 
@@ -454,7 +455,7 @@ namespace FragmentShaderBarycentricNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -485,36 +486,36 @@ namespace FragmentShaderBarycentricNri {
 
                 // Record: cleared to transparent black, the skybox and the object, the overlay over
                 // them.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
                 this.recordDraw(commandBuffer, queuedFrame, queuedFrameIndex * CONST_STRIDE);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -530,12 +531,12 @@ namespace FragmentShaderBarycentricNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -545,16 +546,16 @@ namespace FragmentShaderBarycentricNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.constantBufferView);
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.envmapView);
                 this.destroyDescriptor(this.cubeTextureView);
@@ -565,63 +566,63 @@ namespace FragmentShaderBarycentricNri {
                 this.destroyMesh(this.object);
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 this.destroyPipeline(this.skyboxPipeline);
                 this.destroyPipeline(this.objectPipeline);
                 const pipelineLayout = this.pipelineLayout;
                 if (pipelineLayout) {
-                    Nri_DestroyPipelineLayout(pipelineLayout);
+                    pipelineLayout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyMesh(mesh: NriGltfMeshHandle | null) {
+        destroyMesh(mesh: NriGltfMesh | null) {
             if (mesh) {
-                Nri_DestroyGltfMesh(mesh);
+                mesh.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const barycentric = new FragmentShaderBarycentric(sample);
         // -effect <0..4>: the effect selected at start; -noUI: no overlay.
-        Nri_AddExampleOptionWithValues(sample, "-effect", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-effect", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-effect" && i + 1 < argc) {
                 i++;
-                barycentric.selectedEffect = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), 0), EFFECT_COUNT - 1);
+                barycentric.selectedEffect = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), 0), EFFECT_COUNT - 1);
             } else if (arg == "-noUI") {
                 barycentric.noUI = true;
             }

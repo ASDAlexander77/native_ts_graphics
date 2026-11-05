@@ -18,10 +18,10 @@ export class NriFrameRing {
     private commandBuffers: NriCommandBuffer[] = [];
     private created: boolean = false;
 
-    // count frames in flight (Nri_GetQueuedFrameNum), submitted to queue.
-    init(device: NriDeviceHandle, queue: NriQueueHandle, count: int) {
-        this.queue = new NriQueue(queue);
-        this.frameFence = new NriDevice(device).createFence(0);
+    // count frames in flight (NriSample.getQueuedFrameNum), submitted to queue.
+    init(device: NriDevice, queue: NriQueue, count: int) {
+        this.queue = queue;
+        this.frameFence = device.createFence(0);
         for (let i = 0; i < count; i++) {
             const allocator = this.queue.createCommandAllocator();
             this.allocators.push(allocator);
@@ -46,14 +46,14 @@ export class NriFrameRing {
         this.allocators[frameIndex % count].reset();
     }
 
-    commandBuffer(frameIndex: int): NriCommandBufferHandle {
-        return this.commandBuffers[frameIndex % this.commandBuffers.length].handle;
+    commandBuffer(frameIndex: int): NriCommandBuffer {
+        return this.commandBuffers[frameIndex % this.commandBuffers.length];
     }
 
     // The fence: frame frameIndex done at 1 + frameIndex (for other work to wait on, a compute
     // queue's, say).
-    fence(): NriFenceHandle {
-        return this.frameFence.handle;
+    fence(): NriFence {
+        return this.frameFence;
     }
 
     // Frame frameIndex's work submitted (and presented, as NRISamples signal after the present).

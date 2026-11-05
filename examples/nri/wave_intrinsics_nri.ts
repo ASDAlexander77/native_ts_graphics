@@ -1,6 +1,7 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace WaveIntrinsicsNri {
     // wave_intrinsics, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -58,13 +59,13 @@ namespace WaveIntrinsicsNri {
 
     // A frame in flight's own data: its sets (its slice of the constant buffer).
     class QueuedFrame {
-        constructor(public constantView: NriDescriptorHandle, public sceneSet: NriDescriptorSetHandle, public composeSet: NriDescriptorSetHandle) {
+        constructor(public constantView: NriDescriptor, public sceneSet: NriDescriptorSet, public composeSet: NriDescriptorSet) {
         }
     }
 
     // One of the two layers: the texture, rendered into and read.
     class Target {
-        constructor(public texture: NriTextureHandle, public colorAttachment: NriDescriptorHandle, public view: NriDescriptorHandle) {
+        constructor(public texture: NriTexture, public colorAttachment: NriDescriptor, public view: NriDescriptor) {
         }
     }
 
@@ -103,21 +104,21 @@ namespace WaveIntrinsicsNri {
     // wave averages, prefix sums, quad ids), then that texture composed with a UI layer into the swap
     // chain, magnified around the mouse while its left button is held. Keys 1-9 pick the render mode.
     class WaveIntrinsics {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private format: NriFormat = NriFormat.Unknown;
-        private sceneLayout: NriPipelineLayoutHandle | null = null;
-        private composeLayout: NriPipelineLayoutHandle | null = null;
-        private wavePipeline: NriPipelineHandle | null = null;
-        private composePipeline: NriPipelineHandle | null = null;
-        private triangleBuffer: NriBufferHandle | null = null;
-        private quadBuffer: NriBufferHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private sceneLayout: NriPipelineLayout | null = null;
+        private composeLayout: NriPipelineLayout | null = null;
+        private wavePipeline: NriPipeline | null = null;
+        private composePipeline: NriPipeline | null = null;
+        private triangleBuffer: NriBuffer | null = null;
+        private quadBuffer: NriBuffer | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         // Pass 1's texture and the UI layer's (RGBA8_UNORM).
         private sceneTarget: Target | null = null;
         private uiTarget: Target | null = null;
@@ -140,10 +141,10 @@ namespace WaveIntrinsicsNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CB_SIZE / 4; i++) {
                 this.constants.push(0.0);
             }
@@ -160,13 +161,13 @@ namespace WaveIntrinsicsNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -179,19 +180,19 @@ namespace WaveIntrinsicsNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered in its own (UNORM) format, as the sample's R8G8B8A8_UNORM back
             // buffers (the Donut example's UnormBackBuffer).
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, false);
             this.sizeToSwapChain();
             const format = this.format;
@@ -202,26 +203,26 @@ namespace WaveIntrinsicsNri {
                 this.unsupportedReason = "No D3D11 shaders (wave intrinsics need D3D12 or Vulkan)";
                 return 0;
             }
-            this.laneCount = Nri_GetWaveLaneCountMin(device);
+            this.laneCount = device.getWaveLaneCountMin();
             if (this.laneCount == 0) {
                 this.unsupportedReason = "The graphics device does not support wave intrinsics (D3D12 or Vulkan)";
                 return 0;
             }
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)}), wave lanes: ${this.laneCount} to ${Nri_GetWaveLaneCountMax(device)}`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()}), wave lanes: ${this.laneCount} to ${device.getWaveLaneCountMax()}`);
 
             // The layouts: pass 1's binds the constants (b0); pass 2's the constants, the two layers
             // (t0, t1) and the sampler (s0).
-            const sceneLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(sceneLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            const sceneLayout = Nri_CreatePipelineLayoutFromDesc(device, sceneLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(sceneLayoutDesc);
+            const sceneLayoutDesc = NriPipelineLayoutDesc.create();
+            sceneLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            const sceneLayout = device.createPipelineLayoutFromDesc(sceneLayoutDesc);
+            sceneLayoutDesc.destroy();
             this.sceneLayout = sceneLayout;
-            const composeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(composeLayoutDesc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(composeLayoutDesc, 0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(composeLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const composeLayout = Nri_CreatePipelineLayoutFromDesc(device, composeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(composeLayoutDesc);
+            const composeLayoutDesc = NriPipelineLayoutDesc.create();
+            composeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            composeLayoutDesc.addRange(0, 0, 2, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            composeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            const composeLayout = device.createPipelineLayoutFromDesc(composeLayoutDesc);
+            composeLayoutDesc.destroy();
             this.composeLayout = composeLayout;
             if (!sceneLayout || !composeLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -232,40 +233,40 @@ namespace WaveIntrinsicsNri {
             // states, no depth; pass 1 into its RGBA8_UNORM texture, pass 2 into the swap chain.
             const folder = graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/wave_intrinsics/${folder}/wave_intrinsics`;
-            const waveDesc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(waveDesc, NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
+            const waveDesc = NriPipelineDesc.create();
+            let loaded = waveDesc.addShader(NriShaderStage.Vertex, `${shaders}_VSMain.bin`, "VSMain") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(waveDesc, NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
+                loaded = waveDesc.addShader(NriShaderStage.Pixel, `${shaders}_PSMain.bin`, "PSMain") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(waveDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(waveDesc, "COLOR", NriFormat.RGBA32_SFLOAT, 12);
-            Nri_PipelineDescSetCullMode(waveDesc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(waveDesc, NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            waveDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            waveDesc.addVertexAttribute("COLOR", NriFormat.RGBA32_SFLOAT, 12);
+            waveDesc.setCullMode(NriCullMode.Back);
+            waveDesc.setColor(NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
             if (loaded) {
-                this.wavePipeline = Nri_CreatePipelineFromDesc(device, sceneLayout, waveDesc);
+                this.wavePipeline = device.createPipelineFromDesc(sceneLayout, waveDesc);
             }
-            Nri_DestroyPipelineDesc(waveDesc);
+            waveDesc.destroy();
 
-            const composeDesc = Nri_CreatePipelineDesc();
-            loaded = Nri_PipelineDescAddShader(composeDesc, NriShaderStage.Vertex, `${shaders}_magnify_VSMain.bin`, "VSMain") != 0;
+            const composeDesc = NriPipelineDesc.create();
+            loaded = composeDesc.addShader(NriShaderStage.Vertex, `${shaders}_magnify_VSMain.bin`, "VSMain") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(composeDesc, NriShaderStage.Pixel, `${shaders}_magnify_PSMain.bin`, "PSMain") != 0;
+                loaded = composeDesc.addShader(NriShaderStage.Pixel, `${shaders}_magnify_PSMain.bin`, "PSMain") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(composeDesc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(composeDesc, "TEXCOORD", NriFormat.RG32_SFLOAT, 12);
-            Nri_PipelineDescSetCullMode(composeDesc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(composeDesc, format, NriColorWrite.RGBA);
+            composeDesc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            composeDesc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 12);
+            composeDesc.setCullMode(NriCullMode.Back);
+            composeDesc.setColor(format, NriColorWrite.RGBA);
             if (loaded) {
-                this.composePipeline = Nri_CreatePipelineFromDesc(device, composeLayout, composeDesc);
+                this.composePipeline = device.createPipelineFromDesc(composeLayout, composeDesc);
             }
-            Nri_DestroyPipelineDesc(composeDesc);
+            composeDesc.destroy();
             if (!this.wavePipeline || !this.composePipeline) {
                 console.log("Cannot load the wave intrinsics shaders");
                 return 0;
             }
 
             // LoadSizeDependentResources: pass 1's texture and the UI layer's, and pass 2's rectangle.
-            this.triangleBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(TRIANGLE_VERTICES[0]), TRIANGLE_VERTICES.length * 4,
+            this.triangleBuffer = device.createUploadedBuffer(this.queue, Ref(TRIANGLE_VERTICES[0]), TRIANGLE_VERTICES.length * 4,
                 NriBufferUsage.VertexBuffer);
             this.createSizeDependentResources(device);
             const sceneTarget = this.sceneTarget;
@@ -276,12 +277,12 @@ namespace WaveIntrinsicsNri {
             }
 
             // The sample's static sampler: point filtering, wrapping.
-            const sampler = Nri_CreateSamplerWithMipFilter(device, NriFilter.Nearest, NriFilter.Nearest, NriAddressMode.Repeat, 1);
+            const sampler = device.createSamplerWithMipFilter(NriFilter.Nearest, NriFilter.Nearest, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
             // The constants: a 256-byte slice per queued frame, in both passes' sets.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * CB_SIZE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * CB_SIZE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2 * queuedFrameNum, queuedFrameNum, 2 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPool(2 * queuedFrameNum, queuedFrameNum, 2 * queuedFrameNum,
                 2 * queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!sampler || !constantBuffer || !descriptorPool) {
@@ -292,16 +293,16 @@ namespace WaveIntrinsicsNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const constantView = Nri_CreateConstantBufferView(constantBuffer, i * CB_SIZE, CB_SIZE);
-                const sceneSet = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
-                const composeSet = Nri_AllocateDescriptorSet(descriptorPool, composeLayout, 0, 0);
+                const constantView = constantBuffer.createConstantView(i * CB_SIZE, CB_SIZE);
+                const sceneSet = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
+                const composeSet = descriptorPool.allocateDescriptorSet(composeLayout, 0, 0);
                 if (!constantView || !sceneSet || !composeSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(sceneSet, 0, 0, constantView);
-                Nri_UpdateDescriptor(composeSet, 0, 0, constantView);
-                Nri_UpdateDescriptor(composeSet, 2, 0, sampler);
+                sceneSet.updateDescriptor(0, 0, constantView);
+                composeSet.updateDescriptor(0, 0, constantView);
+                composeSet.updateDescriptor(2, 0, sampler);
                 this.queuedFrames.push(new QueuedFrame(constantView, sceneSet,
                     composeSet));
             }
@@ -309,7 +310,7 @@ namespace WaveIntrinsicsNri {
 
             // The UI layer's text.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -317,9 +318,9 @@ namespace WaveIntrinsicsNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
             }
             return 1;
         }
@@ -333,7 +334,7 @@ namespace WaveIntrinsicsNri {
 
         // The resources of the swap chain's size: pass 2's rectangle (its x scaled by the aspect ratio,
         // as the orthographic projection unscales it), pass 1's texture and the UI layer's.
-        createSizeDependentResources(device: NriDeviceHandle) {
+        createSizeDependentResources(device: NriDevice) {
             const a = Math.fround(this.width / this.height);
             const quad: f32[] = [
                 -a, -1.0, 0.0, 0.0, 1.0,
@@ -344,7 +345,7 @@ namespace WaveIntrinsicsNri {
                 a, 1.0, 0.0, 1.0, 0.0,
                 a, -1.0, 0.0, 1.0, 1.0,
             ];
-            this.quadBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(quad[0]), quad.length * 4, NriBufferUsage.VertexBuffer);
+            this.quadBuffer = device.createUploadedBuffer(this.queue, Ref(quad[0]), quad.length * 4, NriBufferUsage.VertexBuffer);
             this.sceneTarget = this.createTarget(device);
             this.uiTarget = this.createTarget(device);
         }
@@ -366,12 +367,12 @@ namespace WaveIntrinsicsNri {
                 return;
             }
             for (const queuedFrame of this.queuedFrames) {
-                Nri_UpdateDescriptor(queuedFrame.composeSet, 1, 0, sceneTarget.view);
-                Nri_UpdateDescriptor(queuedFrame.composeSet, 1, 1, uiTarget.view);
+                queuedFrame.composeSet.updateDescriptor(1, 0, sceneTarget.view);
+                queuedFrame.composeSet.updateDescriptor(1, 1, uiTarget.view);
             }
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain, the layers and the rectangle made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain, the layers and the rectangle made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -381,7 +382,7 @@ namespace WaveIntrinsicsNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizeDependentResources();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -390,13 +391,13 @@ namespace WaveIntrinsicsNri {
         }
 
         // A layer: an RGBA8_UNORM render target the swap chain's size, read by pass 2.
-        createTarget(device: NriDeviceHandle): Target | null {
-            const texture = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+        createTarget(device: NriDevice): Target | null {
+            const texture = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
             if (!texture) {
                 return null;
             }
-            return new Target(texture, Nri_CreateColorAttachmentView(texture, NriFormat.RGBA8_UNORM),
-                Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM));
+            return new Target(texture, texture.createColorAttachmentView(NriFormat.RGBA8_UNORM),
+                texture.createView(NriFormat.RGBA8_UNORM));
         }
 
         // Waits for the frame that last used this frame's command allocator (and constants).
@@ -408,15 +409,15 @@ namespace WaveIntrinsicsNri {
         // button is down.
         handleInput() {
             for (let i = 0; i < 9; i++) {
-                const down = Nri_IsKeyPressed(this.sample, KEY_1 + i) != 0;
+                const down = this.sample.isKeyPressed(KEY_1 + i) != 0;
                 if (down && !this.keysDown[i]) {
                     this.renderMode = i + 1;
                 }
                 this.keysDown[i] = down;
             }
-            if (Nri_IsButtonPressed(this.sample, MOUSE_LEFT) != 0) {
-                this.mousePosition[0] = Math.fround(Nri_GetMouseX(this.sample));
-                this.mousePosition[1] = Math.fround(Nri_GetMouseY(this.sample));
+            if (this.sample.isButtonPressed(MOUSE_LEFT) != 0) {
+                this.mousePosition[0] = Math.fround(this.sample.getMouseX());
+                this.mousePosition[1] = Math.fround(this.sample.getMouseY());
             }
         }
 
@@ -443,28 +444,28 @@ namespace WaveIntrinsicsNri {
             // time (unused: the sample never advances it).
             this.constants[20] = 0.0;
             // renderMode and laneSize after time: the constants' uints.
-            Nri_StoreInt32(Ref(this.constants[21]), this.renderMode);
-            Nri_StoreInt32(Ref(this.constants[22]), this.laneCount);
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * CB_SIZE, Ref(this.constants[0]), CB_SIZE);
+            Nri.storeInt32(Ref(this.constants[21]), this.renderMode);
+            Nri.storeInt32(Ref(this.constants[22]), this.laneCount);
+            constantBuffer.write(queuedFrameIndex * CB_SIZE, Ref(this.constants[0]), CB_SIZE);
         }
 
         // UILayer: its labels from the top left corner, one a line.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             const lineSpacing = LINE_SPACING_PER_HEIGHT * this.height;
             for (let i = 0; i < LABELS.length; i++) {
                 let label = LABELS[i];
                 if (i == this.renderMode) {
                     label = label + "[x]";
                 }
-                Nri_ImguiDrawText(0.0, i * lineSpacing, label, 1.0, 1.0, 1.0, 1.0, 0);
+                NriImgui.drawText(0.0, i * lineSpacing, label, 1.0, 1.0, 1.0, 1.0, 0);
             }
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
         // RenderScene's pass 1: the triangle into its texture, cleared to transparent black; then the
         // UI layer's texture, cleared, with the text drawn into it.
-        recordLayers(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordLayers(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const sceneLayout = this.sceneLayout;
             const wavePipeline = this.wavePipeline;
             const triangleBuffer = this.triangleBuffer;
@@ -473,51 +474,51 @@ namespace WaveIntrinsicsNri {
             if (!sceneLayout || !wavePipeline || !triangleBuffer || !sceneTarget || !uiTarget) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, sceneTarget.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, sceneTarget.colorAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, sceneLayout);
-            Nri_CmdSetPipeline(commandBuffer, wavePipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.sceneSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, triangleBuffer, 0, TRIANGLE_STRIDE);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, sceneTarget.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureBarrier(sceneTarget.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(sceneTarget.colorAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(sceneLayout);
+            commandBuffer.setPipeline(wavePipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.sceneSet);
+            commandBuffer.setVertexBuffer(0, triangleBuffer, 0, TRIANGLE_STRIDE);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(sceneTarget.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
 
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
-            Nri_CmdTextureBarrier(commandBuffer, uiTarget.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, uiTarget.colorAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+            commandBuffer.textureBarrier(uiTarget.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(uiTarget.colorAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, NriFormat.RGBA8_UNORM);
+                this.sample.drawImgui(commandBuffer, NriFormat.RGBA8_UNORM);
             }
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, uiTarget.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(uiTarget.texture, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
         }
 
         // Pass 2: the layers composed, magnified around the mouse, into the swap chain texture
-        // (cleared to black first; between Nri_CmdBeginRendering and Nri_CmdEndRendering). The sample
+        // (cleared to black first; between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering). The sample
         // draws the rectangle twice (two instances of the same six vertices, without blending): once
         // is the same.
-        recordCompose(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordCompose(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const composeLayout = this.composeLayout;
             const composePipeline = this.composePipeline;
             const quadBuffer = this.quadBuffer;
             if (!composeLayout || !composePipeline || !quadBuffer) {
                 return;
             }
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipelineLayout(commandBuffer, composeLayout);
-            Nri_CmdSetPipeline(commandBuffer, composePipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, queuedFrame.composeSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, quadBuffer, 0, QUAD_STRIDE);
-            Nri_CmdDraw(commandBuffer, 6, 1, 0, 0);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipelineLayout(composeLayout);
+            commandBuffer.setPipeline(composePipeline);
+            commandBuffer.setDescriptorSet(0, queuedFrame.composeSet);
+            commandBuffer.setVertexBuffer(0, quadBuffer, 0, QUAD_STRIDE);
+            commandBuffer.draw(6, 1, 0, 0);
         }
 
         renderFrame(frameIndex: int) {
@@ -543,33 +544,33 @@ namespace WaveIntrinsicsNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the layers, then their composition into the swap chain texture.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+                commandBuffer.begin();
+                commandBuffer.setDescriptorPool(descriptorPool);
                 this.recordLayers(commandBuffer, queuedFrame);
                 // (The UI's draw sets ImGui's own descriptor pool: D3D12 wants the sets' heaps bound again.)
-                Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+                commandBuffer.setDescriptorPool(descriptorPool);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
                 this.recordCompose(commandBuffer, queuedFrame);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -585,12 +586,12 @@ namespace WaveIntrinsicsNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.format,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.format,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -600,20 +601,20 @@ namespace WaveIntrinsicsNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyDescriptor(queuedFrame.constantView);
+                    queuedFrame.constantView.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const sampler = this.sampler;
                 if (sampler) {
-                    Nri_DestroyDescriptor(sampler);
+                    sampler.destroy();
                 }
                 this.destroySizeDependentResources();
                 this.destroyBuffer(this.triangleBuffer);
@@ -625,47 +626,47 @@ namespace WaveIntrinsicsNri {
                 this.destroyLayout(this.composeLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyTarget(target: Target | null) {
             if (target) {
-                Nri_DestroyDescriptor(target.colorAttachment);
-                Nri_DestroyDescriptor(target.view);
-                Nri_DestroyTexture(target.texture);
+                target.colorAttachment.destroy();
+                target.view.destroy();
+                target.texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const waveIntrinsics = new WaveIntrinsics(sample);
         // -noUI: no UI layer text.
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "-noUI") {
+            if (Nri.getArg(argc, argv, i) == "-noUI") {
                 waveIntrinsics.noUI = true;
             }
         }

@@ -1,5 +1,6 @@
 /// <reference path="../../core/nri/nri_interop.d.ts" />
 import { NriSwapChain } from "../../core/nri_swap_chain";
+import { Nri, NriBuffer, NriCommandAllocator, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriFence, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace TimelineSemaphoreNri {
     // timeline_semaphore, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -35,16 +36,16 @@ namespace TimelineSemaphoreNri {
     // What a frame in flight records into: the graphics queue's command buffer, and the compute
     // queue's.
     class QueuedFrame {
-        constructor(public commandAllocator: NriCommandAllocatorHandle, public commandBuffer: NriCommandBufferHandle,
-            public computeCommandAllocator: NriCommandAllocatorHandle | null, public computeCommandBuffer: NriCommandBufferHandle | null) {
+        constructor(public commandAllocator: NriCommandAllocator, public commandBuffer: NriCommandBuffer,
+            public computeCommandAllocator: NriCommandAllocator | null, public computeCommandBuffer: NriCommandBuffer | null) {
         }
     }
 
     // A Game of Life image, its views, and the descriptor sets binding it: the compute pipelines'
     // writing it (reading the other image), and the draw's.
     class GridImage {
-        constructor(public texture: NriTextureHandle, public storageView: NriDescriptorHandle, public view: NriDescriptorHandle,
-            public computeSet: NriDescriptorSetHandle | null, public drawSet: NriDescriptorSetHandle | null) {
+        constructor(public texture: NriTexture, public storageView: NriDescriptor, public view: NriDescriptor,
+            public computeSet: NriDescriptorSet | null, public drawSet: NriDescriptorSet | null) {
         }
     }
 
@@ -94,21 +95,21 @@ namespace TimelineSemaphoreNri {
     // AllShaderResource (drawn now, read by the next frame's compute work), and the other one, which
     // its compute work read, back to Storage (written by the next frame's).
     class TimelineSemaphore {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
-        private computeQueue: NriQueueHandle | null = null;
-        private frameFence: NriFenceHandle;
-        private computeFence: NriFenceHandle | null = null;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
+        private computeQueue: NriQueue | null = null;
+        private frameFence: NriFence;
+        private computeFence: NriFence | null = null;
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
-        private drawLayout: NriPipelineLayoutHandle | null = null;
-        private drawPipeline: NriPipelineHandle | null = null;
-        private computeLayout: NriPipelineLayoutHandle | null = null;
-        private initPipeline: NriPipelineHandle | null = null;
-        private mutatePipeline: NriPipelineHandle | null = null;
-        private updatePipeline: NriPipelineHandle | null = null;
-        private sampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private drawLayout: NriPipelineLayout | null = null;
+        private drawPipeline: NriPipeline | null = null;
+        private computeLayout: NriPipelineLayout | null = null;
+        private initPipeline: NriPipeline | null = null;
+        private mutatePipeline: NriPipeline | null = null;
+        private updatePipeline: NriPipeline | null = null;
+        private sampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private images: GridImage[] = [];
         private width: int = 0;
         private height: int = 0;
@@ -128,11 +129,11 @@ namespace TimelineSemaphoreNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
         }
 
         // Renders until the window is closed (in test mode, the test's frames); the exit code.
@@ -143,11 +144,11 @@ namespace TimelineSemaphoreNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -158,24 +159,24 @@ namespace TimelineSemaphoreNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.computeQueue = Nri_GetComputeQueue(device);
-            this.frameFence = Nri_CreateFence(device, 0);
+            this.queue = device.getGraphicsQueue();
+            this.computeQueue = device.getComputeQueue();
+            this.frameFence = device.createFence(0);
             if (this.computeQueue) {
-                this.computeFence = Nri_CreateFence(device, 0);
+                this.computeFence = device.createFence(0);
             }
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -183,24 +184,24 @@ namespace TimelineSemaphoreNri {
 
             // Queued frames
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commandAllocator = Nri_CreateCommandAllocator(this.queue);
+                const commandAllocator = this.queue.createCommandAllocator();
                 this.queuedFrames.push(this.createQueuedFrame(commandAllocator));
             }
 
             // The layouts: the compute pipelines' counter (push constants, b0), this frame's image
             // (u0), the previous one (t0) and the sampler (s0); the draw's image (t0) and sampler (s0).
-            const computeLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(computeLayoutDesc, 0, PUSH_SIZE, NriStage.Compute);
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(computeLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
-            this.computeLayout = Nri_CreatePipelineLayoutFromDesc(device, computeLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(computeLayoutDesc);
-            const drawLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(drawLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            this.drawLayout = Nri_CreatePipelineLayoutFromDesc(device, drawLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(drawLayoutDesc);
+            const computeLayoutDesc = NriPipelineLayoutDesc.create();
+            computeLayoutDesc.addRootConstants(0, PUSH_SIZE, NriStage.Compute);
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Compute, NriRangeFlags.None);
+            computeLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
+            this.computeLayout = device.createPipelineLayoutFromDesc(computeLayoutDesc);
+            computeLayoutDesc.destroy();
+            const drawLayoutDesc = NriPipelineLayoutDesc.create();
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            drawLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            this.drawLayout = device.createPipelineLayoutFromDesc(drawLayoutDesc);
+            drawLayoutDesc.destroy();
             const computeLayout = this.computeLayout;
             const drawLayout = this.drawLayout;
             if (!computeLayout || !drawLayout) {
@@ -212,20 +213,20 @@ namespace TimelineSemaphoreNri {
             // the draw a triangle over the viewport (no culling, no depth, no blending).
             const folder = graphicsAPI == NriGraphicsAPI.D3D11 ? "dxbc" : graphicsAPI == NriGraphicsAPI.D3D12 ? "dxil" : "spirv";
             const shaders = `shaders/timeline_semaphore/${folder}/timeline_semaphore`;
-            this.initPipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_init_cs.bin`, "init_cs");
-            this.mutatePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_mutate_cs.bin`, "mutate_cs");
-            this.updatePipeline = Nri_CreateComputePipeline(device, computeLayout, `${shaders}_update_cs.bin`, "update_cs");
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${shaders}_render_vs.bin`, "render_vs") != 0;
+            this.initPipeline = device.createComputePipeline(computeLayout, `${shaders}_init_cs.bin`, "init_cs");
+            this.mutatePipeline = device.createComputePipeline(computeLayout, `${shaders}_mutate_cs.bin`, "mutate_cs");
+            this.updatePipeline = device.createComputePipeline(computeLayout, `${shaders}_update_cs.bin`, "update_cs");
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${shaders}_render_vs.bin`, "render_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${shaders}_render_ps.bin`, "render_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${shaders}_render_ps.bin`, "render_ps") != 0;
             }
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.None);
-            Nri_PipelineDescSetColor(desc, viewFormat, NriColorWrite.RGBA);
+            desc.setCullMode(NriCullMode.None);
+            desc.setColor(viewFormat, NriColorWrite.RGBA);
             if (loaded) {
-                this.drawPipeline = Nri_CreatePipelineFromDesc(device, drawLayout, desc);
+                this.drawPipeline = device.createPipelineFromDesc(drawLayout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             const initPipeline = this.initPipeline;
             if (!initPipeline || !this.mutatePipeline || !this.updatePipeline || !this.drawPipeline) {
                 console.log("Cannot load the timeline semaphore shaders");
@@ -234,9 +235,9 @@ namespace TimelineSemaphoreNri {
 
             // The sample's shared resources: the images, and an immutable sampler (nearest,
             // repeating).
-            const sampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.Repeat, 1);
+            const sampler = device.createSampler(NriFilter.Nearest, NriAddressMode.Repeat, 1);
             this.sampler = sampler;
-            const descriptorPool = Nri_CreateDescriptorPool(device, 2 * NUM_ASYNC_FRAMES, 2 * NUM_ASYNC_FRAMES, 0, 2 * NUM_ASYNC_FRAMES,
+            const descriptorPool = device.createDescriptorPool(2 * NUM_ASYNC_FRAMES, 2 * NUM_ASYNC_FRAMES, 0, 2 * NUM_ASYNC_FRAMES,
                 NUM_ASYNC_FRAMES, 0);
             this.descriptorPool = descriptorPool;
             if (!sampler || !descriptorPool) {
@@ -244,14 +245,14 @@ namespace TimelineSemaphoreNri {
                 return 0;
             }
             for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
-                const texture = Nri_CreateStorageTexture(device, this.queue, GRID_WIDTH, GRID_HEIGHT, NriFormat.RGBA8_UNORM);
+                const texture = device.createStorageTexture(this.queue, GRID_WIDTH, GRID_HEIGHT, NriFormat.RGBA8_UNORM);
                 if (!texture) {
                     console.log("Cannot create the images");
                     return 0;
                 }
-                this.images.push(new GridImage(texture, Nri_CreateStorageTextureView(texture, NriFormat.RGBA8_UNORM),
-                    Nri_CreateTextureView(texture, NriFormat.RGBA8_UNORM), Nri_AllocateDescriptorSet(descriptorPool, computeLayout, 0, 0),
-                    Nri_AllocateDescriptorSet(descriptorPool, drawLayout, 0, 0)));
+                this.images.push(new GridImage(texture, texture.createStorageView(NriFormat.RGBA8_UNORM),
+                    texture.createView(NriFormat.RGBA8_UNORM), descriptorPool.allocateDescriptorSet(computeLayout, 0, 0),
+                    descriptorPool.allocateDescriptorSet(drawLayout, 0, 0)));
             }
             for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
                 const image = this.images[i];
@@ -261,11 +262,11 @@ namespace TimelineSemaphoreNri {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(computeSet, 0, 0, image.storageView);
-                Nri_UpdateDescriptor(computeSet, 1, 0, this.images[(i + NUM_ASYNC_FRAMES - 1) % NUM_ASYNC_FRAMES].view);
-                Nri_UpdateDescriptor(computeSet, 2, 0, sampler);
-                Nri_UpdateDescriptor(drawSet, 0, 0, image.view);
-                Nri_UpdateDescriptor(drawSet, 1, 0, sampler);
+                computeSet.updateDescriptor(0, 0, image.storageView);
+                computeSet.updateDescriptor(1, 0, this.images[(i + NUM_ASYNC_FRAMES - 1) % NUM_ASYNC_FRAMES].view);
+                computeSet.updateDescriptor(2, 0, sampler);
+                drawSet.updateDescriptor(0, 0, image.view);
+                drawSet.updateDescriptor(1, 0, sampler);
             }
 
             // The sample's setup_game_of_life: both images get the starting pattern. Each dispatch's
@@ -274,34 +275,34 @@ namespace TimelineSemaphoreNri {
             // stays readable. A command buffer per dispatch: within one, NRI's D3D11 backend unbinds
             // the second dispatch's u0 when its t0 is the image the first one wrote (it unbinds the
             // UAV slot that image was bound to, without checking what's bound there now).
-            const commandAllocator = Nri_CreateCommandAllocator(this.queue);
-            const commandBuffer = Nri_CreateCommandBuffer(commandAllocator);
-            const setupFence = Nri_CreateFence(device, 0);
+            const commandAllocator = this.queue.createCommandAllocator();
+            const commandBuffer = commandAllocator.createCommandBuffer();
+            const setupFence = device.createFence(0);
             for (let i = 0; i < NUM_ASYNC_FRAMES; i++) {
                 const other = this.images[(i + NUM_ASYNC_FRAMES - 1) % NUM_ASYNC_FRAMES].texture;
-                Nri_ResetCommandAllocator(commandAllocator);
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-                Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
-                Nri_CmdSetPipeline(commandBuffer, initPipeline);
-                Nri_CmdTextureBarrier(commandBuffer, other, NriTextureState.Storage, NriTextureState.AllShaderResource);
+                commandAllocator.reset();
+                commandBuffer.begin();
+                commandBuffer.setDescriptorPool(descriptorPool);
+                commandBuffer.setComputePipelineLayout(computeLayout);
+                commandBuffer.setPipeline(initPipeline);
+                commandBuffer.textureBarrier(other, NriTextureState.Storage, NriTextureState.AllShaderResource);
                 this.dispatch(commandBuffer, i);
-                Nri_CmdTextureBarrier(commandBuffer, other, NriTextureState.AllShaderResource, NriTextureState.Storage);
+                commandBuffer.textureBarrier(other, NriTextureState.AllShaderResource, NriTextureState.Storage);
                 if (i == NUM_ASYNC_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.images[i].texture, NriTextureState.Storage, NriTextureState.AllShaderResource);
+                    commandBuffer.textureBarrier(this.images[i].texture, NriTextureState.Storage, NriTextureState.AllShaderResource);
                 }
-                Nri_EndCommandBuffer(commandBuffer);
-                Nri_QueueSubmitWithFences(this.queue, commandBuffer, null, 0, setupFence, 1 + i);
-                Nri_Wait(setupFence, 1 + i);
+                commandBuffer.end();
+                this.queue.submitWithFences(commandBuffer, null, 0, setupFence, 1 + i);
+                setupFence.wait(1 + i);
             }
-            Nri_DestroyFence(setupFence);
-            Nri_DestroyCommandBuffer(commandBuffer);
-            Nri_DestroyCommandAllocator(commandAllocator);
+            setupFence.destroy();
+            commandBuffer.destroy();
+            commandAllocator.destroy();
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -309,26 +310,26 @@ namespace TimelineSemaphoreNri {
 
         // A queued frame recording into commandAllocator's command buffer, and, with a compute
         // queue, into one of its own.
-        createQueuedFrame(commandAllocator: NriCommandAllocatorHandle): QueuedFrame {
+        createQueuedFrame(commandAllocator: NriCommandAllocator): QueuedFrame {
             const computeQueue = this.computeQueue;
             if (!computeQueue) {
-                return new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), null, null);
+                return new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(), null, null);
             }
-            const computeCommandAllocator = Nri_CreateCommandAllocator(computeQueue);
-            return new QueuedFrame(commandAllocator, Nri_CreateCommandBuffer(commandAllocator), computeCommandAllocator,
-                Nri_CreateCommandBuffer(computeCommandAllocator));
+            const computeCommandAllocator = computeQueue.createCommandAllocator();
+            return new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(), computeCommandAllocator,
+                computeCommandAllocator.createCommandBuffer());
         }
 
         // The compute pipeline set, on the image numbered index (reading the previous one), with the
         // counter.
-        dispatch(commandBuffer: NriCommandBufferHandle, index: int) {
+        dispatch(commandBuffer: NriCommandBuffer, index: int) {
             const computeSet = this.images[index].computeSet;
             if (!computeSet) {
                 return;
             }
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, computeSet);
-            Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.push[0]), PUSH_SIZE);
-            Nri_CmdDispatch(commandBuffer, GROUPS_X, GROUPS_Y, 1);
+            commandBuffer.setComputeDescriptorSet(0, computeSet);
+            commandBuffer.setComputeRootConstants(0, Ref(this.push[0]), PUSH_SIZE);
+            commandBuffer.dispatch(GROUPS_X, GROUPS_Y, 1);
         }
 
         // Waits for the frame that last used this frame's command allocators (its compute work done
@@ -336,18 +337,18 @@ namespace TimelineSemaphoreNri {
         latencySleep(frameIndex: int) {
             const queuedFrameNum = this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[frameIndex % queuedFrameNum];
-            Nri_Wait(this.frameFence, frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
-            Nri_ResetCommandAllocator(queuedFrame.commandAllocator);
+            this.frameFence.wait(frameIndex >= queuedFrameNum ? 1 + frameIndex - queuedFrameNum : 0);
+            queuedFrame.commandAllocator.reset();
             const computeCommandAllocator = queuedFrame.computeCommandAllocator;
             if (computeCommandAllocator) {
-                Nri_ResetCommandAllocator(computeCommandAllocator);
+                computeCommandAllocator.reset();
             }
         }
 
         // The sample's build_compute_command_buffers: this frame's image from the previous one,
         // stepped once the timer passes a second (and the timer restarted), else its cells'
         // intensity raised to the seconds since the last step.
-        recordCompute(commandBuffer: NriCommandBufferHandle) {
+        recordCompute(commandBuffer: NriCommandBuffer) {
             const computeLayout = this.computeLayout;
             const descriptorPool = this.descriptorPool;
             const updatePipeline = this.updatePipeline;
@@ -355,22 +356,22 @@ namespace TimelineSemaphoreNri {
             if (!computeLayout || !descriptorPool || !updatePipeline || !mutatePipeline) {
                 return;
             }
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetComputePipelineLayout(commandBuffer, computeLayout);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setComputePipelineLayout(computeLayout);
             if (this.computeElapsed > 1.0) {
                 // (The layout's push constants are set for every dispatch; the step doesn't read them.)
-                Nri_CmdSetPipeline(commandBuffer, updatePipeline);
+                commandBuffer.setPipeline(updatePipeline);
                 this.computeElapsed = 0.0;
             } else {
                 this.push[0] = this.computeElapsed;
-                Nri_CmdSetPipeline(commandBuffer, mutatePipeline);
+                commandBuffer.setPipeline(mutatePipeline);
             }
             this.dispatch(commandBuffer, this.frameNumber % NUM_ASYNC_FRAMES);
         }
 
         // The sample's build_graphics_command_buffer: this frame's image in the largest square
-        // centered in the window (between Nri_CmdBeginRendering and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle) {
+        // centered in the window (between NriCommandBuffer.beginRendering and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer) {
             const drawLayout = this.drawLayout;
             const drawPipeline = this.drawPipeline;
             const descriptorPool = this.descriptorPool;
@@ -387,13 +388,13 @@ namespace TimelineSemaphoreNri {
             } else if (this.height > this.width) {
                 top = 0.5 * (this.height - this.width);
             }
-            Nri_CmdSetViewport(commandBuffer, left, top, size, size);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, drawLayout);
-            Nri_CmdSetPipeline(commandBuffer, drawPipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, drawSet);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
+            commandBuffer.setViewport(left, top, size, size);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(drawLayout);
+            commandBuffer.setPipeline(drawPipeline);
+            commandBuffer.setDescriptorSet(0, drawSet);
+            commandBuffer.draw(3, 1, 0, 0);
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -404,7 +405,7 @@ namespace TimelineSemaphoreNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // The window was resized (NriSample.useResizableWindow): the swap chain made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -422,7 +423,7 @@ namespace TimelineSemaphoreNri {
         renderFrame(frameIndex: int) {
             this.resizeIfNeeded();
             const queuedFrame = this.queuedFrames[frameIndex % this.queuedFrames.length];
-            this.computeElapsed += this.benchmark || this.test ? 1.0 / 60.0 : Nri_GetFrameTime(this.sample);
+            this.computeElapsed += this.benchmark || this.test ? 1.0 / 60.0 : this.sample.getFrameTime();
 
             // Acquire a swap chain texture
             const index = this.swapChain.acquire(frameIndex);
@@ -437,40 +438,40 @@ namespace TimelineSemaphoreNri {
                 const computeQueue = this.computeQueue;
                 const computeFence = this.computeFence;
                 const computeCommandBuffer = queuedFrame.computeCommandBuffer;
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (!computeQueue || !computeFence || !computeCommandBuffer) {
                     this.recordCompute(commandBuffer);
                 } else {
-                    Nri_BeginCommandBuffer(computeCommandBuffer);
+                    computeCommandBuffer.begin();
                     this.recordCompute(computeCommandBuffer);
-                    Nri_EndCommandBuffer(computeCommandBuffer);
-                    Nri_QueueSubmitWithFences(computeQueue, computeCommandBuffer, this.frameFence, frameIndex, computeFence, 1 + this.frameNumber);
+                    computeCommandBuffer.end();
+                    computeQueue.submitWithFences(computeCommandBuffer, this.frameFence, frameIndex, computeFence, 1 + this.frameNumber);
                     // The graphics work submitted from now on waits for it.
-                    Nri_QueueWait(this.queue, computeFence, 1 + this.frameNumber);
+                    this.queue.wait(computeFence, 1 + this.frameNumber);
                 }
 
                 // Record: this frame's image to be drawn (and read by the next frame's compute
                 // work), the previous one to be written by it.
-                Nri_CmdTextureBarrier(commandBuffer, this.images[current].texture, NriTextureState.Storage, NriTextureState.AllShaderResource);
-                Nri_CmdTextureBarrier(commandBuffer, this.images[previous].texture, NriTextureState.AllShaderResource, NriTextureState.Storage);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                Nri_CmdClearColor(commandBuffer, CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], 0.0);
+                commandBuffer.textureBarrier(this.images[current].texture, NriTextureState.Storage, NriTextureState.AllShaderResource);
+                commandBuffer.textureBarrier(this.images[previous].texture, NriTextureState.AllShaderResource, NriTextureState.Storage);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                commandBuffer.clearColor(CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], 0.0);
                 this.recordDraw(commandBuffer);
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
@@ -479,7 +480,7 @@ namespace TimelineSemaphoreNri {
             }
 
             // Signaled after the present, as NRISamples do
-            Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+            this.queue.signal(this.frameFence, 1 + frameIndex);
         }
 
         // The last frame's pixels (0xAABBGGRR), empty if it can't be read.
@@ -489,12 +490,12 @@ namespace TimelineSemaphoreNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -504,24 +505,24 @@ namespace TimelineSemaphoreNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyCommandBuffer(queuedFrame.commandBuffer);
-                    Nri_DestroyCommandAllocator(queuedFrame.commandAllocator);
+                    queuedFrame.commandBuffer.destroy();
+                    queuedFrame.commandAllocator.destroy();
                     this.destroyComputeCommands(queuedFrame);
                 }
                 for (const image of this.images) {
-                    Nri_DestroyDescriptor(image.storageView);
-                    Nri_DestroyDescriptor(image.view);
-                    Nri_DestroyTexture(image.texture);
+                    image.storageView.destroy();
+                    image.view.destroy();
+                    image.texture.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 const sampler = this.sampler;
                 if (sampler) {
-                    Nri_DestroyDescriptor(sampler);
+                    sampler.destroy();
                 }
                 this.destroyPipeline(this.drawPipeline);
                 this.destroyPipeline(this.initPipeline);
@@ -529,25 +530,25 @@ namespace TimelineSemaphoreNri {
                 this.destroyPipeline(this.updatePipeline);
                 const drawLayout = this.drawLayout;
                 if (drawLayout) {
-                    Nri_DestroyPipelineLayout(drawLayout);
+                    drawLayout.destroy();
                 }
                 const computeLayout = this.computeLayout;
                 if (computeLayout) {
-                    Nri_DestroyPipelineLayout(computeLayout);
+                    computeLayout.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 const computeFence = this.computeFence;
                 if (computeFence) {
-                    Nri_DestroyFence(computeFence);
+                    computeFence.destroy();
                 }
-                Nri_DestroyFence(this.frameFence);
+                this.frameFence.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
         destroyComputeCommands(queuedFrame: QueuedFrame) {
@@ -556,25 +557,25 @@ namespace TimelineSemaphoreNri {
             if (!computeCommandBuffer || !computeCommandAllocator) {
                 return;
             }
-            Nri_DestroyCommandBuffer(computeCommandBuffer);
-            Nri_DestroyCommandAllocator(computeCommandAllocator);
+            computeCommandBuffer.destroy();
+            computeCommandAllocator.destroy();
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const timelineSemaphore = new TimelineSemaphore(sample);
         // -benchmark: 1/60 second per frame instead of the clock.
-        Nri_AddExampleOption(sample, "-benchmark");
+        sample.addExampleOption("-benchmark");
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "-benchmark") {
+            if (Nri.getArg(argc, argv, i) == "-benchmark") {
                 timelineSemaphore.benchmark = true;
             }
         }

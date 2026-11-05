@@ -6,6 +6,7 @@ import { randomFloat } from "../../core/random";
 import { DonutThirdPersonCamera } from "../../core/donut_third_person_camera";
 import { DonutSceneTextures } from "../../core/nri_donut_textures";
 import { DonutBlit } from "../../core/nri_donut_blit";
+import { Nri, NriAccelerationStructure, NriBlasDesc, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriDonutScene, NriDonutSceneAccelStructs, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture, NriTopLevelAS, NriUpdatableBlas } from "../../core/nri";
 
 namespace RtParticlesNri {
     // rt_particles, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut and
@@ -55,7 +56,7 @@ namespace RtParticlesNri {
     const BINDLESS_PARTICLE_INDICES = 3;
     const BINDLESS_BUFFER_COUNT = 4;
 
-    // Nri_CreateDonutSceneBuffer's buffers: vertices, indices, InstanceData, GeometryData, MaterialConstants.
+    // NriDevice.createDonutSceneBuffer's buffers: vertices, indices, InstanceData, GeometryData, MaterialConstants.
     const SCENE_BUFFER_COUNT = 5;
     const SCENE_BUFFER_MATERIALS = 4;
 
@@ -244,75 +245,75 @@ namespace RtParticlesNri {
     // What a frame in flight records into, its sets and its copies of what the CPU writes every frame:
     // the constants' view, the particle mesh's buffers and the ParticleInfo buffer (with their views).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBufferHandle,
-            public set: NriDescriptorSetHandle, public bindlessSet: NriDescriptorSetHandle, public constantView: NriDescriptorHandle,
-            public vertexBuffer: NriBufferHandle, public vertexView: NriDescriptorHandle, public indexBuffer: NriBufferHandle,
-            public indexView: NriDescriptorHandle, public particleInfoBuffer: NriBufferHandle,
-            public particleInfoView: NriDescriptorHandle) {
+        constructor(public commandBuffer: NriCommandBuffer,
+            public set: NriDescriptorSet, public bindlessSet: NriDescriptorSet, public constantView: NriDescriptor,
+            public vertexBuffer: NriBuffer, public vertexView: NriDescriptor, public indexBuffer: NriBuffer,
+            public indexView: NriDescriptor, public particleInfoBuffer: NriBuffer,
+            public particleInfoView: NriDescriptor) {
         }
     }
 
     // A blit of a texture's level into the next (the mip chains Donut's TextureCache generates for files
     // without mips): the level's attachment view, the set of the level above's view.
     class MipBlit {
-        constructor(public texture: NriTextureHandle, public mip: int, public width: int, public height: int,
-            public attachment: NriDescriptorHandle, public sourceView: NriDescriptorHandle, public set: NriDescriptorSetHandle) {
+        constructor(public texture: NriTexture, public mip: int, public width: int, public height: int,
+            public attachment: NriDescriptor, public sourceView: NriDescriptor, public set: NriDescriptorSet) {
         }
     }
 
     // The particle textures (sRGB PNG files) as Donut_LoadBindlessTexture loads them: each with the mip
     // chain below its first level blitted level by level with Donut's blit shaders through sRGB views.
     class ParticleTextures {
-        textures: NriTextureHandle[] = [];
-        views: NriDescriptorHandle[] = [];
+        textures: NriTexture[] = [];
+        views: NriDescriptor[] = [];
         private blits: MipBlit[] = [];
         private blitted: boolean = false;
-        private blitLayout: NriPipelineLayoutHandle | null = null;
-        private blitPipeline: NriPipelineHandle | null = null;
-        private linearClamp: NriDescriptorHandle | null = null;
+        private blitLayout: NriPipelineLayout | null = null;
+        private blitPipeline: NriPipeline | null = null;
+        private linearClamp: NriDescriptor | null = null;
         private blitConstants: f32[] = [];
 
-        load(device: NriDeviceHandle, queue: NriQueueHandle, folder: string): boolean {
+        load(device: NriDevice, queue: NriQueue, folder: string): boolean {
             for (const value of MIP_BLIT_CONSTANTS) {
                 this.blitConstants.push(value);
             }
             for (const path of PARTICLE_TEXTURE_PATHS) {
-                const texture = Nri_LoadImageTextureWithMipChain(device, queue, path, 1);
+                const texture = device.loadImageTextureWithMipChain(queue, path, 1);
                 if (!texture) {
                     console.log(`Cannot load the texture ${path}`);
                     return false;
                 }
                 this.textures.push(texture);
-                this.views.push(Nri_CreateTextureView(texture, NriFormat.RGBA8_SRGB));
+                this.views.push(texture.createView(NriFormat.RGBA8_SRGB));
             }
 
             // Donut's blit: its constants (b0), the source (t0), linear clamp sampling (s0).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, 0, MIP_BLIT_CONSTANTS.length * 4, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRootConstants(0, MIP_BLIT_CONSTANTS.length * 4, NriStage.Vertex);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.blitLayout = layout;
             if (!layout) {
                 console.log("Cannot create the blit's layout");
                 return false;
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `shaders/framework/${folder}/rect_vs.bin`, "main") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `shaders/framework/${folder}/rect_vs.bin`, "main") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Pixel, `shaders/framework/${folder}/blit_ps.bin`, "main",
+                loaded = desc.addShaderPermutation(NriShaderStage.Pixel, `shaders/framework/${folder}/blit_ps.bin`, "main",
                     "TEXTURE_ARRAY=0") != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA8_SRGB, NriColorWrite.RGBA);
-            this.blitPipeline = loaded ? Nri_CreatePipelineFromDesc(device, layout, desc) : null;
-            Nri_DestroyPipelineDesc(desc);
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setColor(NriFormat.RGBA8_SRGB, NriColorWrite.RGBA);
+            this.blitPipeline = loaded ? device.createPipelineFromDesc(layout, desc) : null;
+            desc.destroy();
             if (!this.blitPipeline) {
                 console.log("Cannot load Donut's blit shaders");
                 return false;
             }
-            this.linearClamp = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            this.linearClamp = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
             return true;
         }
 
@@ -320,55 +321,55 @@ namespace RtParticlesNri {
         blitSetCount(): int {
             let count = 0;
             for (const texture of this.textures) {
-                count += Nri_GetTextureMipNum(texture) - 1;
+                count += texture.getMipNum() - 1;
             }
             return count;
         }
 
-        createBlits(descriptorPool: NriDescriptorPoolHandle): boolean {
+        createBlits(descriptorPool: NriDescriptorPool): boolean {
             const layout = this.blitLayout;
             const linearClamp = this.linearClamp;
             if (!layout || !linearClamp) {
                 return false;
             }
             for (const texture of this.textures) {
-                const mipNum = Nri_GetTextureMipNum(texture);
-                const width = Nri_GetTextureWidth(texture);
-                const height = Nri_GetTextureHeight(texture);
+                const mipNum = texture.getMipNum();
+                const width = texture.getWidth();
+                const height = texture.getHeight();
                 for (let mip = 1; mip < mipNum; mip++) {
-                    const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+                    const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
                     if (!set) {
                         return false;
                     }
-                    const sourceView = Nri_CreateTextureMipView(texture, NriFormat.RGBA8_SRGB, mip - 1);
-                    Nri_UpdateDescriptor(set, 0, 0, sourceView);
-                    Nri_UpdateDescriptor(set, 1, 0, linearClamp);
+                    const sourceView = texture.createMipView(NriFormat.RGBA8_SRGB, mip - 1);
+                    set.updateDescriptor(0, 0, sourceView);
+                    set.updateDescriptor(1, 0, linearClamp);
                     this.blits.push(new MipBlit(texture, mip, Math.max(width >> mip, 1), Math.max(height >> mip, 1),
-                        Nri_CreateColorAttachmentMipView(texture, NriFormat.RGBA8_SRGB, mip), sourceView, set));
+                        texture.createColorAttachmentMipView(NriFormat.RGBA8_SRGB, mip), sourceView, set));
                 }
             }
             return true;
         }
 
         // The mip chains, once (the first frame, before the textures are read; the pool set).
-        recordBlits(commandBuffer: NriCommandBufferHandle) {
+        recordBlits(commandBuffer: NriCommandBuffer) {
             const layout = this.blitLayout;
             const pipeline = this.blitPipeline;
             if (this.blitted || !layout || !pipeline) {
                 return;
             }
             for (const blit of this.blits) {
-                Nri_CmdTextureMipBarrier(commandBuffer, blit.texture, blit.mip, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, blit.attachment);
-                Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, blit.width, blit.height);
-                Nri_CmdSetScissor(commandBuffer, 0, 0, blit.width, blit.height);
-                Nri_CmdSetPipelineLayout(commandBuffer, layout);
-                Nri_CmdSetPipeline(commandBuffer, pipeline);
-                Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.blitConstants[0]), MIP_BLIT_CONSTANTS.length * 4);
-                Nri_CmdSetDescriptorSet(commandBuffer, 0, blit.set);
-                Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
-                Nri_CmdEndRendering(commandBuffer);
-                Nri_CmdTextureMipBarrier(commandBuffer, blit.texture, blit.mip, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+                commandBuffer.textureMipBarrier(blit.texture, blit.mip, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(blit.attachment);
+                commandBuffer.setViewport(0.0, 0.0, blit.width, blit.height);
+                commandBuffer.setScissor(0, 0, blit.width, blit.height);
+                commandBuffer.setPipelineLayout(layout);
+                commandBuffer.setPipeline(pipeline);
+                commandBuffer.setRootConstants(0, Ref(this.blitConstants[0]), MIP_BLIT_CONSTANTS.length * 4);
+                commandBuffer.setDescriptorSet(0, blit.set);
+                commandBuffer.draw(4, 1, 0, 0);
+                commandBuffer.endRendering();
+                commandBuffer.textureMipBarrier(blit.texture, blit.mip, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
             }
             this.blitted = true;
         }
@@ -376,26 +377,26 @@ namespace RtParticlesNri {
         // After the device is idle (the sets go with their pool).
         destroy() {
             for (const blit of this.blits) {
-                Nri_DestroyDescriptor(blit.attachment);
-                Nri_DestroyDescriptor(blit.sourceView);
+                blit.attachment.destroy();
+                blit.sourceView.destroy();
             }
             for (const view of this.views) {
-                Nri_DestroyDescriptor(view);
+                view.destroy();
             }
             for (const texture of this.textures) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
             const pipeline = this.blitPipeline;
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
             const layout = this.blitLayout;
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
             const linearClamp = this.linearClamp;
             if (linearClamp) {
-                Nri_DestroyDescriptor(linearClamp);
+                linearClamp.destroy();
             }
         }
     }
@@ -410,8 +411,8 @@ namespace RtParticlesNri {
     // over it. The left mouse button orbits the camera (Donut's ThirdPersonCamera), the wheel zooms,
     // Space pauses the particles.
     class RtParticles {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
@@ -442,32 +443,32 @@ namespace RtParticlesNri {
         // -noUI: no settings window (the Donut example adds no ImGui pass then).
         noUI: boolean = false;
 
-        // The scene with the particle mesh: its buffers (Nri_CreateDonutSceneBuffer's) and their views,
+        // The scene with the particle mesh: its buffers (NriDevice.createDonutSceneBuffer's) and their views,
         // its textures (the bindless array's first), its BLASes; the particle mesh's instance and
         // material; the unit AABB's BLAS; the TLAS built every frame.
-        private scene: NriDonutSceneHandle | null = null;
-        private sceneBuffers: NriBufferHandle[] = [];
-        private sceneBufferViews: NriDescriptorHandle[] = [];
+        private scene: NriDonutScene | null = null;
+        private sceneBuffers: NriBuffer[] = [];
+        private sceneBufferViews: NriDescriptor[] = [];
         private sceneTextures: DonutSceneTextures = new DonutSceneTextures();
-        private accelStructs: NriDonutSceneAccelStructsHandle | null = null;
+        private accelStructs: NriDonutSceneAccelStructs | null = null;
         private sceneInstanceCount: int = 0;
-        private sceneBlases: NriAccelerationStructureHandle[] = [];
+        private sceneBlases: NriAccelerationStructure[] = [];
         // Each scene instance's transform, 12 floats.
         private sceneTransforms: f32[] = [];
         private particleInstance: int = 0;
         private particleMaterial: int = 0;
-        private particleBlas: NriUpdatableBlasHandle | null = null;
-        private intersectionBlas: NriAccelerationStructureHandle | null = null;
-        private topLevelAS: NriTopLevelASHandle | null = null;
-        private topLevelASView: NriDescriptorHandle | null = null;
+        private particleBlas: NriUpdatableBlas | null = null;
+        private intersectionBlas: NriAccelerationStructure | null = null;
+        private topLevelAS: NriTopLevelAS | null = null;
+        private topLevelASView: NriDescriptor | null = null;
         private identity: f32[] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         private particleTransform: f32[] = zeros(12);
 
         // The environment map and the particle textures, after the scene's in the bindless texture array.
-        private environmentMap: NriTextureHandle | null = null;
-        private environmentMapView: NriDescriptorHandle | null = null;
+        private environmentMap: NriTexture | null = null;
+        private environmentMapView: NriDescriptor | null = null;
         private particleTextures: ParticleTextures = new ParticleTextures();
-        private textureViews: NriDescriptorHandle[] = [];
+        private textureViews: NriDescriptor[] = [];
         private environmentMapIndex: int = 0;
         private particleTextureIndices: int[] = [];
         // The particle texture last given to the particle mesh's material, and whether the scene has yet
@@ -477,18 +478,18 @@ namespace RtParticlesNri {
 
         // The compute pass: its layout, its pipeline ((re)created when updatePipeline is set), the color
         // buffer it writes (RGBA16F; the state it's in between frames), the sampler, the blit.
-        private layout: NriPipelineLayoutHandle | null = null;
-        private pipeline: NriPipelineHandle | null = null;
-        private textureSet: NriDescriptorSetHandle | null = null;
-        private colorBuffer: NriTextureHandle | null = null;
-        private colorStorage: NriDescriptorHandle | null = null;
-        private colorView: NriDescriptorHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private pipeline: NriPipeline | null = null;
+        private textureSet: NriDescriptorSet | null = null;
+        private colorBuffer: NriTexture | null = null;
+        private colorStorage: NriDescriptor | null = null;
+        private colorView: NriDescriptor | null = null;
         private colorState: NriTextureState = NriTextureState.Storage;
-        private anisotropicWrap: NriDescriptorHandle | null = null;
+        private anisotropicWrap: NriDescriptor | null = null;
         private blit: DonutBlit = new DonutBlit();
-        private blitSet: NriDescriptorSetHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
+        private blitSet: NriDescriptorSet | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private constantBuffer: NriBuffer | null = null;
         private constantStride: int = 0;
         // The queued frame whose particle mesh buffers and ParticleInfo hold the particles the
         // acceleration structures were last built of (-1: none yet).
@@ -513,11 +514,11 @@ namespace RtParticlesNri {
         private projMatrix: f32[] = zeros(16);
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < MAX_PARTICLES; i++) {
                 this.particles.push(new ParticleEntity());
             }
@@ -531,13 +532,13 @@ namespace RtParticlesNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -550,19 +551,19 @@ namespace RtParticlesNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: blitted into through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -573,7 +574,7 @@ namespace RtParticlesNri {
                 this.unsupportedReason = "No D3D11 shaders (ray queries need D3D12 or Vulkan)";
                 return 0;
             }
-            if (Nri_IsFeatureSupported(device, NriFeature.RayQuery) == 0) {
+            if (device.isFeatureSupported(NriFeature.RayQuery) == 0) {
                 this.unsupportedReason = "The graphics device does not support Ray Queries";
                 return 0;
             }
@@ -587,7 +588,7 @@ namespace RtParticlesNri {
             }
 
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -600,23 +601,23 @@ namespace RtParticlesNri {
             this.camera.setRotation(radians(225.0), radians(20.0));
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
         }
 
         // The environment map and the particle textures (Donut_LoadBindlessTexture's).
-        loadTextures(device: NriDeviceHandle) {
-            const environmentMap = Nri_LoadDdsTexture(device, this.queue, ENVIRONMENT_MAP_PATH, 0);
+        loadTextures(device: NriDevice) {
+            const environmentMap = device.loadDdsTexture(this.queue, ENVIRONMENT_MAP_PATH, 0);
             this.environmentMap = environmentMap;
             if (!environmentMap) {
                 console.log("Cannot load the particle textures");
                 return false;
             }
-            this.environmentMapView = Nri_CreateTextureView(environmentMap, Nri_GetTextureFormat(environmentMap));
+            this.environmentMapView = environmentMap.createView(environmentMap.getFormat());
             if (!this.particleTextures.load(device, this.queue, this.folder)) {
                 console.log("Cannot load the particle textures");
                 return false;
@@ -628,27 +629,27 @@ namespace RtParticlesNri {
         // instance and material after the scene's, its buffers bindless buffers 2 and 3), the scene's
         // buffers (with the particle mesh's InstanceData, GeometryData and MaterialConstants), its
         // textures; the particle mesh's BLAS, the unit AABB's, the TLAS.
-        loadScene(device: NriDeviceHandle, queuedFrameNum: int) {
-            const scene = Nri_LoadDonutScene(SCENE_PATH);
+        loadScene(device: NriDevice, queuedFrameNum: int) {
+            const scene = NriDonutScene.load(SCENE_PATH);
             this.scene = scene;
             if (!scene) {
                 console.log(`Cannot load the scene ${SCENE_PATH}`);
                 return false;
             }
-            if (Nri_GetDonutSceneNodePosition(SCENE_PATH, "/Emitter", Ref(this.emitterPosition[0])) == 0) {
+            if (Nri.getDonutSceneNodePosition(SCENE_PATH, "/Emitter", Ref(this.emitterPosition[0])) == 0) {
                 console.log("The scene has no emitter node");
             }
 
             // Donut_BuildSceneBLASes: the scene's meshes' (the particle mesh has its own).
-            const accelStructs = Nri_BuildDonutSceneAccelStructs(device, this.queue, scene);
+            const accelStructs = device.buildDonutSceneAccelStructs(this.queue, scene);
             this.accelStructs = accelStructs;
             if (!accelStructs) {
                 console.log("Cannot build the scene's acceleration structures");
                 return false;
             }
-            this.sceneInstanceCount = Nri_GetDonutSceneInstanceCount(scene);
+            this.sceneInstanceCount = scene.getInstanceCount();
             for (let i = 0; i < this.sceneInstanceCount; i++) {
-                const blas = Nri_GetDonutSceneInstanceBlas(scene, accelStructs, i);
+                const blas = scene.getInstanceBlas(accelStructs, i);
                 if (!blas) {
                     console.log("Cannot build the scene's acceleration structures");
                     return false;
@@ -657,12 +658,12 @@ namespace RtParticlesNri {
                 for (let k = 0; k < 12; k++) {
                     this.sceneTransforms.push(0.0);
                 }
-                Nri_GetDonutSceneInstanceTransform(scene, i, Ref(this.sceneTransforms[i * 12]));
+                scene.getInstanceTransform(i, Ref(this.sceneTransforms[i * 12]));
             }
 
-            this.particleInstance = Nri_AddDonutSceneDynamicMesh(scene, MAX_VERTICES, MAX_INDICES, BINDLESS_PARTICLE_VERTICES,
+            this.particleInstance = scene.addDynamicMesh(MAX_VERTICES, MAX_INDICES, BINDLESS_PARTICLE_VERTICES,
                 BINDLESS_PARTICLE_INDICES);
-            this.particleMaterial = Nri_GetDonutSceneGeometryMaterial(scene, this.particleInstance, 0);
+            this.particleMaterial = scene.getGeometryMaterial(this.particleInstance, 0);
 
             // The bindless textures: the scene's (its materials' numbers), the environment map, the particle
             // textures.
@@ -687,13 +688,13 @@ namespace RtParticlesNri {
             // first refreshScene).
             this.applyParticleTexture();
             for (let which = 0; which < SCENE_BUFFER_COUNT; which++) {
-                const buffer = Nri_CreateDonutSceneBuffer(device, this.queue, scene, which);
+                const buffer = device.createDonutSceneBuffer(this.queue, scene, which);
                 if (!buffer) {
                     console.log("Cannot create the scene's buffers");
                     return false;
                 }
                 this.sceneBuffers.push(buffer);
-                const view = Nri_CreateStructuredBufferView(buffer, 0);
+                const view = buffer.createStructuredView(0);
                 if (!view) {
                     console.log("Cannot create the scene's buffers");
                     return false;
@@ -704,20 +705,20 @@ namespace RtParticlesNri {
             // Donut_CreateDynamicMesh's BLAS (GetMeshBlasDesc's: non-opaque, its material being alpha-blended;
             // prefer fast trace), the unit AABB's (Donut_CreateUnitAABBBlas'), the TLAS (the scene's
             // instances, the particle mesh's included, plus one per particle).
-            this.particleBlas = Nri_CreateDynamicTriangleBlas(device, MAX_VERTICES, 12, MAX_INDICES, PREFER_FAST_TRACE, 0);
-            const desc = Nri_CreateBlasDesc();
+            this.particleBlas = device.createDynamicTriangleBlas(MAX_VERTICES, 12, MAX_INDICES, PREFER_FAST_TRACE, 0);
+            const desc = NriBlasDesc.create();
             const aabb: f32[] = [-1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
-            Nri_BlasDescAddAabbs(desc, Ref(aabb[0]), 1);
-            this.intersectionBlas = Nri_BuildBlasFromDesc(device, this.queue, desc, NriAccelerationStructureFlags.None);
-            Nri_DestroyBlasDesc(desc);
-            const topLevelAS = Nri_CreateTopLevelAS(device, Nri_GetDonutSceneInstanceCount(scene) + MAX_PARTICLES,
+            desc.addAabbs(Ref(aabb[0]), 1);
+            this.intersectionBlas = device.buildBlasFromDesc(this.queue, desc, NriAccelerationStructureFlags.None);
+            desc.destroy();
+            const topLevelAS = device.createTopLevelAS(scene.getInstanceCount() + MAX_PARTICLES,
                 NriAccelerationStructureFlags.None, queuedFrameNum);
             this.topLevelAS = topLevelAS;
             if (!this.particleBlas || !this.intersectionBlas || !topLevelAS) {
                 console.log("Cannot create the particles' acceleration structures");
                 return false;
             }
-            this.topLevelASView = Nri_CreateAccelerationStructureDescriptor(Nri_GetTopLevelAccelerationStructure(topLevelAS));
+            this.topLevelASView = topLevelAS.getTopLevelAccelerationStructure().createDescriptor();
             if (!this.topLevelASView) {
                 console.log("Cannot create the particles' acceleration structures");
                 return false;
@@ -731,21 +732,21 @@ namespace RtParticlesNri {
             if (!scene) {
                 return;
             }
-            Nri_SetDonutSceneMaterialBaseTexture(scene, this.particleMaterial, this.particleTextureIndices[this.particleTexture]);
+            scene.setMaterialBaseTexture(this.particleMaterial, this.particleTextureIndices[this.particleTexture]);
             this.appliedParticleTexture = this.particleTexture;
             this.materialDirty = true;
         }
 
         // The color buffer the compute shader writes (createUAVTextureForFrameWithFormat's RGBA16F).
-        createTargets(device: NriDeviceHandle) {
-            const colorBuffer = Nri_CreateStorageTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+        createTargets(device: NriDevice) {
+            const colorBuffer = device.createStorageTexture(this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
             this.colorBuffer = colorBuffer;
             if (!colorBuffer) {
                 console.log("Cannot create the color buffer");
                 return false;
             }
-            this.colorStorage = Nri_CreateStorageTextureView(colorBuffer, NriFormat.RGBA16_SFLOAT);
-            this.colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA16_SFLOAT);
+            this.colorStorage = colorBuffer.createStorageView(NriFormat.RGBA16_SFLOAT);
+            this.colorView = colorBuffer.createView(NriFormat.RGBA16_SFLOAT);
             return true;
         }
 
@@ -756,7 +757,7 @@ namespace RtParticlesNri {
             this.colorView = null;
             const colorBuffer = this.colorBuffer;
             if (colorBuffer) {
-                Nri_DestroyTexture(colorBuffer);
+                colorBuffer.destroy();
             }
             this.colorBuffer = null;
         }
@@ -770,11 +771,11 @@ namespace RtParticlesNri {
                 return;
             }
             for (const queuedFrame of this.queuedFrames) {
-                Nri_UpdateDescriptor(queuedFrame.set, 4, 0, colorStorage);
+                queuedFrame.set.updateDescriptor(4, 0, colorStorage);
             }
             const blitSet = this.blitSet;
             if (blitSet) {
-                Nri_UpdateDescriptor(blitSet, 0, 0, colorView);
+                blitSet.updateDescriptor(0, 0, colorView);
             }
         }
 
@@ -782,23 +783,23 @@ namespace RtParticlesNri {
         // GeometryData, MaterialConstants and ParticleInfo (t1 to t4), the sampler (s0), the color buffer
         // (u0); the bindless arrays: on Vulkan set 1, the buffers at binding 0 and the textures at 1 (the
         // shader's vk::binding), on D3D12 spaces 1 and 2.
-        createLayout(device: NriDeviceHandle) {
+        createLayout(device: NriDevice) {
             const textureCount = this.textureViews.length;
             const arrayFlags = NriRangeFlags.PartiallyBound | NriRangeFlags.Array;
-            const desc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 1, 4, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(desc, 1, 0, BINDLESS_BUFFER_COUNT, NriDescriptorType.StructuredBuffer, NriStage.Compute, arrayFlags);
+            const desc = NriPipelineLayoutDesc.create();
+            desc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
+            desc.addRange(0, 0, 1, NriDescriptorType.AccelerationStructure, NriStage.Compute, NriRangeFlags.None);
+            desc.addRange(0, 1, 4, NriDescriptorType.StructuredBuffer, NriStage.Compute, NriRangeFlags.None);
+            desc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Compute, NriRangeFlags.None);
+            desc.addRange(0, 0, 1, NriDescriptorType.StorageTexture, NriStage.Compute, NriRangeFlags.None);
+            desc.addRange(1, 0, BINDLESS_BUFFER_COUNT, NriDescriptorType.StructuredBuffer, NriStage.Compute, arrayFlags);
             if (this.vulkan) {
-                Nri_PipelineLayoutDescAddRange(desc, 1, 1, textureCount, NriDescriptorType.Texture, NriStage.Compute, arrayFlags);
+                desc.addRange(1, 1, textureCount, NriDescriptorType.Texture, NriStage.Compute, arrayFlags);
             } else {
-                Nri_PipelineLayoutDescAddRange(desc, 2, 0, textureCount, NriDescriptorType.Texture, NriStage.Compute, arrayFlags);
+                desc.addRange(2, 0, textureCount, NriDescriptorType.Texture, NriStage.Compute, arrayFlags);
             }
-            this.layout = Nri_CreatePipelineLayoutFromDesc(device, desc);
-            Nri_DestroyPipelineLayoutDesc(desc);
+            this.layout = device.createPipelineLayoutFromDesc(desc);
+            desc.destroy();
             if (!this.layout) {
                 console.log("Cannot create the pipeline layout");
                 return false;
@@ -808,18 +809,18 @@ namespace RtParticlesNri {
 
         // The compute pipeline for mlabFragments (Donut's createShaderWithDefine of MLAB_FRAGMENTS); false on
         // failure. The old one, if any, after the device is idle.
-        createComputePipeline(device: NriDeviceHandle) {
+        createComputePipeline(device: NriDevice) {
             const layout = this.layout;
             if (!layout) {
                 return false;
             }
             const oldPipeline = this.pipeline;
             if (oldPipeline) {
-                Nri_DeviceWaitIdle(device);
-                Nri_DestroyPipeline(oldPipeline);
+                device.waitIdle();
+                oldPipeline.destroy();
                 this.pipeline = null;
             }
-            this.pipeline = Nri_CreateComputePipelinePermutation(device, layout, `shaders/rt_particles/${this.folder}/rt_particles.bin`,
+            this.pipeline = device.createComputePipelinePermutation(layout, `shaders/rt_particles/${this.folder}/rt_particles.bin`,
                 "main", `MLAB_FRAGMENTS=${this.mlabFragments}`);
             if (!this.pipeline) {
                 console.log("Cannot load the rt_particles shader");
@@ -831,7 +832,7 @@ namespace RtParticlesNri {
         // The sampler, the constant buffer (a queued frame's GlobalConstants each), the queued frames
         // (their particle mesh and ParticleInfo buffers, their sets), the bindless texture set (D3D12),
         // the blits' sets.
-        createDescriptorSets(device: NriDeviceHandle, queuedFrameNum: int) {
+        createDescriptorSets(device: NriDevice, queuedFrameNum: int) {
             const layout = this.layout;
             const topLevelASView = this.topLevelASView;
             const colorStorage = this.colorStorage;
@@ -839,19 +840,19 @@ namespace RtParticlesNri {
             if (!layout || !topLevelASView || !colorStorage || !colorView) {
                 return false;
             }
-            const anisotropicWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat, 16);
+            const anisotropicWrap = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat, 16);
             this.anisotropicWrap = anisotropicWrap;
 
-            this.viewFloats = Nri_GetDonutConstantsSize(0) / 4;
+            this.viewFloats = Nri.getDonutConstantsSize(0) / 4;
             this.constantsSize = (this.viewFloats + GLOBAL_TAIL_FLOATS) * 4;
             this.constants = zeros(this.viewFloats + GLOBAL_TAIL_FLOATS);
             this.constantStride = align(this.constantsSize);
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * this.constantStride, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * this.constantStride, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
 
             const textureCount = this.textureViews.length;
             const blitCount = this.sceneTextures.blitSetCount() + this.particleTextures.blitSetCount();
-            const descriptorPool = Nri_CreateDescriptorPoolWithAccelerationStructures(device,
+            const descriptorPool = device.createDescriptorPoolWithAccelerationStructures(
                 2 * queuedFrameNum + 2 + blitCount,
                 queuedFrameNum + 1 + blitCount,
                 queuedFrameNum,
@@ -867,22 +868,22 @@ namespace RtParticlesNri {
 
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const set = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
-                const bindlessSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 1, 0);
-                const constantView = Nri_CreateConstantBufferView(constantBuffer, i * this.constantStride, this.constantStride);
+                const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
+                const bindlessSet = descriptorPool.allocateDescriptorSet(layout, 1, 0);
+                const constantView = constantBuffer.createConstantView(i * this.constantStride, this.constantStride);
                 // The particle mesh's buffers (raw, read by the shader and the BLAS build) and the
                 // ParticleInfo structures, written by the CPU every frame.
-                const vertexBuffer = Nri_CreateHostBufferWithStride(device, VERTEX_BUFFER_SIZE, NriBufferUsage.AccelerationStructureInput, 4);
-                const indexBuffer = Nri_CreateHostBufferWithStride(device, MAX_INDICES * 4, NriBufferUsage.AccelerationStructureInput, 4);
-                const particleInfoBuffer = Nri_CreateHostBufferWithStride(device, MAX_PARTICLES * PARTICLE_INFO_FLOATS * 4,
+                const vertexBuffer = device.createHostBufferWithStride(VERTEX_BUFFER_SIZE, NriBufferUsage.AccelerationStructureInput, 4);
+                const indexBuffer = device.createHostBufferWithStride(MAX_INDICES * 4, NriBufferUsage.AccelerationStructureInput, 4);
+                const particleInfoBuffer = device.createHostBufferWithStride(MAX_PARTICLES * PARTICLE_INFO_FLOATS * 4,
                     NriBufferUsage.StructuredBuffer, PARTICLE_INFO_FLOATS * 4);
                 if (!set || !bindlessSet || !constantView || !vertexBuffer || !indexBuffer || !particleInfoBuffer) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                const vertexView = Nri_CreateStructuredBufferView(vertexBuffer, 0);
-                const indexView = Nri_CreateStructuredBufferView(indexBuffer, 0);
-                const particleInfoView = Nri_CreateStructuredBufferView(particleInfoBuffer, 0);
+                const vertexView = vertexBuffer.createStructuredView(0);
+                const indexView = indexBuffer.createStructuredView(0);
+                const particleInfoView = particleInfoBuffer.createStructuredView(0);
                 if (!vertexView || !indexView || !particleInfoView) {
                     console.log("Cannot create the descriptor sets");
                     return false;
@@ -890,33 +891,33 @@ namespace RtParticlesNri {
                 this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), set, bindlessSet,
                     constantView, vertexBuffer, vertexView, indexBuffer, indexView, particleInfoBuffer, particleInfoView));
 
-                Nri_UpdateDescriptor(set, 0, 0, constantView);
-                Nri_UpdateDescriptor(set, 1, 0, topLevelASView);
+                set.updateDescriptor(0, 0, constantView);
+                set.updateDescriptor(1, 0, topLevelASView);
                 for (let k = 0; k < 3; k++) {
-                    Nri_UpdateDescriptor(set, 2, k, this.sceneBufferViews[2 + k]);
+                    set.updateDescriptor(2, k, this.sceneBufferViews[2 + k]);
                 }
-                Nri_UpdateDescriptor(set, 2, 3, particleInfoView);
-                Nri_UpdateDescriptor(set, 3, 0, anisotropicWrap);
-                Nri_UpdateDescriptor(set, 4, 0, colorStorage);
-                Nri_UpdateDescriptor(bindlessSet, 0, BINDLESS_SCENE_VERTICES, this.sceneBufferViews[0]);
-                Nri_UpdateDescriptor(bindlessSet, 0, BINDLESS_SCENE_INDICES, this.sceneBufferViews[1]);
-                Nri_UpdateDescriptor(bindlessSet, 0, BINDLESS_PARTICLE_VERTICES, vertexView);
-                Nri_UpdateDescriptor(bindlessSet, 0, BINDLESS_PARTICLE_INDICES, indexView);
+                set.updateDescriptor(2, 3, particleInfoView);
+                set.updateDescriptor(3, 0, anisotropicWrap);
+                set.updateDescriptor(4, 0, colorStorage);
+                bindlessSet.updateDescriptor(0, BINDLESS_SCENE_VERTICES, this.sceneBufferViews[0]);
+                bindlessSet.updateDescriptor(0, BINDLESS_SCENE_INDICES, this.sceneBufferViews[1]);
+                bindlessSet.updateDescriptor(0, BINDLESS_PARTICLE_VERTICES, vertexView);
+                bindlessSet.updateDescriptor(0, BINDLESS_PARTICLE_INDICES, indexView);
                 if (this.vulkan) {
                     for (let t = 0; t < textureCount; t++) {
-                        Nri_UpdateDescriptor(bindlessSet, 1, t, this.textureViews[t]);
+                        bindlessSet.updateDescriptor(1, t, this.textureViews[t]);
                     }
                 }
             }
             if (!this.vulkan) {
-                const textureSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 2, 0);
+                const textureSet = descriptorPool.allocateDescriptorSet(layout, 2, 0);
                 this.textureSet = textureSet;
                 if (!textureSet) {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
                 for (let t = 0; t < textureCount; t++) {
-                    Nri_UpdateDescriptor(textureSet, 0, t, this.textureViews[t]);
+                    textureSet.updateDescriptor(0, t, this.textureViews[t]);
                 }
             }
 
@@ -935,27 +936,27 @@ namespace RtParticlesNri {
 
         // The settings window (the sample's UserInterface).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Settings", 1);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Settings", 1);
 
-            this.enableAnimations = Nri_ImguiCheckbox("Animate particles (Space)", this.enableAnimations ? 1 : 0) != 0;
-            this.alwaysUpdateOrientation = Nri_ImguiCheckbox("Update orientation when paused", this.alwaysUpdateOrientation ? 1 : 0) != 0;
-            Nri_ImguiSeparator();
+            this.enableAnimations = NriImgui.checkbox("Animate particles (Space)", this.enableAnimations ? 1 : 0) != 0;
+            this.alwaysUpdateOrientation = NriImgui.checkbox("Update orientation when paused", this.alwaysUpdateOrientation ? 1 : 0) != 0;
+            NriImgui.separator();
 
-            Nri_ImguiText("Orientation mode:");
-            Nri_ImguiIndent();
-            this.orientationMode = Nri_ImguiCombo("##orientationMode", this.orientationMode,
+            NriImgui.text("Orientation mode:");
+            NriImgui.indent();
+            this.orientationMode = NriImgui.combo("##orientationMode", this.orientationMode,
                 "Accumulated Vector Transform|Quaternion Rotation|Beam or Vertical Sprite|Basis (RTG2)");
-            Nri_ImguiUnindent();
-            Nri_ImguiSeparator();
+            NriImgui.unindent();
+            NriImgui.separator();
 
-            Nri_ImguiText("Reorient particles:");
-            Nri_ImguiIndent();
-            this.reorientParticlesInPrimaryRays = Nri_ImguiCheckbox("In primary rays", this.reorientParticlesInPrimaryRays ? 1 : 0) != 0;
-            this.reorientParticlesInSecondaryRays = Nri_ImguiCheckbox("In secondary rays", this.reorientParticlesInSecondaryRays ? 1 : 0) != 0;
-            Nri_ImguiUnindent();
-            Nri_ImguiSeparator();
+            NriImgui.text("Reorient particles:");
+            NriImgui.indent();
+            this.reorientParticlesInPrimaryRays = NriImgui.checkbox("In primary rays", this.reorientParticlesInPrimaryRays ? 1 : 0) != 0;
+            this.reorientParticlesInSecondaryRays = NriImgui.checkbox("In secondary rays", this.reorientParticlesInSecondaryRays ? 1 : 0) != 0;
+            NriImgui.unindent();
+            NriImgui.separator();
 
             // The MLAB fragment count (the sample's combo box of 1, 2, 4, 8).
             let current = 0;
@@ -964,43 +965,43 @@ namespace RtParticlesNri {
                     current = i;
                 }
             }
-            Nri_ImguiPushItemWidth(40.0);
-            const selected = Nri_ImguiCombo("Blending fragments", current, "1|2|4|8");
-            Nri_ImguiPopItemWidth();
+            NriImgui.pushItemWidth(40.0);
+            const selected = NriImgui.combo("Blending fragments", current, "1|2|4|8");
+            NriImgui.popItemWidth();
             if (g_MlabFragmentCounts[selected] != this.mlabFragments) {
                 this.mlabFragments = g_MlabFragmentCounts[selected];
                 this.updatePipeline = true;
             }
-            Nri_ImguiSeparator();
+            NriImgui.separator();
 
-            Nri_ImguiText("Emitter position:");
-            Nri_ImguiIndent();
-            Nri_ImguiDragFloat3("##emitterPosition", Ref(this.emitterPosition[0]), 0.01);
-            Nri_ImguiUnindent();
+            NriImgui.text("Emitter position:");
+            NriImgui.indent();
+            NriImgui.dragFloat3("##emitterPosition", Ref(this.emitterPosition[0]), 0.01);
+            NriImgui.unindent();
 
-            Nri_ImguiText("Particle texture:");
-            Nri_ImguiIndent();
-            this.particleTexture = Nri_ImguiCombo("##particleTexture", this.particleTexture, "Smoke|Logo");
-            Nri_ImguiUnindent();
+            NriImgui.text("Particle texture:");
+            NriImgui.indent();
+            this.particleTexture = NriImgui.combo("##particleTexture", this.particleTexture, "Smoke|Logo");
+            NriImgui.unindent();
 
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's Animate: the camera (its mouse unless the UI has it; nothing moves it in test mode),
         // Space, the particles (each live one moved, a new one emitted 20 times a second).
         animate() {
             if (!this.test) {
-                const mouseFree = !this.imgui || Nri_ImguiWantsMouse() == 0;
+                const mouseFree = !this.imgui || NriImgui.wantsMouse() == 0;
                 this.camera.mouse(this.sample, mouseFree);
-                if (Nri_IsKeyToggled(this.sample, NriKey.Space) != 0) {
+                if (this.sample.isKeyToggled(NriKey.Space) != 0) {
                     this.enableAnimations = !this.enableAnimations;
                 }
             }
             this.camera.animate();
 
             // Donut's test mode steps the animation by float(1/60) a frame.
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             if (this.enableAnimations) {
                 this.wallclockTime += elapsedSeconds;
 
@@ -1032,7 +1033,7 @@ namespace RtParticlesNri {
         // The UI's changes that need the device: the compute pipeline for another fragment count, the
         // particle mesh's material for another texture (the scene's material buffer made anew). False on
         // failure.
-        applySettings(device: NriDeviceHandle) {
+        applySettings(device: NriDevice) {
             if (this.updatePipeline) {
                 if (!this.createComputePipeline(device)) {
                     return false;
@@ -1042,23 +1043,23 @@ namespace RtParticlesNri {
             const scene = this.scene;
             if (scene) {
                 if (this.appliedParticleTexture != this.particleTexture) {
-                    Nri_DeviceWaitIdle(device);
+                    device.waitIdle();
                     this.applyParticleTexture();
-                    const buffer = Nri_CreateDonutSceneBuffer(device, this.queue, scene, SCENE_BUFFER_MATERIALS);
+                    const buffer = device.createDonutSceneBuffer(this.queue, scene, SCENE_BUFFER_MATERIALS);
                     if (!buffer) {
                         return false;
                     }
-                    const view = Nri_CreateStructuredBufferView(buffer, 0);
+                    const view = buffer.createStructuredView(0);
                     if (!view) {
-                        Nri_DestroyBuffer(buffer);
+                        buffer.destroy();
                         return false;
                     }
-                    Nri_DestroyDescriptor(this.sceneBufferViews[SCENE_BUFFER_MATERIALS]);
-                    Nri_DestroyBuffer(this.sceneBuffers[SCENE_BUFFER_MATERIALS]);
+                    this.sceneBufferViews[SCENE_BUFFER_MATERIALS].destroy();
+                    this.sceneBuffers[SCENE_BUFFER_MATERIALS].destroy();
                     this.sceneBuffers[SCENE_BUFFER_MATERIALS] = buffer;
                     this.sceneBufferViews[SCENE_BUFFER_MATERIALS] = view;
                     for (const queuedFrame of this.queuedFrames) {
-                        Nri_UpdateDescriptor(queuedFrame.set, 2, 2, view);
+                        queuedFrame.set.updateDescriptor(2, 2, view);
                     }
                 }
             }
@@ -1113,12 +1114,12 @@ namespace RtParticlesNri {
                 const baseVertex = numParticles * VERTICES_PER_QUAD;
 
                 // Indices for a quad.
-                Nri_StoreInt32(Ref(this.indices[baseIndex + 0]), baseVertex + 0);
-                Nri_StoreInt32(Ref(this.indices[baseIndex + 1]), baseVertex + 1);
-                Nri_StoreInt32(Ref(this.indices[baseIndex + 2]), baseVertex + 2);
-                Nri_StoreInt32(Ref(this.indices[baseIndex + 3]), baseVertex + 0);
-                Nri_StoreInt32(Ref(this.indices[baseIndex + 4]), baseVertex + 2);
-                Nri_StoreInt32(Ref(this.indices[baseIndex + 5]), baseVertex + 3);
+                Nri.storeInt32(Ref(this.indices[baseIndex + 0]), baseVertex + 0);
+                Nri.storeInt32(Ref(this.indices[baseIndex + 1]), baseVertex + 1);
+                Nri.storeInt32(Ref(this.indices[baseIndex + 2]), baseVertex + 2);
+                Nri.storeInt32(Ref(this.indices[baseIndex + 3]), baseVertex + 0);
+                Nri.storeInt32(Ref(this.indices[baseIndex + 4]), baseVertex + 2);
+                Nri.storeInt32(Ref(this.indices[baseIndex + 5]), baseVertex + 3);
 
                 // The quad orientation in world space.
                 const rotation = this.orientationMode == OrientationMode.Beam ? 0.0 : particle.rotation;
@@ -1173,7 +1174,7 @@ namespace RtParticlesNri {
                 this.particleInfos[info + PARTICLE_INFO_Y_AXIS + 0] = worldUpX;
                 this.particleInfos[info + PARTICLE_INFO_Y_AXIS + 1] = worldUpY;
                 this.particleInfos[info + PARTICLE_INFO_Y_AXIS + 2] = worldUpZ;
-                Nri_StoreInt32(Ref(this.particleInfos[info + PARTICLE_INFO_TEXTURE_INDEX]), textureIndex);
+                Nri.storeInt32(Ref(this.particleInfos[info + PARTICLE_INFO_TEXTURE_INDEX]), textureIndex);
                 this.particleInfos[info + PARTICLE_INFO_COLOR_FACTOR + 0] = particle.colorR;
                 this.particleInfos[info + PARTICLE_INFO_COLOR_FACTOR + 1] = particle.colorG;
                 this.particleInfos[info + PARTICLE_INFO_COLOR_FACTOR + 2] = particle.colorB;
@@ -1185,10 +1186,10 @@ namespace RtParticlesNri {
             // Donut_UpdateDynamicMesh's writes (none without particles), the ParticleInfo's.
             if (numParticles > 0) {
                 const vertexCount = numParticles * VERTICES_PER_QUAD;
-                Nri_WriteBuffer(queuedFrame.indexBuffer, 0, Ref(this.indices[0]), numParticles * INDICES_PER_QUAD * 4);
-                Nri_WriteBuffer(queuedFrame.vertexBuffer, 0, Ref(this.positions[0]), vertexCount * 12);
-                Nri_WriteBuffer(queuedFrame.vertexBuffer, TEXCOORD_OFFSET, Ref(this.texCoords[0]), vertexCount * 8);
-                Nri_WriteBuffer(queuedFrame.particleInfoBuffer, 0, Ref(this.particleInfos[0]), numParticles * PARTICLE_INFO_FLOATS * 4);
+                queuedFrame.indexBuffer.write(0, Ref(this.indices[0]), numParticles * INDICES_PER_QUAD * 4);
+                queuedFrame.vertexBuffer.write(0, Ref(this.positions[0]), vertexCount * 12);
+                queuedFrame.vertexBuffer.write(TEXCOORD_OFFSET, Ref(this.texCoords[0]), vertexCount * 8);
+                queuedFrame.particleInfoBuffer.write(0, Ref(this.particleInfos[0]), numParticles * PARTICLE_INFO_FLOATS * 4);
             }
             return numParticles;
         }
@@ -1196,7 +1197,7 @@ namespace RtParticlesNri {
         // The particle mesh's BLAS rebuilt (Donut_UpdateDynamicMesh), then the TLAS: the scene's
         // instances (instance ID its index; the particle mesh with its own mask), plus one scaled AABB
         // instance per active particle for the intersection path (Donut's buildTLAS).
-        recordAccelStructs(commandBuffer: NriCommandBufferHandle, queuedFrameIndex: int, numParticles: int) {
+        recordAccelStructs(commandBuffer: NriCommandBuffer, queuedFrameIndex: int, numParticles: int) {
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const particleBlas = this.particleBlas;
             const intersectionBlas = this.intersectionBlas;
@@ -1204,14 +1205,14 @@ namespace RtParticlesNri {
             if (!particleBlas || !intersectionBlas || !topLevelAS) {
                 return;
             }
-            Nri_CmdBuildDynamicTriangleBlas(commandBuffer, particleBlas, queuedFrame.vertexBuffer, 0, numParticles * VERTICES_PER_QUAD,
+            commandBuffer.buildDynamicTriangleBlas(particleBlas, queuedFrame.vertexBuffer, 0, numParticles * VERTICES_PER_QUAD,
                 queuedFrame.indexBuffer, 0, numParticles * INDICES_PER_QUAD);
 
-            Nri_TopLevelASClearInstances(topLevelAS);
+            topLevelAS.clearInstances();
             for (let i = 0; i < this.sceneInstanceCount; i++) {
-                Nri_TopLevelASAddInstance(topLevelAS, this.sceneBlases[i], Ref(this.sceneTransforms[i * 12]), i, INSTANCE_MASK_OPAQUE, 0, 0);
+                topLevelAS.addInstance(this.sceneBlases[i], Ref(this.sceneTransforms[i * 12]), i, INSTANCE_MASK_OPAQUE, 0, 0);
             }
-            Nri_TopLevelASAddInstance(topLevelAS, Nri_GetUpdatableBlasAccelerationStructure(particleBlas), Ref(this.identity[0]),
+            topLevelAS.addInstance(particleBlas.getAccelerationStructure(), Ref(this.identity[0]),
                 this.particleInstance, INSTANCE_MASK_PARTICLE_GEOMETRY, 0, 0);
 
             // scaling(float(radius)) * translation(float3(position)), as affineToColumnMajor writes it.
@@ -1229,10 +1230,10 @@ namespace RtParticlesNri {
                 t[7] = particle.positionY;
                 t[10] = scale;
                 t[11] = particle.positionZ;
-                Nri_TopLevelASAddInstance(topLevelAS, intersectionBlas, Ref(t[0]), particleIndex, INSTANCE_MASK_INTERSECTION_PARTICLE, 0, 0);
+                topLevelAS.addInstance(intersectionBlas, Ref(t[0]), particleIndex, INSTANCE_MASK_INTERSECTION_PARTICLE, 0, 0);
                 particleIndex++;
             }
-            Nri_CmdBuildTopLevelAS(commandBuffer, topLevelAS, queuedFrameIndex, 0);
+            commandBuffer.buildTopLevelAS(topLevelAS, queuedFrameIndex, 0);
         }
 
         // The queued frame's GlobalConstants: the view (the camera's, reverse depth from 0.1, a 45 degree
@@ -1250,19 +1251,19 @@ namespace RtParticlesNri {
                 this.projMatrix[i] = projection[i];
             }
             const tail = this.viewFloats;
-            Nri_FillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
+            Nri.fillDonutPlanarViewConstants(Ref(this.viewMatrix[0]), Ref(this.projMatrix[0]), this.width, this.height,
                 Ref(this.constants[0]));
             this.constants[tail + GLOBAL_PRIMARY_RAY_CONE_ANGLE] = verticalFovRadians / this.height;
-            Nri_StoreInt32(Ref(this.constants[tail + GLOBAL_REORIENT_PRIMARY]), this.reorientParticlesInPrimaryRays ? 1 : 0);
-            Nri_StoreInt32(Ref(this.constants[tail + GLOBAL_REORIENT_SECONDARY]), this.reorientParticlesInSecondaryRays ? 1 : 0);
-            Nri_StoreInt32(Ref(this.constants[tail + GLOBAL_ORIENTATION_MODE]), this.orientationMode);
-            Nri_StoreInt32(Ref(this.constants[tail + GLOBAL_ENVIRONMENT_MAP]), this.environmentMapIndex);
-            Nri_WriteBuffer(constantBuffer, queuedFrameIndex * this.constantStride, Ref(this.constants[0]), this.constantsSize);
+            Nri.storeInt32(Ref(this.constants[tail + GLOBAL_REORIENT_PRIMARY]), this.reorientParticlesInPrimaryRays ? 1 : 0);
+            Nri.storeInt32(Ref(this.constants[tail + GLOBAL_REORIENT_SECONDARY]), this.reorientParticlesInSecondaryRays ? 1 : 0);
+            Nri.storeInt32(Ref(this.constants[tail + GLOBAL_ORIENTATION_MODE]), this.orientationMode);
+            Nri.storeInt32(Ref(this.constants[tail + GLOBAL_ENVIRONMENT_MAP]), this.environmentMapIndex);
+            constantBuffer.write(queuedFrameIndex * this.constantStride, Ref(this.constants[0]), this.constantsSize);
         }
 
         // The compute shader over the frame (16 x 16 pixels a group) into the color buffer, which then
         // goes to the blit.
-        recordCompute(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordCompute(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.layout;
             const pipeline = this.pipeline;
             const colorBuffer = this.colorBuffer;
@@ -1271,20 +1272,20 @@ namespace RtParticlesNri {
             }
             // (From its creation, already a storage texture: D3D12 wants the states to differ.)
             if (this.colorState != NriTextureState.Storage) {
-                Nri_CmdTextureBarrier(commandBuffer, colorBuffer, this.colorState, NriTextureState.Storage);
+                commandBuffer.textureBarrier(colorBuffer, this.colorState, NriTextureState.Storage);
             }
-            Nri_CmdSetComputePipelineLayout(commandBuffer, layout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, queuedFrame.set);
-            Nri_CmdSetComputeDescriptorSet(commandBuffer, 1, queuedFrame.bindlessSet);
+            commandBuffer.setComputePipelineLayout(layout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setComputeDescriptorSet(0, queuedFrame.set);
+            commandBuffer.setComputeDescriptorSet(1, queuedFrame.bindlessSet);
             const textureSet = this.textureSet;
             if (textureSet) {
-                Nri_CmdSetComputeDescriptorSet(commandBuffer, 2, textureSet);
+                commandBuffer.setComputeDescriptorSet(2, textureSet);
             }
             const groupsX: int = Math.floor((this.width + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
             const groupsY: int = Math.floor((this.height + COMPUTE_GROUP_SIZE - 1) / COMPUTE_GROUP_SIZE);
-            Nri_CmdDispatch(commandBuffer, groupsX, groupsY, 1);
-            Nri_CmdTextureBarrier(commandBuffer, colorBuffer, NriTextureState.Storage, NriTextureState.ShaderResource);
+            commandBuffer.dispatch(groupsX, groupsY, 1);
+            commandBuffer.textureBarrier(colorBuffer, NriTextureState.Storage, NriTextureState.ShaderResource);
             this.colorState = NriTextureState.ShaderResource;
         }
 
@@ -1296,7 +1297,7 @@ namespace RtParticlesNri {
             this.swapChainViewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the color buffer made again
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the color buffer made again
         // at its size, once the GPU is done with the old ones, and the sets pointed at the new buffer (made
         // in the Storage state, as at first).
         resizeIfNeeded() {
@@ -1341,9 +1342,9 @@ namespace RtParticlesNri {
             }
             if (this.geometrySlot >= 0) {
                 const geometryFrame = this.queuedFrames[this.geometrySlot];
-                Nri_UpdateDescriptor(queuedFrame.set, 2, 3, geometryFrame.particleInfoView);
-                Nri_UpdateDescriptor(queuedFrame.bindlessSet, 0, BINDLESS_PARTICLE_VERTICES, geometryFrame.vertexView);
-                Nri_UpdateDescriptor(queuedFrame.bindlessSet, 0, BINDLESS_PARTICLE_INDICES, geometryFrame.indexView);
+                queuedFrame.set.updateDescriptor(2, 3, geometryFrame.particleInfoView);
+                queuedFrame.bindlessSet.updateDescriptor(0, BINDLESS_PARTICLE_VERTICES, geometryFrame.vertexView);
+                queuedFrame.bindlessSet.updateDescriptor(0, BINDLESS_PARTICLE_INDICES, geometryFrame.indexView);
             }
             this.writeConstants(queuedFrameIndex);
 
@@ -1366,8 +1367,8 @@ namespace RtParticlesNri {
             }
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             const commandBuffer = queuedFrame.commandBuffer;
-            Nri_BeginCommandBuffer(commandBuffer);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
+            commandBuffer.begin();
+            commandBuffer.setDescriptorPool(descriptorPool);
             // The first frame: the mip chains.
             this.sceneTextures.recordBlits(commandBuffer);
             this.particleTextures.recordBlits(commandBuffer);
@@ -1376,34 +1377,34 @@ namespace RtParticlesNri {
             }
             this.recordCompute(commandBuffer, queuedFrame);
             if (this.imgui) {
-                Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                this.sample.copyImguiData(commandBuffer);
             }
 
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+            commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.Undefined, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
             this.blit.record(commandBuffer, blitSet, this.width, this.height);
             if (this.imgui) {
-                Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                this.sample.drawImgui(commandBuffer, this.viewFormat);
             }
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
 
             // The test's last frame: read back
             let presentFrom = NriTextureState.ColorAttachment;
             const readbackBuffer = this.readbackBuffer;
             if (readbackBuffer) {
                 if (frameIndex == TEST_FRAMES - 1) {
-                    Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                    Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
+                    commandBuffer.textureBarrier(this.swapChain.texture(index), NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                    commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, this.swapChain.texture(index), this.width, this.height);
                     presentFrom = NriTextureState.CopySource;
                 }
             }
-            Nri_CmdTextureBarrier(commandBuffer, this.swapChain.texture(index), presentFrom, NriTextureState.Present);
-            Nri_EndCommandBuffer(commandBuffer);
+            commandBuffer.textureBarrier(this.swapChain.texture(index), presentFrom, NriTextureState.Present);
+            commandBuffer.end();
 
             // Submit and present
             this.swapChain.submit(commandBuffer, index);
             if (this.imgui) {
-                Nri_ImguiEndFrame(this.sample);
+                this.sample.imguiEndFrame();
             }
             this.swapChain.present(index);
         }
@@ -1415,12 +1416,12 @@ namespace RtParticlesNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -1430,35 +1431,35 @@ namespace RtParticlesNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
-                    Nri_DestroyDescriptor(queuedFrame.constantView);
-                    Nri_DestroyDescriptor(queuedFrame.vertexView);
-                    Nri_DestroyDescriptor(queuedFrame.indexView);
-                    Nri_DestroyDescriptor(queuedFrame.particleInfoView);
-                    Nri_DestroyBuffer(queuedFrame.vertexBuffer);
-                    Nri_DestroyBuffer(queuedFrame.indexBuffer);
-                    Nri_DestroyBuffer(queuedFrame.particleInfoBuffer);
+                    queuedFrame.constantView.destroy();
+                    queuedFrame.vertexView.destroy();
+                    queuedFrame.indexView.destroy();
+                    queuedFrame.particleInfoView.destroy();
+                    queuedFrame.vertexBuffer.destroy();
+                    queuedFrame.indexBuffer.destroy();
+                    queuedFrame.particleInfoBuffer.destroy();
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 for (const view of this.sceneBufferViews) {
-                    Nri_DestroyDescriptor(view);
+                    view.destroy();
                 }
                 for (const buffer of this.sceneBuffers) {
-                    Nri_DestroyBuffer(buffer);
+                    buffer.destroy();
                 }
                 this.sceneTextures.destroy();
                 this.particleTextures.destroy();
                 this.destroyDescriptor(this.environmentMapView);
                 const environmentMap = this.environmentMap;
                 if (environmentMap) {
-                    Nri_DestroyTexture(environmentMap);
+                    environmentMap.destroy();
                 }
                 this.blit.destroy();
                 this.destroyDescriptor(this.anisotropicWrap);
@@ -1466,63 +1467,63 @@ namespace RtParticlesNri {
                 this.destroyDescriptor(this.topLevelASView);
                 const topLevelAS = this.topLevelAS;
                 if (topLevelAS) {
-                    Nri_DestroyTopLevelAS(topLevelAS);
+                    topLevelAS.destroy();
                 }
                 const particleBlas = this.particleBlas;
                 if (particleBlas) {
-                    Nri_DestroyUpdatableBlas(particleBlas);
+                    particleBlas.destroy();
                 }
                 const intersectionBlas = this.intersectionBlas;
                 if (intersectionBlas) {
-                    Nri_DestroyAccelerationStructure(intersectionBlas);
+                    intersectionBlas.destroy();
                 }
                 const accelStructs = this.accelStructs;
                 if (accelStructs) {
-                    Nri_DestroyDonutSceneAccelStructs(accelStructs);
+                    accelStructs.destroy();
                 }
                 const constantBuffer = this.constantBuffer;
                 if (constantBuffer) {
-                    Nri_DestroyBuffer(constantBuffer);
+                    constantBuffer.destroy();
                 }
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
-                    Nri_DestroyBuffer(readbackBuffer);
+                    readbackBuffer.destroy();
                 }
                 const pipeline = this.pipeline;
                 if (pipeline) {
-                    Nri_DestroyPipeline(pipeline);
+                    pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
             const scene = this.scene;
             if (scene) {
-                Nri_DestroyDonutScene(scene);
+                scene.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const example = new RtParticles(sample);
         // -noUI: no settings window (as the Donut example).
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            if (Nri_GetArg(argc, argv, i) == "-noUI") {
+            if (Nri.getArg(argc, argv, i) == "-noUI") {
                 example.noUI = true;
             }
         }

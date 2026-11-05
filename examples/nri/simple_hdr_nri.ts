@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { formatFixed } from "../../core/text_format";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriImguiFont, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace SimpleHdrNri {
     // simple_hdr, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of Donut
@@ -105,8 +106,8 @@ namespace SimpleHdrNri {
     // A frame in flight's own data: its copy of the curve's lines (a host buffer the
     // vertex shader reads, in its own descriptor set).
     class QueuedFrame {
-        constructor(public lineBuffer: NriBufferHandle | null, public lineView: NriDescriptorHandle | null,
-            public sceneSet: NriDescriptorSetHandle | null) {
+        constructor(public lineBuffer: NriBuffer | null, public lineView: NriDescriptor | null,
+            public sceneSet: NriDescriptorSet | null) {
         }
     }
 
@@ -198,28 +199,28 @@ namespace SimpleHdrNri {
     // white) into it too, then PrepareSwapChainBuffer into the swap chain texture. The display's mode
     // is checked every second (the swap chain made again when it changes).
     class SimpleHdr {
-        private device: NriDeviceHandle | null = null;
+        private device: NriDevice | null = null;
         private graphicsAPI: NriGraphicsAPI = NriGraphicsAPI.None;
-        private queue: NriQueueHandle;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private hdr10: boolean = false;
         private queuedFrames: QueuedFrame[] = [];
-        private sceneLayout: NriPipelineLayoutHandle | null = null;
-        private convertLayout: NriPipelineLayoutHandle | null = null;
-        private rectPipeline: NriPipelineHandle | null = null;
-        private linePipeline: NriPipelineHandle | null = null;
-        private hdr10Pipeline: NriPipelineHandle | null = null;
-        private sdrPipeline: NriPipelineHandle | null = null;
-        private hdrScene: NriTextureHandle | null = null;
-        private hdrSceneAttachment: NriDescriptorHandle | null = null;
-        private hdrSceneView: NriDescriptorHandle | null = null;
-        private pointSampler: NriDescriptorHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private convertSet: NriDescriptorSetHandle | null = null;
+        private sceneLayout: NriPipelineLayout | null = null;
+        private convertLayout: NriPipelineLayout | null = null;
+        private rectPipeline: NriPipeline | null = null;
+        private linePipeline: NriPipeline | null = null;
+        private hdr10Pipeline: NriPipeline | null = null;
+        private sdrPipeline: NriPipeline | null = null;
+        private hdrScene: NriTexture | null = null;
+        private hdrSceneAttachment: NriDescriptor | null = null;
+        private hdrSceneView: NriDescriptor | null = null;
+        private pointSampler: NriDescriptor | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private convertSet: NriDescriptorSet | null = null;
         private imgui: boolean = false;
-        private fonts: NriImguiFontHandle[] = [];
+        private fonts: NriImguiFont[] = [];
         private width: int = 0;
         private height: int = 0;
         private apiName: string = "";
@@ -244,10 +245,10 @@ namespace SimpleHdrNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < MAX_LINE_VERTICES * 2; i++) {
                 this.lineVertices.push(0.0);
             }
@@ -267,11 +268,11 @@ namespace SimpleHdrNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -282,20 +283,20 @@ namespace SimpleHdrNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
             this.graphicsAPI = graphicsAPI;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
             this.apiName = graphicsAPI == NriGraphicsAPI.D3D11 ? "DirectX 11" : graphicsAPI == NriGraphicsAPI.D3D12 ? "DirectX 12" : "Vulkan";
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.width = this.sample.getOutputWidth();
+            this.height = this.sample.getOutputHeight();
+            this.test = this.sample.isTest() != 0;
             // Donut's -test runs without a window, so its display is never in HDR mode: SDR, as there.
             if (this.test) {
                 this.forceSdr = true;
@@ -308,7 +309,7 @@ namespace SimpleHdrNri {
                 console.log("Cannot create the swap chain");
                 return 0;
             }
-            if (Nri_IsDisplayHdr(this.swapChain.handle()) != 0 && !this.forceSdr) {
+            if (this.swapChain.object().isDisplayHdr() != 0 && !this.forceSdr) {
                 this.createSwapChain(NriSwapChainFormat.BT2020_G2084_10BIT);
             }
             console.log(`Display in HDR mode: ${this.hdr10 ? "yes" : "no"}`);
@@ -317,21 +318,21 @@ namespace SimpleHdrNri {
                 console.log("Cannot create the HDR scene");
                 return 0;
             }
-            this.pointSampler = Nri_CreateSampler(device, NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
+            this.pointSampler = device.createSampler(NriFilter.Nearest, NriAddressMode.ClampToEdge, 1);
 
             // The layouts: the scene's DrawConstants (push constants, b0) and lines (t0); the
             // conversion's HDR10Data (push constants, b0), the HDR scene (t0) and its sampler (s0).
-            const sceneLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(sceneLayoutDesc, 0, DRAW_CONSTANTS_FLOATS * 4, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRange(sceneLayoutDesc, 0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            this.sceneLayout = Nri_CreatePipelineLayoutFromDesc(device, sceneLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(sceneLayoutDesc);
-            const convertLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(convertLayoutDesc, 0, 16, NriStage.VertexPixel);
-            Nri_PipelineLayoutDescAddRange(convertLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(convertLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
-            this.convertLayout = Nri_CreatePipelineLayoutFromDesc(device, convertLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(convertLayoutDesc);
+            const sceneLayoutDesc = NriPipelineLayoutDesc.create();
+            sceneLayoutDesc.addRootConstants(0, DRAW_CONSTANTS_FLOATS * 4, NriStage.VertexPixel);
+            sceneLayoutDesc.addRange(0, 0, 1, NriDescriptorType.StructuredBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            this.sceneLayout = device.createPipelineLayoutFromDesc(sceneLayoutDesc);
+            sceneLayoutDesc.destroy();
+            const convertLayoutDesc = NriPipelineLayoutDesc.create();
+            convertLayoutDesc.addRootConstants(0, 16, NriStage.VertexPixel);
+            convertLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.VertexPixel, NriRangeFlags.None);
+            convertLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.VertexPixel, NriRangeFlags.None);
+            this.convertLayout = device.createPipelineLayoutFromDesc(convertLayoutDesc);
+            convertLayoutDesc.destroy();
             const sceneLayout = this.sceneLayout;
             const convertLayout = this.convertLayout;
             if (!sceneLayout || !convertLayout) {
@@ -358,8 +359,8 @@ namespace SimpleHdrNri {
             }
 
             // A queued frame's lines and their set each, and the conversion's set.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
-            const descriptorPool = Nri_CreateDescriptorPoolWithBuffers(device, queuedFrameNum + 1, 1, 0, 1, 0, queuedFrameNum, 0, 0);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
+            const descriptorPool = device.createDescriptorPoolWithBuffers(queuedFrameNum + 1, 1, 0, 1, 0, queuedFrameNum, 0, 0);
             this.descriptorPool = descriptorPool;
             const hdrSceneView = this.hdrSceneView;
             const pointSampler = this.pointSampler;
@@ -369,87 +370,87 @@ namespace SimpleHdrNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const lineBuffer = Nri_CreateHostBufferWithStride(device, MAX_LINE_VERTICES * 8, NriBufferUsage.StructuredBuffer, 8);
-                let lineView: NriDescriptorHandle | null = null;
+                const lineBuffer = device.createHostBufferWithStride(MAX_LINE_VERTICES * 8, NriBufferUsage.StructuredBuffer, 8);
+                let lineView: NriDescriptor | null = null;
                 if (lineBuffer) {
-                    lineView = Nri_CreateStructuredBufferView(lineBuffer, 0);
+                    lineView = lineBuffer.createStructuredView(0);
                 }
-                const sceneSet = Nri_AllocateDescriptorSet(descriptorPool, sceneLayout, 0, 0);
+                const sceneSet = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(lineBuffer, lineView, sceneSet));
                 if (!lineView || !sceneSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(sceneSet, 0, 0, lineView);
+                sceneSet.updateDescriptor(0, 0, lineView);
             }
-            const convertSet = Nri_AllocateDescriptorSet(descriptorPool, convertLayout, 0, 0);
+            const convertSet = descriptorPool.allocateDescriptorSet(convertLayout, 0, 0);
             this.convertSet = convertSet;
             if (!convertSet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
-            Nri_UpdateDescriptor(convertSet, 0, 0, hdrSceneView);
-            Nri_UpdateDescriptor(convertSet, 1, 0, pointSampler);
+            convertSet.updateDescriptor(0, 0, hdrSceneView);
+            convertSet.updateDescriptor(1, 0, pointSampler);
 
             // The text, in the sample's font at its scales (at the starting height: text draws them at
-            // the current height's sizes, Nri_ImguiPushFontSized).
-            if (Nri_InitImgui(this.sample, device) == 0) {
+            // the current height's sizes, NriImguiFont.pushFontSized).
+            if (this.sample.initImgui(device) == 0) {
                 console.log("Cannot initialize the user interface");
                 return 0;
             }
             this.imgui = true;
             for (const fontScale of FONT_SCALES) {
-                const font = Nri_ImguiCreateFont(FONT_PATH, FONT_LAYOUT_SIZE * fontScale * this.height / LAYOUT_HEIGHT);
+                const font = NriImgui.createFont(FONT_PATH, FONT_LAYOUT_SIZE * fontScale * this.height / LAYOUT_HEIGHT);
                 if (!font) {
                     console.log("Cannot load the font: set DONUT_SAMPLES_MEDIA_DIR when configuring");
                     return 0;
                 }
-                this.fonts.push(font as NriImguiFontHandle);
+                this.fonts.push(font as NriImguiFont);
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
             }
             return 1;
         }
 
-        createPipeline(layout: NriPipelineLayoutHandle, vsPath: string, vsEntry: string, psPath: string, psEntry: string,
-            format: NriFormat, topology: NriTopology): NriPipelineHandle | null {
+        createPipeline(layout: NriPipelineLayout, vsPath: string, vsEntry: string, psPath: string, psEntry: string,
+            format: NriFormat, topology: NriTopology): NriPipeline | null {
             const device = this.device;
             if (!device) {
                 return null;
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, vsPath, vsEntry) != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, vsPath, vsEntry) != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, psPath, psEntry) != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, psPath, psEntry) != 0;
             }
-            Nri_PipelineDescSetTopology(desc, topology);
-            Nri_PipelineDescSetColor(desc, format, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setTopology(topology);
+            desc.setColor(format, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
         // The HDR scene: RGBA16F, at the stored (window's) size; the conversion's set (once made) reads
         // the new one. False on failure.
-        createHdrScene(device: NriDeviceHandle): boolean {
-            const hdrScene = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
+        createHdrScene(device: NriDevice): boolean {
+            const hdrScene = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA16_SFLOAT);
             this.hdrScene = hdrScene;
             if (!hdrScene) {
                 return false;
             }
-            this.hdrSceneAttachment = Nri_CreateColorAttachmentView(hdrScene, NriFormat.RGBA16_SFLOAT);
-            const hdrSceneView = Nri_CreateTextureView(hdrScene, NriFormat.RGBA16_SFLOAT);
+            this.hdrSceneAttachment = hdrScene.createColorAttachmentView(NriFormat.RGBA16_SFLOAT);
+            const hdrSceneView = hdrScene.createView(NriFormat.RGBA16_SFLOAT);
             this.hdrSceneView = hdrSceneView;
             const convertSet = this.convertSet;
             if (convertSet) {
-                Nri_UpdateDescriptor(convertSet, 0, 0, hdrSceneView);
+                convertSet.updateDescriptor(0, 0, hdrSceneView);
             }
             return true;
         }
@@ -459,26 +460,26 @@ namespace SimpleHdrNri {
             this.destroyDescriptor(this.hdrSceneView);
             const hdrScene = this.hdrScene;
             if (hdrScene) {
-                Nri_DestroyTexture(hdrScene);
+                hdrScene.destroy();
             }
             this.hdrSceneAttachment = null;
             this.hdrSceneView = null;
             this.hdrScene = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain (in its color space as
+        // The window was resized (NriSample.useResizableWindow): the swap chain (in its color space as
         // before) and the HDR scene again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
             if (!device) {
                 return;
             }
-            if (Nri_GetOutputWidth(this.sample) == this.width && Nri_GetOutputHeight(this.sample) == this.height) {
+            if (this.sample.getOutputWidth() == this.width && this.sample.getOutputHeight() == this.height) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
-            this.width = Nri_GetOutputWidth(this.sample);
-            this.height = Nri_GetOutputHeight(this.sample);
+            device.waitIdle();
+            this.width = this.sample.getOutputWidth();
+            this.height = this.sample.getOutputHeight();
             this.createSwapChain(this.hdr10 ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
             this.destroyHdrScene();
             this.createHdrScene(device);
@@ -507,7 +508,7 @@ namespace SimpleHdrNri {
             if (!device || !this.swapChain.exists()) {
                 return;
             }
-            const wanted = Nri_IsDisplayHdr(this.swapChain.handle()) != 0 && !this.forceSdr;
+            const wanted = this.swapChain.object().isDisplayHdr() != 0 && !this.forceSdr;
             if (wanted != this.hdr10) {
                 this.createSwapChain(wanted ? NriSwapChainFormat.BT2020_G2084_10BIT : NriSwapChainFormat.BT709_G22_10BIT);
             }
@@ -523,7 +524,7 @@ namespace SimpleHdrNri {
         handleKeys(elapsedSeconds: number) {
             for (let i = 0; i < PRESS_KEYS.length; i++) {
                 const key = PRESS_KEYS[i];
-                const down = Nri_IsKeyPressed(this.sample, key) != 0;
+                const down = this.sample.isKeyPressed(key) != 0;
                 if (down && this.keysDown[i] == 0) {
                     if (key == KEY_SPACE) {
                         this.render2084Curve = !this.render2084Curve;
@@ -537,9 +538,9 @@ namespace SimpleHdrNri {
                 }
                 this.keysDown[i] = down ? 1 : 0;
             }
-            const upHeld = Nri_IsKeyPressed(this.sample, KEY_UP) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT) != 0;
-            const downHeld = Nri_IsKeyPressed(this.sample, KEY_DOWN) != 0 || Nri_IsKeyPressed(this.sample, KEY_LEFT) != 0;
-            const shiftHeld = Nri_IsKeyPressed(this.sample, KEY_LEFT_SHIFT) != 0 || Nri_IsKeyPressed(this.sample, KEY_RIGHT_SHIFT) != 0;
+            const upHeld = this.sample.isKeyPressed(KEY_UP) != 0 || this.sample.isKeyPressed(KEY_RIGHT) != 0;
+            const downHeld = this.sample.isKeyPressed(KEY_DOWN) != 0 || this.sample.isKeyPressed(KEY_LEFT) != 0;
+            const shiftHeld = this.sample.isKeyPressed(KEY_LEFT_SHIFT) != 0 || this.sample.isKeyPressed(KEY_RIGHT_SHIFT) != 0;
             const steps = elapsedSeconds * STEPS_PER_SECOND;
             const sign = upHeld ? 1.0 : downHeld ? -1.0 : 0.0;
             if (sign != 0.0) {
@@ -576,9 +577,9 @@ namespace SimpleHdrNri {
         // Text at the sample's layout position, in one of its font scales; right-aligned at x if
         // alignRight (where the sample's text is rotated by -90 degrees).
         text(font: FontKind, x: number, y: number, text: string, alignRight: boolean) {
-            Nri_ImguiPushFontSized(this.fonts[font], FONT_LAYOUT_SIZE * FONT_SCALES[font] * this.height / LAYOUT_HEIGHT);
-            Nri_ImguiDrawText(x * this.width / LAYOUT_WIDTH, y * this.height / LAYOUT_HEIGHT, text, 1.0, 1.0, 1.0, 1.0, alignRight ? 1 : 0);
-            Nri_ImguiPopFont();
+            this.fonts[font].pushFontSized(FONT_LAYOUT_SIZE * FONT_SCALES[font] * this.height / LAYOUT_HEIGHT);
+            NriImgui.drawText(x * this.width / LAYOUT_WIDTH, y * this.height / LAYOUT_HEIGHT, text, 1.0, 1.0, 1.0, 1.0, alignRight ? 1 : 0);
+            NriImgui.popFont();
         }
 
         // RenderHDRScene's text: the values of each block, in the HDR scene, SDR and HDR10.
@@ -652,7 +653,7 @@ namespace SimpleHdrNri {
 
         // The sample's RenderUI, with its keyboard controls.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             const startX = 50.0;
             const startY = 40.0;
             this.text(FontKind.Title, startX, startY, `SimpleHDR Sample for ${this.apiName}`, false);
@@ -673,14 +674,14 @@ namespace SimpleHdrNri {
             if (this.countDownToBright >= 0.0) {
                 this.text(FontKind.Countdown, 1170.0, 550.0, formatFixed(this.countDownToBright, 0), false);
             }
-            Nri_ImguiRender(this.sample);
+            this.sample.imguiRender();
         }
 
         // --- The scene ---
 
         // A rectangle of the sample's layout in one color (SpriteBatch::Draw with ColorPS), the rect
         // pipeline and the scene's set bound.
-        drawRect(commandBuffer: NriCommandBufferHandle, left: number, top: number, right: number, bottom: number, value: number) {
+        drawRect(commandBuffer: NriCommandBuffer, left: number, top: number, right: number, bottom: number, value: number) {
             this.drawConstants[0] = left;
             this.drawConstants[1] = top;
             this.drawConstants[2] = right;
@@ -694,24 +695,24 @@ namespace SimpleHdrNri {
             this.drawConstants[9] = Math.fround(-2.0 / LAYOUT_HEIGHT);
             this.drawConstants[10] = -1.0;
             this.drawConstants[11] = 1.0;
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.drawConstants[0]), DRAW_CONSTANTS_FLOATS * 4);
-            Nri_CmdDraw(commandBuffer, 6, 1, 0, 0);
+            commandBuffer.setRootConstants(0, Ref(this.drawConstants[0]), DRAW_CONSTANTS_FLOATS * 4);
+            commandBuffer.draw(6, 1, 0, 0);
         }
 
         // The full window as the viewport (and scissor rectangle), the rect pipeline bound.
-        bindRects(commandBuffer: NriCommandBufferHandle) {
+        bindRects(commandBuffer: NriCommandBuffer) {
             const rectPipeline = this.rectPipeline;
             if (!rectPipeline) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetPipeline(commandBuffer, rectPipeline);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setPipeline(rectPipeline);
         }
 
         // The sample's RenderHDRScene: four blocks with the HDR scene values (only the paper white
         // one at first). Its text is the UI's.
-        renderHDRScene(commandBuffer: NriCommandBufferHandle) {
+        renderHDRScene(commandBuffer: NriCommandBuffer) {
             this.bindRects(commandBuffer);
             const step = Math.floor(LAYOUT_WIDTH / (NUM_INPUT_VALUES + 2.0));
             let left = 115.0;
@@ -738,7 +739,7 @@ namespace SimpleHdrNri {
         // The sample's Render2084Curve: the curve's outline, ticks and graph and the selected
         // brightness's lines in a viewport (lines in its pixels), then a paper white block and one
         // of the selected brightness. Its text is the UI's.
-        renderST2084Curve(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        renderST2084Curve(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const lineBuffer = queuedFrame.lineBuffer;
             const linePipeline = this.linePipeline;
             if (!lineBuffer || !linePipeline) {
@@ -781,7 +782,7 @@ namespace SimpleHdrNri {
             n = this.addLine(n, x, viewportHeight, x, y);
             n = this.addLine(n, x, y, 0.0, y);
 
-            Nri_WriteBuffer(lineBuffer, 0, Ref(this.lineVertices[0]), n * 8);
+            lineBuffer.write(0, Ref(this.lineVertices[0]), n * 8);
             this.drawConstants[4] = 1.0;
             this.drawConstants[5] = 1.0;
             this.drawConstants[6] = 1.0;
@@ -799,15 +800,15 @@ namespace SimpleHdrNri {
             const top = Math.fround(startY * scale);
             const right = Math.fround(startX * scale + viewportWidth);
             const bottom = Math.fround(startY * scale + viewportHeight);
-            Nri_CmdSetViewport(commandBuffer, left, top, Math.fround(right - left), Math.fround(bottom - top));
+            commandBuffer.setViewport(left, top, Math.fround(right - left), Math.fround(bottom - top));
             const scissorLeft: int = Math.floor(left);
             const scissorTop: int = Math.floor(top);
             const scissorRight: int = Math.ceil(right);
             const scissorBottom: int = Math.ceil(bottom);
-            Nri_CmdSetScissor(commandBuffer, scissorLeft, scissorTop, scissorRight - scissorLeft, scissorBottom - scissorTop);
-            Nri_CmdSetPipeline(commandBuffer, linePipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.drawConstants[0]), DRAW_CONSTANTS_FLOATS * 4);
-            Nri_CmdDraw(commandBuffer, n, 1, 0, 0);
+            commandBuffer.setScissor(scissorLeft, scissorTop, scissorRight - scissorLeft, scissorBottom - scissorTop);
+            commandBuffer.setPipeline(linePipeline);
+            commandBuffer.setRootConstants(0, Ref(this.drawConstants[0]), DRAW_CONSTANTS_FLOATS * 4);
+            commandBuffer.draw(n, 1, 0, 0);
 
             // Render blocks
             this.bindRects(commandBuffer);
@@ -819,7 +820,7 @@ namespace SimpleHdrNri {
         }
 
         // The HDR scene, cleared to black, its blocks or curve, then its text.
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordScene(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const hdrScene = this.hdrScene;
             const hdrSceneAttachment = this.hdrSceneAttachment;
             const sceneLayout = this.sceneLayout;
@@ -828,12 +829,12 @@ namespace SimpleHdrNri {
             if (!hdrScene || !hdrSceneAttachment || !sceneLayout || !descriptorPool || !sceneSet) {
                 return;
             }
-            Nri_CmdTextureBarrier(commandBuffer, hdrScene, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
-            Nri_CmdBeginRendering(commandBuffer, hdrSceneAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 1.0);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, sceneLayout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, sceneSet);
+            commandBuffer.textureBarrier(hdrScene, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            commandBuffer.beginRendering(hdrSceneAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 1.0);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(sceneLayout);
+            commandBuffer.setDescriptorSet(0, sceneSet);
             if (this.render2084Curve) {
                 // Render the ST.2084 curve
                 this.renderST2084Curve(commandBuffer, queuedFrame);
@@ -843,15 +844,15 @@ namespace SimpleHdrNri {
             }
             // The text goes into the HDR scene too.
             if (this.imgui) {
-                Nri_CmdDrawImguiUnconverted(this.sample, commandBuffer, NriFormat.RGBA16_SFLOAT);
+                this.sample.drawImguiUnconverted(commandBuffer, NriFormat.RGBA16_SFLOAT);
             }
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdTextureBarrier(commandBuffer, hdrScene, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.endRendering();
+            commandBuffer.textureBarrier(hdrScene, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
         }
 
         // The sample's PrepareSwapChainBuffer: the HDR scene as HDR10 (Rec.2020, ST.2084) into the
         // swap chain texture when it is in that color space, clipped to SDR otherwise.
-        recordPrepareSwapChain(commandBuffer: NriCommandBufferHandle, colorAttachment: NriDescriptorHandle) {
+        recordPrepareSwapChain(commandBuffer: NriCommandBuffer, colorAttachment: NriDescriptor) {
             const convertLayout = this.convertLayout;
             const descriptorPool = this.descriptorPool;
             const convertSet = this.convertSet;
@@ -860,17 +861,17 @@ namespace SimpleHdrNri {
                 return;
             }
             this.convertConstants[0] = this.paperWhiteNits;
-            Nri_CmdBeginRendering(commandBuffer, colorAttachment);
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
+            commandBuffer.beginRendering(colorAttachment);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
             // (ImGui's draw bound its own pool.)
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, convertLayout);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, convertSet);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.convertConstants[0]), 16);
-            Nri_CmdDraw(commandBuffer, 3, 1, 0, 0);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(convertLayout);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setDescriptorSet(0, convertSet);
+            commandBuffer.setRootConstants(0, Ref(this.convertConstants[0]), 16);
+            commandBuffer.draw(3, 1, 0, 0);
+            commandBuffer.endRendering();
         }
 
         renderFrame(frameIndex: int) {
@@ -878,7 +879,7 @@ namespace SimpleHdrNri {
             const queuedFrameIndex = frameIndex % this.queuedFrames.length;
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
             // The Donut example's test mode steps 1/60 s (a float) a frame.
-            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : Nri_GetFrameTime(this.sample);
+            const elapsedSeconds = this.test ? Math.fround(1.0 / 60.0) : this.sample.getFrameTime();
             this.update(elapsedSeconds);
             if (this.imgui) {
                 this.buildUI();
@@ -894,12 +895,12 @@ namespace SimpleHdrNri {
                 const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 // Record: the HDR scene and its text, then the swap chain texture from it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
                 this.recordScene(commandBuffer, queuedFrame);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 this.recordPrepareSwapChain(commandBuffer, this.swapChain.colorAttachment(index));
 
                 // The test's last frame: read back
@@ -907,18 +908,18 @@ namespace SimpleHdrNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -935,12 +936,12 @@ namespace SimpleHdrNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.swapChainFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.swapChainFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -950,9 +951,9 @@ namespace SimpleHdrNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.lineView);
@@ -961,7 +962,7 @@ namespace SimpleHdrNri {
                 this.swapChain.destroy();
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyHdrScene();
                 this.destroyDescriptor(this.pointSampler);
@@ -973,50 +974,50 @@ namespace SimpleHdrNri {
                 this.destroyLayout(this.sceneLayout);
                 this.destroyLayout(this.convertLayout);
                 this.frames.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
+        const sample = NriSample.create();
         const simpleHdr = new SimpleHdr(sample);
         // -curve: start with the ST.2084 curve. -bright: the bright blocks without the countdown.
         // -sdr: the SDR signal even on an HDR display. -noUI: accepted (the text is the scene's, drawn
         // as the Donut example draws it with -noUI).
-        Nri_AddExampleOption(sample, "-curve");
-        Nri_AddExampleOption(sample, "-bright");
-        Nri_AddExampleOption(sample, "-sdr");
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
-        Nri_UseResizableWindow(sample);
+        sample.addExampleOption("-curve");
+        sample.addExampleOption("-bright");
+        sample.addExampleOption("-sdr");
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
+        sample.useResizableWindow();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-curve") {
                 simpleHdr.render2084Curve = true;
             } else if (arg == "-bright") {

@@ -2,6 +2,7 @@
 import { NriFrameRing } from "../../core/nri_frame_ring";
 import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, rotation, translation, radians, samplePerspective } from "../../core/matrix";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriGltfMesh, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace LogicOpDynamicStateNri {
     // logic_op_dynamic_state, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead
@@ -23,7 +24,7 @@ namespace LogicOpDynamicStateNri {
     const BACKGROUND_PATH = "media/logic_op_dynamic_state/cube.gltf";
     const ENVMAP_PATH = "media/logic_op_dynamic_state/uffizi_rgba16f_cube.dds";
 
-    // Nri_LoadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
+    // NriDevice.loadGltfMesh's vertices: float3 position, float3 normal, float2 texture coordinates.
     const VERTEX_SIZE = 32;
 
     // struct UBOCOMM { float4x4 projection, view; } and struct UBOBAS, as f32 offsets; a queued
@@ -44,7 +45,7 @@ namespace LogicOpDynamicStateNri {
     // float sharpenFactor; }.
     const BLIT_CONSTANT_FLOATS = 9;
 
-    // The logic operations, in Vulkan's VkLogicOp order (Nri_PipelineDescSetLogicOp's).
+    // The logic operations, in Vulkan's VkLogicOp order (NriPipelineDesc.setLogicOp's).
     const LOGIC_OP_NAMES = "CLEAR|AND|AND_REVERSE|COPY|AND_INVERTED|NO_OP|XOR|OR|NOR|EQUIVALENT|INVERT|OR_REVERSE|COPY_INVERTED|OR_INVERTED|NAND|SET";
     const LOGIC_OP_COUNT = 16;
     const LOGIC_OP_COPY = 3;
@@ -69,8 +70,8 @@ namespace LogicOpDynamicStateNri {
     // A frame in flight's own data: its descriptor set (its slices of
     // the common and the lighting UBO, the cube map, the sampler) with the UBOs' views.
     class QueuedFrame {
-        constructor(public descriptorSet: NriDescriptorSetHandle | null, public commonView: NriDescriptorHandle | null,
-            public baselineView: NriDescriptorHandle | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public commonView: NriDescriptor | null,
+            public baselineView: NriDescriptor | null) {
         }
     }
 
@@ -131,39 +132,39 @@ namespace LogicOpDynamicStateNri {
     // sRGB swap chain view, which stores the same bytes. (NRI's textures take views of other formats
     // of the same size: typeless on D3D, MUTABLE_FORMAT on Vulkan.)
     class LogicOpDynamicState {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private layout: NriPipelineLayoutHandle | null = null;
-        private blitLayout: NriPipelineLayoutHandle | null = null;
-        private backgroundPipeline: NriPipelineHandle | null = null;
-        private blitPipeline: NriPipelineHandle | null = null;
+        private layout: NriPipelineLayout | null = null;
+        private blitLayout: NriPipelineLayout | null = null;
+        private backgroundPipeline: NriPipeline | null = null;
+        private blitPipeline: NriPipeline | null = null;
         // A pipeline per logic operation, created when first drawn.
-        private baselinePipelines: (NriPipelineHandle | null)[] = [];
+        private baselinePipelines: (NriPipeline | null)[] = [];
         private shaders: string = "";
-        private background: NriGltfMeshHandle | null = null;
-        private envmap: NriTextureHandle | null = null;
-        private envmapView: NriDescriptorHandle | null = null;
-        private anisotropicWrap: NriDescriptorHandle | null = null;
-        private linearClamp: NriDescriptorHandle | null = null;
-        private cubePositions: NriBufferHandle | null = null;
-        private cubeNormals: NriBufferHandle | null = null;
-        private cubeIndices: NriBufferHandle | null = null;
+        private background: NriGltfMesh | null = null;
+        private envmap: NriTexture | null = null;
+        private envmapView: NriDescriptor | null = null;
+        private anisotropicWrap: NriDescriptor | null = null;
+        private linearClamp: NriDescriptor | null = null;
+        private cubePositions: NriBuffer | null = null;
+        private cubeNormals: NriBuffer | null = null;
+        private cubeIndices: NriBuffer | null = null;
         private cubeIndexCount: int = 0;
         // The color buffer, as UNORM, as the cube's logic operation takes it (UINT on D3D) and as
         // the blit reads it (sRGB); the depth buffer.
-        private colorBuffer: NriTextureHandle | null = null;
-        private colorAttachment: NriDescriptorHandle | null = null;
-        private logicOpAttachment: NriDescriptorHandle | null = null;
-        private colorView: NriDescriptorHandle | null = null;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
-        private blitSet: NriDescriptorSetHandle | null = null;
+        private colorBuffer: NriTexture | null = null;
+        private colorAttachment: NriDescriptor | null = null;
+        private logicOpAttachment: NriDescriptor | null = null;
+        private colorView: NriDescriptor | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
+        private blitSet: NriDescriptorSet | null = null;
         private imgui: boolean = false;
         private width: int = 0;
         private height: int = 0;
@@ -208,11 +209,11 @@ namespace LogicOpDynamicStateNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < CONST_FLOATS; i++) {
                 this.constants.push(0.0);
             }
@@ -229,13 +230,13 @@ namespace LogicOpDynamicStateNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
-                const test = Nri_IsTest(this.sample) != 0;
+                const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
                 result = test ? TEST_SKIPPED : 1;
             } else if (result == 0 && this.test) {
@@ -248,39 +249,39 @@ namespace LogicOpDynamicStateNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
             this.uintLogicOps = graphicsAPI != NriGraphicsAPI.VK;
 
             // Swap chain: blitted into through sRGB views, as the Donut example's sRGB back buffer.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
             const viewFormat = this.swapChainViewFormat;
 
-            if (Nri_IsFeatureSupported(device, NriFeature.LogicOp) == 0) {
+            if (device.isFeatureSupported(NriFeature.LogicOp) == 0) {
                 this.unsupportedReason = "This example needs logic operations in blend states (OutputMergerLogicOp, Vulkan's logicOp)";
                 return 0;
             }
 
             // The background model and the cube map; the cube.
-            this.background = Nri_LoadGltfMesh(device, this.queue, BACKGROUND_PATH);
-            const envmap = Nri_LoadDdsTexture(device, this.queue, ENVMAP_PATH, 0);
+            this.background = device.loadGltfMesh(this.queue, BACKGROUND_PATH);
+            const envmap = device.loadDdsTexture(this.queue, ENVMAP_PATH, 0);
             this.envmap = envmap;
             if (!this.background || !envmap) {
                 console.log("Cannot load the model and the cube map: set VULKAN_SAMPLES_ASSETS_DIR when configuring");
                 return 0;
             }
-            const envmapView = Nri_CreateTextureCubeView(envmap, NriFormat.RGBA16_SFLOAT);
+            const envmapView = envmap.createCubeView(NriFormat.RGBA16_SFLOAT);
             this.envmapView = envmapView;
             if (!this.createCube(device)) {
                 console.log("Cannot create the cube");
@@ -289,9 +290,9 @@ namespace LogicOpDynamicStateNri {
 
             // Donut's common samplers: anisotropic and repeating for the cube map (the framework's:
             // trilinear, the device's maximum anisotropy), linear and clamped for the blit.
-            const anisotropicWrap = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.Repeat,
-                Math.min(16, Nri_GetMaxSamplerAnisotropy(device)));
-            const linearClamp = Nri_CreateSampler(device, NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
+            const anisotropicWrap = device.createSampler(NriFilter.Linear, NriAddressMode.Repeat,
+                Math.min(16, device.getMaxSamplerAnisotropy()));
+            const linearClamp = device.createSampler(NriFilter.Linear, NriAddressMode.ClampToEdge, 1);
             this.anisotropicWrap = anisotropicWrap;
             this.linearClamp = linearClamp;
 
@@ -305,20 +306,20 @@ namespace LogicOpDynamicStateNri {
             // The layouts: the sample's descriptor set, as one for both pipelines (the common UBO at
             // b0, the lighting UBO at b1, the cube map at t0 and its sampler at s0) and the cube's push
             // constants (b2: root constants); the blit's constants (b0) and its source (t0, s0).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 2, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRootConstants(layoutDesc, PUSH_REGISTER, PUSH_FLOATS * 4, NriStage.VertexPixel);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 2, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            layoutDesc.addRootConstants(PUSH_REGISTER, PUSH_FLOATS * 4, NriStage.VertexPixel);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
-            const blitLayoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRootConstants(blitLayoutDesc, 0, BLIT_CONSTANT_FLOATS * 4, NriStage.Vertex);
-            Nri_PipelineLayoutDescAddRange(blitLayoutDesc, 0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
-            Nri_PipelineLayoutDescAddRange(blitLayoutDesc, 0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
-            const blitLayout = Nri_CreatePipelineLayoutFromDesc(device, blitLayoutDesc);
-            Nri_DestroyPipelineLayoutDesc(blitLayoutDesc);
+            const blitLayoutDesc = NriPipelineLayoutDesc.create();
+            blitLayoutDesc.addRootConstants(0, BLIT_CONSTANT_FLOATS * 4, NriStage.Vertex);
+            blitLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Texture, NriStage.Pixel, NriRangeFlags.None);
+            blitLayoutDesc.addRange(0, 0, 1, NriDescriptorType.Sampler, NriStage.Pixel, NriRangeFlags.None);
+            const blitLayout = device.createPipelineLayoutFromDesc(blitLayoutDesc);
+            blitLayoutDesc.destroy();
             this.blitLayout = blitLayout;
             if (!layout || !blitLayout) {
                 console.log("Cannot create the pipeline layouts");
@@ -338,9 +339,9 @@ namespace LogicOpDynamicStateNri {
 
             // The UBOs (a queued frame's each), the descriptor sets (a queued frame's, and the
             // blit's).
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * 2 * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * 2 * CONST_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum + 1, queuedFrameNum + 1, 2 * queuedFrameNum,
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum + 1, queuedFrameNum + 1, 2 * queuedFrameNum,
                 queuedFrameNum + 1, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool || !colorView) {
@@ -349,32 +350,32 @@ namespace LogicOpDynamicStateNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const commonView = Nri_CreateConstantBufferView(constantBuffer, 2 * i * CONST_STRIDE, CONST_STRIDE);
-                const baselineView = Nri_CreateConstantBufferView(constantBuffer, (2 * i + 1) * CONST_STRIDE, CONST_STRIDE);
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
+                const commonView = constantBuffer.createConstantView(2 * i * CONST_STRIDE, CONST_STRIDE);
+                const baselineView = constantBuffer.createConstantView((2 * i + 1) * CONST_STRIDE, CONST_STRIDE);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
                 this.queuedFrames.push(new QueuedFrame(descriptorSet,
                     commonView, baselineView));
                 if (!commonView || !baselineView || !descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, commonView);
-                Nri_UpdateDescriptor(descriptorSet, 0, 1, baselineView);
-                Nri_UpdateDescriptor(descriptorSet, 1, 0, envmapView);
-                Nri_UpdateDescriptor(descriptorSet, 2, 0, anisotropicWrap);
+                descriptorSet.updateDescriptor(0, 0, commonView);
+                descriptorSet.updateDescriptor(0, 1, baselineView);
+                descriptorSet.updateDescriptor(1, 0, envmapView);
+                descriptorSet.updateDescriptor(2, 0, anisotropicWrap);
             }
-            const blitSet = Nri_AllocateDescriptorSet(descriptorPool, blitLayout, 0, 0);
+            const blitSet = descriptorPool.allocateDescriptorSet(blitLayout, 0, 0);
             this.blitSet = blitSet;
             if (!blitSet) {
                 console.log("Cannot create the descriptor sets");
                 return 0;
             }
-            Nri_UpdateDescriptor(blitSet, 0, 0, colorView);
-            Nri_UpdateDescriptor(blitSet, 1, 0, linearClamp);
+            blitSet.updateDescriptor(0, 0, colorView);
+            blitSet.updateDescriptor(1, 0, linearClamp);
 
             // The sample's overlay.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -382,9 +383,9 @@ namespace LogicOpDynamicStateNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -396,7 +397,7 @@ namespace LogicOpDynamicStateNri {
         // restarts; here (as in the Donut example) they are unrolled into a triangle list: a strip's
         // odd triangles with their first two vertices swapped, which keeps their winding. False if
         // its buffers can't be created.
-        createCube(device: NriDeviceHandle): boolean {
+        createCube(device: NriDevice): boolean {
             const corners = [
                 0.0, 0.0, 0.0,
                 1.0, 0.0, 0.0,
@@ -445,11 +446,11 @@ namespace LogicOpDynamicStateNri {
             }
             this.cubeIndexCount = indices.length;
 
-            this.cubePositions = Nri_CreateUploadedBuffer(device, this.queue, Ref(positions[0]), positions.length * 4,
+            this.cubePositions = device.createUploadedBuffer(this.queue, Ref(positions[0]), positions.length * 4,
                 NriBufferUsage.VertexBuffer);
-            this.cubeNormals = Nri_CreateUploadedBuffer(device, this.queue, Ref(normals[0]), normals.length * 4,
+            this.cubeNormals = device.createUploadedBuffer(this.queue, Ref(normals[0]), normals.length * 4,
                 NriBufferUsage.VertexBuffer);
-            this.cubeIndices = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4,
+            this.cubeIndices = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4,
                 NriBufferUsage.IndexBuffer);
             if (!this.cubePositions || !this.cubeNormals) {
                 return false;
@@ -460,22 +461,22 @@ namespace LogicOpDynamicStateNri {
         // The background: the glTF loader's positions, reversed depth (greater passes), back faces
         // culled, counter-clockwise front faces. (The sample blends it, alpha over; its alpha is 1,
         // so that's a copy.)
-        createBackgroundPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_background_vs.bin`, "background_vs") != 0;
+        createBackgroundPipeline(device: NriDevice, layout: NriPipelineLayout) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_background_vs.bin`, "background_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${this.shaders}_background_ps.bin`, "background_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${this.shaders}_background_ps.bin`, "background_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -483,7 +484,7 @@ namespace LogicOpDynamicStateNri {
         // positions and normals in streams of their own, reversed depth, back faces culled (clockwise
         // front faces), the logic operation instead of blending. Created on first use; null on
         // failure.
-        getBaselinePipeline(logicOp: int): NriPipelineHandle | null {
+        getBaselinePipeline(logicOp: int): NriPipeline | null {
             const existing = this.baselinePipelines[logicOp];
             if (existing) {
                 return existing;
@@ -493,44 +494,44 @@ namespace LogicOpDynamicStateNri {
             if (!device || !layout) {
                 return null;
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_baseline_vs.bin`, "baseline_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_baseline_vs.bin`, "baseline_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Pixel, `${this.shaders}_baseline_ps.bin`, "baseline_ps",
+                loaded = desc.addShaderPermutation(NriShaderStage.Pixel, `${this.shaders}_baseline_ps.bin`, "baseline_ps",
                     this.uintLogicOps ? "UINT_OUTPUT=1" : "UINT_OUTPUT=0") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttributeFromStream(desc, "NORMAL", NriFormat.RGB32_SFLOAT, 0, 1);
-            Nri_PipelineDescSetCullMode(desc, NriCullMode.Back);
-            Nri_PipelineDescSetColor(desc, this.uintLogicOps ? NriFormat.RGBA8_UINT : NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttributeFromStream("NORMAL", NriFormat.RGB32_SFLOAT, 0, 1);
+            desc.setCullMode(NriCullMode.Back);
+            desc.setColor(this.uintLogicOps ? NriFormat.RGBA8_UINT : NriFormat.RGBA8_UNORM, NriColorWrite.RGBA);
             // (After the color: NO_OP turns its writes off.)
-            Nri_PipelineDescSetLogicOp(desc, logicOp);
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setLogicOp(logicOp);
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             this.baselinePipelines[logicOp] = pipeline;
             return pipeline;
         }
 
         // Donut's blit pipeline: rect_vs's quad (a triangle strip), blit_ps without texture arrays,
         // no culling, no depth.
-        createBlitPipeline(device: NriDeviceHandle, layout: NriPipelineLayoutHandle, framework: string) {
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${framework}/rect_vs.bin`, "main") != 0;
+        createBlitPipeline(device: NriDevice, layout: NriPipelineLayout, framework: string) {
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${framework}/rect_vs.bin`, "main") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShaderPermutation(desc, NriShaderStage.Pixel, `${framework}/blit_ps.bin`, "main",
+                loaded = desc.addShaderPermutation(NriShaderStage.Pixel, `${framework}/blit_ps.bin`, "main",
                     "TEXTURE_ARRAY=0") != 0;
             }
-            Nri_PipelineDescSetTopology(desc, NriTopology.TriangleStrip);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, NriColorWrite.RGBA);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setTopology(NriTopology.TriangleStrip);
+            desc.setColor(this.viewFormat, NriColorWrite.RGBA);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return pipeline;
         }
 
@@ -542,15 +543,15 @@ namespace LogicOpDynamicStateNri {
         // ApiVulkanSample's mouse handling, unless the overlay has the mouse: dragging with the left
         // button rotates the camera, with the right one zooms, with the middle one pans.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (!pressed || !overlay) {
                     this.buttons[button] = pressed;
                 }
             }
-            const x = Nri_GetMouseX(this.sample);
-            const y = Nri_GetMouseY(this.sample);
+            const x = this.sample.getMouseX();
+            const y = this.sample.getMouseY();
             const dx = this.mouseX - x;
             const dy = this.mouseY - y;
             if (this.buttons[0]) {
@@ -570,19 +571,19 @@ namespace LogicOpDynamicStateNri {
 
         // The sample's overlay (its title, ApiVulkanSample's default).
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Vulkan Example", 1);
-            if (Nri_ImguiCollapsingHeader("Settings", 1) != 0) {
-                this.selectedOperation = Nri_ImguiCombo("Logic operation", this.selectedOperation, LOGIC_OP_NAMES);
+            this.sample.imguiNewFrame();
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Vulkan Example", 1);
+            if (NriImgui.collapsingHeader("Settings", 1) != 0) {
+                this.selectedOperation = NriImgui.combo("Logic operation", this.selectedOperation, LOGIC_OP_NAMES);
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: its camera's matrices; the lighting UBO; into this
         // frame's slices.
-        writeConstants(constantBuffer: NriBufferHandle, queuedFrameIndex: int) {
+        writeConstants(constantBuffer: NriBuffer, queuedFrameIndex: int) {
             const c = this.constants;
             const projection = samplePerspective(radians(CAMERA_FOV), this.width / this.height, Z_NEAR, Z_FAR);
             // A "look at" camera: translation * rotation (about x, then y, then z).
@@ -595,14 +596,14 @@ namespace LogicOpDynamicStateNri {
                 c[CONST_PROJECTION + i] = projection[i];
                 c[CONST_VIEW + i] = view[i];
             }
-            Nri_WriteBuffer(constantBuffer, 2 * queuedFrameIndex * CONST_STRIDE, Ref(c[0]), CONST_FLOATS * 4);
-            Nri_WriteBuffer(constantBuffer, (2 * queuedFrameIndex + 1) * CONST_STRIDE, Ref(this.baselineConstants[0]),
+            constantBuffer.write(2 * queuedFrameIndex * CONST_STRIDE, Ref(c[0]), CONST_FLOATS * 4);
+            constantBuffer.write((2 * queuedFrameIndex + 1) * CONST_STRIDE, Ref(this.baselineConstants[0]),
                 BASELINE_FLOATS * 4);
         }
 
-        // The background (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering, into the
+        // The background (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering, into the
         // UNORM view).
-        recordBackground(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordBackground(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.layout;
             const descriptorPool = this.descriptorPool;
             const descriptorSet = queuedFrame.descriptorSet;
@@ -611,20 +612,20 @@ namespace LogicOpDynamicStateNri {
             if (!layout || !descriptorPool || !descriptorSet || !pipeline || !background) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, Nri_GetGltfMeshVertexBuffer(background), 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, Nri_GetGltfMeshIndexBuffer(background), 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, Nri_GetGltfMeshIndexCount(background), 1, 0, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setVertexBuffer(0, background.getVertexBuffer(), 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(background.getIndexBuffer(), 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(background.getIndexCount(), 1, 0, 0, 0);
         }
 
         // The cube, with the logic operation chosen in the overlay (between
-        // Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering, into the logic operation's view).
-        recordCube(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering, into the logic operation's view).
+        recordCube(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.layout;
             const descriptorPool = this.descriptorPool;
             const descriptorSet = queuedFrame.descriptorSet;
@@ -635,22 +636,22 @@ namespace LogicOpDynamicStateNri {
             if (!layout || !descriptorPool || !descriptorSet || !pipeline || !cubePositions || !cubeNormals || !cubeIndices) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
-            Nri_CmdSetPipeline(commandBuffer, pipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.pushConstants[0]), PUSH_FLOATS * 4);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, cubePositions, 0, 12);
-            Nri_CmdSetVertexBuffer(commandBuffer, 1, cubeNormals, 0, 12);
-            Nri_CmdSetIndexBuffer(commandBuffer, cubeIndices, 0, NriIndexType.UInt32);
-            Nri_CmdDrawIndexed(commandBuffer, this.cubeIndexCount, 1, 0, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
+            commandBuffer.setPipeline(pipeline);
+            commandBuffer.setRootConstants(0, Ref(this.pushConstants[0]), PUSH_FLOATS * 4);
+            commandBuffer.setVertexBuffer(0, cubePositions, 0, 12);
+            commandBuffer.setVertexBuffer(1, cubeNormals, 0, 12);
+            commandBuffer.setIndexBuffer(cubeIndices, 0, NriIndexType.UInt32);
+            commandBuffer.drawIndexed(this.cubeIndexCount, 1, 0, 0, 0);
         }
 
-        // The color buffer over the whole swap chain texture (between Nri_CmdBeginRendering and
-        // Nri_CmdEndRendering), as Donut's BlitTexture draws it.
-        recordBlit(commandBuffer: NriCommandBufferHandle) {
+        // The color buffer over the whole swap chain texture (between NriCommandBuffer.beginRendering and
+        // NriCommandBuffer.endRendering), as Donut's BlitTexture draws it.
+        recordBlit(commandBuffer: NriCommandBuffer) {
             const blitLayout = this.blitLayout;
             const blitPipeline = this.blitPipeline;
             const descriptorPool = this.descriptorPool;
@@ -658,33 +659,33 @@ namespace LogicOpDynamicStateNri {
             if (!blitLayout || !blitPipeline || !descriptorPool || !blitSet) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, blitLayout);
-            Nri_CmdSetPipeline(commandBuffer, blitPipeline);
-            Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.blitConstants[0]), BLIT_CONSTANT_FLOATS * 4);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, blitSet);
-            Nri_CmdDraw(commandBuffer, 4, 1, 0, 0);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(blitLayout);
+            commandBuffer.setPipeline(blitPipeline);
+            commandBuffer.setRootConstants(0, Ref(this.blitConstants[0]), BLIT_CONSTANT_FLOATS * 4);
+            commandBuffer.setDescriptorSet(0, blitSet);
+            commandBuffer.draw(4, 1, 0, 0);
         }
 
         // The scene into the color buffer: cleared to transparent black, depth to 0 (reversed); the
         // background through the UNORM view, the cube through the logic operation's.
-        recordScene(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        recordScene(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const colorAttachment = this.colorAttachment;
             const logicOpAttachment = this.logicOpAttachment;
             const depthAttachment = this.depthAttachment;
             if (!colorAttachment || !logicOpAttachment || !depthAttachment) {
                 return;
             }
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, colorAttachment, depthAttachment);
-            Nri_CmdClearColor(commandBuffer, 0.0, 0.0, 0.0, 0.0);
-            Nri_CmdClearDepth(commandBuffer, 0.0);
+            commandBuffer.beginRenderingWithDepth(colorAttachment, depthAttachment);
+            commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
+            commandBuffer.clearDepth(0.0);
             this.recordBackground(commandBuffer, queuedFrame);
-            Nri_CmdEndRendering(commandBuffer);
-            Nri_CmdBeginRenderingWithDepth(commandBuffer, logicOpAttachment, depthAttachment);
+            commandBuffer.endRendering();
+            commandBuffer.beginRenderingWithDepth(logicOpAttachment, depthAttachment);
             this.recordCube(commandBuffer, queuedFrame);
-            Nri_CmdEndRendering(commandBuffer);
+            commandBuffer.endRendering();
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).
@@ -696,7 +697,7 @@ namespace LogicOpDynamicStateNri {
             this.viewFormat = this.swapChain.viewFormat();
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain made
+        // The window was resized (NriSample.useResizableWindow): the swap chain made
         // again at its size, once the GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -706,7 +707,7 @@ namespace LogicOpDynamicStateNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroySizeTargets();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -716,7 +717,7 @@ namespace LogicOpDynamicStateNri {
             const colorView = this.colorView;
             if (blitSet) {
                 if (colorView) {
-                    Nri_UpdateDescriptor(blitSet, 0, 0, colorView);
+                    blitSet.updateDescriptor(0, 0, colorView);
                 }
             }
         }
@@ -724,19 +725,19 @@ namespace LogicOpDynamicStateNri {
         // The color buffer (RGBA8: its UNORM attachment, the logic operations' one, UINT on D3D, and
         // the blit's sRGB view) and the depth buffer, at the swap chain's size. False if either can't
         // be created.
-        createSizeTargets(device: NriDeviceHandle): boolean {
-            const colorBuffer = Nri_CreateRenderTargetTexture(device, this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createSizeTargets(device: NriDevice): boolean {
+            const colorBuffer = device.createRenderTargetTexture(this.queue, this.width, this.height, NriFormat.RGBA8_UNORM);
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.colorBuffer = colorBuffer;
             this.depthTexture = depthTexture;
             if (!colorBuffer || !depthTexture) {
                 return false;
             }
-            this.colorAttachment = Nri_CreateColorAttachmentView(colorBuffer, NriFormat.RGBA8_UNORM);
-            this.logicOpAttachment = Nri_CreateColorAttachmentView(colorBuffer,
+            this.colorAttachment = colorBuffer.createColorAttachmentView(NriFormat.RGBA8_UNORM);
+            this.logicOpAttachment = colorBuffer.createColorAttachmentView(
                 this.uintLogicOps ? NriFormat.RGBA8_UINT : NriFormat.RGBA8_UNORM);
-            this.colorView = Nri_CreateTextureView(colorBuffer, NriFormat.RGBA8_SRGB);
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.colorView = colorBuffer.createView(NriFormat.RGBA8_SRGB);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
@@ -777,40 +778,40 @@ namespace LogicOpDynamicStateNri {
 
                 // Record: the scene into the color buffer, the color buffer blitted into the swap
                 // chain texture, the overlay over it.
-                Nri_BeginCommandBuffer(commandBuffer);
+                commandBuffer.begin();
                 if (colorBuffer) {
-                    Nri_CmdTextureBarrier(commandBuffer, colorBuffer, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+                    commandBuffer.textureBarrier(colorBuffer, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
                     this.recordScene(commandBuffer, queuedFrame);
-                    Nri_CmdTextureBarrier(commandBuffer, colorBuffer, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+                    commandBuffer.textureBarrier(colorBuffer, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
                 }
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
-                Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
                 this.recordBlit(commandBuffer);
                 if (this.imgui) {
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
                 }
-                Nri_CmdEndRendering(commandBuffer);
+                commandBuffer.endRendering();
 
                 // The test's last frame: read back
                 let presentFrom = NriTextureState.ColorAttachment;
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -826,12 +827,12 @@ namespace LogicOpDynamicStateNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -841,9 +842,9 @@ namespace LogicOpDynamicStateNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.commonView);
@@ -851,7 +852,7 @@ namespace LogicOpDynamicStateNri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDescriptor(this.envmapView);
                 this.destroyDescriptor(this.anisotropicWrap);
@@ -865,7 +866,7 @@ namespace LogicOpDynamicStateNri {
                 this.destroyTexture(this.depthTexture);
                 const background = this.background;
                 if (background) {
-                    Nri_DestroyGltfMesh(background);
+                    background.destroy();
                 }
                 this.destroyBuffer(this.cubePositions);
                 this.destroyBuffer(this.cubeNormals);
@@ -881,55 +882,55 @@ namespace LogicOpDynamicStateNri {
                 this.destroyLayout(this.blitLayout);
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyTexture(texture: NriTextureHandle | null) {
+        destroyTexture(texture: NriTexture | null) {
             if (texture) {
-                Nri_DestroyTexture(texture);
+                texture.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
 
-        destroyPipeline(pipeline: NriPipelineHandle | null) {
+        destroyPipeline(pipeline: NriPipeline | null) {
             if (pipeline) {
-                Nri_DestroyPipeline(pipeline);
+                pipeline.destroy();
             }
         }
 
-        destroyLayout(layout: NriPipelineLayoutHandle | null) {
+        destroyLayout(layout: NriPipelineLayout | null) {
             if (layout) {
-                Nri_DestroyPipelineLayout(layout);
+                layout.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const logicOp = new LogicOpDynamicState(sample);
         // -op <0..15>: the logic operation at start (Vulkan's order: 3 is COPY); -noUI: no overlay.
-        Nri_AddExampleOptionWithValues(sample, "-op", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOptionWithValues("-op", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-op" && i + 1 < argc) {
                 i++;
-                logicOp.selectedOperation = Math.min(Math.max(parseInt(Nri_GetArg(argc, argv, i)), 0), LOGIC_OP_COUNT - 1);
+                logicOp.selectedOperation = Math.min(Math.max(parseInt(Nri.getArg(argc, argv, i)), 0), LOGIC_OP_COUNT - 1);
             } else if (arg == "-noUI") {
                 logicOp.noUI = true;
             }

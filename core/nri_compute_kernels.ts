@@ -10,15 +10,16 @@
 
 /// <reference path="nri/nri_interop.d.ts" />
 import { NriGpuProfiler } from "./nri_gpu_profiler";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptorSet, NriPipeline } from "./nri";
 
 @final
 export class NriComputeKernels {
     private constants: f32[] = [];
     private constantsSize: int = 0;
     private groupSize: int = 64;
-    private pipelines: NriPipelineHandle[] = [];
-    private set: NriDescriptorSetHandle | null = null;
-    private buffers: NriBufferHandle[] = [];
+    private pipelines: NriPipeline[] = [];
+    private set: NriDescriptorSet | null = null;
+    private buffers: NriBuffer[] = [];
     private profiler: NriGpuProfiler | null = null;
 
     // constantFloats 32-bit root constants (zero), and kernels groupSize threads a group.
@@ -32,7 +33,7 @@ export class NriComputeKernels {
     }
 
     // The kernels' pipelines, their descriptor set, and the buffers barrier masks name, in order.
-    bind(pipelines: NriPipelineHandle[], set: NriDescriptorSetHandle, buffers: NriBufferHandle[]) {
+    bind(pipelines: NriPipeline[], set: NriDescriptorSet, buffers: NriBuffer[]) {
         this.pipelines = [];
         for (const pipeline of pipelines) {
             this.pipelines.push(pipeline);
@@ -54,34 +55,34 @@ export class NriComputeKernels {
     }
 
     setInt(index: int, value: int) {
-        Nri_StoreInt32(Ref(this.constants[index]), value);
+        Nri.storeInt32(Ref(this.constants[index]), value);
     }
 
     // The same constants for a draw (root constants 0 of its layout).
-    setGraphicsConstants(commandBuffer: NriCommandBufferHandle) {
-        Nri_CmdSetRootConstants(commandBuffer, 0, Ref(this.constants[0]), this.constantsSize);
+    setGraphicsConstants(commandBuffer: NriCommandBuffer) {
+        commandBuffer.setRootConstants(0, Ref(this.constants[0]), this.constantsSize);
     }
 
     // Barriers from before to after on the buffers in mask.
-    barriers(commandBuffer: NriCommandBufferHandle, mask: int, before: NriBufferState, after: NriBufferState) {
+    barriers(commandBuffer: NriCommandBuffer, mask: int, before: NriBufferState, after: NriBufferState) {
         for (let i = 0; i < this.buffers.length; i++) {
             if ((mask & (1 << i)) != 0) {
-                Nri_CmdBufferBarrier(commandBuffer, this.buffers[i], before, after);
+                commandBuffer.bufferBarrier(this.buffers[i], before, after);
             }
         }
     }
 
     // kernel over threads threads (in groups), with the constants as they are, then a barrier on the
     // buffers in barrierMask (storage to storage).
-    dispatch(commandBuffer: NriCommandBufferHandle, kernel: int, threads: int, barrierMask: int) {
+    dispatch(commandBuffer: NriCommandBuffer, kernel: int, threads: int, barrierMask: int) {
         const set = this.set;
         if (!set) {
             return;
         }
-        Nri_CmdSetPipeline(commandBuffer, this.pipelines[kernel]);
-        Nri_CmdSetComputeRootConstants(commandBuffer, 0, Ref(this.constants[0]), this.constantsSize);
-        Nri_CmdSetComputeDescriptorSet(commandBuffer, 0, set);
-        Nri_CmdDispatch(commandBuffer, Math.floor((threads + this.groupSize - 1) / this.groupSize), 1, 1);
+        commandBuffer.setPipeline(this.pipelines[kernel]);
+        commandBuffer.setComputeRootConstants(0, Ref(this.constants[0]), this.constantsSize);
+        commandBuffer.setComputeDescriptorSet(0, set);
+        commandBuffer.dispatch(Math.floor((threads + this.groupSize - 1) / this.groupSize), 1, 1);
         this.barriers(commandBuffer, barrierMask, NriBufferState.Storage, NriBufferState.Storage);
         const profiler = this.profiler;
         if (profiler) {

@@ -4,6 +4,7 @@ import { NriSwapChain } from "../../core/nri_swap_chain";
 import { multiply, inverseRigid, radians, perspective } from "../../core/matrix";
 import { comboItems } from "../../core/text_format";
 import { LookAtCamera } from "../../core/vulkan_samples_camera";
+import { Nri, NriBuffer, NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriImgui, NriPipeline, NriPipelineDesc, NriPipelineLayout, NriPipelineLayoutDesc, NriQueue, NriSample, NriTexture } from "../../core/nri";
 
 namespace DynamicBlendingNri {
     // dynamic_blending, rendered with NRI (NVIDIA Rendering Interface) and NRIFramework instead of
@@ -80,14 +81,14 @@ namespace DynamicBlendingNri {
 
     // A frame in flight's own data: its descriptor set (its copy of the constants).
     class QueuedFrame {
-        constructor(public descriptorSet: NriDescriptorSetHandle | null, public cameraView: NriDescriptorHandle | null,
-            public colorView: NriDescriptorHandle | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public cameraView: NriDescriptor | null,
+            public colorView: NriDescriptor | null) {
         }
     }
 
     // A pipeline made for a blend state (DynamicBlending.pipelineKey).
     class KeyedPipeline {
-        constructor(public key: string, public pipeline: NriPipelineHandle) {
+        constructor(public key: string, public pipeline: NriPipeline) {
         }
     }
 
@@ -168,23 +169,23 @@ namespace DynamicBlendingNri {
     // the Donut example offers on Vulkan): the UI has the blend equation only. The left mouse button
     // turns the camera.
     class DynamicBlending {
-        private device: NriDeviceHandle | null = null;
-        private queue: NriQueueHandle;
+        private device: NriDevice | null = null;
+        private queue: NriQueue;
         private frames: NriFrameRing = new NriFrameRing();
         private swapChain: NriSwapChain = new NriSwapChain();
         private queuedFrames: QueuedFrame[] = [];
         // The swap chain textures' format (its views' are viewFormat).
         private swapChainFormat: NriFormat = NriFormat.Unknown;
         private viewFormat: NriFormat = NriFormat.Unknown;
-        private depthTexture: NriTextureHandle | null = null;
-        private depthAttachment: NriDescriptorHandle | null = null;
-        private layout: NriPipelineLayoutHandle | null = null;
+        private depthTexture: NriTexture | null = null;
+        private depthAttachment: NriDescriptor | null = null;
+        private layout: NriPipelineLayout | null = null;
         private shaders: string = "";
         private pipelines: KeyedPipeline[] = [];
-        private vertexBuffer: NriBufferHandle | null = null;
-        private indexBuffer: NriBufferHandle | null = null;
-        private constantBuffer: NriBufferHandle | null = null;
-        private descriptorPool: NriDescriptorPoolHandle | null = null;
+        private vertexBuffer: NriBuffer | null = null;
+        private indexBuffer: NriBuffer | null = null;
+        private constantBuffer: NriBuffer | null = null;
+        private descriptorPool: NriDescriptorPool | null = null;
         private imgui: boolean = false;
         // The swap chain's size: the window's when it was (re)created.
         private width: int = 0;
@@ -225,11 +226,11 @@ namespace DynamicBlendingNri {
 
         // -test: the last frame is read back into readbackBuffer, rows rowPitch bytes apart.
         private test: boolean = false;
-        private readbackBuffer: NriBufferHandle | null = null;
+        private readbackBuffer: NriBuffer | null = null;
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
-        constructor(private sample: NriSampleHandle) {
+        constructor(private sample: NriSample) {
             for (let i = 0; i < 16; i++) {
                 this.cameraConstants.push(0.0);
             }
@@ -246,11 +247,11 @@ namespace DynamicBlendingNri {
             retainedInitializeCallbacks.push(initialize);
             retainedFrameCallbacks.push(latencySleep);
             retainedFrameCallbacks.push(renderFrame);
-            Nri_SetInitializeCallback(this.sample, initialize);
-            Nri_SetLatencySleepCallback(this.sample, latencySleep);
-            Nri_SetRenderFrameCallback(this.sample, renderFrame);
+            this.sample.setInitializeCallback(initialize);
+            this.sample.setLatencySleepCallback(latencySleep);
+            this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = Nri_RunSample(this.sample, argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -261,19 +262,19 @@ namespace DynamicBlendingNri {
         }
 
         initialize(graphicsAPI: NriGraphicsAPI): int {
-            const device = Nri_CreateDevice(this.sample, graphicsAPI);
+            const device = this.sample.createDevice(graphicsAPI);
             if (!device) {
                 console.log("Cannot initialize a graphics device with the requested parameters");
                 return 0;
             }
             this.device = device;
-            console.log(`Renderer: ${Nri_GetGraphicsAPIString(graphicsAPI)} (${Nri_GetAdapterName(device)})`);
+            console.log(`Renderer: ${Nri.getGraphicsAPIString(graphicsAPI)} (${device.getAdapterName()})`);
 
-            this.queue = Nri_GetGraphicsQueue(device);
-            this.test = Nri_IsTest(this.sample) != 0;
+            this.queue = device.getGraphicsQueue();
+            this.test = this.sample.isTest() != 0;
 
             // Swap chain: rendered through sRGB views, as into Donut's sRGB back buffers.
-            const queuedFrameNum = Nri_GetQueuedFrameNum(this.sample);
+            const queuedFrameNum = this.sample.getQueuedFrameNum();
             this.swapChain.init(this.sample, device, this.queue, true);
             this.sizeToSwapChain();
             const format = this.swapChainFormat;
@@ -286,10 +287,10 @@ namespace DynamicBlendingNri {
             }
 
             // The layout: CameraUbo (b0, the vertex shader's) and ColorUbo (b1, the pixel shader's).
-            const layoutDesc = Nri_CreatePipelineLayoutDesc();
-            Nri_PipelineLayoutDescAddRange(layoutDesc, 0, 0, 2, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
-            const layout = Nri_CreatePipelineLayoutFromDesc(device, layoutDesc);
-            Nri_DestroyPipelineLayoutDesc(layoutDesc);
+            const layoutDesc = NriPipelineLayoutDesc.create();
+            layoutDesc.addRange(0, 0, 2, NriDescriptorType.ConstantBuffer, NriStage.VertexPixel, NriRangeFlags.None);
+            const layout = device.createPipelineLayoutFromDesc(layoutDesc);
+            layoutDesc.destroy();
             this.layout = layout;
             if (!layout) {
                 console.log("Cannot create the pipeline layout");
@@ -308,13 +309,13 @@ namespace DynamicBlendingNri {
             // The faces.
             const vertices = VERTICES.map((v): f32 => v);
             const indices = INDICES.map((v): int => v);
-            this.vertexBuffer = Nri_CreateUploadedBuffer(device, this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
-            this.indexBuffer = Nri_CreateUploadedBufferFromInts(device, this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
+            this.vertexBuffer = device.createUploadedBuffer(this.queue, Ref(vertices[0]), vertices.length * 4, NriBufferUsage.VertexBuffer);
+            this.indexBuffer = device.createUploadedBufferFromInts(this.queue, Ref(indices[0]), indices.length * 4, NriBufferUsage.IndexBuffer);
 
             // A queued frame's constants each, in its own descriptor set.
-            const constantBuffer = Nri_CreateHostBuffer(device, queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
+            const constantBuffer = device.createHostBuffer(queuedFrameNum * FRAME_CONSTANTS_STRIDE, NriBufferUsage.ConstantBuffer);
             this.constantBuffer = constantBuffer;
-            const descriptorPool = Nri_CreateDescriptorPool(device, queuedFrameNum, 0, 2 * queuedFrameNum, 0, 0, 0);
+            const descriptorPool = device.createDescriptorPool(queuedFrameNum, 0, 2 * queuedFrameNum, 0, 0, 0);
             this.descriptorPool = descriptorPool;
             if (!constantBuffer || !descriptorPool) {
                 console.log("Cannot create the descriptors");
@@ -322,22 +323,22 @@ namespace DynamicBlendingNri {
             }
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                const descriptorSet = Nri_AllocateDescriptorSet(descriptorPool, layout, 0, 0);
-                const cameraView = Nri_CreateConstantBufferView(constantBuffer, i * FRAME_CONSTANTS_STRIDE, CONSTANT_VIEW_SIZE);
-                const colorView = Nri_CreateConstantBufferView(constantBuffer, i * FRAME_CONSTANTS_STRIDE + CONSTANT_VIEW_SIZE, CONSTANT_VIEW_SIZE);
+                const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
+                const cameraView = constantBuffer.createConstantView(i * FRAME_CONSTANTS_STRIDE, CONSTANT_VIEW_SIZE);
+                const colorView = constantBuffer.createConstantView(i * FRAME_CONSTANTS_STRIDE + CONSTANT_VIEW_SIZE, CONSTANT_VIEW_SIZE);
                 this.queuedFrames.push(new QueuedFrame(descriptorSet,
                     cameraView, colorView));
                 if (!descriptorSet || !cameraView || !colorView) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                Nri_UpdateDescriptor(descriptorSet, 0, 0, cameraView);
-                Nri_UpdateDescriptor(descriptorSet, 0, 1, colorView);
+                descriptorSet.updateDescriptor(0, 0, cameraView);
+                descriptorSet.updateDescriptor(0, 1, colorView);
             }
 
             // The sample's options.
             if (!this.noUI) {
-                if (Nri_InitImgui(this.sample, device) == 0) {
+                if (this.sample.initImgui(device) == 0) {
                     console.log("Cannot initialize the user interface");
                     return 0;
                 }
@@ -345,9 +346,9 @@ namespace DynamicBlendingNri {
             }
 
             if (this.test) {
-                const alignment = Nri_GetUploadBufferTextureRowAlignment(device);
+                const alignment = device.getUploadBufferTextureRowAlignment();
                 this.rowPitch = Math.floor((this.width * 4 + alignment - 1) / alignment) * alignment;
-                this.readbackBuffer = Nri_CreateReadbackBuffer(device, this.rowPitch * this.height);
+                this.readbackBuffer = device.createReadbackBuffer(this.rowPitch * this.height);
                 this.readbackFormat = format;
             }
             return 1;
@@ -362,7 +363,7 @@ namespace DynamicBlendingNri {
 
         // The sample's pipeline with a face's dynamic state: depth test (greater: reversed) and
         // write, no culling, the blend state, the face's color write mask. Null if it can't be made.
-        facePipeline(face: FacePreferences): NriPipelineHandle | null {
+        facePipeline(face: FacePreferences): NriPipeline | null {
             const device = this.device;
             const layout = this.layout;
             if (!device || !layout) {
@@ -374,32 +375,32 @@ namespace DynamicBlendingNri {
                     return keyed.pipeline;
                 }
             }
-            const desc = Nri_CreatePipelineDesc();
-            let loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Vertex, `${this.shaders}_main_vs.bin`, "main_vs") != 0;
+            const desc = NriPipelineDesc.create();
+            let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_main_vs.bin`, "main_vs") != 0;
             if (loaded) {
-                loaded = Nri_PipelineDescAddShader(desc, NriShaderStage.Pixel, `${this.shaders}_main_ps.bin`, "main_ps") != 0;
+                loaded = desc.addShader(NriShaderStage.Pixel, `${this.shaders}_main_ps.bin`, "main_ps") != 0;
             }
-            Nri_PipelineDescAddVertexAttribute(desc, "POSITION", NriFormat.RGB32_SFLOAT, 0);
-            Nri_PipelineDescAddVertexAttribute(desc, "TEXCOORD", NriFormat.RG32_SFLOAT, 12);
-            Nri_PipelineDescSetFrontCounterClockwise(desc, 1);
-            Nri_PipelineDescSetColor(desc, this.viewFormat, colorMask(face.colorBitEnabled));
+            desc.addVertexAttribute("POSITION", NriFormat.RGB32_SFLOAT, 0);
+            desc.addVertexAttribute("TEXCOORD", NriFormat.RG32_SFLOAT, 12);
+            desc.setFrontCounterClockwise(1);
+            desc.setColor(this.viewFormat, colorMask(face.colorBitEnabled));
             if (this.blendEnable) {
-                Nri_PipelineDescSetBlend(desc,
+                desc.setBlend(
                     BLEND_FACTORS[this.srcColorBlendFactor], BLEND_FACTORS[this.dstColorBlendFactor], BLEND_OPS[this.colorOperator],
                     ALPHA_BLEND_FACTORS[this.srcAlphaBlendFactor], ALPHA_BLEND_FACTORS[this.dstAlphaBlendFactor],
                     BLEND_OPS[this.alphaOperator]);
             }
-            Nri_PipelineDescSetDepth(desc, NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
-            let pipeline: NriPipelineHandle | null = null;
+            desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.Greater, 1, 0);
+            let pipeline: NriPipeline | null = null;
             if (loaded) {
-                pipeline = Nri_CreatePipelineFromDesc(device, layout, desc);
+                pipeline = device.createPipelineFromDesc(layout, desc);
             }
-            Nri_DestroyPipelineDesc(desc);
+            desc.destroy();
             return this.keep(key, pipeline);
         }
 
         // Keeps the pipeline made for key (if made).
-        keep(key: string, pipeline: NriPipelineHandle | null): NriPipelineHandle | null {
+        keep(key: string, pipeline: NriPipeline | null): NriPipeline | null {
             if (!pipeline) {
                 return null;
             }
@@ -413,9 +414,9 @@ namespace DynamicBlendingNri {
             if (!device || this.pipelines.length <= MAX_PIPELINES) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             for (const keyed of this.pipelines) {
-                Nri_DestroyPipeline(keyed.pipeline);
+                keyed.pipeline.destroy();
             }
             this.pipelines = [];
         }
@@ -428,9 +429,9 @@ namespace DynamicBlendingNri {
         // The camera's mouse handling, unless the options window has the mouse: the buttons'
         // changes, then the move.
         handleMouse() {
-            const overlay = this.imgui && Nri_ImguiWantsMouse() != 0;
+            const overlay = this.imgui && NriImgui.wantsMouse() != 0;
             for (let button = 0; button < 3; button++) {
-                const pressed = Nri_IsButtonPressed(this.sample, button) != 0;
+                const pressed = this.sample.isButtonPressed(button) != 0;
                 if (pressed != this.buttons[button]) {
                     if (!pressed || !overlay) {
                         this.camera.mouseButton(<MouseButton>button, <Action>(pressed ? 1 : 0));
@@ -438,28 +439,28 @@ namespace DynamicBlendingNri {
                     this.buttons[button] = pressed;
                 }
             }
-            this.mouseX += Nri_GetMouseDeltaX(this.sample);
-            this.mouseY += Nri_GetMouseDeltaY(this.sample);
+            this.mouseX += this.sample.getMouseDeltaX();
+            this.mouseY += this.sample.getMouseDeltaY();
             this.camera.mouseMove(this.mouseX, this.mouseY);
         }
 
         // A color editor (as the sample's, 200 pixels wide).
         colorEdit(id: int, caption: string, colors: f32[], first: int) {
-            Nri_ImguiPushID(id);
-            Nri_ImguiColorEdit4(caption, Ref(colors[first]), 200.0);
-            Nri_ImguiPopID();
+            NriImgui.pushID(id);
+            NriImgui.colorEdit4(caption, Ref(colors[first]), 200.0);
+            NriImgui.popID();
         }
 
         // A "Next" button, then a combo of names; the new index.
         comboWithButton(id: int, caption: string, index: int, names: string[]) {
             let result = index;
-            Nri_ImguiPushID(id);
-            if (Nri_ImguiButton("Next") != 0) {
+            NriImgui.pushID(id);
+            if (NriImgui.button("Next") != 0) {
                 result = (result + 1) % names.length;
             }
-            Nri_ImguiPopID();
-            Nri_ImguiSameLine();
-            return Nri_ImguiCombo(caption, result, comboItems(names));
+            NriImgui.popID();
+            NriImgui.sameLine();
+            return NriImgui.combo(caption, result, comboItems(names));
         }
 
         // The sample's random colors (alpha kept).
@@ -473,10 +474,10 @@ namespace DynamicBlendingNri {
 
         // The sample's options.
         buildUI() {
-            Nri_ImguiNewFrame(this.sample);
+            this.sample.imguiNewFrame();
             let id = 0;
-            Nri_ImguiSetNextWindowPos(10.0, 10.0);
-            Nri_ImguiBegin("Options", 1);
+            NriImgui.setNextWindowPos(10.0, 10.0);
+            NriImgui.begin("Options", 1);
 
             id++;
             this.colorEdit(id, "Background", this.clearColor, 0);
@@ -485,28 +486,28 @@ namespace DynamicBlendingNri {
             // together.)
             for (let f = 0; f < 2; f++) {
                 const face = this.faces[f];
-                if (Nri_ImguiCollapsingHeader(f == 0 ? "First face" : "Second face", 1) != 0) {
+                if (NriImgui.collapsingHeader(f == 0 ? "First face" : "Second face", 1) != 0) {
                     const corners = ["Top left", "Top right", "Bottom left", "Bottom right"];
                     for (let c = 0; c < 4; c++) {
                         id++;
                         this.colorEdit(id, corners[c], face.colors, c * 4);
                     }
                     id++;
-                    Nri_ImguiPushID(id);
-                    if (Nri_ImguiButton("Random") != 0) {
+                    NriImgui.pushID(id);
+                    if (NriImgui.button("Random") != 0) {
                         this.randomize(face.colors);
                     }
-                    Nri_ImguiPopID();
+                    NriImgui.popID();
 
-                    Nri_ImguiText("Color write mask");
+                    NriImgui.text("Color write mask");
                     const channels = ["Red", "Green", "Blue", "Alpha"];
                     for (let c = 0; c < 4; c++) {
                         id++;
-                        Nri_ImguiPushID(id);
-                        face.colorBitEnabled[c] = Nri_ImguiCheckbox(channels[c], face.colorBitEnabled[c] ? 1 : 0) != 0;
-                        Nri_ImguiPopID();
+                        NriImgui.pushID(id);
+                        face.colorBitEnabled[c] = NriImgui.checkbox(channels[c], face.colorBitEnabled[c] ? 1 : 0) != 0;
+                        NriImgui.popID();
                         if (c < 3) {
-                            Nri_ImguiSameLine();
+                            NriImgui.sameLine();
                         }
                     }
                 } else {
@@ -514,9 +515,9 @@ namespace DynamicBlendingNri {
                 }
             }
 
-            if (Nri_ImguiCollapsingHeader("Blending", 1) != 0) {
-                this.blendEnable = Nri_ImguiCheckbox("Enabled", this.blendEnable ? 1 : 0) != 0;
-                if (Nri_ImguiCollapsingHeader("BlendEquationEXT", 1) != 0) {
+            if (NriImgui.collapsingHeader("Blending", 1) != 0) {
+                this.blendEnable = NriImgui.checkbox("Enabled", this.blendEnable ? 1 : 0) != 0;
+                if (NriImgui.collapsingHeader("BlendEquationEXT", 1) != 0) {
                     this.colorOperator = this.comboWithButton(++id, "Color operator", this.colorOperator, BLEND_OP_NAMES);
                     this.srcColorBlendFactor = this.comboWithButton(++id, "SrcColorBlendFactor", this.srcColorBlendFactor, BLEND_FACTOR_NAMES);
                     this.dstColorBlendFactor = this.comboWithButton(++id, "DstColorBlendFactor", this.dstColorBlendFactor, BLEND_FACTOR_NAMES);
@@ -525,8 +526,8 @@ namespace DynamicBlendingNri {
                     this.dstAlphaBlendFactor = this.comboWithButton(++id, "DstAlphaBlendFactor", this.dstAlphaBlendFactor, BLEND_FACTOR_NAMES);
                 }
             }
-            Nri_ImguiEnd();
-            Nri_ImguiRender(this.sample);
+            NriImgui.end();
+            this.sample.imguiRender();
         }
 
         // The sample's update_uniform_buffers: projection * view * model (identity), into Donut's
@@ -547,8 +548,8 @@ namespace DynamicBlendingNri {
                 }
             }
             const offset = queuedFrameIndex * FRAME_CONSTANTS_STRIDE;
-            Nri_WriteBuffer(constantBuffer, offset, Ref(this.cameraConstants[0]), 16 * 4);
-            Nri_WriteBuffer(constantBuffer, offset + CONSTANT_VIEW_SIZE, Ref(this.colorConstants[0]), COLOR_FLOATS * 4);
+            constantBuffer.write(offset, Ref(this.cameraConstants[0]), 16 * 4);
+            constantBuffer.write(offset + CONSTANT_VIEW_SIZE, Ref(this.colorConstants[0]), COLOR_FLOATS * 4);
         }
 
         // Which face is drawn first, as the sample decides it: the vertices 0 (on the z = 1 face) and
@@ -560,8 +561,8 @@ namespace DynamicBlendingNri {
             return z0 < z4;
         }
 
-        // The two faces (between Nri_CmdBeginRenderingWithDepth and Nri_CmdEndRendering).
-        recordDraw(commandBuffer: NriCommandBufferHandle, queuedFrame: QueuedFrame) {
+        // The two faces (between NriCommandBuffer.beginRenderingWithDepth and NriCommandBuffer.endRendering).
+        recordDraw(commandBuffer: NriCommandBuffer, queuedFrame: QueuedFrame) {
             const layout = this.layout;
             const descriptorPool = this.descriptorPool;
             const descriptorSet = queuedFrame.descriptorSet;
@@ -570,22 +571,22 @@ namespace DynamicBlendingNri {
             if (!layout || !descriptorPool || !descriptorSet || !vertexBuffer || !indexBuffer) {
                 return;
             }
-            Nri_CmdSetViewport(commandBuffer, 0.0, 0.0, this.width, this.height);
-            Nri_CmdSetScissor(commandBuffer, 0, 0, this.width, this.height);
-            Nri_CmdSetDescriptorPool(commandBuffer, descriptorPool);
-            Nri_CmdSetPipelineLayout(commandBuffer, layout);
-            Nri_CmdSetDescriptorSet(commandBuffer, 0, descriptorSet);
-            Nri_CmdSetVertexBuffer(commandBuffer, 0, vertexBuffer, 0, VERTEX_SIZE);
-            Nri_CmdSetIndexBuffer(commandBuffer, indexBuffer, 0, NriIndexType.UInt32);
+            commandBuffer.setViewport(0.0, 0.0, this.width, this.height);
+            commandBuffer.setScissor(0, 0, this.width, this.height);
+            commandBuffer.setDescriptorPool(descriptorPool);
+            commandBuffer.setPipelineLayout(layout);
+            commandBuffer.setDescriptorSet(0, descriptorSet);
+            commandBuffer.setVertexBuffer(0, vertexBuffer, 0, VERTEX_SIZE);
+            commandBuffer.setIndexBuffer(indexBuffer, 0, NriIndexType.UInt32);
             // The sample's blend constants (zeros).
-            Nri_CmdSetBlendConstants(commandBuffer, 0.0, 0.0, 0.0, 0.0);
+            commandBuffer.setBlendConstants(0.0, 0.0, 0.0, 0.0);
             const reverse = this.reversed();
             for (let i = 0; i < 2; i++) {
                 const face = this.faces[reverse ? 1 - i : i];
                 const pipeline = this.facePipeline(face);
                 if (pipeline) {
-                    Nri_CmdSetPipeline(commandBuffer, pipeline);
-                    Nri_CmdDrawIndexed(commandBuffer, FACE_INDEX_COUNT, 1, face.indexOffset, 0, 0);
+                    commandBuffer.setPipeline(pipeline);
+                    commandBuffer.drawIndexed(FACE_INDEX_COUNT, 1, face.indexOffset, 0, 0);
                 }
             }
         }
@@ -599,30 +600,30 @@ namespace DynamicBlendingNri {
         }
 
         // The D32 depth buffer at the swap chain's size; false on failure.
-        createDepth(device: NriDeviceHandle): boolean {
-            const depthTexture = Nri_CreateDepthTexture(device, this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
+        createDepth(device: NriDevice): boolean {
+            const depthTexture = device.createDepthTexture(this.queue, this.width, this.height, NriFormat.D32_SFLOAT);
             this.depthTexture = depthTexture;
             if (!depthTexture) {
                 return false;
             }
-            this.depthAttachment = Nri_CreateDepthAttachmentView(depthTexture, NriFormat.D32_SFLOAT);
+            this.depthAttachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
             return true;
         }
 
         destroyDepth() {
             const depthAttachment = this.depthAttachment;
             if (depthAttachment) {
-                Nri_DestroyDescriptor(depthAttachment);
+                depthAttachment.destroy();
             }
             this.depthAttachment = null;
             const depthTexture = this.depthTexture;
             if (depthTexture) {
-                Nri_DestroyTexture(depthTexture);
+                depthTexture.destroy();
             }
             this.depthTexture = null;
         }
 
-        // The window was resized (Nri_UseResizableWindow): the swap chain and the depth buffer made again at its size, once the
+        // The window was resized (NriSample.useResizableWindow): the swap chain and the depth buffer made again at its size, once the
         // GPU is done with the old ones.
         resizeIfNeeded() {
             const device = this.device;
@@ -632,7 +633,7 @@ namespace DynamicBlendingNri {
             if (!this.swapChain.resized()) {
                 return;
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             this.destroyDepth();
             this.swapChain.recreate();
             this.sizeToSwapChain();
@@ -659,21 +660,21 @@ namespace DynamicBlendingNri {
 
                 // Record: the background color, depth cleared to 0, the faces; then the options
                 // window over them.
-                Nri_BeginCommandBuffer(commandBuffer);
-                Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
+                commandBuffer.begin();
+                commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 if (depthAttachment) {
-                    Nri_CmdBeginRenderingWithDepth(commandBuffer, this.swapChain.colorAttachment(index), depthAttachment);
-                    Nri_CmdClearColor(commandBuffer, this.clearColor[0], this.clearColor[1], this.clearColor[2], this.clearColor[3]);
-                    Nri_CmdClearDepth(commandBuffer, 0.0);
+                    commandBuffer.beginRenderingWithDepth(this.swapChain.colorAttachment(index), depthAttachment);
+                    commandBuffer.clearColor(this.clearColor[0], this.clearColor[1], this.clearColor[2], this.clearColor[3]);
+                    commandBuffer.clearDepth(0.0);
                     this.recordDraw(commandBuffer, queuedFrame);
-                    Nri_CmdEndRendering(commandBuffer);
+                    commandBuffer.endRendering();
                 }
                 // (A pass of its own: the UI's pipeline has no depth attachment.)
                 if (this.imgui) {
-                    Nri_CmdCopyImguiData(this.sample, commandBuffer);
-                    Nri_CmdBeginRendering(commandBuffer, this.swapChain.colorAttachment(index));
-                    Nri_CmdDrawImgui(this.sample, commandBuffer, this.viewFormat);
-                    Nri_CmdEndRendering(commandBuffer);
+                    this.sample.copyImguiData(commandBuffer);
+                    commandBuffer.beginRendering(this.swapChain.colorAttachment(index));
+                    this.sample.drawImgui(commandBuffer, this.viewFormat);
+                    commandBuffer.endRendering();
                 }
 
                 // The test's last frame: read back
@@ -681,18 +682,18 @@ namespace DynamicBlendingNri {
                 const readbackBuffer = this.readbackBuffer;
                 if (readbackBuffer) {
                     if (frameIndex == TEST_FRAMES - 1) {
-                        Nri_CmdTextureBarrier(commandBuffer, texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
-                        Nri_CmdReadbackTextureToBuffer(commandBuffer, readbackBuffer, this.rowPitch, texture, this.width, this.height);
+                        commandBuffer.textureBarrier(texture, NriTextureState.ColorAttachment, NriTextureState.CopySource);
+                        commandBuffer.readbackTextureToBuffer(readbackBuffer, this.rowPitch, texture, this.width, this.height);
                         presentFrom = NriTextureState.CopySource;
                     }
                 }
-                Nri_CmdTextureBarrier(commandBuffer, texture, presentFrom, NriTextureState.Present);
-                Nri_EndCommandBuffer(commandBuffer);
+                commandBuffer.textureBarrier(texture, presentFrom, NriTextureState.Present);
+                commandBuffer.end();
 
                 // Submit and present
                 this.swapChain.submit(commandBuffer, index);
                 if (this.imgui) {
-                    Nri_ImguiEndFrame(this.sample);
+                    this.sample.imguiEndFrame();
                 }
                 this.swapChain.present(index);
             }
@@ -708,12 +709,12 @@ namespace DynamicBlendingNri {
             if (!device || !readbackBuffer) {
                 return [];
             }
-            Nri_DeviceWaitIdle(device);
+            device.waitIdle();
             const pixels: int[] = [];
             for (let i = 0; i < this.width * this.height; i++) {
                 pixels.push(0);
             }
-            if (Nri_ReadBufferRGBA8(readbackBuffer, this.rowPitch, this.width, this.height, this.readbackFormat,
+            if (readbackBuffer.readRGBA8(this.rowPitch, this.width, this.height, this.readbackFormat,
                 Ref(pixels[0]), pixels.length) == 0) {
                 return [];
             }
@@ -723,9 +724,9 @@ namespace DynamicBlendingNri {
         destroy() {
             const device = this.device;
             if (device) {
-                Nri_DeviceWaitIdle(device);
+                device.waitIdle();
                 if (this.imgui) {
-                    Nri_DestroyImgui(this.sample);
+                    this.sample.destroyImgui();
                 }
                 for (const queuedFrame of this.queuedFrames) {
                     this.destroyDescriptor(queuedFrame.cameraView);
@@ -733,7 +734,7 @@ namespace DynamicBlendingNri {
                 }
                 const descriptorPool = this.descriptorPool;
                 if (descriptorPool) {
-                    Nri_DestroyDescriptorPool(descriptorPool);
+                    descriptorPool.destroy();
                 }
                 this.destroyDepth();
                 this.destroyBuffer(this.vertexBuffer);
@@ -741,44 +742,44 @@ namespace DynamicBlendingNri {
                 this.destroyBuffer(this.constantBuffer);
                 this.destroyBuffer(this.readbackBuffer);
                 for (const keyed of this.pipelines) {
-                    Nri_DestroyPipeline(keyed.pipeline);
+                    keyed.pipeline.destroy();
                 }
                 const layout = this.layout;
                 if (layout) {
-                    Nri_DestroyPipelineLayout(layout);
+                    layout.destroy();
                 }
                 this.frames.destroy();
                 this.swapChain.destroy();
-                Nri_DestroyDevice(device);
+                device.destroy();
             }
-            Nri_DestroySample(this.sample);
+            this.sample.destroy();
         }
 
-        destroyDescriptor(descriptor: NriDescriptorHandle | null) {
+        destroyDescriptor(descriptor: NriDescriptor | null) {
             if (descriptor) {
-                Nri_DestroyDescriptor(descriptor);
+                descriptor.destroy();
             }
         }
 
-        destroyBuffer(buffer: NriBufferHandle | null) {
+        destroyBuffer(buffer: NriBuffer | null) {
             if (buffer) {
-                Nri_DestroyBuffer(buffer);
+                buffer.destroy();
             }
         }
     }
 
     export function main(argc: int, argv: Ref<string>) {
-        const sample = Nri_CreateSample();
-        Nri_UseResizableWindow(sample);
+        const sample = NriSample.create();
+        sample.useResizableWindow();
         const blending = new DynamicBlending(sample);
         // -noblend: blending off; -advanced <n>: the Donut example's advanced blend operation, which
         // NRI doesn't have (said so, then ignored); -noUI: no options window.
-        Nri_AddExampleOption(sample, "-noblend");
-        Nri_AddExampleOptionWithValues(sample, "-advanced", 1);
-        Nri_AddExampleOption(sample, "-noUI");
-        Nri_UseImgui(sample);
+        sample.addExampleOption("-noblend");
+        sample.addExampleOptionWithValues("-advanced", 1);
+        sample.addExampleOption("-noUI");
+        sample.useImgui();
         for (let i = 1; i < argc; i++) {
-            const arg = Nri_GetArg(argc, argv, i);
+            const arg = Nri.getArg(argc, argv, i);
             if (arg == "-noblend") {
                 blending.blendEnable = false;
             } else if (arg == "-advanced" && i + 1 < argc) {
