@@ -3,7 +3,7 @@ import { formatFixed } from "../core/text_format";
 import {
     WINDOW_TITLE, CAPACITY, DEFAULT_GRID_HEIGHT, MAX_GRID_LONG, GRID_CAPACITY,
     PROFILE_EVERY, PROFILE_QUERIES, PROFILE_REPORT, GROUP_SIZE, CONSTANTS_FLOATS, CONSTANTS_SIZE,
-    ALL_INT_SECTIONS, I_EVENTS, EVENT_COUNT, FLOAT_SECTIONS, ALLOC_LIST, PARTICLE_SIZE, PROBE_INTS,
+    ALL_INT_SECTIONS, I_EVENTS, EVENT_COUNT, EVENT_MIN, EVENTS_LOUD, EVENT_COOLDOWN, FLOAT_SECTIONS, ALLOC_LIST, PARTICLE_SIZE, PROBE_INTS,
     WATER, OIL, SAND, FIRE, LAVA, ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, GLASS, WOOD, URANIUM,
     EMITTER, ICE, METAL, FAN, BLOCK, BATTERY, LAMP, ERASE, HEAT, COOL, SALT_WATER, SPARK, C4, COAL,
     FUSE, HYDROGEN, OXYGEN, NEON, THERMITE, NITRO, SEED, CLONE, BLACK_HOLE, WHITE_HOLE, SPONGE,
@@ -33,8 +33,8 @@ export class SandboxApp extends SandboxUI {
             this.probeFloats.push(0.0);
         }
         for (let k = 0; k < EVENT_COUNT; k++) {
-            this.eventTotals.push(0);
-            this.soundCooldowns.push(0.0);
+            // (bigger booms lower)
+            this.sounds.add(EVENT_MIN[k], EVENTS_LOUD[k], EVENT_COOLDOWN[k], k == 3);
         }
         // The toolbar's tiles, by group (a tool may be in more than one).
         this.groups.push("Liquid");

@@ -3,7 +3,7 @@ import { formatFixed } from "../core/text_format";
 import {
     CAPACITY, DEFAULT_GRID_HEIGHT, QUALITY_FRAMES, STEP_BUDGET_MS, MIN_GRID_HEIGHT, QUALITY_PATH,
     QUALITY_MAGIC, GROUP_SIZE, SPARK_ITERATIONS, INT_SECTIONS, EVENT_COUNT,
-    EVENT_MIN, EVENT_COOLDOWN, EVENTS_LOUD, MAX_BODIES, PROBE_INTS, PROBE_VISCOUS, GRAVITY,
+    MAX_BODIES, PROBE_INTS, PROBE_VISCOUS, GRAVITY,
     FLIP_RATIO, SOR_OMEGA, SOLVER_SOR, FAN, INIT_GRID, INIT_PARTICLES, CLEAR, P2G, GRID,
     HEAT_SOURCE, HEAT_DIFFUSE, DIVERGENCE, PRESSURE, PROJECT, G2P, SPAWN, MG_SETUP, MG_SMOOTH,
     MG_RESTRICT, MG_PROLONG, MG_COARSE, VISCOSITY, AIR, BODIES, GLOW_EMIT, GLOW_X, GLOW_Y, SPARKS,
@@ -13,6 +13,7 @@ import {
 import { SandboxSaves } from "./saves";
 import { Nri, NriCommandBuffer } from "../core/nri";
 import { IntFile } from "../core/int_file";
+import { AutoQuality } from "../core/auto_quality";
 
 // The simulation's recording: the frame's constants (with the tilt sensor's gravity), its steps'
 // dispatches (the pressure solve, the sparks and glow), the GPU profiler and step timer, auto
@@ -224,7 +225,7 @@ export class SandboxSimulation extends SandboxSaves {
                 return;
             }
         }
-        this.calibrating = true;
+        this.calibration.start(QUALITY_FRAMES[0], QUALITY_FRAMES[1]);
         this.calibrationScene = this.scene;
         this.calibrationLevel = this.level;
         this.level = null;
@@ -241,25 +242,14 @@ export class SandboxSimulation extends SandboxSaves {
         return ints[0];
     }
 
-    // While calibrating: the step time summed over QUALITY_FRAMES, then the grid's size from its mean
+    // While calibrating: the step time averaged over QUALITY_FRAMES, then the grid's size from its mean
     // (smaller when over the budget), cached, and the session begun at it.
     qualityRequests(frameIndex: int) {
-        if (!this.calibrating) {
+        if (!this.calibration.sample(frameIndex, this.stepMs)) {
             return;
         }
-        if (frameIndex >= QUALITY_FRAMES[0] && this.stepMs > 0.0) {
-            this.qualitySum += this.stepMs;
-            this.qualityCount++;
-        }
-        if (frameIndex < QUALITY_FRAMES[1]) {
-            return;
-        }
-        this.calibrating = false;
-        const mean = this.qualityCount > 0 ? this.qualitySum / this.qualityCount : 0.0;
-        if (mean > this.stepBudget) {
-            this.gridHeight = Math.max(Math.min(Math.floor(this.gridHeight * Math.sqrt(this.stepBudget / mean) / 8) * 8,
-                this.gridHeight), MIN_GRID_HEIGHT);
-        }
+        const mean = this.calibration.mean();
+        this.gridHeight = AutoQuality.fit(this.gridHeight, mean, this.stepBudget, 8, MIN_GRID_HEIGHT);
         this.fitGrid();
         this.layout();
         console.log(`Auto quality: ${formatFixed(mean, 3)} ms a step (budget ${formatFixed(this.stepBudget, 2)}): the grid ${this.gridW} x ${this.gridH}`);
@@ -283,20 +273,7 @@ export class SandboxSimulation extends SandboxSaves {
             return;
         }
         for (let k = 0; k < EVENT_COUNT; k++) {
-            const events = this.probe[PROBE_INTS + k] * steps;
-            this.eventTotals[k] += events;
-            this.soundCooldowns[k] -= frameTime;
-            // (nested: tslang's && can't take a @cpp handle, issue #23)
-            const audio = this.audio;
-            if (audio) {
-                if (!this.test && events >= EVENT_MIN[k] && this.soundCooldowns[k] <= 0.0) {
-                    const loudness = Math.min(0.25 + 0.75 * Math.log(1.0 + events) / Math.log(1.0 + EVENTS_LOUD[k]), 1.0);
-                    // (bigger booms lower)
-                    const pitch = k == 3 ? 1.2 - 0.5 * Math.min(events / EVENTS_LOUD[k], 1.0) : 0.85 + 0.3 * Math.random();
-                    audio.playSound(k, loudness, pitch);
-                    this.soundCooldowns[k] = EVENT_COOLDOWN[k] * (0.8 + 0.4 * Math.random());
-                }
-            }
+            this.sounds.update(k, this.probe[PROBE_INTS + k] * steps, frameTime, this.audio, !this.test);
         }
     }
 

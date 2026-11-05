@@ -673,6 +673,10 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     fps), `core/nri_gpu_timer.ts`'s `NriGpuTimer` (two timestamps around the simulation each
     frame, read when its slot comes round) and `core/pan_zoom.ts`'s `PanZoom` (the grid's zoom,
     pan and fit above the toolbar).
+  - **Auto quality and sound** (done): `core/auto_quality.ts`'s `AutoQuality` (the step time
+    averaged over a window of frames; `fit`, the grid's height for the budget) and
+    `core/sound_events.ts`'s `SoundEvents` (a sound per event kind: the events it needs, its
+    loudness, its cooldown; the totals the tests check).
   - Still to do: the radial menu (never open in a test: it needs a phone to check), touch
     gestures. The tiles' row stays the sandbox's (its labels, swatches and selection are the
     game's).
