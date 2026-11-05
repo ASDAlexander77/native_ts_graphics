@@ -1,7 +1,7 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import { formatFixed } from "../core/text_format";
 import {
-    CAPACITY, DRAG_THRESHOLD, STROKE_CANCEL_TIME, LONG_PRESS_TIME, MIN_BRUSH, MAX_BRUSH,
+    CAPACITY, STROKE_CANCEL_TIME, MIN_BRUSH, MAX_BRUSH,
     MOUSE_MIDDLE, PARTICLE_TYPES, PROBE_INTS, PROBE_AIR, PROBE_GOAL, WATER, OIL, SAND, FIRE, LAVA,
     ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, EMITTER, BLOCK, HYDROGEN, OXYGEN, NEON, THERMITE,
     NITRO, SEED, INSPECT, Tile, ACTION_SMALLER, ACTION_LARGER, ACTION_PAUSE, ACTION_VIEW,
@@ -160,29 +160,27 @@ export class SandboxUI extends SandboxSimulation {
     // The pointer (mouse or touch): taps on the toolbar, strokes of the brush on the grid. The
     // brush's constants for this frame.
     handleInput(): int {
-        const mx = this.sample.getMouseX();
-        const my = this.sample.getMouseY();
         // The middle button (two fingers on Android) pans and zooms the view; the left one
         // doesn't paint meanwhile.
         const middle = this.sample.isButtonPressed(MOUSE_MIDDLE) != 0;
-        const down = this.sample.isButtonPressed(0) != 0 && !middle;
+        const pointer = this.pointer;
+        pointer.update(this.sample.getMouseX(), this.sample.getMouseY(), this.sample.isButtonPressed(0) != 0, middle, this.time);
+        const mx = pointer.x;
+        const my = pointer.y;
+        const down = pointer.down;
         const control = this.sample.isKeyPressed(KEY_LEFT_CONTROL) != 0 || this.sample.isKeyPressed(KEY_RIGHT_CONTROL) != 0;
         const overToolbar = my >= this.height - this.toolbarHeight;
 
         // Two fingers down (or the middle button): if the first finger has only just begun a
         // stroke, it was the start of a pinch, so what it painted is taken back. Then the view
         // follows the pointer (the fingers' midpoint).
-        if (middle && !this.middleWasDown) {
-            if (this.wasDown && !this.pressOnToolbar && this.tool != INSPECT && this.time - this.pressTime < STROKE_CANCEL_TIME) {
+        if (pointer.twoFingersStarted()) {
+            if (pointer.wasDown && !this.pressOnToolbar && this.tool != INSPECT && pointer.pressedRecently(this.time, STROKE_CANCEL_TIME)) {
                 this.undoRequested = true;
             }
-            this.panX = mx;
-            this.panY = my;
         }
         if (middle) {
-            this.panZoom.pan(mx - this.panX, my - this.panY);
-            this.panX = mx;
-            this.panY = my;
+            this.panZoom.pan(pointer.panDX, pointer.panDY);
             this.layout();
         }
 
@@ -200,7 +198,6 @@ export class SandboxUI extends SandboxSimulation {
         } else if (wheel < 0.0) {
             this.brushRadius = Math.max(this.brushRadius - 1.0, MIN_BRUSH);
         }
-        this.middleWasDown = middle;
         const gx = this.panZoom.toContentX(mx);
         const gy = this.panZoom.toContentY(my);
         this.mouseGridX = gx;
@@ -218,14 +215,13 @@ export class SandboxUI extends SandboxSimulation {
         let brushMode = 0;
         // (placing the attraction point paints nothing either)
         const placing = this.tool == GRAVITY_PLACE;
-        if (placing && down && !this.pressOnToolbar && !(down && !this.wasDown && overToolbar)) {
+        if (placing && down && !this.pressOnToolbar && !(pointer.pressed() && overToolbar)) {
             this.gravityX = Math.min(Math.max(gx, 1.0), this.gridW - 1.0);
             this.gravityY = Math.min(Math.max(gy, 1.0), this.gridH - 1.0);
         }
         const inspecting = this.tool == INSPECT || placing;
-        if (down && !this.wasDown) {
+        if (pointer.pressed()) {
             this.pressOnToolbar = overToolbar;
-            this.pressTime = this.time;
             // (a press while the menu's open picks from it, or closes it; one on the slider sizes
             // the brush)
             this.longPressed = false;
@@ -235,10 +231,7 @@ export class SandboxUI extends SandboxSimulation {
             if (!overToolbar && !this.pressOnUi && !inspecting) {
                 this.snapshotRequested = true;
             }
-            this.pressX = mx;
-            this.pressY = my;
             this.pressScroll = this.onTabRow(my) ? this.tabs.offset() : this.toolbarScroll;
-            this.dragging = false;
             this.lastGridX = gx;
             this.lastGridY = gy;
             this.anchorX = gx;
@@ -247,23 +240,20 @@ export class SandboxUI extends SandboxSimulation {
         // On the toolbar: a drag scrolls the row pressed, a release that didn't drag taps the tab
         // or the tile there.
         if (this.pressOnToolbar) {
-            const tabs = this.onTabRow(this.pressY);
+            const tabs = this.onTabRow(pointer.pressY);
             if (down) {
-                if (Math.abs(mx - this.pressX) > DRAG_THRESHOLD) {
-                    this.dragging = true;
+                if (pointer.dragged() && tabs) {
+                    this.tabs.scrollTo(this.pressScroll - (mx - pointer.pressX));
+                } else if (pointer.dragged()) {
+                    this.scrollToolbar(this.pressScroll - (mx - pointer.pressX));
                 }
-                if (this.dragging && tabs) {
-                    this.tabs.scrollTo(this.pressScroll - (mx - this.pressX));
-                } else if (this.dragging) {
-                    this.scrollToolbar(this.pressScroll - (mx - this.pressX));
-                }
-            } else if (this.wasDown && !this.dragging && tabs) {
-                const g = this.tabs.tabAt(this.pressX);
+            } else if (pointer.wasDown && !pointer.dragged() && tabs) {
+                const g = this.tabs.tabAt(pointer.pressX);
                 if (g >= 0) {
                     this.showGroup(g);
                 }
-            } else if (this.wasDown && !this.dragging) {
-                const index: int = Math.floor((this.pressX + this.toolbarScroll) / this.tileWidth);
+            } else if (pointer.wasDown && !pointer.dragged()) {
+                const index: int = Math.floor((pointer.pressX + this.toolbarScroll) / this.tileWidth);
                 if (index >= 0 && index < this.groupTiles.length) {
                     this.onTile(this.groupTiles[index]);
                 }
@@ -277,19 +267,16 @@ export class SandboxUI extends SandboxSimulation {
         // painted); it's then the menu's. Not while inspecting or placing the attraction point:
         // they have no brush, and holding still is how a cell is read.
         if (down && !this.pressOnToolbar && !this.pressOnUi && !inspecting) {
-            if (Math.abs(mx - this.pressX) > DRAG_THRESHOLD || Math.abs(my - this.pressY) > DRAG_THRESHOLD) {
-                this.pressTime = -1.0;
-            }
-            if (this.pressTime >= 0.0 && this.time - this.pressTime >= LONG_PRESS_TIME) {
+            if (pointer.longPress(this.time)) {
                 this.undoRequested = true;
-                this.openMenu(this.pressX, this.pressY);
+                this.openMenu(pointer.pressX, pointer.pressY);
                 this.longPressed = true;
                 this.pressOnUi = true;
             }
         }
         // Released on an icon: its shape. The press that opened the menu leaves it open when
         // released elsewhere (to tap an icon next); another closes it.
-        if (!down && this.wasDown && this.menuOpen && this.pressOnUi) {
+        if (pointer.released() && this.menuOpen && this.pressOnUi) {
             const icon = this.menuIconAt(mx, my);
             if (icon >= 0) {
                 this.brushShape = icon;
@@ -304,7 +291,7 @@ export class SandboxUI extends SandboxSimulation {
         // (a Block is always a box: a body of that size)
         const boxing = this.brushShape == SHAPE_BOX || this.tool == BLOCK;
         const stretches = this.brushShape == SHAPE_LINE || boxing;
-        const pressOnGrid = this.wasDown && toGrid;
+        const pressOnGrid = pointer.wasDown && toGrid;
         if (inspecting) {
             // (nothing painted)
         } else if (down && toGrid && !stretches) {
@@ -347,7 +334,6 @@ export class SandboxUI extends SandboxSimulation {
         this.shapeWord = shape | (cursorMode << 4);
         this.kernels.setFloat(28, cursorX);
         this.kernels.setFloat(29, cursorY);
-        this.wasDown = down;
         return brushMode;
     }
 

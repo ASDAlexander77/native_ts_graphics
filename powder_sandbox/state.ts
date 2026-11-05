@@ -7,8 +7,8 @@ import {
 import { NriComputeKernels } from "../core/nri_compute_kernels";
 import { NriFrameRing } from "../core/nri_frame_ring";
 import { NriGpuProfiler } from "../core/nri_gpu_profiler";
-import { NriSlider } from "../core/nri_slider";
-import { NriTabRow } from "../core/nri_tab_row";
+import { NriSlider } from "../core/ui/nri_slider";
+import { NriTabRow } from "../core/ui/nri_tab_row";
 import { NriSwapChain } from "../core/nri_swap_chain";
 import { NriGpuTimer } from "../core/nri_gpu_timer";
 import { FixedStep } from "../core/fixed_step";
@@ -16,6 +16,7 @@ import { FrameRate } from "../core/frame_rate";
 import { PanZoom } from "../core/pan_zoom";
 import { AutoQuality } from "../core/auto_quality";
 import { SoundEvents } from "../core/sound_events";
+import { PointerGestures } from "../core/pointer_gestures";
 import { NriAudio, NriBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, NriDevice, NriPipeline, NriPipelineLayout, NriQueue, NriSample } from "../core/nri";
 
 // The sandbox's state: its GPU resources, grid, toolbar, input, level and test settings, which
@@ -106,12 +107,8 @@ export class SandboxState {
     // grid). -zoom Z starts zoomed (a test's view).
     protected panZoom: PanZoom = new PanZoom();
     startZoom: number = 1.0;
-    // The middle button (or two fingers) down last frame, and where the pointer was then.
-    protected middleWasDown: boolean = false;
-    protected panX: number = 0.0;
-    protected panY: number = 0.0;
-    // When the stroke in progress began (this.time), to take it back if it turns into a pinch.
-    protected pressTime: number = 0.0;
+    // The pointer's gestures (mouse or touch): the press, its drag or long press, two fingers.
+    protected pointer: PointerGestures = new PointerGestures();
 
     protected tiles: Tile[] = [];
     // The groups' names; the group shown, and its tiles.
@@ -137,13 +134,10 @@ export class SandboxState {
     protected profileReports: int = 0;
     protected stepMs: number = 0.0;
 
-    // The pointer: down last frame, where (in cells), whether the press began on the toolbar; a
-    // press there: where it began, the scroll then, whether it has dragged the row yet.
-    protected wasDown: boolean = false;
+    // Z down last frame; the pointer: where (in cells), whether the press began on the toolbar (the
+    // row's scroll then: pressScroll).
     protected zWasDown: boolean = false;
     protected pressOnToolbar: boolean = false;
-    protected pressX: number = 0.0;
-    protected pressY: number = 0.0;
     // The press went to the menu or the size slider, not the grid; it opened the menu (held);
     // the menu's open, around (menuX, menuY).
     protected pressOnUi: boolean = false;
@@ -155,7 +149,6 @@ export class SandboxState {
     // The size slider (where buildUI last placed it).
     protected slider: NriSlider = new NriSlider();
     protected pressScroll: number = 0.0;
-    protected dragging: boolean = false;
     protected lastGridX: number = 0.0;
     protected lastGridY: number = 0.0;
     protected mouseGridX: number = 0.0;

@@ -640,8 +640,8 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     gives it the pipelines, the set and the buffers barrier masks name; `setFloat`, `setInt`,
     `dispatch` with a barrier mask, `barriers`, `setGraphicsConstants` for the draw, `setProfiler`
     to mark each dispatch). The sandbox still owns and destroys the pipelines and buffers.
-  - **Slider and tab row** (done): `core/nri_slider.ts`'s `NriSlider` (`place`, `contains` with a
-    row's height of slack past the track's ends, `fraction`, `draw`) and `core/nri_tab_row.ts`'s
+  - **Slider and tab row** (done): `core/ui/nri_slider.ts`'s `NriSlider` (`place`, `contains` with a
+    row's height of slack past the track's ends, `fraction`, `draw`) and `core/ui/nri_tab_row.ts`'s
     `NriTabRow` (`layout` from the labels' widths, `offset`, `scrollTo`, `tabAt`, `left`/`right`,
     marks under tabs, `draw` with its scroll bar). What they mean stays the sandbox's: when the
     slider shows (not for a box), its fraction as a brush size, the mark under the tab holding the
@@ -677,6 +677,10 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     averaged over a window of frames; `fit`, the grid's height for the budget) and
     `core/sound_events.ts`'s `SoundEvents` (a sound per event kind: the events it needs, its
     loudness, its cooldown; the totals the tests check).
-  - Still to do: the radial menu (never open in a test: it needs a phone to check), touch
-    gestures. The tiles' row stays the sandbox's (its labels, swatches and selection are the
-    game's).
+  - **Gestures and widgets** (done): `core/pointer_gestures.ts`'s `PointerGestures` (the press,
+    its drag past a threshold, a long press, a recent press a second finger makes a pinch, the two
+    fingers' pan); what each does stays the sandbox's `handleInput`. The widgets (the slider and
+    the tab row) moved to `core/ui/`, apart from the engine parts in `core/`.
+  - Left in the sandbox: the radial menu (never open in a test: it needs a phone to check; it can
+    join `core/ui/` if a second app wants it). The tiles' row stays the sandbox's (its labels,
+    swatches and selection are the game's).

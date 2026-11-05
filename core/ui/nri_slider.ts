@@ -2,13 +2,13 @@
 // and its hit test and value for the pointer, for touch as much as a mouse (the track takes
 // presses a row's height past its ends).
 //
-// Imported with `import { NriSlider } from "../core/nri_slider";`, and listed in the app's
+// Imported with `import { NriSlider } from "../core/ui/nri_slider";`, and listed in the app's
 // add_tslang_nri_example sources. Each frame, place (where it is) and draw (between the app's
 // NriSample.imguiNewFrame and NriSample.imguiRender); contains and fraction read where it was last placed.
 // What the fraction means (a size, rounded, say) is the app's.
 
-/// <reference path="nri/nri_interop.d.ts" />
-import { NriImgui } from "./nri";
+/// <reference path="../nri/nri_interop.d.ts" />
+import { NriImgui } from "../nri";
 
 @final
 export class NriSlider {
