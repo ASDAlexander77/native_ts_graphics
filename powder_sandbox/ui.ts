@@ -6,12 +6,13 @@ import {
     ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, EMITTER, BLOCK, HYDROGEN, OXYGEN, NEON, THERMITE,
     NITRO, SEED, INSPECT, Tile, ACTION_SMALLER, ACTION_LARGER, ACTION_PAUSE, ACTION_VIEW,
     ACTION_CLEAR, ACTION_SHAPE, ACTION_UNDO, ACTION_SAVE, ACTION_LOAD, ACTION_LEVEL, ACTION_GRAVITY,
-    GRAVITY_POINT, GRAVITY_NAMES, GRAVITY_LABELS, GRAVITY_PLACE, KEY_Z, KEY_LEFT_CONTROL,
+    GRAVITY_OFF, GRAVITY_POINT, GRAVITY_TILT, GRAVITY_NAMES, GRAVITY_LABELS, GRAVITY_PLACE, KEY_Z, KEY_LEFT_CONTROL,
     KEY_RIGHT_CONTROL, VIEW_NAMES, SHAPE_CIRCLE, SHAPE_SQUARE, SHAPE_LINE, SHAPE_BOX, SHAPE_NAMES,
     fanDirectionOf, sectionMaterial, materialName, starText
 } from "./defs";
 import { SandboxSimulation } from "./simulation";
 import { NriImgui } from "../core/nri";
+import { NriIcons } from "../core/ui/nri_icons";
 
 // The toolbar and input: the tabs and tiles, the brush's size slider and radial menu, the readout,
 // and the mouse, touch and keys they're driven by.
@@ -20,6 +21,11 @@ export class SandboxUI extends SandboxSimulation {
     addTile(group: int, tile: Tile) {
         tile.group = group;
         this.tiles.push(tile);
+    }
+
+    // How many groups (tabs) the toolbar has.
+    tabCount(): int {
+        return this.groups.length;
     }
 
     // The group whose tiles the toolbar shows; its row scrolled back to its start.
@@ -390,6 +396,10 @@ export class SandboxUI extends SandboxSimulation {
                 const half = tileWidth * 0.15;
                 NriImgui.drawRect(cx - half, cy - half, cx + half, cy + half, emitted.r, emitted.g, emitted.b, 1.0);
             }
+            if (tile.tool >= ACTION_SMALLER && tile.tool <= ACTION_GRAVITY) {
+                const iconSize = Math.min(tileWidth - 2.0 * pad, bottom - top - 2.0 * pad - labelHeight) * 0.36;
+                this.drawActionIcon(tile.tool, x0 + tileWidth * 0.5, (top + bottom - labelHeight) * 0.5, iconSize);
+            }
             const textWidth = NriImgui.calcTextWidth(label);
             NriImgui.drawText(x0 + (tileWidth - textWidth) * 0.5, bottom - pad - labelHeight + 2.0, label,
                 selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, selected ? 0.0 : 1.0, 1.0, 0);
@@ -480,8 +490,73 @@ export class SandboxUI extends SandboxSimulation {
         this.sample.imguiRender();
     }
 
+    // An action tile's icon at (cx, cy), s from its center each way, in near-white: what the tile
+    // does (Pause's turns to play while paused, Shape's is the brush's, Gravity's the mode's).
+    drawActionIcon(action: int, cx: number, cy: number, s: number) {
+        const c = 0.92;
+        const t = NriIcons.thickness(s);
+        if (action == ACTION_PAUSE) {
+            if (this.paused) {
+                NriIcons.play(cx, cy, s, c, c, c, 1.0);
+            } else {
+                NriIcons.pause(cx, cy, s, c, c, c, 1.0);
+            }
+        } else if (action == ACTION_VIEW) {
+            NriIcons.eye(cx, cy, s, c, c, c, 1.0);
+        } else if (action == ACTION_CLEAR) {
+            NriIcons.trash(cx, cy, s, c, c, c, 1.0);
+        } else if (action == ACTION_UNDO) {
+            NriIcons.undo(cx, cy, s, c, c, c, 1.0);
+        } else if (action == ACTION_SAVE) {
+            NriIcons.save(cx, cy, s, c, c, c, 1.0);
+        } else if (action == ACTION_LOAD) {
+            NriIcons.folder(cx, cy, s, c, c, c, 1.0);
+        } else if (action == ACTION_LEVEL) {
+            NriIcons.star(cx, cy, s, c, c, c, 1.0);
+        } else if (action == ACTION_SHAPE) {
+            this.drawShapeIcon(this.brushShape, cx, cy, s * 0.7, c);
+        } else if (action == ACTION_SMALLER) {
+            // A small dot and a minus; a large dot and a plus.
+            NriImgui.drawCircle(cx - 0.4 * s, cy, 0.2 * s, 0.0, c, c, c, 1.0);
+            NriIcons.minus(cx + 0.35 * s, cy, 0.4 * s, c, c, c, 1.0);
+        } else if (action == ACTION_LARGER) {
+            NriImgui.drawCircle(cx - 0.35 * s, cy, 0.45 * s, 0.0, c, c, c, 1.0);
+            NriIcons.plus(cx + 0.55 * s, cy, 0.3 * s, c, c, c, 1.0);
+        } else if (action == ACTION_GRAVITY) {
+            if (this.gravityMode == GRAVITY_POINT) {
+                // A point, pulled toward from four sides.
+                NriImgui.drawCircle(cx, cy, 0.2 * s, 0.0, c, c, c, 1.0);
+                NriIcons.arrow(cx - 0.9 * s, cy, cx - 0.35 * s, cy, t, c, c, c, 1.0);
+                NriIcons.arrow(cx + 0.9 * s, cy, cx + 0.35 * s, cy, t, c, c, c, 1.0);
+                NriIcons.arrow(cx, cy - 0.9 * s, cx, cy - 0.35 * s, t, c, c, c, 1.0);
+                NriIcons.arrow(cx, cy + 0.9 * s, cx, cy + 0.35 * s, t, c, c, c, 1.0);
+            } else if (this.gravityMode == GRAVITY_TILT) {
+                // A phone tilted, its outline turned a quarter of a right angle.
+                const angle = 0.4;
+                const ux = Math.cos(angle);
+                const uy = Math.sin(angle);
+                const hw = 0.42 * s;
+                const hh = 0.8 * s;
+                const xs = [-hw, hw, hw, -hw];
+                const ys = [-hh, -hh, hh, hh];
+                for (let k = 0; k < 4; k++) {
+                    const k1 = (k + 1) % 4;
+                    NriImgui.drawLine(cx + xs[k] * ux - ys[k] * uy, cy + xs[k] * uy + ys[k] * ux,
+                        cx + xs[k1] * ux - ys[k1] * uy, cy + xs[k1] * uy + ys[k1] * ux, t, c, c, c, 1.0);
+                }
+                NriImgui.drawCircle(cx - 0.6 * hh * uy, cy + 0.6 * hh * ux, 0.1 * s, 0.0, c, c, c, 1.0);
+            } else {
+                // Down; struck through when off.
+                NriIcons.arrow(cx, cy - 0.8 * s, cx, cy + 0.8 * s, t, c, c, c, 1.0);
+                if (this.gravityMode == GRAVITY_OFF) {
+                    NriImgui.drawLine(cx - 0.75 * s, cy - 0.75 * s, cx + 0.75 * s, cy + 0.75 * s, t, c, c, c, 1.0);
+                }
+            }
+        }
+    }
+
     // A shape's glyph (SHAPE_NAMES' k) at (cx, cy), r in size, in gray: a disc, a square, a
-    // diagonal line, a box's outline (rectangles: ImGui's draw list here has only those).
+    // diagonal line, a box's outline.
     drawShapeIcon(k: int, cx: number, cy: number, r: number, gray: number) {
         if (k == SHAPE_CIRCLE) {
             const rows = Math.max(Math.floor(r), 4);
