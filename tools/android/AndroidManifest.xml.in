@@ -3,14 +3,15 @@
      Filled in by tools/package_apk.py. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="@PACKAGE@"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="@VERSION_CODE@"
+    android:versionName="@VERSION_NAME@">
 
     <uses-sdk android:minSdkVersion="@MIN_SDK@" android:targetSdkVersion="@TARGET_SDK@" />
+@USES_FEATURES@
 
     <!-- The native library is stored uncompressed and page aligned, and loaded from the APK. -->
     <application
-        android:label="@LABEL@"
+        android:label="@LABEL@"@APPLICATION_ATTRIBUTES@
         android:hasCode="false"
         android:extractNativeLibs="false">
 

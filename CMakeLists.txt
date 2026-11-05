@@ -772,6 +772,8 @@ function(add_tslang_android_app name media)
         COMMENT "Packaging ${name}.apk"
         VERBATIM)
     add_dependencies(${name}_apk ${name}_app)
+    # (for add_tslang_android_release: the same libraries and assets)
+    set_target_properties(${name}_apk PROPERTIES PACKAGE_EXTRA_LIBS "${extra_libs}" PACKAGE_ASSETS "${assets}")
     # (the media it packages: an NRI app's own folders, if it has any)
     if (media OR NOT APP_NRI)
         add_dependencies(${name}_apk copy_media)
@@ -787,6 +789,62 @@ function(add_tslang_android_app name media)
     # builds APKs, not executables: taken at the end of the file, when all of it is known. (A
     # deferred call's arguments are evaluated when it runs, hence the EVAL.)
     cmake_language(EVAL CODE "cmake_language(DEFER CALL add_tslang_apk_dependencies [[${name}]])")
+endfunction()
+
+# <name>_release: an app's store build, made from <name>_apk's library and assets: bin/<name>-release.apk,
+# bin/<name>-release.aab (an Android App Bundle, what Google Play takes) and
+# bin/<name>-native-debug-symbols.zip (the libraries unstripped, for the store's crash reports).
+# Not debuggable, with the given application ID (PACKAGE), name (LABEL), version (VERSION_CODE, one
+# more for each upload; VERSION_NAME), resources (RES, a res/ folder) and launcher icon (ICON),
+# CATEGORY (game, ...), the Vulkan version the device must have (VULKAN_VERSION, 0x402000 for 1.2)
+# and TARGET_SDK (the store's required level; its SDK platform installed). Signed with the release
+# keystore ANDROID_RELEASE_KEYSTORE (key ANDROID_RELEASE_KEY_ALIAS), whose passwords the build reads
+# from the environment variables ANDROID_RELEASE_STORE_PASSWORD and ANDROID_RELEASE_KEY_PASSWORD.
+if (ANDROID)
+    set(ANDROID_RELEASE_KEYSTORE "$ENV{ANDROID_RELEASE_KEYSTORE}" CACHE FILEPATH
+        "The release keystore the <app>_release targets sign with (keep it: every update needs it)")
+    set(ANDROID_RELEASE_KEY_ALIAS "upload" CACHE STRING "The release key's alias in ANDROID_RELEASE_KEYSTORE")
+endif()
+
+function(add_tslang_android_release name)
+    cmake_parse_arguments(PARSE_ARGV 1 RELEASE "" "PACKAGE;LABEL;VERSION_CODE;VERSION_NAME;RES;ICON;CATEGORY;VULKAN_VERSION;TARGET_SDK" "")
+    if (NOT ANDROID OR NOT TARGET ${name}_apk)
+        return()
+    endif()
+    get_target_property(extra_libs ${name}_apk PACKAGE_EXTRA_LIBS)
+    get_target_property(assets ${name}_apk PACKAGE_ASSETS)
+    set(options)
+    if (RELEASE_RES)
+        list(APPEND options --res "${CMAKE_CURRENT_SOURCE_DIR}/${RELEASE_RES}")
+    endif()
+    foreach(option ICON CATEGORY VULKAN_VERSION)
+        if (RELEASE_${option})
+            string(TOLOWER "${option}" flag)
+            string(REPLACE "_" "-" flag "${flag}")
+            if (option STREQUAL "CATEGORY")
+                set(flag "app-category")
+            endif()
+            list(APPEND options --${flag} "${RELEASE_${option}}")
+        endif()
+    endforeach()
+    add_custom_target(${name}_release
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
+            --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
+            ${assets}
+            --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
+            --min-sdk ${CMAKE_SYSTEM_VERSION} --target-sdk ${RELEASE_TARGET_SDK} --strip "${CMAKE_STRIP}"
+            --package ${RELEASE_PACKAGE} --label "${RELEASE_LABEL}"
+            --version-code ${RELEASE_VERSION_CODE} --version-name ${RELEASE_VERSION_NAME} ${options}
+            --release --keystore "${ANDROID_RELEASE_KEYSTORE}" --key-alias "${ANDROID_RELEASE_KEY_ALIAS}"
+            --store-pass-env ANDROID_RELEASE_STORE_PASSWORD --key-pass-env ANDROID_RELEASE_KEY_PASSWORD
+            --bundle "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-release.aab"
+            --bundletool "${CMAKE_BINARY_DIR}/android/bundletool.jar"
+            --symbols "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-native-debug-symbols.zip"
+            --work "${CMAKE_BINARY_DIR}/android/${name}/release"
+            --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-release.apk"
+        COMMENT "Packaging ${name}-release.apk and .aab"
+        VERBATIM)
+    add_dependencies(${name}_release ${name}_apk)
 endfunction()
 
 function(add_tslang_apk_dependencies name)
