@@ -844,9 +844,9 @@ function(tslang_module_imports source out)
         # an import's names may span lines, and `export ... from` imports too
         file(READ "${current}" text)
         string(REGEX REPLACE "//[^\n]*" "" text "${text}")
-        string(REGEX MATCHALL "from[ \t\r\n]+\"\\.\\.?/[A-Za-z0-9_/]+\"" lines "${text}")
+        string(REGEX MATCHALL "from[ \t\r\n]+\"(\\.\\.?/)+[A-Za-z0-9_/]+\"" lines "${text}")
         foreach(line IN LISTS lines)
-            if (NOT line MATCHES "\"(\\.\\.?/[A-Za-z0-9_/]+)\"")
+            if (NOT line MATCHES "\"((\\.\\.?/)+[A-Za-z0-9_/]+)\"")
                 continue()
             endif()
             set(relative "${CMAKE_MATCH_1}")
@@ -1073,7 +1073,8 @@ add_dependencies(nri_interop nri_interop_build)
 # add_tslang_nri_example(<name> [SOURCE <main.ts>] [SHADERS <target>] [<source>...] [MEDIA <folder>...]):
 # examples/nri/<name>.ts (or SOURCE's file), rendering with NRI through core/nri/nri_interop.d.ts, the shaders it
 # loads, compiled by <target>, the media/ folders it reads (copied beside it, in the APK's assets),
-# and the further sources: modules it imports that need nothing of Donut (core/random.ts). It links
+# and the further sources: modules it imports that need nothing of Donut (core/random.ts; the
+# modules it imports, all the way down, are added whether listed or not: core/nri.ts). It links
 # nri_interop, and nothing of Donut (tslang_core, donut_interop_static). On Android, only the app
 # (<name>_app, <name>_apk): its window is the activity's.
 function(add_tslang_nri_example name)
@@ -1082,6 +1083,17 @@ function(add_tslang_nri_example name)
     if (EXAMPLE_SOURCE)
         set(main ${EXAMPLE_SOURCE})
     endif()
+    # The modules it imports (all the way down: core/nri.ts, which core/nri_swap_chain.ts imports,
+    # say) are its sources too, listed or not.
+    # (read when CMake configures: after adding an import to a module, run `cmake .` again, or
+    # the link misses the module's symbols; re-running on every .ts edit would cost ~18 s each)
+    tslang_module_imports("${CMAKE_CURRENT_SOURCE_DIR}/${main}" imported)
+    foreach(module IN LISTS imported)
+        file(RELATIVE_PATH relative "${CMAKE_CURRENT_SOURCE_DIR}" "${module}")
+        if (relative MATCHES "\\.ts$" AND NOT relative IN_LIST EXAMPLE_UNPARSED_ARGUMENTS)
+            list(APPEND EXAMPLE_UNPARSED_ARGUMENTS "${relative}")
+        endif()
+    endforeach()
     set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     list(FILTER module_ts INCLUDE REGEX "\\.ts$")
     set(module_ts_paths ${module_ts})

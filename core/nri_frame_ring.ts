@@ -3,28 +3,29 @@
 // slot frameIndex % size(); before it records, wait (the latency sleep's work) waits for the frame
 // that used its slot last and resets its allocator, and once it's submitted, signal marks it.
 //
-// Imported with `import { NriFrameRing } from "../core/nri_frame_ring";`, and listed in the app's
-// add_tslang_nri_example sources. What else an app keeps per frame (readbacks, say) it keeps in its
-// own array, indexed by slot.
+// Imported with `import { NriFrameRing } from "../core/nri_frame_ring";` (add_tslang_nri_example
+// adds it, and core/nri.ts, to the app's sources). What else an app keeps per frame (readbacks,
+// say) it keeps in its own array, indexed by slot.
 
 /// <reference path="nri/nri_interop.d.ts" />
+import { NriCommandAllocator, NriCommandBuffer, NriDevice, NriFence, NriQueue } from "./nri";
 
 @final
 export class NriFrameRing {
-    private queue: NriQueueHandle;
-    private frameFence: NriFenceHandle;
-    private allocators: NriCommandAllocatorHandle[] = [];
-    private commandBuffers: NriCommandBufferHandle[] = [];
+    private queue: NriQueue;
+    private frameFence: NriFence;
+    private allocators: NriCommandAllocator[] = [];
+    private commandBuffers: NriCommandBuffer[] = [];
     private created: boolean = false;
 
     // count frames in flight (Nri_GetQueuedFrameNum), submitted to queue.
     init(device: NriDeviceHandle, queue: NriQueueHandle, count: int) {
-        this.queue = queue;
-        this.frameFence = Nri_CreateFence(device, 0);
+        this.queue = new NriQueue(queue);
+        this.frameFence = new NriDevice(device).createFence(0);
         for (let i = 0; i < count; i++) {
-            const allocator = Nri_CreateCommandAllocator(queue);
+            const allocator = this.queue.createCommandAllocator();
             this.allocators.push(allocator);
-            this.commandBuffers.push(Nri_CreateCommandBuffer(allocator));
+            this.commandBuffers.push(allocator.createCommandBuffer());
         }
         this.created = true;
     }
@@ -41,23 +42,23 @@ export class NriFrameRing {
     // slot's allocator for frameIndex to record with.
     wait(frameIndex: int) {
         const count = this.allocators.length;
-        Nri_Wait(this.frameFence, frameIndex >= count ? 1 + frameIndex - count : 0);
-        Nri_ResetCommandAllocator(this.allocators[frameIndex % count]);
+        this.frameFence.wait(frameIndex >= count ? 1 + frameIndex - count : 0);
+        this.allocators[frameIndex % count].reset();
     }
 
     commandBuffer(frameIndex: int): NriCommandBufferHandle {
-        return this.commandBuffers[frameIndex % this.commandBuffers.length];
+        return this.commandBuffers[frameIndex % this.commandBuffers.length].handle;
     }
 
     // The fence: frame frameIndex done at 1 + frameIndex (for other work to wait on, a compute
     // queue's, say).
     fence(): NriFenceHandle {
-        return this.frameFence;
+        return this.frameFence.handle;
     }
 
     // Frame frameIndex's work submitted (and presented, as NRISamples signal after the present).
     signal(frameIndex: int) {
-        Nri_QueueSignal(this.queue, this.frameFence, 1 + frameIndex);
+        this.queue.signal(this.frameFence, 1 + frameIndex);
     }
 
     // (after the device is idle)
@@ -66,12 +67,12 @@ export class NriFrameRing {
             return;
         }
         for (let i = 0; i < this.allocators.length; i++) {
-            Nri_DestroyCommandBuffer(this.commandBuffers[i]);
-            Nri_DestroyCommandAllocator(this.allocators[i]);
+            this.commandBuffers[i].destroy();
+            this.allocators[i].destroy();
         }
         this.allocators = [];
         this.commandBuffers = [];
-        Nri_DestroyFence(this.frameFence);
+        this.frameFence.destroy();
         this.created = false;
     }
 }
