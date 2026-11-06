@@ -30,7 +30,7 @@
 //
 //---------------------------------------------------------------------------
 
-cbuffer Constants : register(b0)
+struct ConstantsData
 {
     uint g_pfVbGvaLo; // low 32 bits of per-frame vertex buffer GPU VA
     uint g_pfVbGvaHi; // high 32 bits
@@ -38,6 +38,12 @@ cbuffer Constants : register(b0)
     int g_clusterIdOffset; // animated IDs begin after the static/clone range
     uint g_vertexStride; // sizeof(float3) = 12
 };
+
+// Root constants on D3D12, push constants on Vulkan.
+#ifdef SPIRV
+[[vk::push_constant]]
+#endif
+ConstantBuffer<ConstantsData> c_Constants : register(b0);
 
 // Input: per-cluster template GVAs (8 bytes each).  Produced by
 // ExecuteIndirectRTASOperations(BUILD_CLUSTER_TEMPLATES) into obj.templateAddressArray.
@@ -57,7 +63,7 @@ RWByteAddressBuffer g_argsOut : register(u0);
 [numthreads(64, 1, 1)] void main(uint3 tid : SV_DispatchThreadID)
 {
     const uint idx = tid.x;
-    if (idx >= g_clusterCount)
+    if (idx >= c_Constants.g_clusterCount)
         return;
 
     // Per-cluster template GVA (u64, 8 B at idx*8).
@@ -67,15 +73,21 @@ RWByteAddressBuffer g_argsOut : register(u0);
     const uint vbOffset = g_vertexOffsets.Load(idx * 4u);
 
     // Add the vertex offset to the GPU VA using the paired 32-bit layout.
-    const uint addLo = g_pfVbGvaLo + vbOffset;
-    const uint carry = (addLo < g_pfVbGvaLo) ? 1u : 0u;
+    const uint addLo = c_Constants.g_pfVbGvaLo + vbOffset;
+    const uint carry = (addLo < c_Constants.g_pfVbGvaLo) ? 1u : 0u;
     const uint vbStartLo = addLo;
-    const uint vbStartHi = g_pfVbGvaHi + carry;
+    const uint vbStartHi = c_Constants.g_pfVbGvaHi + carry;
 
     const uint baseByte = idx * 32u;
+#if defined(__spirv__)
+    // Vulkan's VkClusterAccelerationStructureInstantiateClusterInfoNV: the cluster ID offset first.
+    g_argsOut.Store(baseByte + 0, asuint(c_Constants.g_clusterIdOffset)); // clusterIdOffset
+    g_argsOut.Store(baseByte + 4, 0u); // geometryIndexOffset = 0
+#else
     g_argsOut.Store(baseByte + 0, 0u); // GeometryIndexOffset = 0
-    g_argsOut.Store(baseByte + 4, asuint(g_clusterIdOffset)); // ClusterIdOffset
+    g_argsOut.Store(baseByte + 4, asuint(c_Constants.g_clusterIdOffset)); // ClusterIdOffset
+#endif
     g_argsOut.Store2(baseByte + 8, tmplLoHi); // ClusterTemplate (u64)
     g_argsOut.Store2(baseByte + 16, uint2(vbStartLo, vbStartHi)); // VertexBuffer.StartAddress (u64)
-    g_argsOut.Store2(baseByte + 24, uint2(g_vertexStride, 0u)); // VertexBuffer.StrideInBytes (u64)
+    g_argsOut.Store2(baseByte + 24, uint2(c_Constants.g_vertexStride, 0u)); // VertexBuffer.StrideInBytes (u64)
 }

@@ -388,8 +388,9 @@ enum MeshletModelData {
 // Clustered geometry (core/clas.cpp, linked only into the examples that list it): cluster level
 // acceleration structures (CLASes) built from clusters of triangles, cluster templates instantiated from
 // new vertex positions, cluster BLASes built from CLASes - batches of operations reading their arguments
-// from buffers (D3D12's preview: Donut_EnableD3D12RaytracingPreview before the app). Null where they
-// aren't supported (Vulkan: not yet). Free it with Donut_DestroyClas before the app.
+// from buffers (D3D12's preview: Donut_EnableD3D12RaytracingPreview before the app; Vulkan's
+// VK_NV_cluster_acceleration_structure). Null where they aren't supported. Free it with
+// Donut_DestroyClas before the app.
 @nodrops declare function Donut_CreateClas(device: Opaque): ClasHandle | null;
 @nodrops declare function Donut_DestroyClas(clas: ClasHandle): void;
 // A buffer of byteSize for operations' results (CLASes, templates, cluster BLASes), or a raw buffer (a

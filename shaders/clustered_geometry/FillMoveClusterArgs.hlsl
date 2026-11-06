@@ -21,10 +21,16 @@
 //
 //---------------------------------------------------------------------------
 
-cbuffer Constants : register(b0)
+struct ConstantsData
 {
     uint g_clusterCount;
 };
+
+// Root constants on D3D12, push constants on Vulkan.
+#ifdef SPIRV
+[[vk::push_constant]]
+#endif
+ConstantBuffer<ConstantsData> c_Constants : register(b0);
 
 // Input: per-cluster CLAS GVAs (8 bytes each).  Bound as
 // RWByteAddressBuffer so we can reuse it without a state transition
@@ -38,7 +44,7 @@ RWByteAddressBuffer g_argsOut  : register(u0);
 void main(uint3 tid : SV_DispatchThreadID)
 {
     const uint idx = tid.x;
-    if (idx >= g_clusterCount) return;
+    if (idx >= c_Constants.g_clusterCount) return;
 
     const uint2 gva = g_srcAddrs.Load2(idx * 8u);
     g_argsOut.Store2(idx * 8u, gva);

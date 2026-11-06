@@ -17,6 +17,10 @@
 //
 // The preview runtime has to be loaded and its experimental features enabled before the device is
 // created: Donut_EnableD3D12RaytracingPreview (core/ptlas.cpp).
+//
+// Vulkan's are VK_NV_cluster_acceleration_structure's (through vkGetDeviceProcAddr, as core/ptlas.cpp's):
+// the same operations, modes and descriptions (translated here from D3D12's values), but arguments of
+// their own layouts (the argument-filling shaders write Vulkan's in SPIR-V) and no COMPRESSED1 vertices.
 
 #include <nvrhi/nvrhi.h>
 #include <donut/core/log.h>
@@ -27,6 +31,15 @@
 #include <vector>
 
 #include "donut_api.h"
+
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #if defined(DONUT_CLAS_WITH_D3D12_PREVIEW)
 #include <windows.h>
@@ -98,6 +111,11 @@ struct Clas
             [resource](const nvrhi::RefCountPtr<nvrhi::IResource>& owned) { return owned.Get() == resource; }),
             resources.end());
     }
+    // Vulkan's (null on D3D12).
+    VkDevice vkDevice = VK_NULL_HANDLE;
+    PFN_vkGetClusterAccelerationStructureBuildSizesNV vkGetBuildSizes = nullptr;
+    PFN_vkCmdBuildClusterAccelerationStructureIndirectNV vkCmdBuild = nullptr;
+    PFN_vkCmdPipelineBarrier vkCmdPipelineBarrier = nullptr;
 #if defined(DONUT_CLAS_WITH_D3D12_PREVIEW)
     ID3D12DeviceRaytracing2* raytracingDevice = nullptr;
 
@@ -209,6 +227,105 @@ namespace
 
 namespace
 {
+    // D3D12's operation flags and vertex format (ClasParam's values) that Vulkan's differ from.
+    constexpr int D3D12Flag_AllowDataAccess = 0x100;
+    constexpr int D3D12Flag_NoMoveOverlap = 0x200;
+    constexpr int D3D12VertexFormat_Float32x3 = 2;
+    // D3D12_RTAS_OPERATION_MODE_EXPLICIT_DESTINATIONS.
+    constexpr int Mode_Explicit = 1;
+
+    // An operation's inputs on Vulkan: the description `info` points at lives in this object. The
+    // operation types, modes and move types have D3D12's values on Vulkan too.
+    struct VulkanOperationInputs
+    {
+        VkClusterAccelerationStructureInputInfoNV info{ VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_INPUT_INFO_NV };
+        VkClusterAccelerationStructureTriangleClusterInputNV triangles{ VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_TRIANGLE_CLUSTER_INPUT_NV };
+        VkClusterAccelerationStructureClustersBottomLevelInputNV blases{ VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_CLUSTERS_BOTTOM_LEVEL_INPUT_NV };
+        VkClusterAccelerationStructureMoveObjectsInputNV moves{ VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_MOVE_OBJECTS_INPUT_NV };
+
+        // Not copyable: `info` points into this object.
+        VulkanOperationInputs() = default;
+        VulkanOperationInputs(const VulkanOperationInputs&) = delete;
+        VulkanOperationInputs& operator=(const VulkanOperationInputs&) = delete;
+
+        bool Fill(const int* params)
+        {
+            const int type = params[ClasParam_Type];
+            const int flags = params[ClasParam_Flags];
+            info.maxAccelerationStructureCount = uint32_t(params[ClasParam_MaxArgCount]);
+            info.opType = VkClusterAccelerationStructureOpTypeNV(type);
+            info.opMode = VkClusterAccelerationStructureOpModeNV(params[ClasParam_Mode]);
+            if (type == VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_MOVE_OBJECTS_NV)
+            {
+                moves.type = VkClusterAccelerationStructureTypeNV(params[ClasParam_MoveType]);
+                moves.noMoveOverlap = (flags & D3D12Flag_NoMoveOverlap) != 0 ? VK_TRUE : VK_FALSE;
+                moves.maxMovedBytes = VkDeviceSize(uint32_t(params[ClasParam_MaxBytesMoved]));
+                info.opInput.pMoveObjects = &moves;
+                return true;
+            }
+            // Fast trace (4) and fast build (8) are the same bits on both.
+            info.flags = VkBuildAccelerationStructureFlagsKHR(flags & (VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
+                | VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR));
+            if ((flags & D3D12Flag_AllowDataAccess) != 0)
+                info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_BIT_KHR;
+            switch (type)
+            {
+            case VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_BUILD_CLUSTERS_BOTTOM_LEVEL_NV:
+                blases.maxTotalClusterCount = uint32_t(params[ClasParam_MaxTotalClas]);
+                blases.maxClusterCountPerAccelerationStructure = uint32_t(params[ClasParam_MaxClasPerArg]);
+                info.opInput.pClustersBottomLevel = &blases;
+                return true;
+            case VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_BUILD_TRIANGLE_CLUSTER_NV:
+            case VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_BUILD_TRIANGLE_CLUSTER_TEMPLATE_NV:
+            case VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_INSTANTIATE_TRIANGLE_CLUSTER_NV:
+                if (params[ClasParam_VertexFormat] != D3D12VertexFormat_Float32x3)
+                {
+                    donut::log::error("Clustered geometry: Vulkan has FLOAT32_3 vertices only (not format %d)",
+                        params[ClasParam_VertexFormat]);
+                    return false;
+                }
+                triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+                triangles.maxGeometryIndexValue = uint32_t(params[ClasParam_MaxGeometryIndexValue]);
+                triangles.maxClusterUniqueGeometryCount = uint32_t(params[ClasParam_MaxUniqueGeometryIndexCountPerCluster]);
+                triangles.maxClusterTriangleCount = uint32_t(params[ClasParam_MaxTrianglesPerCluster]);
+                triangles.maxClusterVertexCount = uint32_t(params[ClasParam_MaxVerticesPerCluster]);
+                triangles.maxTotalTriangleCount = uint32_t(params[ClasParam_MaxTotalTriangles]);
+                triangles.maxTotalVertexCount = uint32_t(params[ClasParam_MaxTotalVertices]);
+                triangles.minPositionTruncateBitCount = type == VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_BUILD_TRIANGLE_CLUSTER_NV
+                    ? uint32_t(params[ClasParam_PositionTruncateOrCompressedSize]) : 0;
+                info.opInput.pTriangleClusters = &triangles;
+                return true;
+            default:
+                donut::log::error("Clustered geometry: unknown operation type %d", type);
+                return false;
+            }
+        }
+    };
+
+    // vkGetDeviceProcAddr from the Vulkan loader Donut loaded (as core/ptlas.cpp's).
+    PFN_vkGetDeviceProcAddr GetDeviceProcAddr()
+    {
+#if defined(_WIN32)
+        HMODULE loader = GetModuleHandleA("vulkan-1.dll");
+        return loader ? reinterpret_cast<PFN_vkGetDeviceProcAddr>(GetProcAddress(loader, "vkGetDeviceProcAddr")) : nullptr;
+#else
+        void* loader = dlopen("libvulkan.so", RTLD_NOW | RTLD_NOLOAD);
+        if (!loader)
+            loader = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_NOLOAD);
+        return loader ? reinterpret_cast<PFN_vkGetDeviceProcAddr>(dlsym(loader, "vkGetDeviceProcAddr")) : nullptr;
+#endif
+    }
+
+    // A barrier between every earlier command's memory accesses and every later one's.
+    void GlobalVulkanBarrier(Clas* clas, VkCommandBuffer commandBuffer)
+    {
+        VkMemoryBarrier barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        clas->vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            0, 1, &barrier, 0, nullptr, 0, nullptr);
+    }
+
     // States for an operation's input buffer: acceleration structures (CLASes, templates) to read, or
     // data (vertices, indices, addresses) the build reads.
     void RequireInputState(nvrhi::ICommandList* commandList, nvrhi::IBuffer* buffer)
@@ -224,8 +341,9 @@ extern "C"
 {
     // Clustered geometry operations on the app's device (Donut_GetNvrhiDevice): D3D12 with the preview
     // runtime (Donut_EnableD3D12RaytracingPreview before the device) and a driver reporting
-    // ClustersAndPTLASSupported. Null where they aren't supported (Vulkan: not yet). Free it with
-    // Donut_DestroyClas before the app.
+    // ClustersAndPTLASSupported, or Vulkan with VK_NV_cluster_acceleration_structure and
+    // VK_KHR_ray_tracing_position_fetch (AppOption_RayTracing enables both where the GPU has them). Null
+    // where they aren't supported. Free it with Donut_DestroyClas before the app.
     DONUT_API Clas* Donut_CreateClas(void* device)
     {
         auto* nvrhiDevice = static_cast<nvrhi::IDevice*>(device);
@@ -259,6 +377,29 @@ extern "C"
             return clas.release();
         }
 #endif
+        if (clas->api == nvrhi::GraphicsAPI::VULKAN)
+        {
+            if (!nvrhiDevice->queryFeatureSupport(nvrhi::Feature::RayTracingClusters))
+                return nullptr;
+            if (!nvrhiDevice->queryFeatureSupport(nvrhi::Feature::RayTracingPositionFetch))
+            {
+                donut::log::warning("Clustered geometry: the device has CLASes but not position fetch");
+                return nullptr;
+            }
+            PFN_vkGetDeviceProcAddr getDeviceProcAddr = GetDeviceProcAddr();
+            clas->vkDevice = nvrhiDevice->getNativeObject(nvrhi::ObjectTypes::VK_Device);
+            if (!getDeviceProcAddr || !clas->vkDevice)
+                return nullptr;
+            clas->vkGetBuildSizes = reinterpret_cast<PFN_vkGetClusterAccelerationStructureBuildSizesNV>(
+                getDeviceProcAddr(clas->vkDevice, "vkGetClusterAccelerationStructureBuildSizesNV"));
+            clas->vkCmdBuild = reinterpret_cast<PFN_vkCmdBuildClusterAccelerationStructureIndirectNV>(
+                getDeviceProcAddr(clas->vkDevice, "vkCmdBuildClusterAccelerationStructureIndirectNV"));
+            clas->vkCmdPipelineBarrier = reinterpret_cast<PFN_vkCmdPipelineBarrier>(
+                getDeviceProcAddr(clas->vkDevice, "vkCmdPipelineBarrier"));
+            if (!clas->vkGetBuildSizes || !clas->vkCmdBuild || !clas->vkCmdPipelineBarrier)
+                return nullptr;
+            return clas.release();
+        }
         return nullptr;
     }
 
@@ -338,6 +479,19 @@ extern "C"
             sizes[1] = double(info.ScratchDataSizeInBytes);
         }
 #endif
+        if (clas->vkDevice)
+        {
+            VulkanOperationInputs inputs;
+            if (!inputs.Fill(params))
+                return;
+            VkAccelerationStructureBuildSizesInfoKHR info{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+            clas->vkGetBuildSizes(clas->vkDevice, &inputs.info, &info);
+            sizes[0] = double(info.accelerationStructureSize);
+            // Moves report their scratch as updateScratchSize (buildScratchSize is 0 for them: 2000
+            // CLASes need ~145 KB); builds as buildScratchSize. vk_animated_clusters sizes moves from
+            // updateScratchSize too. Undersized move scratch overran into other memory (GPU MMU faults).
+            sizes[1] = double(info.buildScratchSize > info.updateScratchSize ? info.buildScratchSize : info.updateScratchSize);
+        }
     }
 
     // Records an operation (`params`: ClasParam_Count ints) on `commandList`, reading its arguments from
@@ -354,13 +508,15 @@ extern "C"
         nvrhi::IBuffer* addresses, double addressesOffset, nvrhi::IBuffer* sizes, double sizesOffset,
         nvrhi::IBuffer* input0, nvrhi::IBuffer* input1)
     {
+        const int mode = params[ClasParam_Mode];
 #if defined(DONUT_CLAS_WITH_D3D12_PREVIEW)
-        if (!clas->raytracingDevice)
+        D3D12OperationInputs d3dInputs;
+        if (clas->raytracingDevice && !d3dInputs.Fill(params))
             return;
-        D3D12OperationInputs inputs;
-        if (!inputs.Fill(params))
+#endif
+        VulkanOperationInputs vkInputs;
+        if (clas->vkDevice && !vkInputs.Fill(params))
             return;
-        const auto mode = D3D12_RTAS_OPERATION_MODE(params[ClasParam_Mode]);
 
         commandList->setBufferState(args, nvrhi::ResourceStates::AccelStructBuildInput);
         if (argCount)
@@ -369,7 +525,7 @@ extern "C"
         if (storage)
             commandList->setBufferState(storage, nvrhi::ResourceStates::AccelStructWrite);
         if (addresses)
-            commandList->setBufferState(addresses, mode == D3D12_RTAS_OPERATION_MODE_EXPLICIT_DESTINATIONS
+            commandList->setBufferState(addresses, mode == Mode_Explicit
                 ? nvrhi::ResourceStates::AccelStructBuildInput : nvrhi::ResourceStates::UnorderedAccess);
         if (sizes)
             commandList->setBufferState(sizes, nvrhi::ResourceStates::UnorderedAccess);
@@ -377,43 +533,64 @@ extern "C"
         RequireInputState(commandList, input1);
         commandList->commitBarriers();
 
-        ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
-        ID3D12CommandListRaytracing2* raytracingCommandList = nullptr;
-        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&raytracingCommandList))))
+#if defined(DONUT_CLAS_WITH_D3D12_PREVIEW)
+        if (clas->raytracingDevice)
         {
-            donut::log::error("Donut_ExecuteClasOperation: the command list has no ID3D12CommandListRaytracing2");
-            return;
+            ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+            ID3D12CommandListRaytracing2* raytracingCommandList = nullptr;
+            if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&raytracingCommandList))))
+            {
+                donut::log::error("Donut_ExecuteClasOperation: the command list has no ID3D12CommandListRaytracing2");
+                return;
+            }
+
+            D3D12_RTAS_BATCHED_OPERATION_DATA data = {};
+            data.AddressResolutionFlags = D3D12_RTAS_OPERATION_ADDRESS_RESOLUTION_FLAG_NONE;
+            if (storage && mode == D3D12_RTAS_OPERATION_MODE_IMPLICIT_DESTINATIONS)
+                data.BatchResultData = storage->getGpuVirtualAddress();
+            data.BatchScratchData = scratch->getGpuVirtualAddress();
+            if (addresses)
+                data.ResultAddressArray = { addresses->getGpuVirtualAddress() + uint64_t(addressesOffset), sizeof(D3D12_GPU_VIRTUAL_ADDRESS) };
+            if (sizes)
+                data.ResultSizeArray = { sizes->getGpuVirtualAddress() + uint64_t(sizesOffset), sizeof(UINT64) };
+            data.IndirectArgumentArray = { args->getGpuVirtualAddress() + uint64_t(argsOffset), UINT64(argsStride) };
+            data.IndirectArgumentArraySize = argCount ? argCount->getGpuVirtualAddress() : 0;
+
+            D3D12_RTAS_OPERATION_DESC desc = {};
+            desc.Inputs = d3dInputs.inputs;
+            desc.pBatchedOperationData = &data;
+            // Earlier operations, builds and traces on these buffers first; the results before what reads them.
+            GlobalUavBarrier(d3dCommandList);
+            raytracingCommandList->ExecuteIndirectRTASOperations(1, &desc, D3D12_EXECUTE_INDIRECT_RTAS_OPERATIONS_FLAG_NONE);
+            GlobalUavBarrier(d3dCommandList);
+            raytracingCommandList->Release();
         }
-
-        D3D12_RTAS_BATCHED_OPERATION_DATA data = {};
-        data.AddressResolutionFlags = D3D12_RTAS_OPERATION_ADDRESS_RESOLUTION_FLAG_NONE;
-        if (storage && mode == D3D12_RTAS_OPERATION_MODE_IMPLICIT_DESTINATIONS)
-            data.BatchResultData = storage->getGpuVirtualAddress();
-        data.BatchScratchData = scratch->getGpuVirtualAddress();
-        if (addresses)
-            data.ResultAddressArray = { addresses->getGpuVirtualAddress() + uint64_t(addressesOffset), sizeof(D3D12_GPU_VIRTUAL_ADDRESS) };
-        if (sizes)
-            data.ResultSizeArray = { sizes->getGpuVirtualAddress() + uint64_t(sizesOffset), sizeof(UINT64) };
-        data.IndirectArgumentArray = { args->getGpuVirtualAddress() + uint64_t(argsOffset), UINT64(argsStride) };
-        data.IndirectArgumentArraySize = argCount ? argCount->getGpuVirtualAddress() : 0;
-
-        D3D12_RTAS_OPERATION_DESC desc = {};
-        desc.Inputs = inputs.inputs;
-        desc.pBatchedOperationData = &data;
-        // Earlier operations, builds and traces on these buffers first; the results before what reads them.
-        GlobalUavBarrier(d3dCommandList);
-        raytracingCommandList->ExecuteIndirectRTASOperations(1, &desc, D3D12_EXECUTE_INDIRECT_RTAS_OPERATIONS_FLAG_NONE);
-        GlobalUavBarrier(d3dCommandList);
-        raytracingCommandList->Release();
+#endif
+        if (clas->vkDevice)
+        {
+            VkCommandBuffer commandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+            const uint64_t maxArgCount = uint64_t(uint32_t(params[ClasParam_MaxArgCount]));
+            VkClusterAccelerationStructureCommandsInfoNV info{ VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_COMMANDS_INFO_NV };
+            info.input = vkInputs.info;
+            if (storage && mode == VK_CLUSTER_ACCELERATION_STRUCTURE_OP_MODE_IMPLICIT_DESTINATIONS_NV)
+                info.dstImplicitData = storage->getGpuVirtualAddress();
+            info.scratchData = scratch->getGpuVirtualAddress();
+            if (addresses)
+                info.dstAddressesArray = { addresses->getGpuVirtualAddress() + uint64_t(addressesOffset), 8, maxArgCount * 8 };
+            if (sizes)
+                info.dstSizesArray = { sizes->getGpuVirtualAddress() + uint64_t(sizesOffset), 8, maxArgCount * 8 };
+            info.srcInfosArray = { args->getGpuVirtualAddress() + uint64_t(argsOffset), VkDeviceSize(argsStride),
+                maxArgCount * VkDeviceSize(argsStride) };
+            info.srcInfosCount = argCount ? argCount->getGpuVirtualAddress() : 0;
+            // As on D3D12: earlier work on these buffers first, the results before what reads them.
+            GlobalVulkanBarrier(clas, commandBuffer);
+            clas->vkCmdBuild(commandBuffer, &info);
+            GlobalVulkanBarrier(clas, commandBuffer);
+        }
 
         if (storage)
             commandList->setBufferState(storage, nvrhi::ResourceStates::AccelStructRead);
         commandList->commitBarriers();
-#else
-        (void)clas; (void)commandList; (void)params; (void)args; (void)argsOffset; (void)argsStride; (void)argCount;
-        (void)storage; (void)scratch; (void)addresses; (void)addressesOffset; (void)sizes; (void)sizesOffset;
-        (void)input0; (void)input1;
-#endif
     }
 
     // A TLAS of up to maxInstances (buildFlags: nvrhi::rt::AccelStructBuildFlags) built from buffers of

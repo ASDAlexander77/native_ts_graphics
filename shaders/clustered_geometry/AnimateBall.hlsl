@@ -34,19 +34,25 @@ RWByteAddressBuffer g_animPositions  : register(u0);
 // Per-frame constant-buffer slice:
 //   t           = animation time in seconds (m_animSeconds)
 //   vertexCount = total number of vertices to process (obj.totalVertexCount)
-cbuffer Params : register(b0)
+struct ParamsData
 {
     float g_t;
     uint  g_vertexCount;
 };
 
+// Root constants on D3D12, push constants on Vulkan.
+#ifdef SPIRV
+[[vk::push_constant]]
+#endif
+ConstantBuffer<ParamsData> c_Params : register(b0);
+
 [numthreads(64, 1, 1)]
 void main(uint3 tid : SV_DispatchThreadID)
 {
-    if (tid.x >= g_vertexCount) return;
+    if (tid.x >= c_Params.g_vertexCount) return;
 
     const uint byteOff = tid.x * 12u;
     float3 p = asfloat(g_restPositions.Load3(byteOff));
 
-    g_animPositions.Store3(byteOff, asuint(AnimatedSpherePosition(p, g_t)));
+    g_animPositions.Store3(byteOff, asuint(AnimatedSpherePosition(p, c_Params.g_t)));
 }
