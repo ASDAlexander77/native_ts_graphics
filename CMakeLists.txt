@@ -220,6 +220,9 @@ set(DONUT_NVRHI_PATCHES
     # SamplerDesc::minLod and maxLod: the levels of detail sampled clamped, e.g. to level 0 only, on
     # D3D11, D3D12 and Vulkan (texture_mipmap_generation).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-sampler-lod-range.patch"
+    # SamplerDesc::comparisonFunc: comparison samplers comparing other than "less", on D3D11, D3D12
+    # and Vulkan (raytracing_mini_engine: MiniEngine's reversed-depth shadow maps).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-sampler-comparison-func.patch"
     # rt::AccelStructBuildFlags::AllowDataAccess: Vulkan BLASes whose vertex positions hit shaders
     # read (VK_KHR_ray_tracing_position_fetch; ray_tracing_position_fetch).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-accel-struct-allow-data-access.patch"
@@ -659,7 +662,8 @@ set(JIT_MODULE_SOURCES
     core/paged_images.cpp
     core/omm_bake.cpp
     core/ptlas.cpp
-    core/clas.cpp)
+    core/clas.cpp
+    core/msvc_fast_math.cpp)
 if (WIN32)
     # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
     list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
@@ -4207,6 +4211,47 @@ if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
     add_tslang_example_test(clustered_geometry SUFFIX switches APIS dx12
         ARGS -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes)
 endif()
+
+# Port of DirectX-Graphics-Samples' D3D12RaytracingMiniEngineSample: MiniEngine's Sponza (its sponza.h3d
+# and DDS textures, from DIRECTX_GRAPHICS_SAMPLES_DIR) as a BLAS per mesh, and the sample's seven modes
+# (keys 1 to 7): rasterized, barycentrics of primary and reflection rays, shadow rays, diffuse hit
+# shading with shadow maps or shadow rays, reflections. Its ray tracing pipelines are the sample's state
+# objects with their libraries swapped; its per-mesh local root signature is the instance ID and a
+# bindless texture table here. The camera follows MiniEngine's math (core/directx_math.ts).
+file(GLOB RAYTRACING_MINI_ENGINE_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_mini_engine/*)
+donut_compile_shaders(
+    TARGET raytracing_mini_engine_shaders
+    PROJECT_NAME "Raytracing MiniEngine"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_mini_engine.cfg
+    SOURCES ${RAYTRACING_MINI_ENGINE_SHADER_SOURCES}
+    # The sample's project compiles them so: row-major matrices (its DynamicCB's cameraToWorld is the
+    # transposed inverse view-projection matrix), HLSL 2017 (2018 here: ShaderMake enables 16-bit types).
+    SHADERMAKE_OPTIONS "--matrixRowMajor --compilerOptions \"-HV 2018\""
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_mini_engine/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_mini_engine/spirv
+)
+# Its rasterization: MiniEngine's model shaders, compiled as MiniEngine compiles them (HLSL 2021,
+# column-major matrices).
+donut_compile_shaders(
+    TARGET raytracing_mini_engine_raster_shaders
+    PROJECT_NAME "Raytracing MiniEngine (raster)"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_mini_engine_raster.cfg
+    SOURCES ${RAYTRACING_MINI_ENGINE_SHADER_SOURCES}
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_mini_engine/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_mini_engine/spirv
+    SHADERMAKE_OPTIONS "--hlsl2021"
+)
+add_tslang_example(raytracing_mini_engine core/directx_math.ts core/msvc_fast_math.cpp)
+add_dependencies(raytracing_mini_engine raytracing_mini_engine_raster_shaders)
+if (DIRECTX_GRAPHICS_SAMPLES_DIR)
+    set(sponza_dir "Samples/Desktop/D3D12Raytracing/src/D3D12RaytracingMiniEngineSample/Sponza")
+    file(GLOB sponza_textures RELATIVE "${DIRECTX_GRAPHICS_SAMPLES_DIR}" "${DIRECTX_GRAPHICS_SAMPLES_DIR}/${sponza_dir}/*.dds")
+    add_dxgs_media(raytracing_mini_engine raytracing_mini_engine ${sponza_dir}/sponza.h3d ${sponza_textures})
+endif()
+# Each mode from the sample's second-floor camera position (3).
+foreach(mode 1 2 3 4 5 6 7)
+    add_tslang_example_test(raytracing_mini_engine SUFFIX mode${mode} ARGS -mode ${mode})
+endforeach()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
 # mesh shader alone (a group per meshlet, no vertex or index buffers bound), each meshlet in a color

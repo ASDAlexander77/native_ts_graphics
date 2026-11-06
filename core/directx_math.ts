@@ -318,6 +318,14 @@ export function matrixRotationAxis(axis: number[], angle: number): number[] {
         [0.0, 0.0, 0.0, 1.0]);
 }
 
+// XMMatrixRotationX.
+export function matrixRotationX(angle: number): number[] {
+    const sinCos = scalarSinCos(angle);
+    const s = sinCos[0];
+    const c = sinCos[1];
+    return [1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0];
+}
+
 // XMMatrixRotationY.
 export function matrixRotationY(angle: number): number[] {
     const sinCos = scalarSinCos(angle);
@@ -383,6 +391,125 @@ export function matrixPerspectiveFovLH(fovAngleY: number, aspectRatio: number, n
         0.0, 0.0, range, 1.0,
         0.0, 0.0, Math.fround(-range * near), 0.0,
     ];
+}
+
+// XMVector4Length (splatted): the square root of (x^2 + z^2) + (y^2 + w^2).
+export function length4(a: number[]): number[] {
+    const l = vmul(a, a);
+    const length = Math.fround(Math.sqrt(Math.fround(Math.fround(l[0] + l[2]) + Math.fround(l[1] + l[3]))));
+    return [length, length, length, length];
+}
+
+// XMVectorReciprocal: 1 / v.
+export function reciprocal(a: number[]): number[] {
+    return vdiv([1.0, 1.0, 1.0, 1.0], a);
+}
+
+// XMVectorReciprocalSqrt: 1 / sqrt(v), the square root rounded first.
+export function reciprocalSqrt(a: number[]): number[] {
+    return reciprocal([Math.fround(Math.sqrt(a[0])), Math.fround(Math.sqrt(a[1])), Math.fround(Math.sqrt(a[2])),
+        Math.fround(Math.sqrt(a[3]))]);
+}
+
+// XMVectorFloor's SSE2 code: truncated, minus one where that's above the value (so -0.0 stays +0.0).
+export function floor4(a: number[]): number[] {
+    let result: number[] = [];
+    for (let i = 0; i < 4; i++) {
+        const v = a[i];
+        if (Math.abs(v) < 8388608.0) {
+            const t = v < 0.0 ? Math.ceil(v) : Math.floor(v);
+            result.push(t > v ? t - 1.0 : (t == 0.0 ? 0.0 : t));
+        } else {
+            result.push(v);
+        }
+    }
+    return result;
+}
+
+// XMQuaternionConjugate.
+export function quaternionConjugate(q: number[]): number[] {
+    return vmul(q, [-1.0, -1.0, -1.0, 1.0]);
+}
+
+// XMQuaternionMultiply(q1, q2): the rotation q1 then q2, as its SSE2 code (no FMA).
+export function quaternionMultiply(q1: number[], q2: number[]): number[] {
+    let result = vmul(splat(q2, 3), q1);
+    let q1Shuffle = permute(q1, 0, 1, 2, 3);
+    const q2x = vmul(splat(q2, 0), q1Shuffle);
+    q1Shuffle = permute(q1Shuffle, 2, 3, 0, 1);
+    result = vadd(vmul(q2x, [1.0, -1.0, 1.0, -1.0]), result);
+    let q2y = vmul(splat(q2, 1), q1Shuffle);
+    q1Shuffle = permute(q1Shuffle, 0, 1, 2, 3);
+    q2y = vmul(q2y, [1.0, 1.0, -1.0, -1.0]);
+    const q2z = vmul(splat(q2, 2), q1Shuffle);
+    q2y = vadd(vmul(q2z, [-1.0, 1.0, 1.0, -1.0]), q2y);
+    return vadd(result, q2y);
+}
+
+// XMVector3Rotate: v (w zeroed) rotated by the unit quaternion q.
+export function vector3Rotate(v: number[], q: number[]): number[] {
+    const a = [v[0], v[1], v[2], 0.0];
+    return quaternionMultiply(quaternionMultiply(quaternionConjugate(q), a), q);
+}
+
+// XMMatrixRotationQuaternion's SSE2 code.
+export function matrixRotationQuaternion(q: number[]): number[] {
+    const q0 = vadd(q, q);
+    const q1 = vmul(q, q0);
+    let v0 = permute(q1, 3, 0, 0, 1);
+    v0 = [v0[0], v0[1], v0[2], 0.0];
+    let v1 = permute(q1, 3, 1, 2, 2);
+    v1 = [v1[0], v1[1], v1[2], 0.0];
+    const r0 = vsub(vsub([1.0, 1.0, 1.0, 0.0], v0), v1);
+    v0 = vmul(permute(q, 3, 1, 0, 0), permute(q0, 3, 2, 1, 2));
+    v1 = vmul(splat(q, 3), permute(q0, 3, 0, 2, 1));
+    const r1 = vadd(v0, v1);
+    const r2 = vsub(v0, v1);
+    v0 = permute(shuffle(r1, r2, 1, 0, 2, 1), 1, 3, 2, 0);
+    v1 = permute(shuffle(r1, r2, 2, 2, 0, 0), 2, 0, 2, 0);
+    return fromRows(
+        permute(shuffle(r0, v0, 1, 0, 3, 0), 1, 3, 2, 0),
+        permute(shuffle(r0, v0, 3, 2, 3, 1), 1, 3, 0, 2),
+        shuffle(v1, r0, 3, 2, 1, 0),
+        [0.0, 0.0, 0.0, 1.0]);
+}
+
+// XMQuaternionRotationMatrix's SSE2 code (from the rotation rows of m): the largest-magnitude row of
+// the quaternion's tensor product, normalized.
+export function quaternionRotationMatrix(m: number[]): number[] {
+    const r0 = row(m, 0);
+    const r1 = row(m, 1);
+    const r2 = row(m, 2);
+    const r00 = splat(r0, 0);
+    const r11 = splat(r1, 1);
+    const r22 = splat(r2, 2);
+    const x2gey2 = Math.fround(r11[0] - r00[0]) <= 0.0;
+    const z2gew2 = Math.fround(r11[0] + r00[0]) <= 0.0;
+    const x2py2gez2pw2 = r22[0] <= 0.0;
+
+    let t0 = vadd(vmul([1.0, -1.0, -1.0, 1.0], r00), [1.0, 1.0, 1.0, 1.0]);
+    let t1 = vmul([-1.0, 1.0, -1.0, 1.0], r11);
+    let t2 = vadd(vmul([-1.0, -1.0, 1.0, 1.0], r22), t0);
+    const x2y2z2w2 = vadd(t1, t2);
+
+    t0 = shuffle(r0, r1, 1, 2, 2, 1);
+    t1 = permute(shuffle(r1, r2, 1, 0, 0, 0), 1, 3, 2, 0);
+    const xyxzyz = vadd(t0, t1);
+
+    t0 = shuffle(r2, r1, 0, 0, 0, 1);
+    t1 = permute(shuffle(r1, r0, 1, 2, 2, 2), 1, 3, 2, 0);
+    const xwywzw = vmul([-1.0, 1.0, -1.0, 1.0], vsub(t0, t1));
+
+    t0 = shuffle(x2y2z2w2, xyxzyz, 0, 0, 1, 0);
+    t1 = shuffle(x2y2z2w2, xwywzw, 0, 2, 3, 2);
+    t2 = shuffle(xyxzyz, xwywzw, 1, 0, 2, 1);
+    const tensor0 = shuffle(t0, t2, 2, 0, 2, 0);
+    const tensor1 = shuffle(t0, t2, 3, 1, 1, 2);
+    const tensor2 = shuffle(t2, t1, 2, 0, 1, 0);
+    const tensor3 = shuffle(t2, t1, 1, 2, 3, 2);
+
+    const selected = x2py2gez2pw2 ? (x2gey2 ? tensor0 : tensor1) : (z2gew2 ? tensor2 : tensor3);
+    return vdiv(selected, length4(selected));
 }
 
 // Whether a float's sign bit is set (-0 included), as the SSE code's masks see it.

@@ -2211,7 +2211,8 @@ namespace
     // extensions), 16-bit floats in shaders and 16-bit values in uniform buffers and push constants,
     // derivatives in compute shaders (with its extension), logic operations, shader execution
     // reordering, coherent advanced blend operations, shader quad control and line rasterization
-    // modes (with their extensions), wide lines, and clip and cull distances, when the GPU has them.
+    // modes (with their extensions), wide lines, clip and cull distances, and sample-rate shading, when
+    // the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -2227,6 +2228,9 @@ namespace
         // Also for vertex shaders: the validation layer's shader printf (AppOption_ShaderPrintf)
         // writes its output to a buffer from instrumented shaders of every stage.
         features.vertexPipelineStoresAndAtomics = available.vertexPipelineStoresAndAtomics;
+        // Sample-frequency interpolation (HLSL's sample qualifier, which declares SPIR-V's
+        // SampleRateShading even at one sample a pixel; raytracing_mini_engine's MiniEngine shaders).
+        features.sampleRateShading = available.sampleRateShading;
         features.sparseBinding = available.sparseBinding;
         features.sparseResidencyImage2D = available.sparseResidencyImage2D;
         features.shaderResourceResidency = available.shaderResourceResidency;
@@ -5359,6 +5363,30 @@ extern "C"
             bytes.data() + fileOffset, byteSize);
     }
 
+    // Same, as Donut_CreateStaticGeometryBuffer's: also a ByteAddressBuffer for shaders and an
+    // acceleration structure build input (its size rounded up to whole uints, the rest zeros).
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticGeometryBufferFromBinaryFile(App* app, nvrhi::ICommandList* commandList,
+        BinaryFile* binaryFile, int fileOffset, int byteSize, bool isIndexBuffer, const char* debugName)
+    {
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
+        if (fileOffset < 0 || byteSize <= 0 || size_t(fileOffset) + size_t(byteSize) > bytes.size())
+        {
+            donut::log::error("Donut_CreateStaticGeometryBufferFromBinaryFile: bytes %d..%d are past the end of the file (%d bytes)",
+                fileOffset, fileOffset + byteSize, int(bytes.size()));
+            return nullptr;
+        }
+        std::vector<uint8_t> data(bytes.begin() + fileOffset, bytes.begin() + fileOffset + byteSize);
+        data.resize((data.size() + 3) & ~size_t(3), 0);
+        auto desc = nvrhi::BufferDesc().setCanHaveRawViews(true).setIsAccelStructBuildInput(true).setDebugName(debugName);
+        if (isIndexBuffer)
+            desc.setIsIndexBuffer(true);
+        else
+            desc.setIsVertexBuffer(true);
+        const nvrhi::ResourceStates state = (isIndexBuffer ? nvrhi::ResourceStates::IndexBuffer : nvrhi::ResourceStates::VertexBuffer)
+            | nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
+        return CreateStaticBuffer(app, commandList, desc, state, data.data(), int(data.size()));
+    }
+
     // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows
     // (of 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call
     // into an open command list.
@@ -5841,6 +5869,22 @@ extern "C"
             .setAllFilters(true)
             .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
             .setReductionType(nvrhi::SamplerReductionType::Comparison);
+
+        App* a = app;
+        return a->Own(a->device()->createSampler(desc));
+    }
+
+    // Same, its comparison func (nvrhi::ComparisonFunc's values), bilinear between texels and point
+    // between levels (MiniEngine's shadow sampler: GreaterOrEqual for reversed depth).
+    DONUT_API nvrhi::ISampler* Donut_CreateComparisonSamplerWithFunc(App* app, int func)
+    {
+        auto desc = nvrhi::SamplerDesc()
+            .setMinFilter(true)
+            .setMagFilter(true)
+            .setMipFilter(false)
+            .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
+            .setReductionType(nvrhi::SamplerReductionType::Comparison)
+            .setComparisonFunc(nvrhi::ComparisonFunc(func));
 
         App* a = app;
         return a->Own(a->device()->createSampler(desc));
@@ -7980,6 +8024,16 @@ extern "C"
     DONUT_API double Donut_Tanf(double x)
     {
         return std::tan(static_cast<float>(x));
+    }
+
+    DONUT_API double Donut_Log2f(double x)
+    {
+        return std::log2(static_cast<float>(x));
+    }
+
+    DONUT_API double Donut_Exp2f(double x)
+    {
+        return std::exp2(static_cast<float>(x));
     }
 
     // Same, seeded with all 32 bits of seedBits (unsigned).
