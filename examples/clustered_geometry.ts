@@ -2956,6 +2956,8 @@ namespace ClusteredGeometry {
             settings.cameraPaused = true;
             settings.animationPaused = true;
         }
+        // A Vulkan path (VK_NV_cluster_acceleration_structure) is parked: its test runs faulted the GPU
+        // (docs/clustered_geometry_vulkan_gpu_faults.md).
         if (args.api != GraphicsAPI.D3D12) {
             return unsupported(args.test, "Clustered geometry is D3D12's preview here (Vulkan's VK_NV_cluster_acceleration_structure: not yet)");
         }
