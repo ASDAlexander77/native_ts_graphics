@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 
@@ -238,8 +239,9 @@ extern "C"
         HRESULT hr = D3D12EnableExperimentalFeatures(UINT(sizeof(features) / sizeof(features[0])), features, nullptr, nullptr);
         if (FAILED(hr))
         {
-            donut::log::warning("D3D12EnableExperimentalFeatures failed (0x%08X): the D3D12 PTLAS preview needs "
-                "the preview Agility SDK runtime and Windows' Developer Mode", unsigned(hr));
+            // Before the app exists (Donut_CreateAppWithOptions sets the console up for its log).
+            std::fprintf(stderr, "D3D12EnableExperimentalFeatures failed (0x%08X): the D3D12 PTLAS preview needs "
+                "the preview Agility SDK runtime and Windows' Developer Mode\n", unsigned(hr));
             return 0;
         }
         return 1;
