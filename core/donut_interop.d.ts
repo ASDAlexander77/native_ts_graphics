@@ -1626,6 +1626,10 @@ enum ShaderType {
 // fileOffset, uploaded by an open command list. Null (after logging why) on failure.
 @nodrops declare function Donut_CreateStaticBufferFromBinaryFile(app: AppHandle, commandList: CommandListHandle, binaryFile: BinaryFileHandle,
     fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle;
+// Same, as Donut_CreateStaticGeometryBuffer's: also a ByteAddressBuffer for shaders and an acceleration
+// structure build input (its size rounded up to whole uints, the rest zeros).
+@nodrops declare function Donut_CreateStaticGeometryBufferFromBinaryFile(app: AppHandle, commandList: CommandListHandle, binaryFile: BinaryFileHandle,
+    fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle;
 // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows (of
 // 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call into an
 // open command list.
@@ -1685,6 +1689,9 @@ enum ShaderType {
 // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
 // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
 @nodrops declare function Donut_CreateComparisonSampler(app: AppHandle): SamplerHandle;
+// Same, comparing by func (patches/nvrhi-sampler-comparison-func.patch), bilinear between texels and
+// point between levels: MiniEngine's shadow sampler (GreaterOrEqual for reversed depth).
+@nodrops declare function Donut_CreateComparisonSamplerWithFunc(app: AppHandle, func: ComparisonFunc): SamplerHandle;
 // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
 // otherwise); wrap non-zero: repeating (clamped otherwise).
 @nodrops declare function Donut_CreateSampler(app: AppHandle, linearFilter: int, linearMipFilter: int, wrap: int): SamplerHandle;
@@ -1961,6 +1968,9 @@ enum ShaderType {
 // The C runtime's log2f and exp2f of (float)x (MiniEngine's ExpVar settings go through both).
 @nodrops declare function Donut_Log2f(x: number): number;
 @nodrops declare function Donut_Exp2f(x: number): number;
+// MSVC's /fp:fast sinf and cosf of (float)x into dst[0] and dst[1] (core/msvc_fast_math.cpp, linked only
+// into the examples that list it): its cosine can differ from cosf's in the last bits.
+@nodrops declare function Donut_FastSinCosf(x: number, dst: Ref<f32>): void;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 @nodrops declare function Donut_RandomUniformFloat(randomEngine: RandomEngineHandle, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).

@@ -1,0 +1,56 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -1427,6 +1427,8 @@
+         // The levels of detail sampled are clamped to [minLod, maxLod] (maxLod 0: level 0 only).
+         float minLod = 0.f;
+         float maxLod = 3.402823466e+38f;
++        // The comparison of a Comparison sampler (SampleCmp: the reference against the texel).
++        ComparisonFunc comparisonFunc = ComparisonFunc::Less;
+ 
+         SamplerDesc& setBorderColor(const Color& color) { borderColor = color; return *this; }
+         SamplerDesc& setMaxAnisotropy(float value) { maxAnisotropy = value; return *this; }
+@@ -1441,6 +1443,7 @@
+         SamplerDesc& setAllAddressModes(SamplerAddressMode mode) { addressU = addressV = addressW = mode; return *this; }
+         SamplerDesc& setReductionType(SamplerReductionType type) { reductionType = type; return *this; }
+         SamplerDesc& setLodRange(float min, float max) { minLod = min; maxLod = max; return *this; }
++        SamplerDesc& setComparisonFunc(ComparisonFunc value) { comparisonFunc = value; return *this; }
+     };
+ 
+     class ISampler : public IResource
+diff --git a/src/d3d11/d3d11-device.cpp b/src/d3d11/d3d11-device.cpp
+--- a/src/d3d11/d3d11-device.cpp
++++ b/src/d3d11/d3d11-device.cpp
+@@ -401,7 +401,7 @@
+ 
+         desc11.MipLODBias = d.mipBias;
+         desc11.MaxAnisotropy = std::max((UINT)d.maxAnisotropy, 1U);
+-        desc11.ComparisonFunc = D3D11_COMPARISON_LESS;
++        desc11.ComparisonFunc = convertComparisonFunc(d.comparisonFunc);
+         desc11.BorderColor[0] = d.borderColor.r;
+         desc11.BorderColor[1] = d.borderColor.g;
+         desc11.BorderColor[2] = d.borderColor.b;
+diff --git a/src/d3d12/d3d12-device.cpp b/src/d3d12/d3d12-device.cpp
+--- a/src/d3d12/d3d12-device.cpp
++++ b/src/d3d12/d3d12-device.cpp
+@@ -564,7 +564,7 @@
+         m_d3d12desc.MipLODBias = m_Desc.mipBias;
+         m_d3d12desc.MaxAnisotropy = std::max((UINT)m_Desc.maxAnisotropy, 1U);
+         m_d3d12desc.ComparisonFunc = desc.reductionType == SamplerReductionType::Comparison
+-            ? D3D12_COMPARISON_FUNC_LESS
++            ? convertComparisonFunc(desc.comparisonFunc)
+             : D3D12_COMPARISON_FUNC_NEVER;
+         m_d3d12desc.BorderColor[0] = m_Desc.borderColor.r;
+         m_d3d12desc.BorderColor[1] = m_Desc.borderColor.g;
+diff --git a/src/vulkan/vulkan-texture.cpp b/src/vulkan/vulkan-texture.cpp
+--- a/src/vulkan/vulkan-texture.cpp
++++ b/src/vulkan/vulkan-texture.cpp
+@@ -866,7 +866,7 @@
+                             .setAnisotropyEnable(anisotropyEnable)
+                             .setMaxAnisotropy(anisotropyEnable ? desc.maxAnisotropy : 1.f)
+                             .setCompareEnable(desc.reductionType == SamplerReductionType::Comparison)
+-                            .setCompareOp(vk::CompareOp::eLess)
++                            .setCompareOp(convertCompareOp(desc.comparisonFunc))
+                             .setMinLod(desc.minLod)
+                             .setMaxLod(desc.maxLod)
+                             .setBorderColor(pickSamplerBorderColor(desc));

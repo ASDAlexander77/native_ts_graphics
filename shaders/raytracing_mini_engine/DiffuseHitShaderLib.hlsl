@@ -17,7 +17,7 @@
 
 // The port (not the sample): its per-mesh local root signature (MaterialID, the material's diffuse and
 // normal textures) as the instance's ID (each mesh is an instance, its ID its index) and a bindless
-// array of every material's diffuse texture (2 m) and normal map (2 m + 1).
+// array of every material's diffuse texture (3 m), specular (3 m + 1) and normal map (3 m + 2).
 #define MaterialID InstanceID()
 [[vk::binding(0, 1)]] Texture2D<float4> g_materialTextures[] : register(t0, space1);
 
@@ -229,14 +229,14 @@ void Hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr
 
     //---------------------------------------------------------------------------------------------
 
-    const uint materialTexture = g_meshInfo[materialID].m_materialInstanceId * 2;
+    const uint materialTexture = g_meshInfo[materialID].m_materialInstanceId * 3;
     const float3 diffuseColor = g_materialTextures[NonUniformResourceIndex(materialTexture)].SampleGrad(g_s0, uv, ddxUV, ddyUV).rgb;
     float3 normal;
     float3 specularAlbedo = float3(0.56, 0.56, 0.56);
     float specularMask = 0;     // TODO: read the texture
     float gloss = 128.0;
     {
-        normal = g_materialTextures[NonUniformResourceIndex(materialTexture + 1)].SampleGrad(g_s0, uv, ddxUV, ddyUV).rgb * 2.0 - 1.0;
+        normal = g_materialTextures[NonUniformResourceIndex(materialTexture + 2)].SampleGrad(g_s0, uv, ddxUV, ddyUV).rgb * 2.0 - 1.0;
         AntiAliasSpecular(normal, gloss);
         float3x3 tbn = float3x3(vsTangent, vsBitangent, vsNormal);
         normal = normalize(mul(normal, tbn));

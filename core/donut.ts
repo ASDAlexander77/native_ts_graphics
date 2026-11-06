@@ -781,6 +781,12 @@ export class App {
         return Donut_CreateStaticBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
     }
 
+    // Same, as Donut_CreateStaticGeometryBuffer's: also a ByteAddressBuffer for shaders and an acceleration
+    // structure build input (its size rounded up to whole uints, the rest zeros).
+    createStaticGeometryBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
+        return Donut_CreateStaticGeometryBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
+    }
+
     // An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
     // texture as DirectXTK's CreateWICTextureFromFile loads it: one level, sRGB when the file says so
     // (a PNG's sRGB chunk, a JPEG's EXIF color space). Its upload recorded into an open command list.
@@ -803,6 +809,12 @@ export class App {
     // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
     createComparisonSampler(): SamplerHandle {
         return Donut_CreateComparisonSampler(this.handle);
+    }
+
+    // Same, comparing by func (patches/nvrhi-sampler-comparison-func.patch), bilinear between texels and
+    // point between levels: MiniEngine's shadow sampler (GreaterOrEqual for reversed depth).
+    createComparisonSamplerWithFunc(func: ComparisonFunc): SamplerHandle {
+        return Donut_CreateComparisonSamplerWithFunc(this.handle, func);
     }
 
     // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point

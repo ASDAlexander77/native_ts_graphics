@@ -6,7 +6,7 @@ import { TestCheck, unsupported } from "../core/test_check";
 import {
     XM_2PI, XM_PI, XM_PIDIV2, cross3, dot3, fromRows, matrixInverse, matrixMultiply, matrixRotationQuaternion,
     matrixRotationX, matrixRotationY, matrixTranspose, normalize3, quaternionConjugate, quaternionRotationMatrix,
-    reciprocalSqrt, row, transformNormal3, vector3Rotate, vmul,
+    floor4, reciprocal, reciprocalSqrt, row, transformNormal3, vdiv, vector3Rotate, vmul,
 } from "../core/directx_math";
 
 namespace RaytracingMiniEngine {
@@ -26,6 +26,13 @@ namespace RaytracingMiniEngine {
     // sizeof(RayTraceMeshInfo), HitShaderConstants (b0) and DynamicCB (b1), in bytes (constant buffers
     // 256-byte multiples).
     const MESH_INFO_SIZE = 32;
+    // Sponza::RenderObjects' VSConstants (b0: modelToProjection, modelToShadow, viewerPos) and
+    // RenderScene's PSConstants (b2 here), constant buffers; the material index (a push constant).
+    const VS_CONSTANTS_SIZE = 256;
+    const PS_CONSTANTS_SIZE = 256;
+    const MATERIAL_CONSTANT_SIZE = 4;
+    // g_ShadowBuffer: 2048 x 2048 D16, its scissor a texel in from the edges.
+    const SHADOW_MAP_SIZE = 2048;
     const HIT_CONSTANTS_SIZE = 256;
     const DYNAMIC_CONSTANTS_SIZE = 256;
     // sizeof(RayPayload) (bool SkipShading, float RayHitT), the attributes, MaxRayRecursion.
@@ -189,6 +196,48 @@ namespace RaytracingMiniEngine {
         return values;
     }
 
+    function splat4(v: number): number[] {
+        return [v, v, v, v];
+    }
+
+    function negate4(v: number[]): number[] {
+        return [-v[0], -v[1], -v[2], -v[3]];
+    }
+
+    // BaseCamera::SetLookDirection: the camera-to-world rotation (a quaternion) of the basis made
+    // orthonormal from forward and up - right, up, back.
+    function lookRotation(forwardIn: number[], upIn: number[]): number[] {
+        const forwardLengthSq = dot3(forwardIn, forwardIn);
+        const forward = forwardLengthSq < Math.fround(0.000001) ? [0.0, 0.0, -1.0, -1.0]
+            : vmul(forwardIn, reciprocalSqrt(splat4(forwardLengthSq)));
+        // (A right of zero length, forward along up, can't happen with the sample's cameras.)
+        let right = cross3(forward, upIn);
+        const rightLengthSq = dot3(right, right);
+        right = vmul(right, reciprocalSqrt(splat4(rightLengthSq)));
+        const up = cross3(right, forward);
+        return quaternionRotationMatrix(fromRows(right, up, negate4(forward), [0.0, 0.0, 0.0, 0.0]));
+    }
+
+    // BaseCamera::Update's view matrix, Matrix4(~m_CameraToWorld): the conjugate rotation, and the
+    // negated position rotated by it.
+    function viewMatrix(rotation: number[], position: number[]): number[] {
+        const inverse = quaternionConjugate(rotation);
+        const translation = vector3Rotate(negate4(position), inverse);
+        const r = matrixRotationQuaternion(inverse);
+        return [
+            r[0], r[1], r[2], 0.0,
+            r[4], r[5], r[6], 0.0,
+            r[8], r[9], r[10], 0.0,
+            translation[0], translation[1], translation[2], 1.0,
+        ];
+    }
+
+    // Matrix3 * Matrix3: the right one's rows transformed (as normals) by the left one.
+    function matrix3Multiply(a: number[], b: number[]): number[] {
+        return fromRows(transformNormal3(row(b, 0), a), transformNormal3(row(b, 1), a), transformNormal3(row(b, 2), a),
+            [0.0, 0.0, 0.0, 1.0]);
+    }
+
     // Math::Camera with FlyingFPSCamera's orientation, as MiniEngine computes them (DirectXMath's SSE2
     // math, float after every operation): SetHeadingPitchAndPosition (the orientation from the world's
     // east, up and south by a heading about y then a pitch about x), BaseCamera::SetTransform's
@@ -198,6 +247,7 @@ namespace RaytracingMiniEngine {
     class MiniEngineCamera {
         heading: number = 0.0;
         pitch: number = 0.0;
+        // A Vector3's w is its z.
         position: number[] = [0.0, 0.0, 0.0, 0.0];
         view: number[] = [];
         proj: number[] = [];
@@ -227,48 +277,47 @@ namespace RaytracingMiniEngine {
             this.heading = h;
             this.pitch = p;
             this.position = [Math.fround(position[0]), Math.fround(position[1]), Math.fround(position[2]), Math.fround(position[2])];
-            this.update();
-        }
 
-        private update() {
-            // Matrix3(east, up, south) * MakeYRotation(heading) * MakeXRotation(pitch); Matrix3 * Matrix3
-            // transforms the right one's rows by the left one.
-            const world = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-            const yawed = this.matrix3Multiply(world, matrixRotationY(this.heading));
-            const orientation = this.matrix3Multiply(yawed, matrixRotationX(this.pitch));
-
+            // Matrix3(east, up, south) * MakeYRotation(heading) * MakeXRotation(pitch), then
             // SetLookDirection(-z, y).
-            const z = row(orientation, 2);
-            let forward = [-z[0], -z[1], -z[2], -z[3]];
-            const forwardLengthSq = dot3(forward, forward);
-            forward = vmul(forward, reciprocalSqrt([forwardLengthSq, forwardLengthSq, forwardLengthSq, forwardLengthSq]));
-            let right = cross3(forward, row(orientation, 1));
-            const rightLengthSq = dot3(right, right);
-            right = vmul(right, reciprocalSqrt([rightLengthSq, rightLengthSq, rightLengthSq, rightLengthSq]));
-            const up = cross3(right, forward);
-            const back = [-forward[0], -forward[1], -forward[2], -forward[3]];
-            const rotation = quaternionRotationMatrix(fromRows(right, up, back, [0.0, 0.0, 0.0, 0.0]));
-
-            // Matrix4(~cameraToWorld): the conjugate rotation, and the negated position rotated by it.
-            const inverse = quaternionConjugate(rotation);
-            const p = this.position;
-            const translation = vector3Rotate([-p[0], -p[1], -p[2], -p[3]], inverse);
-            const r = matrixRotationQuaternion(inverse);
-            this.view = [
-                r[0], r[1], r[2], 0.0,
-                r[4], r[5], r[6], 0.0,
-                r[8], r[9], r[10], 0.0,
-                translation[0], translation[1], translation[2], 1.0,
-            ];
+            const world = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+            const orientation = matrix3Multiply(matrix3Multiply(world, matrixRotationY(h)), matrixRotationX(p));
+            const rotation = lookRotation(negate4(row(orientation, 2)), row(orientation, 1));
+            this.view = viewMatrix(rotation, this.position);
             // m_ProjMatrix * m_ViewMatrix is XMMatrixMultiply(view, proj).
             this.viewProj = matrixMultiply(this.view, this.proj);
             this.cameraToWorld = matrixTranspose(matrixInverse(this.viewProj));
         }
+    }
 
-        // Matrix3 * Matrix3: the right one's rows transformed (as normals) by the left one.
-        private matrix3Multiply(a: number[], b: number[]): number[] {
-            return fromRows(transformNormal3(row(b, 0), a), transformNormal3(row(b, 1), a), transformNormal3(row(b, 2), a),
-                [0.0, 0.0, 0.0, 1.0]);
+    // ShadowCamera::UpdateMatrix: looking along the light (up z), its center moved to whole texels of
+    // the shadow map (and of its depth precision), an orthographic projection of the bounds; the
+    // shadow matrix (to texture space) after. Zero until first updated (a static's members).
+    class ShadowCamera {
+        viewProj: number[] = [];
+        shadowMatrix: number[] = [];
+
+        constructor() {
+            for (let i = 0; i < 16; i++) {
+                this.viewProj.push(0.0);
+                this.shadowMatrix.push(0.0);
+            }
+        }
+
+        updateMatrix(lightDirection: number[], center: number[], bounds: number[], width: int, height: int, precision: int) {
+            const rotation = lookRotation(lightDirection, [0.0, 0.0, 1.0, 1.0]);
+            const rcpDimensions = reciprocal(bounds);
+            const quantizeScale = vmul([width, height, (1 << precision) - 1, (1 << precision) - 1], rcpDimensions);
+            let shadowCenter = vector3Rotate(center, quaternionConjugate(rotation));
+            shadowCenter = vdiv(floor4(vmul(shadowCenter, quantizeScale)), quantizeScale);
+            shadowCenter = vector3Rotate(shadowCenter, rotation);
+            const view = viewMatrix(rotation, shadowCenter);
+            const scale = vmul([2.0, 2.0, 1.0, 1.0], rcpDimensions);
+            const proj = [scale[0], 0.0, 0.0, 0.0, 0.0, scale[1], 0.0, 0.0, 0.0, 0.0, scale[2], 0.0, 0.0, 0.0, 0.0, 1.0];
+            this.viewProj = matrixMultiply(view, proj);
+            // Matrix4(AffineTransform(MakeScale(0.5, -0.5, 1), (0.5, 0.5, 0))) * viewProj.
+            const toTexture = [0.5, 0.0, 0.0, 0.0, 0.0, -0.5, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.5, 0.0, 1.0];
+            this.shadowMatrix = matrixMultiply(this.viewProj, toTexture);
         }
     }
 
@@ -285,8 +334,8 @@ namespace RaytracingMiniEngine {
         mode: int = MODE_DIFFUSE_SHADOW_MAPS;
         // -camera: a camera position from the start (-1: the sample's default view).
         camera: int = -1;
-        // SSAO::Enable.
-        ssao: boolean = true;
+        // SSAO::Enable (the sample's is on; off clears its buffer to 1 - the port has no SSAO yet).
+        ssao: boolean = false;
         // F: the camera frozen.
         frozen: boolean = false;
         // -dumpScene <dir>: the scene color buffer (R11G11B10_FLOAT) written raw after the test.
@@ -347,11 +396,39 @@ namespace RaytracingMiniEngine {
         private defaultSampler: SamplerHandle | null = null;
         private shadowSampler: SamplerHandle | null = null;
 
+        // Sponza's rasterization (SponzaRenderer.cpp): the depth prepass, the sun's shadow map and the
+        // color pass, each opaque materials then (two-sided, alpha-tested) cutouts.
+        private materialIsCutout: boolean[] = [];
+        private inputLayout: InputLayoutHandle | null = null;
+        private depthVS: ShaderHandle | null = null;
+        private depthPS: ShaderHandle | null = null;
+        private modelVS: ShaderHandle | null = null;
+        private modelPS: ShaderHandle | null = null;
+        private rasterLayout: BindingLayoutHandle | null = null;
+        private cameraVSConstants: BufferHandle | null = null;
+        private shadowVSConstants: BufferHandle | null = null;
+        private psConstantBuffer: BufferHandle | null = null;
+        private vsConstants: f32[] = zeros(VS_CONSTANTS_SIZE / 4);
+        private psConstants: f32[] = zeros(PS_CONSTANTS_SIZE / 4);
+        private materialConstant: int[] = [0];
+        private sunShadow: ShadowCamera = new ShadowCamera();
+        private depthOpaquePipeline: GraphicsPipelineHandle | null = null;
+        private depthCutoutPipeline: GraphicsPipelineHandle | null = null;
+        private shadowOpaquePipeline: GraphicsPipelineHandle | null = null;
+        private shadowCutoutPipeline: GraphicsPipelineHandle | null = null;
+        private colorOpaquePipeline: GraphicsPipelineHandle | null = null;
+        private colorCutoutPipeline: GraphicsPipelineHandle | null = null;
+        private depthFramebuffer: FramebufferHandle | null = null;
+        private shadowFramebuffer: FramebufferHandle | null = null;
+        private colorFramebuffer: FramebufferHandle | null = null;
+        private cameraRasterSet: BindingSet = new BindingSet(null);
+        private shadowRasterSet: BindingSet = new BindingSet(null);
+
         // g_SceneColorBuffer (R11G11B10_FLOAT), and the raster passes' buffers the ray tracing reads:
         // depth, normals, the sun's shadow map, SSAO.
         sceneColor: TextureHandle | null = null;
         private sceneDepth: TextureHandle | null = null;
-        private sceneNormals: TextureHandle | null = null;
+        sceneNormals: TextureHandle | null = null;
         private shadowMap: TextureHandle | null = null;
         private ssao: TextureHandle | null = null;
         private rayTracingSet: BindingSet = new BindingSet(null);
@@ -388,7 +465,10 @@ namespace RaytracingMiniEngine {
             // InitializeRaytracingStateObjects' static samplers: anisotropic (8) and wrapping; the shadow
             // map's comparison sampler.
             this.defaultSampler = this.app.createSamplerWithDesc(1, 1, 1, SamplerAddressMode.Wrap, 0.0, 0.0, 3.402823466e+38, 8.0);
-            this.shadowSampler = this.app.createComparisonSampler();
+            this.shadowSampler = this.app.createComparisonSamplerWithFunc(ComparisonFunc.GreaterOrEqual);
+            if (!this.createRasterization()) {
+                return false;
+            }
 
             const settings = this.settings;
             if (settings.camera >= 0) {
@@ -405,15 +485,17 @@ namespace RaytracingMiniEngine {
             return true;
         }
 
-        // ModelH3D's geometry buffer, split: the vertices (an attribute view of all of them, the BLASes'
-        // positions) and the 16-bit indices (their raw view; a whole number of uints).
+        // ModelH3D's geometry buffer, split: the vertices (the vertex buffer, an attribute view of all of
+        // them, the BLASes' positions) and the 16-bit indices (the index buffer and their raw view).
         private createGeometry(commandList: CommandList): boolean {
             const model = this.model;
-            const vertexBuffer = this.app.createAccelStructInputRawBuffer(model.vertexDataByteSize, "Sponza vertices");
-            const indexBuffer = this.app.createAccelStructInputRawBuffer((model.indexDataByteSize + 3) & ~3, "Sponza indices");
-            model.file.writeBufferFromBinaryFile(commandList, vertexBuffer, 0, model.dataOffset, model.vertexDataByteSize);
-            model.file.writeBufferFromBinaryFile(commandList, indexBuffer, 0, model.dataOffset + model.vertexDataByteSize,
-                model.indexDataByteSize);
+            const vertexBuffer = this.app.createStaticGeometryBufferFromBinaryFile(commandList, model.file, model.dataOffset,
+                model.vertexDataByteSize, false, "Sponza vertices");
+            const indexBuffer = this.app.createStaticGeometryBufferFromBinaryFile(commandList, model.file,
+                model.dataOffset + model.vertexDataByteSize, model.indexDataByteSize, true, "Sponza indices");
+            if (!vertexBuffer || !indexBuffer) {
+                return false;
+            }
             this.vertexBuffer = vertexBuffer;
             this.indexBuffer = indexBuffer;
 
@@ -436,12 +518,14 @@ namespace RaytracingMiniEngine {
             return true;
         }
 
-        // ModelH3D::LoadTextures: per material its diffuse texture (sRGB; white if missing) and normal
-        // map (its own, else <diffuse>_normal.dds, else the flat default), in the bindless table.
+        // ModelH3D::LoadTextures: per material its diffuse texture (sRGB; white if missing), specular
+        // (sRGB: its own, else <diffuse>_specular.dds, else black) and normal map (its own, else
+        // <diffuse>_normal.dds, else the flat default), in the bindless table at 3 m, 3 m + 1, 3 m + 2.
+        // SponzaRenderer's cutouts: the materials of thorns, plants and chains.
         private createTextures(commandList: CommandList): boolean {
             const app = this.app;
             const materials = this.model.materials;
-            const table = app.createDescriptorTable(this.bindlessLayout as BindingLayoutHandle, materials.length * 2);
+            const table = app.createDescriptorTable(this.bindlessLayout as BindingLayoutHandle, materials.length * 3);
             if (!table) {
                 return false;
             }
@@ -449,12 +533,21 @@ namespace RaytracingMiniEngine {
             // MiniEngine's default textures (1 x 1, RGBA8_UNORM): white opaque, the flat normal 0x00FF8080.
             const white = this.createTexel(commandList, 0xFFFFFFFF, "White opaque");
             const flatNormal = this.createTexel(commandList, 0x00FF8080, "Default normal map");
+            const black = this.createTexel(commandList, 0xFF000000, "Black opaque");
             for (let m = 0; m < materials.length; m++) {
                 const material = materials[m];
                 const diffuseBase = MEDIA + removeExtension(material.diffusePath);
                 let diffuse = material.diffusePath != "" ? app.loadTexture(commandList, diffuseBase + ".dds", 1) : null;
                 if (!diffuse) {
                     diffuse = white;
+                }
+                let specular = material.specularPath != ""
+                    ? app.loadTexture(commandList, MEDIA + removeExtension(material.specularPath) + ".dds", 1) : null;
+                if (!specular && material.diffusePath != "") {
+                    specular = app.loadTexture(commandList, diffuseBase + "_specular.dds", 1);
+                }
+                if (!specular) {
+                    specular = black;
                 }
                 let normal = material.normalPath != ""
                     ? app.loadTexture(commandList, MEDIA + removeExtension(material.normalPath) + ".dds", 0) : null;
@@ -464,8 +557,11 @@ namespace RaytracingMiniEngine {
                 if (!normal) {
                     normal = flatNormal;
                 }
-                app.writeDescriptorTableTexture(table, m * 2, diffuse as TextureHandle);
-                app.writeDescriptorTableTexture(table, m * 2 + 1, normal as TextureHandle);
+                app.writeDescriptorTableTexture(table, m * 3, diffuse as TextureHandle);
+                app.writeDescriptorTableTexture(table, m * 3 + 1, specular as TextureHandle);
+                app.writeDescriptorTableTexture(table, m * 3 + 2, normal as TextureHandle);
+                const path = material.diffusePath;
+                this.materialIsCutout.push(path.indexOf("thorn") >= 0 || path.indexOf("plant") >= 0 || path.indexOf("chain") >= 0);
             }
             return true;
         }
@@ -507,6 +603,68 @@ namespace RaytracingMiniEngine {
             }
             this.topLevelAS = topLevelAS;
             return true;
+        }
+
+        // Sponza::Startup's pipeline state: MiniEngine's model vertex (position, texcoord, normal,
+        // tangent, bitangent), its renderer root signature as a binding layout (the vertex shader's
+        // constants b0, the pixel shader's b2, the material's index b1, SSAO t12, the shadow map t13,
+        // the default and shadow samplers s10 and s11) with the materials' bindless table.
+        private createRasterization(): boolean {
+            const app = this.app;
+            this.depthVS = app.createShader("raytracing_mini_engine/DepthViewerVS.hlsl", "main", ShaderType.Vertex);
+            this.depthPS = app.createShader("raytracing_mini_engine/DepthViewerPS.hlsl", "main", ShaderType.Pixel);
+            this.modelVS = app.createShader("raytracing_mini_engine/ModelViewerVS.hlsl", "main", ShaderType.Vertex);
+            this.modelPS = app.createShader("raytracing_mini_engine/ModelViewerPS.hlsl", "main", ShaderType.Pixel);
+            if (!this.depthVS || !this.depthPS || !this.modelVS || !this.modelPS) {
+                return false;
+            }
+            const stride = this.model.meshes[0].vertexStride;
+            const offsets = this.model.meshes[0].attribOffsets;
+            const inputLayoutDesc = InputLayoutDesc.create();
+            inputLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, offsets[0], 0, stride);
+            inputLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, offsets[1], 0, stride);
+            inputLayoutDesc.addVertexAttribute("NORMAL", Format.RGB32_FLOAT, offsets[2], 0, stride);
+            inputLayoutDesc.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, offsets[3], 0, stride);
+            inputLayoutDesc.addVertexAttribute("BITANGENT", Format.RGB32_FLOAT, offsets[4], 0, stride);
+            this.inputLayout = app.createInputLayout(inputLayoutDesc, this.modelVS as ShaderHandle);
+
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutConstantBuffer(2);
+            layoutDesc.layoutPushConstants(1, MATERIAL_CONSTANT_SIZE);
+            layoutDesc.layoutTextureSRV(12);
+            layoutDesc.layoutTextureSRV(13);
+            layoutDesc.layoutSampler(10);
+            layoutDesc.layoutSampler(11);
+            this.rasterLayout = app.createBindingLayout(layoutDesc, ShaderType.All);
+            this.cameraVSConstants = app.createConstantBuffer(VS_CONSTANTS_SIZE, "Camera VSConstants");
+            this.shadowVSConstants = app.createConstantBuffer(VS_CONSTANTS_SIZE, "Shadow VSConstants");
+            this.psConstantBuffer = app.createConstantBuffer(PS_CONSTANTS_SIZE, "PSConstants");
+            return true;
+        }
+
+        // A pipeline of the depth passes (DepthViewerVS, DepthViewerPS for cutouts) or the color pass
+        // (ModelViewerVS and PS): MiniEngine's rasterizer states (counterclockwise fronts, culled
+        // backs unless two-sided, its shadows' depth bias) and reversed depth (greater or equal,
+        // written; the color pass equal, not written).
+        private createRasterPipeline(framebuffer: FramebufferHandle, color: boolean, cutout: boolean, shadow: boolean): GraphicsPipelineHandle {
+            const vs = color ? this.modelVS : this.depthVS;
+            const ps = color ? this.modelPS : cutout ? this.depthPS : null;
+            const desc = GraphicsPipelineDesc.create(vs as ShaderHandle, ps);
+            desc.addBindingLayout(this.rasterLayout as BindingLayoutHandle);
+            desc.addBindingLayout(this.bindlessLayout as BindingLayoutHandle);
+            desc.setInputLayout(this.inputLayout as InputLayoutHandle);
+            desc.setRasterState(cutout ? CullMode.None : CullMode.Back, FillMode.Solid, 1);
+            desc.setScissorEnable(true);
+            if (shadow) {
+                desc.setDepthBias(-100, 0.0, -1.5);
+            }
+            if (color) {
+                desc.setDepthState(1, 0, ComparisonFunc.Equal);
+            } else {
+                desc.setDepthState(1, 1, ComparisonFunc.GreaterOrEqual);
+            }
+            return this.app.createGraphicsPipelineFromDesc(desc, framebuffer);
         }
 
         // InitializeRaytracingStateObjects: the global root signature (scene buffers t1-t5, constants
@@ -585,11 +743,12 @@ namespace RaytracingMiniEngine {
         private cameraPosition: int = 0;
 
         // -dumpScene: the camera's matrices as the reference dump has them (view, proj, viewProj,
-        // cameraToWorld, position).
+        // cameraToWorld, position), the sun's shadow matrix and view-projection matrix, the sun.
         cameraMatrices(): f32[] {
             const c = this.camera;
             const values: f32[] = [];
-            for (const m of [c.view, c.proj, c.viewProj, c.cameraToWorld, c.position]) {
+            for (const m of [c.view, c.proj, c.viewProj, c.cameraToWorld, c.position, this.sunShadow.shadowMatrix,
+                this.sunShadow.viewProj, this.sunDirection()]) {
                 for (const v of m) {
                     values.push(v);
                 }
@@ -626,11 +785,31 @@ namespace RaytracingMiniEngine {
         }
 
         onBackBufferResizing() {
-            const set = this.rayTracingSet;
-            if (!set.isNull()) {
-                this.app.releaseResource(set.handle);
-                this.rayTracingSet = new BindingSet(null);
+            for (const set of [this.rayTracingSet, this.cameraRasterSet, this.shadowRasterSet]) {
+                if (!set.isNull()) {
+                    this.app.releaseResource(set.handle);
+                }
             }
+            this.rayTracingSet = new BindingSet(null);
+            this.cameraRasterSet = new BindingSet(null);
+            this.shadowRasterSet = new BindingSet(null);
+            for (const pipeline of [this.depthOpaquePipeline, this.depthCutoutPipeline, this.colorOpaquePipeline,
+                this.colorCutoutPipeline]) {
+                if (pipeline) {
+                    this.app.releaseResource(pipeline);
+                }
+            }
+            this.depthOpaquePipeline = null;
+            this.depthCutoutPipeline = null;
+            this.colorOpaquePipeline = null;
+            this.colorCutoutPipeline = null;
+            for (const framebuffer of [this.depthFramebuffer, this.colorFramebuffer]) {
+                if (framebuffer) {
+                    this.app.releaseResource(framebuffer);
+                }
+            }
+            this.depthFramebuffer = null;
+            this.colorFramebuffer = null;
             for (const texture of [this.sceneColor, this.sceneDepth, this.sceneNormals, this.ssao]) {
                 if (texture) {
                     this.app.releaseResource(texture);
@@ -648,7 +827,7 @@ namespace RaytracingMiniEngine {
 
         // The buffers at the back buffers' size (MiniEngine's native resolution): the scene color
         // (R11G11B10_FLOAT, what the ray tracing writes), depth (D32, reversed), normals, SSAO; the
-        // 2048 x 2048 sun shadow map (D16).
+        // 2048 x 2048 sun shadow map (D16). Their framebuffers, the raster pipelines, the binding sets.
         private createTargets(width: int, height: int) {
             const app = this.app;
             this.sceneColor = app.createRenderTargetUAVTexture(width, height, Format.R11G11B10_FLOAT, "Main Color Buffer");
@@ -656,8 +835,24 @@ namespace RaytracingMiniEngine {
             this.sceneNormals = app.createRenderTargetTexture(width, height, Format.RGBA16_FLOAT, "Normals Buffer");
             this.ssao = app.createRenderTargetTexture(width, height, Format.R8_UNORM, "SSAO Full Res");
             if (!this.shadowMap) {
-                this.shadowMap = app.createDepthTexture(2048, 2048, Format.D16, 0.0, "Shadow Map");
+                const shadowMap = app.createDepthTexture(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, Format.D16, 0.0, "Shadow Map");
+                this.shadowMap = shadowMap;
+                this.shadowFramebuffer = app.createDepthFramebuffer(shadowMap);
+                this.shadowOpaquePipeline = this.createRasterPipeline(this.shadowFramebuffer as FramebufferHandle, false, false, true);
+                this.shadowCutoutPipeline = this.createRasterPipeline(this.shadowFramebuffer as FramebufferHandle, false, true, true);
             }
+            const depthFramebuffer = app.createDepthFramebuffer(this.sceneDepth as TextureHandle);
+            const colorFramebuffer = app.createFramebufferWithTwoTargets(this.sceneColor as TextureHandle,
+                this.sceneNormals as TextureHandle, this.sceneDepth);
+            this.depthFramebuffer = depthFramebuffer;
+            this.colorFramebuffer = colorFramebuffer;
+            this.depthOpaquePipeline = this.createRasterPipeline(depthFramebuffer, false, false, false);
+            this.depthCutoutPipeline = this.createRasterPipeline(depthFramebuffer, false, true, false);
+            this.colorOpaquePipeline = this.createRasterPipeline(colorFramebuffer, true, false, false);
+            this.colorCutoutPipeline = this.createRasterPipeline(colorFramebuffer, true, true, false);
+            this.cameraRasterSet = this.createRasterSet(this.cameraVSConstants as BufferHandle);
+            this.shadowRasterSet = this.createRasterSet(this.shadowVSConstants as BufferHandle);
+
             const desc = BindingSetDesc.create();
             desc.bindAccelStruct(0, this.topLevelAS.getTopLevelAS());
             desc.bindStructuredBufferSRV(1, this.meshInfoBuffer as BufferHandle);
@@ -675,36 +870,71 @@ namespace RaytracingMiniEngine {
             this.rayTracingSet = app.createBindingSetForLayout(desc, this.rayTracingLayout as BindingLayoutHandle);
         }
 
-        // Sponza::RenderScene's sun: from its orientation (-0.5) and inclination (0.75), normalized.
-        private sunDirection(): number[] {
-            const costheta = Donut_Cosf(-0.5);
-            const sintheta = Donut_Sinf(-0.5);
-            const angle = Math.fround(Math.fround(Math.fround(0.75) * Math.fround(3.14159)) * 0.5);
-            const cosphi = Donut_Cosf(angle);
-            const sinphi = Donut_Sinf(angle);
-            return normalize3([Math.fround(costheta * cosphi), sinphi, Math.fround(sintheta * cosphi), 0.0]);
+        private createRasterSet(vsConstants: BufferHandle): BindingSet {
+            const desc = BindingSetDesc.create();
+            desc.bindConstantBuffer(0, vsConstants, 0, VS_CONSTANTS_SIZE);
+            desc.bindConstantBuffer(2, this.psConstantBuffer as BufferHandle, 0, PS_CONSTANTS_SIZE);
+            desc.bindPushConstants(1, MATERIAL_CONSTANT_SIZE);
+            desc.bindTextureSRV(12, this.ssao as TextureHandle);
+            desc.bindTextureSRV(13, this.shadowMap as TextureHandle);
+            desc.bindSampler(10, this.defaultSampler as SamplerHandle);
+            desc.bindSampler(11, this.shadowSampler as SamplerHandle);
+            return this.app.createBindingSetForLayout(desc, this.rasterLayout as BindingLayoutHandle);
         }
 
-        // HitShaderConstants: the sun, its light (4) and the ambient light (0.1), each through ExpVar's
-        // exp2f(log2f(value)), the shadow map's texel size; whether the hit shader adds to a reflected
-        // surface, and whether it traces shadow rays.
-        private writeHitConstants(commandList: CommandList, isReflection: boolean, useShadowRays: boolean) {
+        // Sponza::RenderScene's sun: from its orientation (-0.5) and inclination (0.75), normalized - the
+        // sines and cosines as MiniEngine's /fp:fast build computes them (Donut_FastSinCosf).
+        private sunDirection(): number[] {
+            const theta: f32[] = [0.0, 0.0];
+            Donut_FastSinCosf(-0.5, Ref(theta[0]));
+            const phi: f32[] = [0.0, 0.0];
+            Donut_FastSinCosf(Math.fround(Math.fround(Math.fround(0.75) * Math.fround(3.14159)) * 0.5), Ref(phi[0]));
+            const costheta = theta[1];
+            const sintheta = theta[0];
+            const cosphi = phi[1];
+            const sinphi = phi[0];
+            const x = Math.fround(costheta * cosphi);
+            const z = Math.fround(sintheta * cosphi);
+            // Vector3(x, y, z)'s w is z.
+            return normalize3([x, sinphi, z, z]);
+        }
+
+        // The sun's light (4) and the ambient light (0.1), each through ExpVar's exp2f(log2f(value)).
+        private sunLight(): number {
+            return Math.fround(Donut_Exp2f(Donut_Log2f(4.0)));
+        }
+
+        private ambientLight(): number {
+            return Math.fround(Donut_Exp2f(Donut_Log2f(Math.fround(0.1))));
+        }
+
+        // HitShaderConstants: zeros for the barycentric modes; else the sun, its light, the ambient
+        // light, the shadow map's texel size and its matrix (transposed but by RaytraceShadows), whether
+        // the hit shader adds to a reflected surface, and whether it traces shadow rays.
+        private writeHitConstants(commandList: CommandList, lit: boolean, transposeShadow: boolean, isReflection: boolean,
+            useShadowRays: boolean) {
             const c = this.hitConstants;
             for (let i = 0; i < c.length; i++) {
                 c[i] = 0.0;
             }
-            const sun = this.sunDirection();
-            const sunLight = Math.fround(Donut_Exp2f(Donut_Log2f(4.0)));
-            const ambient = Math.fround(Donut_Exp2f(Donut_Log2f(Math.fround(0.1))));
-            for (let i = 0; i < 3; i++) {
-                c[i] = sun[i];
-                c[4 + i] = sunLight;
-                c[8 + i] = ambient;
+            if (lit) {
+                const sun = this.sunDirection();
+                const sunLight = this.sunLight();
+                const ambient = this.ambientLight();
+                for (let i = 0; i < 4; i++) {
+                    c[i] = sun[i];
+                    c[4 + i] = sunLight;
+                    c[8 + i] = ambient;
+                }
+                c[12] = Math.fround(1.0 / SHADOW_MAP_SIZE);
+                const shadow = transposeShadow ? matrixTranspose(this.sunShadow.shadowMatrix) : this.sunShadow.shadowMatrix;
+                for (let i = 0; i < 16; i++) {
+                    c[16 + i] = shadow[i];
+                }
             }
-            c[12] = Math.fround(1.0 / 2048.0);
-            const bits: int[] = [isReflection ? 1 : 0, useShadowRays ? 1 : 0];
             commandList.writeBuffer(this.hitConstantBuffer as BufferHandle, Ref(c[0]), HIT_CONSTANTS_SIZE);
             // IsReflection and UseShadowRays (uints at 128).
+            const bits: int[] = [isReflection ? 1 : 0, useShadowRays ? 1 : 0];
             commandList.writeBufferAt(this.hitConstantBuffer as BufferHandle, 128, Ref(bits[0]), 8);
         }
 
@@ -724,6 +954,67 @@ namespace RaytracingMiniEngine {
             commandList.writeBuffer(this.dynamicConstantBuffer as BufferHandle, Ref(c[0]), DYNAMIC_CONSTANTS_SIZE);
         }
 
+        // RenderObjects' VSConstants: modelToProjection, modelToShadow (the sun's shadow matrix), the
+        // viewer's position.
+        private writeVSConstants(commandList: CommandList, buffer: BufferHandle, modelToProjection: number[]) {
+            const c = this.vsConstants;
+            const shadow = this.sunShadow.shadowMatrix;
+            for (let i = 0; i < 16; i++) {
+                c[i] = modelToProjection[i];
+                c[16 + i] = shadow[i];
+            }
+            const position = this.camera.position;
+            for (let i = 0; i < 3; i++) {
+                c[32 + i] = position[i];
+            }
+            commandList.writeBuffer(buffer, Ref(c[0]), VS_CONSTANTS_SIZE);
+        }
+
+        // RenderScene's PSConstants: the sun, its light, the ambient light, the shadow map's texel size
+        // (the light grid's members unused here).
+        private writePSConstants(commandList: CommandList) {
+            const c = this.psConstants;
+            const sun = this.sunDirection();
+            const sunLight = this.sunLight();
+            const ambient = this.ambientLight();
+            for (let i = 0; i < 4; i++) {
+                c[i] = sun[i];
+                c[4 + i] = sunLight;
+                c[8 + i] = ambient;
+            }
+            c[12] = Math.fround(1.0 / SHADOW_MAP_SIZE);
+            commandList.writeBuffer(this.psConstantBuffer as BufferHandle, Ref(c[0]), PS_CONSTANTS_SIZE);
+        }
+
+        // Sponza::RenderObjects: each mesh of the filter's materials (cutouts or not), its material's
+        // textures and index, at its indices and base vertex. MiniEngine's viewport has TAA's +0.5
+        // jitter offset even with TAA off (TemporalEffects::GetJitterOffset); the shadow map's
+        // scissor leaves out its edge texels.
+        private renderObjects(frame: Frame, pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, set: BindingSet,
+            cutouts: boolean, shadow: boolean, width: int, height: int) {
+            const model = this.model;
+            for (const mesh of model.meshes) {
+                if (this.materialIsCutout[mesh.materialIndex] != cutouts) {
+                    continue;
+                }
+                frame.beginDrawToFramebuffer(pipeline, framebuffer);
+                frame.drawAddBindingSet(set);
+                frame.drawAddDescriptorTable(this.textureTable as DescriptorTableHandle);
+                frame.drawSetIndexBuffer16(this.indexBuffer as BufferHandle);
+                frame.drawAddVertexBuffer(this.vertexBuffer as BufferHandle, 0, 0);
+                if (shadow) {
+                    frame.drawSetViewport(0.0, 0.0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+                    frame.drawSetScissor(1, 1, SHADOW_MAP_SIZE - 2, SHADOW_MAP_SIZE - 2);
+                } else {
+                    frame.drawSetViewport(0.5, 0.5, width, height);
+                    frame.drawSetScissor(0, 0, width, height);
+                }
+                this.materialConstant[0] = mesh.materialIndex;
+                frame.drawIndexedRangeWithPushConstants(mesh.indexCount, mesh.indexDataByteOffset / 2,
+                    mesh.vertexDataByteOffset / mesh.vertexStride, Ref(this.materialConstant[0]), MATERIAL_CONSTANT_SIZE);
+            }
+        }
+
         onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
@@ -736,26 +1027,71 @@ namespace RaytracingMiniEngine {
                 frame.buildTopLevelAS(this.topLevelAS);
                 this.topLevelASBuilt = true;
             }
-            const settings = this.settings;
-            const mode = settings.mode;
+            const mode = this.settings.mode;
+            const skipDiffusePass = mode == MODE_DIFFUSE_SHADOW_MAPS || mode == MODE_DIFFUSE_SHADOW_RAYS || mode == MODE_BARYCENTRICS;
+            const skipShadowMap = mode == MODE_DIFFUSE_SHADOW_RAYS || mode == MODE_BARYCENTRICS || mode == MODE_REFLECTION_BARYCENTRICS;
+            const depthFramebuffer = this.depthFramebuffer as FramebufferHandle;
+            const colorFramebuffer = this.colorFramebuffer as FramebufferHandle;
+
+            // Sponza::RenderScene: the depth prepass (opaque, then cutouts).
+            this.writeVSConstants(commandList, this.cameraVSConstants as BufferHandle, this.camera.viewProj);
+            this.writePSConstants(commandList);
+            commandList.clearDepth(this.sceneDepth as TextureHandle, 0.0);
+            this.renderObjects(frame, this.depthOpaquePipeline as GraphicsPipelineHandle, depthFramebuffer, this.cameraRasterSet,
+                false, false, width, height);
+            this.renderObjects(frame, this.depthCutoutPipeline as GraphicsPipelineHandle, depthFramebuffer, this.cameraRasterSet,
+                true, false, width, height);
 
             // SSAO::Render with SSAO off clears its buffer to 1.
             commandList.clearTextureFloat(this.ssao as TextureHandle, 1.0, 1.0, 1.0, 1.0);
+
+            if (!skipDiffusePass) {
+                commandList.clearTextureFloat(this.sceneColor as TextureHandle, 0.0, 0.0, 0.0, 0.0);
+            }
+            // The sun's shadow map: its camera along the sun (centered at (0, -500, 0), bounds 5000 x
+            // 3000 x 3000, 16-bit depth).
+            if (!skipShadowMap) {
+                const sun = this.sunDirection();
+                this.sunShadow.updateMatrix(negate4(sun), [0.0, -500.0, 0.0, 0.0], [5000.0, 3000.0, 3000.0, 3000.0],
+                    SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 16);
+                this.writeVSConstants(commandList, this.shadowVSConstants as BufferHandle, this.sunShadow.viewProj);
+                // The camera's VSConstants carry the new shadow matrix too.
+                this.writeVSConstants(commandList, this.cameraVSConstants as BufferHandle, this.camera.viewProj);
+                const shadowFramebuffer = this.shadowFramebuffer as FramebufferHandle;
+                commandList.clearDepth(this.shadowMap as TextureHandle, 0.0);
+                this.renderObjects(frame, this.shadowOpaquePipeline as GraphicsPipelineHandle, shadowFramebuffer, this.shadowRasterSet,
+                    false, true, width, height);
+                this.renderObjects(frame, this.shadowCutoutPipeline as GraphicsPipelineHandle, shadowFramebuffer, this.shadowRasterSet,
+                    true, true, width, height);
+            }
+            // The color pass (and the normals), at the prepass's depths.
+            if (!skipDiffusePass) {
+                this.renderObjects(frame, this.colorOpaquePipeline as GraphicsPipelineHandle, colorFramebuffer, this.cameraRasterSet,
+                    false, false, width, height);
+                this.renderObjects(frame, this.colorCutoutPipeline as GraphicsPipelineHandle, colorFramebuffer, this.cameraRasterSet,
+                    true, false, width, height);
+            }
 
             // Raytrace.
             let pipeline = -1;
             if (mode == MODE_BARYCENTRICS) {
                 pipeline = PIPELINE_PRIMARY_BARYCENTRIC;
+                this.writeHitConstants(commandList, false, false, false, false);
+            } else if (mode == MODE_REFLECTION_BARYCENTRICS) {
+                pipeline = PIPELINE_REFLECTION_BARYCENTRIC;
+                this.writeHitConstants(commandList, false, false, false, false);
+            } else if (mode == MODE_SHADOW_RAYS) {
+                pipeline = PIPELINE_SHADOWS;
+                this.writeHitConstants(commandList, true, false, false, false);
             } else if (mode == MODE_DIFFUSE_SHADOW_MAPS || mode == MODE_DIFFUSE_SHADOW_RAYS) {
                 pipeline = PIPELINE_DIFFUSE;
+                this.writeHitConstants(commandList, true, true, false, mode == MODE_DIFFUSE_SHADOW_RAYS);
+            } else if (mode == MODE_REFLECTIONS) {
+                pipeline = PIPELINE_REFLECTION;
+                this.writeHitConstants(commandList, true, true, true, false);
             }
             if (pipeline >= 0) {
                 this.writeDynamicConstants(commandList, width, height);
-                if (pipeline == PIPELINE_PRIMARY_BARYCENTRIC) {
-                    this.writeHitConstants(commandList, false, false);
-                } else {
-                    this.writeHitConstants(commandList, false, mode == MODE_DIFFUSE_SHADOW_RAYS);
-                }
                 frame.dispatchRaysWithDescriptorTable(this.shaderTables[pipeline], this.rayTracingSet,
                     this.textureTable as DescriptorTableHandle, width, height);
             }
@@ -835,6 +1171,16 @@ namespace RaytracingMiniEngine {
                 console.log(`Cannot write ${settings.dumpScenePath}/color.raw`);
                 result = 1;
             }
+        }
+        const sceneNormals = pass.sceneNormals;
+        if (settings.dumpScenePath != "" && sceneNormals) {
+            // RGBA16_FLOAT: two ints a pixel.
+            const pixels: int[] = [];
+            for (let i = 0; i < app.getWindowWidth() * app.getWindowHeight() * 2; i++) {
+                pixels.push(0);
+            }
+            app.readTextureLevel(sceneNormals, 0, Ref(pixels[0]), pixels.length * 4);
+            Donut_WriteBinaryFile(`${settings.dumpScenePath}/normals.raw`, Ref(pixels[0]), pixels.length * 4);
         }
         if (settings.dumpScenePath != "") {
             const matrices = pass.cameraMatrices();

@@ -5359,6 +5359,30 @@ extern "C"
             bytes.data() + fileOffset, byteSize);
     }
 
+    // Same, as Donut_CreateStaticGeometryBuffer's: also a ByteAddressBuffer for shaders and an
+    // acceleration structure build input (its size rounded up to whole uints, the rest zeros).
+    DONUT_API nvrhi::IBuffer* Donut_CreateStaticGeometryBufferFromBinaryFile(App* app, nvrhi::ICommandList* commandList,
+        BinaryFile* binaryFile, int fileOffset, int byteSize, bool isIndexBuffer, const char* debugName)
+    {
+        const std::vector<uint8_t>& bytes = binaryFile->bytes;
+        if (fileOffset < 0 || byteSize <= 0 || size_t(fileOffset) + size_t(byteSize) > bytes.size())
+        {
+            donut::log::error("Donut_CreateStaticGeometryBufferFromBinaryFile: bytes %d..%d are past the end of the file (%d bytes)",
+                fileOffset, fileOffset + byteSize, int(bytes.size()));
+            return nullptr;
+        }
+        std::vector<uint8_t> data(bytes.begin() + fileOffset, bytes.begin() + fileOffset + byteSize);
+        data.resize((data.size() + 3) & ~size_t(3), 0);
+        auto desc = nvrhi::BufferDesc().setCanHaveRawViews(true).setIsAccelStructBuildInput(true).setDebugName(debugName);
+        if (isIndexBuffer)
+            desc.setIsIndexBuffer(true);
+        else
+            desc.setIsVertexBuffer(true);
+        const nvrhi::ResourceStates state = (isIndexBuffer ? nvrhi::ResourceStates::IndexBuffer : nvrhi::ResourceStates::VertexBuffer)
+            | nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::AccelStructBuildInput;
+        return CreateStaticBuffer(app, commandList, desc, state, data.data(), int(data.size()));
+    }
+
     // A texture level (Donut_CreateTextureWithLevels) from the file's bytes at fileOffset, its rows
     // (of 4 x 4 blocks for block-compressed formats) rowPitch bytes apart, copied during the call
     // into an open command list.
@@ -5841,6 +5865,22 @@ extern "C"
             .setAllFilters(true)
             .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
             .setReductionType(nvrhi::SamplerReductionType::Comparison);
+
+        App* a = app;
+        return a->Own(a->device()->createSampler(desc));
+    }
+
+    // Same, its comparison func (nvrhi::ComparisonFunc's values), bilinear between texels and point
+    // between levels (MiniEngine's shadow sampler: GreaterOrEqual for reversed depth).
+    DONUT_API nvrhi::ISampler* Donut_CreateComparisonSamplerWithFunc(App* app, int func)
+    {
+        auto desc = nvrhi::SamplerDesc()
+            .setMinFilter(true)
+            .setMagFilter(true)
+            .setMipFilter(false)
+            .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
+            .setReductionType(nvrhi::SamplerReductionType::Comparison)
+            .setComparisonFunc(nvrhi::ComparisonFunc(func));
 
         App* a = app;
         return a->Own(a->device()->createSampler(desc));
