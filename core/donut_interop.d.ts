@@ -20,6 +20,10 @@ enum Key {
     Num2 = 50,
     Num3 = 51,
     Num4 = 52,
+    Num5 = 53,
+    Num6 = 54,
+    Num7 = 55,
+    Num8 = 56,
     Num9 = 57,
     Equal = 61,
     A = 65,
@@ -1954,6 +1958,9 @@ enum ShaderType {
 @nodrops declare function Donut_Sinf(x: number): number;
 @nodrops declare function Donut_Cosf(x: number): number;
 @nodrops declare function Donut_Tanf(x: number): number;
+// The C runtime's log2f and exp2f of (float)x (MiniEngine's ExpVar settings go through both).
+@nodrops declare function Donut_Log2f(x: number): number;
+@nodrops declare function Donut_Exp2f(x: number): number;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 @nodrops declare function Donut_RandomUniformFloat(randomEngine: RandomEngineHandle, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).

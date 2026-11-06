@@ -7982,6 +7982,16 @@ extern "C"
         return std::tan(static_cast<float>(x));
     }
 
+    DONUT_API double Donut_Log2f(double x)
+    {
+        return std::log2(static_cast<float>(x));
+    }
+
+    DONUT_API double Donut_Exp2f(double x)
+    {
+        return std::exp2(static_cast<float>(x));
+    }
+
     // Same, seeded with all 32 bits of seedBits (unsigned).
     DONUT_API RandomEngine* Donut_CreateRandomEngineFromBits(App* app, int seedBits)
     {
