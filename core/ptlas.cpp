@@ -36,6 +36,11 @@
 #include <initguid.h>
 // #include "<the preview Agility SDK>/build/native/include/d3d12.h": before anything includes another.
 #include "ptlas_d3d12_preview.h"
+#if defined(DONUT_INTEROP_SHARED)
+// core/donut_interop.cpp: under tslang's JIT (whose tslang.exe exports no D3D12SDKVersion), loads the
+// runtime in bin/<folder> in place of the executable's export.
+bool UseD3D12RuntimeUnderJit(const char* folder, unsigned version);
+#endif
 #endif
 
 #define VK_NO_PROTOTYPES
@@ -229,12 +234,16 @@ extern "C"
 {
     // Enables D3D12's experimental features of the PTLAS preview (D3D12ExperimentalShaderModels,
     // D3D12RaytracingPreview), which has to happen before the D3D12 device is created; the executable
-    // loads the preview runtime (core/d3d12_preview_sdk.cpp). 1 on success; 0 without the preview
+    // loads the preview runtime (core/d3d12_preview_sdk.cpp), or under tslang's JIT this library does
+    // (UseD3D12RuntimeUnderJit). 1 on success; 0 without the preview
     // headers (not Windows, WITH_D3D12_PREVIEW_SDK off) or when D3D12 refuses: the preview runtime
     // doesn't load without Windows' Developer Mode (D3D12_ERROR_INVALID_REDIST, 0x887E0003).
     DONUT_API int Donut_EnableD3D12RaytracingPreview()
     {
 #if defined(DONUT_PTLAS_WITH_D3D12_PREVIEW)
+#if defined(DONUT_INTEROP_SHARED)
+        UseD3D12RuntimeUnderJit("D3D12Preview", D3D12_PREVIEW_SDK_VERSION);
+#endif
         UUID features[] = { D3D12ExperimentalShaderModels, D3D12RaytracingPreview };
         HRESULT hr = D3D12EnableExperimentalFeatures(UINT(sizeof(features) / sizeof(features[0])), features, nullptr, nullptr);
         if (FAILED(hr))

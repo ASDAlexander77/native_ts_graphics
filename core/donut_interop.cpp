@@ -2658,40 +2658,56 @@ namespace
 // everywhere.
 struct SharedTexture;
 
+#if defined(DONUT_INTEROP_SHARED) && DONUT_WITH_DX12
+// The executables that need an Agility SDK runtime (D3D12Core.dll in bin/D3D12, or the preview one
+// in bin/D3D12Preview) export its version and path (core/d3d12_agility_sdk.cpp,
+// core/d3d12_preview_sdk.cpp), which D3D12 looks up in the process's executable. Under tslang's JIT
+// that's tslang.exe, which doesn't, so this library (the JIT's build only) makes a device factory
+// for the runtime in `folder` (next to it) and applies it to D3D12's global state before the first
+// device: devices made afterwards (Donut's) use it. The first call per process decides (ptlas's
+// Donut_EnableD3D12RaytracingPreview asks for the preview before the app asks for bin/D3D12), and
+// nothing happens when the executable opts in itself. True when that runtime is in use.
+bool UseD3D12RuntimeUnderJit(const char* folder, unsigned version)
+{
+    static bool s_Done = false;
+    static bool s_Applied = false;
+    if (s_Done)
+        return s_Applied;
+    s_Done = true;
+    if (GetProcAddress(GetModuleHandleW(nullptr), "D3D12SDKVersion"))
+        return false;
+    const std::filesystem::path sdkPath = GetExecutablePath().parent_path() / folder;
+    if (!std::filesystem::exists(sdkPath / "D3D12Core.dll"))
+        return false;
+    Microsoft::WRL::ComPtr<ID3D12SDKConfiguration1> configuration;
+    Microsoft::WRL::ComPtr<ID3D12DeviceFactory> factory;
+    // The path is the runtime's folder, with a trailing separator.
+    const std::string path = sdkPath.string() + "\\";
+    HRESULT hr = D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&configuration));
+    if (SUCCEEDED(hr))
+        hr = configuration->CreateDeviceFactory(version, path.c_str(), IID_PPV_ARGS(&factory));
+    if (SUCCEEDED(hr))
+        hr = factory->ApplyToGlobalState();
+    if (FAILED(hr))
+    {
+        donut::log::warning("Cannot use the D3D12 Agility SDK runtime %u in %s (0x%08X); the system's runtime is used",
+            version, path.c_str(), unsigned(hr));
+        return false;
+    }
+    donut::log::info("Using the D3D12 Agility SDK runtime %u in %s", version, path.c_str());
+    s_Applied = true;
+    return true;
+}
+#endif
+
 extern "C"
 {
     // --- Application -----------------------------------------------------------------------
 
 #if defined(DONUT_JIT_AGILITY_SDK_VERSION) && DONUT_WITH_DX12
-    // The executables that need the Agility SDK runtime (D3D12Core.dll in bin/D3D12) export its
-    // version and path (core/d3d12_agility_sdk.cpp), which D3D12 looks up in the process's
-    // executable. Under tslang's JIT that's tslang.exe, which doesn't, so this library (the JIT's
-    // build only) makes a device factory for that runtime and applies it to D3D12's global state
-    // before the first device: devices made afterwards (Donut's) use it. Once per process, and only
-    // when the executable doesn't opt in itself.
     static void UseAgilitySdkUnderJit()
     {
-        static bool s_Done = false;
-        if (s_Done)
-            return;
-        s_Done = true;
-        if (GetProcAddress(GetModuleHandleW(nullptr), "D3D12SDKVersion"))
-            return;
-        const std::filesystem::path sdkPath = GetExecutablePath().parent_path() / "D3D12";
-        if (!std::filesystem::exists(sdkPath / "D3D12Core.dll"))
-            return;
-        Microsoft::WRL::ComPtr<ID3D12SDKConfiguration1> configuration;
-        Microsoft::WRL::ComPtr<ID3D12DeviceFactory> factory;
-        // The path is the runtime's folder, with a trailing separator.
-        const std::string path = sdkPath.string() + "\\";
-        if (FAILED(D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&configuration)))
-            || FAILED(configuration->CreateDeviceFactory(DONUT_JIT_AGILITY_SDK_VERSION, path.c_str(), IID_PPV_ARGS(&factory)))
-            || FAILED(factory->ApplyToGlobalState()))
-        {
-            donut::log::warning("Cannot use the D3D12 Agility SDK runtime in %s; the system's runtime is used", path.c_str());
-            return;
-        }
-        donut::log::info("Using the D3D12 Agility SDK runtime %d in %s", DONUT_JIT_AGILITY_SDK_VERSION, path.c_str());
+        UseD3D12RuntimeUnderJit("D3D12", DONUT_JIT_AGILITY_SDK_VERSION);
     }
 #endif
 
