@@ -307,7 +307,7 @@ export namespace nvrhi {
     // nvrhi::SamplerDesc's defaults: linear filtering, clamped, border color white
     export function samplerDesc(): SamplerDesc {
         return [[1, 1, 1, 1], 1, 0, true, true, true, SAMPLER_ADDRESS_CLAMP, SAMPLER_ADDRESS_CLAMP, SAMPLER_ADDRESS_CLAMP,
-            0, 0, 3.402823466e+38];
+            0, 0, 3.402823466e+38, COMPARISON_LESS];
     }
 
     // IDevice::createSampler; null on failure. Release() it.
@@ -593,7 +593,7 @@ export namespace nvrhi {
         bindingLayout: IBindingLayout, maxPayloadSize: u32, allowOpacityMicromaps: boolean): IPipeline | null {
         let desc: PipelineDesc = [stdVector(shaders), stdVector(hitGroups),
             [[[bindingLayout], [null], [null], [null], [null], [null], [null], [null]], 1], maxPayloadSize, 8, 1, -1,
-            allowOpacityMicromaps];
+            allowOpacityMicromaps, false];
         const handle = device.createRayTracingPipeline(Ref(desc));
         return handle.ptr_ ? <IPipeline><Opaque>handle.ptr_ : null;
     }

@@ -44,7 +44,7 @@ export namespace nvrhi {
     export type DepthStencilState = [depthTestEnable: boolean, depthWriteEnable: boolean, depthFunc: u8, stencilEnable: boolean, stencilReadMask: u8, stencilWriteMask: u8, stencilRefValue: u8, dynamicStencilRef: boolean, frontFaceStencil: StencilOpDesc, backFaceStencil: StencilOpDesc, depthBoundsTestEnable: boolean];
     export type StencilOpDesc = [failOp: u8, depthFailOp: u8, passOp: u8, stencilFunc: u8];
     export type ViewportState = [viewports: static_vector16<Viewport>, scissorRects: static_vector16<Rect>];
-    export type SamplerDesc = [borderColor: Color, maxAnisotropy: f32, mipBias: f32, minFilter: boolean, magFilter: boolean, mipFilter: boolean, addressU: u8, addressV: u8, addressW: u8, reductionType: u8, minLod: f32, maxLod: f32];
+    export type SamplerDesc = [borderColor: Color, maxAnisotropy: f32, mipBias: f32, minFilter: boolean, magFilter: boolean, mipFilter: boolean, addressU: u8, addressV: u8, addressW: u8, reductionType: u8, minLod: f32, maxLod: f32, comparisonFunc: u8];
     export type FramebufferAttachment = [texture: ITexture | null, subresources: TextureSubresourceSet, format: u8, isReadOnly: boolean];
     export type FramebufferDesc = [colorAttachments: static_vector8<FramebufferAttachment>, depthAttachment: FramebufferAttachment, shadingRateAttachment: FramebufferAttachment, colorResolveAttachments: static_vector8<FramebufferAttachment>, depthResolveAttachment: FramebufferAttachment, depthResolveMode: u8];
     export type FramebufferInfo = [colorFormats: static_vector8<u8>, depthFormat: u8, sampleCount: u32, sampleQuality: u32];
@@ -81,7 +81,7 @@ export namespace nvrhi {
     export type MeshletState = [pipeline: IMeshletPipeline | null, framebuffer: IFramebuffer | null, viewport: ViewportState, blendConstantColor: Color, dynamicStencilRefValue: u8, bindings: static_vector8<IBindingSet | null>, indirectParams: IBuffer | null, indirectCountBuffer: IBuffer | null];
     export type PipelineShaderDesc = [exportName: basic_string_char, shader: RefCountPtr<IShader>, bindingLayout: RefCountPtr<IBindingLayout>];
     export type PipelineHitGroupDesc = [exportName: basic_string_char, closestHitShader: RefCountPtr<IShader>, anyHitShader: RefCountPtr<IShader>, intersectionShader: RefCountPtr<IShader>, bindingLayout: RefCountPtr<IBindingLayout>, isProceduralPrimitive: boolean];
-    export type PipelineDesc = [shaders: vector<PipelineShaderDesc>, hitGroups: vector<PipelineHitGroupDesc>, globalBindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>, maxPayloadSize: u32, maxAttributeSize: u32, maxRecursionDepth: u32, hlslExtensionsUAV: s32, allowOpacityMicromaps: boolean];
+    export type PipelineDesc = [shaders: vector<PipelineShaderDesc>, hitGroups: vector<PipelineHitGroupDesc>, globalBindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>, maxPayloadSize: u32, maxAttributeSize: u32, maxRecursionDepth: u32, hlslExtensionsUAV: s32, allowOpacityMicromaps: boolean, allowClusteredGeometry: boolean];
     export type ShaderTableDesc = [isCached: boolean, maxEntries: u32, debugName: basic_string_char];
     export type State = [shaderTable: IShaderTable | null, bindings: static_vector8<IBindingSet | null>];
     export type DispatchRaysArguments = [width: u32, height: u32, depth: u32];

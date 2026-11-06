@@ -137,6 +137,7 @@ export namespace nvrhi {
     export const CULL_NONE: u8 = 2;
 
     // nvrhi::ComparisonFunc (some)
+    export const COMPARISON_LESS: u8 = 2;
     export const COMPARISON_EQUAL: u8 = 3;
     export const COMPARISON_ALWAYS: u8 = 8;
 
