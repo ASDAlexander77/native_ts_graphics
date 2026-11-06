@@ -4436,6 +4436,26 @@ donut_compile_shaders(
 add_tslang_example(raytracing_hello_world)
 add_tslang_example_test(raytracing_hello_world)
 
+# Port of DirectX-Graphics-Samples' D3D12RaytracingHelloShaderExecutionReordering: Hello World's
+# screen-space rays on a full screen quad, every fourth column doing five times the closest hit
+# shader's artificial work; rays traced into hit objects, the threads reordered by a heavy/light hint
+# (REORDER=0 without, -noreorder), then invoked. D3D12: shader model 6.9 (Agility SDK runtime);
+# Vulkan: SPV_NV_shader_invocation_reorder as inline SPIR-V.
+donut_compile_shaders(
+    TARGET raytracing_hello_ser_shaders
+    PROJECT_NAME "Raytracing Hello SER"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_hello_ser.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_hello_ser.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_hello_ser/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_hello_ser/spirv
+)
+if (NVRHI_WITH_DX12)
+    add_tslang_example(raytracing_hello_ser core/text_format.ts core/d3d12_agility_sdk.cpp)
+else()
+    add_tslang_example(raytracing_hello_ser core/text_format.ts)
+endif()
+add_tslang_example_test(raytracing_hello_ser)
+
 # raytracing_simple_lighting with NRI and NRIFramework instead of Donut: the same shader library.
 add_tslang_nri_example(raytracing_simple_lighting_nri SHADERS raytracing_simple_lighting_shaders core/directx_math.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(raytracing_simple_lighting_nri)
