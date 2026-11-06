@@ -38,15 +38,18 @@ namespace PtlasExample {
     const WINDOW_TITLE = "Donut Example: Partitioned TLAS";
 
     // ptlas_scene.hlsli's scene: a 16 x 16 grid of cubes in 16 partitions (a 4 x 4 tile each), a
-    // ground plane and 8 orbiting cubes in the global partition.
+    // ground plane and 8 orbiting cubes in the global partition, which half the spinning tile's cubes
+    // join while it spins.
     const PARTITION_COUNT = 16;
     const INSTANCES_PER_PARTITION = 16;
     const GLOBAL_INSTANCES = 9;
+    const MIGRATING_INSTANCES = INSTANCES_PER_PARTITION / 2;
     const INSTANCE_COUNT = PARTITION_COUNT * INSTANCES_PER_PARTITION + GLOBAL_INSTANCES;
     const ORBITER_COUNT = 8;
     const FRAMES_PER_PHASE = 60;
-    // Instance writes after frame 0: the orbiters and the spinning tile's cubes. Instance updates at
-    // a phase's first frame: half a tile's cubes.
+    // Instance writes after frame 0: the orbiters and the spinning tile's cubes, and at a phase's
+    // first frame the last tile's migrated half back into its partition. Instance updates at a
+    // phase's first frame: half a tile's cubes.
     const SPARSE_WRITES = ORBITER_COUNT + INSTANCES_PER_PARTITION;
     const UPDATES = INSTANCES_PER_PARTITION / 2;
     const ANIMATE_GROUP_SIZE = 64;
@@ -91,7 +94,8 @@ namespace PtlasExample {
 
     // A partitioned TLAS (VK_NV_partitioned_acceleration_structure, D3D12's preview PTLAS) of 265
     // instance slots, kept up to date by sparse operations a compute shader writes each frame:
-    // instance writes for what moved (the orbiters, the spinning tile), instance updates swapping the
+    // instance writes for what moved (the orbiters, the spinning tile - half of it moved into the
+    // global partition while it spins, then back into its own), instance updates swapping the
     // BLAS of half a tile's cubes once a second, and a translation per tile partition (a bob). The
     // same shader writes every instance into an ordinary TLAS, rebuilt each frame, which the ray
     // generation shader traces too, painting magenta wherever the two disagree.
@@ -237,8 +241,9 @@ namespace PtlasExample {
                 (INSTANCE_COUNT + ANIMATE_GROUP_SIZE - 1) / ANIMATE_GROUP_SIZE, 1, 1);
 
             // Frame 0 writes every instance slot (a build from nothing), later frames only what moved.
-            const writes = frameIndex == 0 ? INSTANCE_COUNT : SPARSE_WRITES;
-            const updates = frameIndex > 0 && frameIndex % FRAMES_PER_PHASE == 0 ? UPDATES : 0;
+            const phaseStart = frameIndex > 0 && frameIndex % FRAMES_PER_PHASE == 0;
+            const writes = frameIndex == 0 ? INSTANCE_COUNT : phaseStart ? SPARSE_WRITES + MIGRATING_INSTANCES : SPARSE_WRITES;
+            const updates = phaseStart ? UPDATES : 0;
             this.ptlas.build(commandList.handle, writes, updates, PARTITION_COUNT);
             this.ptlas.buildReferenceTlas(commandList.handle, INSTANCE_COUNT);
 
@@ -352,7 +357,7 @@ namespace PtlasExample {
         }
 
         const ptlas = Ptlas.create(app.getNvrhiDevice(), INSTANCE_COUNT, INSTANCES_PER_PARTITION, PARTITION_COUNT,
-            GLOBAL_INSTANCES, PTLAS_FAST_TRACE | PTLAS_PARTITION_TRANSLATION);
+            GLOBAL_INSTANCES + MIGRATING_INSTANCES, PTLAS_FAST_TRACE | PTLAS_PARTITION_TRANSLATION);
         if (ptlas.isNull()) {
             app.destroy();
             return unsupported(args.test, "The graphics device does not support partitioned TLASes");

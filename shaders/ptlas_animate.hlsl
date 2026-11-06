@@ -1,6 +1,7 @@
 // The ptlas example's animation: one thread per instance slot writes the frame's PTLAS operation
-// arguments - instance writes for the slots that change (all of them on frame 0, then the orbiters and
-// the spinning tile's cubes), instance updates for the cubes that swap BLAS, and every partition's
+// arguments - instance writes for the slots that change (all of them on frame 0, then the orbiters, the
+// spinning tile's cubes and, at a second's first frame, the last tile's cubes returning from the
+// global partition), instance updates for the cubes that swap BLAS, and every partition's
 // translation - and the reference TLAS's instance, from the same values.
 
 #include "ptlas_scene.hlsli"
@@ -93,8 +94,13 @@ void animate_cs(uint instance : SV_DispatchThreadID)
     gReferenceInstances.Store2(referenceOffset + 48, uint2(instance | (0xFFu << 24), 0));
     gReferenceInstances.Store2(referenceOffset + 56, BlasAddress(state.blas));
 
-    // The PTLAS's instance writes: every slot on frame 0 (a build from nothing), then the orbiters
-    // and the spinning tile (in that order; Donut_BuildPtlas's writeCount is 24).
+    // The PTLAS's instance writes: every slot on frame 0 (a build from nothing), then the orbiters,
+    // the spinning tile and, at a phase's first frame, the last tile's migrated half back into its
+    // partition (in that order; Donut_BuildPtlas's writeCount is 24, or 32 then).
+    uint phase = frame / FramesPerPhase;
+    bool phaseStart = frame > 0 && frame % FramesPerPhase == 0;
+    uint home = instance < GridInstanceCount ? PartitionOf(instance) : GlobalPartition;
+    uint j = IndexInPartition(instance);
     if (frame == 0)
     {
         StoreWriteInstance(instance, instance, state);
@@ -103,20 +109,20 @@ void animate_cs(uint instance : SV_DispatchThreadID)
     {
         StoreWriteInstance(instance - FirstOrbiter, instance, state);
     }
-    else if (instance < GridInstanceCount && state.partition == SpinningPartition(frame))
+    else if (instance < GridInstanceCount && home == SpinningPartition(frame))
     {
-        StoreWriteInstance(OrbiterCount + IndexInPartition(instance), instance, state);
+        StoreWriteInstance(OrbiterCount + j, instance, state);
+    }
+    else if (phaseStart && instance < GridInstanceCount && home == SpinningPartition(frame - 1) && Migrates(j))
+    {
+        StoreWriteInstance(OrbiterCount + InstancesPerPartition + IndexInHalf(j), instance, state);
     }
 
     // The swapping tile's checkerboard at the first frame of a phase: instanceIndex,
     // instanceContributionToHitGroupIndex, accelerationStructure (both APIs; updateCount 8).
-    uint phase = frame / FramesPerPhase;
-    if (frame > 0 && frame % FramesPerPhase == 0 && instance < GridInstanceCount
-        && state.partition == SwappingPartition(phase) && Swaps(IndexInPartition(instance)))
+    if (phaseStart && instance < GridInstanceCount && home == SwappingPartition(phase) && Swaps(j))
     {
-        uint j = IndexInPartition(instance);
-        uint index = (j / TileSize) * (TileSize / 2) + (j % TileSize) / 2;
-        uint offset = index * UpdateInstanceStride;
+        uint offset = IndexInHalf(j) * UpdateInstanceStride;
         gUpdateInstanceArgs.Store2(offset, uint2(instance, 0));
         gUpdateInstanceArgs.Store2(offset + 8, BlasAddress(state.blas));
     }
