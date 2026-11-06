@@ -84,23 +84,47 @@ which of the actions (or which build in the rebuild) faults, or whether a single
   until its command list retires, on Vulkan as on D3D12. The rebuild also calls `waitForIdle` first.
 - **Binding sets:** each compute dispatch's binding set holds its buffers.
 - **D3D12:** the identical TypeScript code passes the same mode-switch test there (with its own argument layouts).
+  The original D3D12 sample, run with the same switches (`--at 1:geom-traditional --at 2:geom-clusters
+  --at 2:extra-1k --at 3:alloc-getsizes`), doesn't fault the GPU either.
 
-### Suspects (unverified)
+### Likely cause: undersized scratch for move operations
 
-1. **Alignment of explicit destinations.** The "get sizes" mode and the cluster BLAS pool place results at addresses
-   computed on the CPU with D3D12's alignments (CLAS 128 bytes). Vulkan reports its own in
-   `VkPhysicalDeviceClusterAccelerationStructurePropertiesNV` (`clusterByteAlignment`,
-   `clusterBottomLevelByteAlignment`, `clusterTemplateByteAlignment`, `clusterScratchByteAlignment`). The port never
-   queried them.
-2. **Sizes from compute-sizes mode.** D3D12 writes 64-bit sizes; Vulkan's `dstSizesArray` elements are 32-bit
-   values at the given stride. The TS side reads the low word only, which should be safe, but the upper words of
-   the size buffer are never written on Vulkan.
-3. **Move operations (compaction).** `maxMovedBytes`, the destination layout after a move, and whether Vulkan
-   allows overlapping moves the way the D3D12 path assumes.
-4. **Scratch sizes for the larger clone count.** 1000 clones grow every limit; the scratch buffers are sized from
-   `vkGetClusterAccelerationStructureBuildSizesNV` with the D3D12 limits translated, with no Vulkan-specific
-   scratch alignment applied.
-5. **Instantiation and template inputs** after a rebuild (template addresses from the new `Clas`'s storage).
+Found by comparing with NVIDIA's [vk_animated_clusters](https://github.com/nvpro-samples/vk_animated_clusters)
+sample (no GPU work was run to find it):
+
+- For `VK_CLUSTER_ACCELERATION_STRUCTURE_OP_TYPE_MOVE_OBJECTS_NV`, `vkGetClusterAccelerationStructureBuildSizesNV`
+  reports the scratch as `updateScratchSize` and returns `buildScratchSize = 0`. A size-only query on this machine
+  (a device created, nothing recorded or submitted) gave:
+
+  | CLASes moved | `maxMovedBytes` | `buildScratchSize` | `updateScratchSize` |
+  |---|---|---|---|
+  | 100 | 204,800 | 0 | 5,120 |
+  | 2,000 | 4,096,000 | 0 | 148,096 |
+  | 40,000 | 81,920,000 | 0 | 2,960,128 |
+
+- vk_animated_clusters sizes its move scratch from `updateScratchSize`.
+- `Donut_GetClasOperationSizes` returned `buildScratchSize` only, so the default allocation mode's compaction
+  move ran with the TS side's 256-byte minimum scratch buffer, and wrote up to megabytes past it.
+- With few clusters the overrun can land in other allocations without faulting, which fits the plain test
+  passing. After a rebuild with 1000 clones, the overrun is far larger and lands on freshly reallocated memory,
+  which fits the MMU faults. The validation layer doesn't check cluster operations, so it stayed silent.
+- On D3D12, `ScratchDataSizeInBytes` covers moves too, which is why the same TypeScript passes there.
+- `core/ptlas.cpp` already uses the larger of the two sizes for partitioned TLASes.
+
+The fix (scratch = max of the build and update sizes) is on the `clustered-geometry-vulkan` branch, not yet run on
+the GPU.
+
+### Checked and matching vk_animated_clusters
+
+- Argument layouts (triangle cluster 64 bytes, template 72, instantiation 32, BLAS 16), the bit-packed counts,
+  the opaque flag (bit 31), and the `VkStridedDeviceAddressRegionKHR` field order.
+- Alignments, read from `VkPhysicalDeviceClusterAccelerationStructurePropertiesNV` on this RTX 5080:
+  `clusterByteAlignment` 128 (the port packs CLASes at 128), `clusterBottomLevelByteAlignment` 256 (the cluster
+  BLAS pool uses 256), `clusterTemplateByteAlignment` 32, `clusterScratchByteAlignment` 256 (every scratch is its
+  own allocation).
+- Sizes written as 32-bit values at an 8-byte stride: the TS side reads only the low words.
+- An implicit move's result size equals `maxMovedBytes`, so sizing the compacted buffer from the packed sum is
+  safe.
 
 ## Resuming safely
 
@@ -120,9 +144,7 @@ Each fault here cost a driver reset, and the second one a reboot, so:
   1. A rebuild with no setting change (an action that only calls `requestRebuild`).
   2. `geom-traditional` alone.
   3. Each of `extra-1k`, `alloc-getsizes` and the compaction (default) allocation alone.
-- **Before running, check the suspects in code**: query the Vulkan cluster properties (Donut's `DeviceManager_VK`
-  already fills `VkPhysicalDeviceClusterAccelerationStructurePropertiesNV`) and align explicit destinations and
-  scratch to them; zero the size buffers.
+- **Before running, make sure the branch has the move scratch fix** above.
 - **Get more information from a fault:** `VK_EXT_device_fault` (`vkGetDeviceFaultInfoEXT` after
   `VK_ERROR_DEVICE_LOST`) or NVIDIA Nsight Aftermath can report the faulting address and which command was running.
   The validation layer's GPU-assisted validation doesn't cover cluster operations.
