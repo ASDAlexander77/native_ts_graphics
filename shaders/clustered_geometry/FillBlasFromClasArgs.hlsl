@@ -25,11 +25,17 @@
 //
 //---------------------------------------------------------------------------
 
-cbuffer Constants : register(b0)
+struct ConstantsData
 {
     uint g_entryCount;       // number of args to emit (== number of input entries)
     uint g_clasAddressStride;// sizeof(D3D12_GPU_VIRTUAL_ADDRESS) = 8
 };
+
+// Root constants on D3D12, push constants on Vulkan.
+#ifdef SPIRV
+[[vk::push_constant]]
+#endif
+ConstantBuffer<ConstantsData> c_Constants : register(b0);
 
 // Input: per-entry {count, gvaLo, gvaHi} (12 B each).
 ByteAddressBuffer   g_inputs  : register(t0);
@@ -41,7 +47,7 @@ RWByteAddressBuffer g_argsOut : register(u0);
 void main(uint3 tid : SV_DispatchThreadID)
 {
     const uint idx = tid.x;
-    if (idx >= g_entryCount) return;
+    if (idx >= c_Constants.g_entryCount) return;
 
     const uint3 inp = g_inputs.Load3(idx * 12u);
     const uint  count    = inp.x;
@@ -49,6 +55,6 @@ void main(uint3 tid : SV_DispatchThreadID)
 
     const uint baseByte = idx * 16u;
     g_argsOut.Store (baseByte +  0, count);              // ClasAddressCount
-    g_argsOut.Store (baseByte +  4, g_clasAddressStride);// ClasAddressStride
+    g_argsOut.Store (baseByte +  4, c_Constants.g_clasAddressStride);// ClasAddressStride
     g_argsOut.Store2(baseByte +  8, gvaLoHi);            // ClasAddressArray (u64)
 }

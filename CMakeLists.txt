@@ -4189,9 +4189,11 @@ add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS vk NO_DEBUG ARGS -mod
 # GPU-driven operations (core/clas.cpp), each object a cluster BLAS of its CLASes; an animated sphere's
 # CLASes instantiated every frame from cluster templates and its deformed vertices; a spiral of clones;
 # glass, chrome and per-cluster colors through ClusterID(). D3D12's preview (as partitioned_tlas) and
-# the preview DXC's shader model 6.10.
+# the preview DXC's shader model 6.10, or Vulkan's VK_NV_cluster_acceleration_structure (no COMPRESSED1
+# vertices) with VK_KHR_ray_tracing_position_fetch, its SPIR-V from the Vulkan SDK's DXC (the cluster
+# intrinsics as inline SPIR-V built-ins: shaders/clustered_geometry_spirv.cfg).
+file(GLOB CLUSTERED_GEOMETRY_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_geometry/*)
 if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
-    file(GLOB CLUSTERED_GEOMETRY_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_geometry/*)
     set(SHADERMAKE_DXC_PATH "${DXC_PREVIEW_PATH}")
     donut_compile_shaders(
         TARGET clustered_geometry_shaders
@@ -4201,6 +4203,15 @@ if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
         DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/clustered_geometry/dxil
     )
     unset(SHADERMAKE_DXC_PATH)
+endif()
+donut_compile_shaders(
+    TARGET clustered_geometry_spirv_shaders
+    PROJECT_NAME "Clustered Geometry (SPIR-V)"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_geometry_spirv.cfg
+    SOURCES ${CLUSTERED_GEOMETRY_SHADER_SOURCES}
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/clustered_geometry/spirv
+)
+if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
     # core/ptlas.cpp: Donut_EnableD3D12RaytracingPreview.
     add_tslang_example(clustered_geometry core/directx_math.ts core/text_format.ts core/clas.ts core/clas.cpp core/ptlas.cpp core/d3d12_preview_sdk.cpp)
     add_tslang_example_test(clustered_geometry APIS dx12)
@@ -4210,7 +4221,14 @@ if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
     add_tslang_example_test(clustered_geometry SUFFIX compressed APIS dx12 ARGS -vertexFormat compressed)
     add_tslang_example_test(clustered_geometry SUFFIX switches APIS dx12
         ARGS -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes)
+else()
+    add_tslang_example(clustered_geometry core/directx_math.ts core/text_format.ts core/clas.ts core/clas.cpp core/ptlas.cpp)
 endif()
+add_dependencies(clustered_geometry clustered_geometry_spirv_shaders)
+add_tslang_example_test(clustered_geometry APIS vk)
+add_tslang_example_test(clustered_geometry SUFFIX traditional APIS vk ARGS -geometryMode traditional)
+add_tslang_example_test(clustered_geometry SUFFIX switches APIS vk
+    ARGS -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingMiniEngineSample: MiniEngine's Sponza (its sponza.h3d
 # and DDS textures, from DIRECTX_GRAPHICS_SAMPLES_DIR) as a BLAS per mesh, and the sample's seven modes
