@@ -11,7 +11,10 @@
 // button actions, mouse buttons, modifier bits.
 enum Key {
     Space = 32,
+    Comma = 44,
     Minus = 45,
+    Period = 46,
+    Slash = 47,
     Num0 = 48,
     Num1 = 49,
     Num2 = 50,
@@ -44,6 +47,8 @@ enum Key {
     X = 88,
     Y = 89,
     Z = 90,
+    LeftBracket = 91,
+    RightBracket = 93,
     GraveAccent = 96,
     Escape = 256,
     Enter = 257,
@@ -417,6 +422,11 @@ enum MeshletModelData {
 // (Donut_ReleaseClasTlas frees it sooner).
 @nodrops declare function Donut_CreateClasTlas(clas: ClasHandle, maxInstances: int, buildFlags: int, debugName: string): AccelStructHandle;
 @nodrops declare function Donut_ReleaseClasTlas(clas: ClasHandle, tlas: AccelStructHandle): void;
+// Stores an acceleration structure's GPU address (for an instance buffer) at dst[0] (low 32 bits) and dst[1].
+@nodrops declare function Donut_GetClasAccelStructAddress(clas: ClasHandle, accelStruct: AccelStructHandle, dst: Ref<int>): void;
+// Records the compaction of the BLASes built with AllowCompaction whose builds finished since (their
+// addresses change).
+@nodrops declare function Donut_CompactClasBlases(clas: ClasHandle, commandList: CommandListHandle): void;
 @nodrops declare function Donut_BuildClasTlas(clas: ClasHandle, commandList: CommandListHandle, tlas: AccelStructHandle,
     instances: BufferHandle, instanceCount: int, buildFlags: int): void;
 

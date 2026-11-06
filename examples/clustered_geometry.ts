@@ -4,6 +4,7 @@ import { InputPass } from "../core/input_pass";
 import { Args } from "../core/args";
 import { TestCheck, unsupported } from "../core/test_check";
 import { Clas } from "../core/clas";
+import { formatFixed } from "../core/text_format";
 import {
     matrixInverse, matrixLookAtLH, matrixMultiply, matrixRotationRollPitchYaw, matrixScaling, matrixTranslation,
     normalize3, XM_PI,
@@ -14,9 +15,11 @@ import {
 // by GPU-driven operations whose arguments compute shaders write, each object a cluster BLAS of its
 // CLASes; an animated sphere whose CLASes are instantiated every frame from cluster templates and the
 // vertices a compute shader deforms; a spiral of clones, every fifth an animated one; glass, chrome and
-// per-cluster colors keyed by ClusterID() in the hit shaders (shader model 6.10). The clustered path
-// with FLOAT32_3 vertices (12 low mantissa bits truncated), implicit-destination CLASes (the sample's
-// default compacts them after: the same image), fast-trace builds, 100 clones.
+// per-cluster colors keyed by ClusterID() in the hit shaders (shader model 6.10). Its settings (keys,
+// command line, the overlay): the traditional path to compare (a DXR1 BLAS per object), FLOAT32_3 or
+// COMPRESSED1 vertices and their precision, three CLAS allocation modes (implicit destinations, sizes
+// first, compacted by a move), per-frame static rebuilds, build flags, 0 to 10000 clones, bounces, rays
+// per pixel, wireframe.
 namespace ClusteredGeometry {
     const WINDOW_TITLE = "D3D12 Raytracing - Clustered Geometry";
 
@@ -46,15 +49,21 @@ namespace ClusteredGeometry {
 
     // core/clas.cpp's operation description (ClasParam) and D3D12's values.
     const CLAS_PARAM_COUNT = 17;
+    const OP_MOVE = 0;
     const OP_BLAS_FROM_CLAS = 1;
     const OP_CLAS_FROM_TRIANGLES = 2;
     const OP_TEMPLATES_FROM_TRIANGLES = 3;
     const OP_INSTANTIATE_TEMPLATES = 4;
     const MODE_IMPLICIT = 0;
     const MODE_EXPLICIT = 1;
+    const MODE_GET_SIZES = 2;
+    // D3D12_RTAS_MOVE_OPERATION_TYPE_CLUSTER_LEVEL_ACCELERATION_STRUCTURE; D3D12_RAYTRACING_CLAS_BYTE_ALIGNMENT.
+    const MOVE_TYPE_CLAS = 1;
+    const CLAS_ALIGNMENT = 128.0;
     const FLAG_FAST_TRACE = 4;
     const FLAG_ALLOW_DATA_ACCESS = 0x100;
     const VERTEX_FORMAT_FLOAT32_3 = 2;
+    const VERTEX_FORMAT_COMPRESSED1 = 14;
     // D3D12_RTAS_CLUSTERED_GEOMETRY_FLAG_OPAQUE, D3D12_RAYTRACING_INSTANCE_FLAG_*.
     const CLUSTER_FLAG_OPAQUE = 1 << 31;
     const INSTANCE_FLAG_TRIANGLE_CULL_DISABLE = 1;
@@ -68,12 +77,6 @@ namespace ClusteredGeometry {
     const HIT_GROUP_GLASS = 2;
     const HIT_GROUP_MIXED = 4;
     const HIT_GROUP_RECORDS = 4 + 2 * MAX_GEOMS_PER_INSTANCE;
-    // The sample's defaults: 12 truncated mantissa bits, 3 reflection and 5 refraction bounces, one
-    // ray per pixel, the cluster color blend 0.65.
-    const POSITION_TRUNCATE_BITS = 12;
-    const REFLECTION_BOUNCES = 3;
-    const REFRACTION_BOUNCES = 5;
-    const CLUSTER_TINT = 0.65;
     const GROUP_SIZE = 64;
 
     // Test mode: the frames rendered (the sample's --screenshot 3: its fourth frame).
@@ -900,13 +903,52 @@ namespace ClusteredGeometry {
 
     // ---- The scene on the CPU --------------------------------------------------------------------
 
+    // The sample's settings (its defaults) and the keys that change them.
     class Settings {
+        // [N] clones: 0, 100, 1000, 10000.
         extraInstances: int = 100;
+        // [T] the traditional path (a DXR1 BLAS per object) instead of the clustered one.
+        traditional: boolean = false;
+        // [P] COMPRESSED1 vertices (shared-exponent quantized) instead of FLOAT32_3; [ / ] their bits per
+        // component, or FLOAT32_3's truncated mantissa bits.
+        compressed: boolean = false;
+        compressedBits: int = 12;
+        positionTruncateBits: int = 12;
+        // [A] CLAS allocation: 0 implicit destinations, 1 get sizes then explicit, 2 implicit then
+        // compacted by a move; the traditional path's: compacted BLASes or not.
+        clasAllocMode: int = 2;
+        traditionalCompact: boolean = true;
+        // [R] static structures rebuilt every frame: 0 none, 1 the BLASes, 2 the CLASes and BLASes.
+        rebuildMode: int = 0;
+        // [B] build flags: 0 none, 1 fast build, 2 fast trace.
+        buildFlagMode: int = 2;
+        // [F] the traditional animated BLASes refitted instead of rebuilt.
+        traditionalRefit: boolean = false;
+        // [L] the animated sphere at low detail (64 x 144 quads).
+        lowDetail: boolean = false;
+        // [, / .] the bounce slider (reflections 0..5, refractions 2 more), [/] rays per pixel (1, 2, 4).
+        bounceSlider: int = 3;
+        raysPerPixel: int = 1;
+        clusterTint: number = 0.65;
         wireframe: boolean = false;
         cameraPaused: boolean = false;
         animationPaused: boolean = false;
         // -dumpScene <dir>: the scene's tables (as the reference's dump hooks), for comparing.
         dumpScenePath: string = "";
+        // -at <frame>:<action> (the sample's --at): actions before a zero-based frame renders.
+        scheduledFrames: int[] = [];
+        scheduledActions: string[] = [];
+        // -overlay: the overlay in test mode too.
+        overlay: boolean = false;
+
+        reflectionBounces(): int {
+            return this.bounceSlider < 0 ? 0 : this.bounceSlider > 5 ? 5 : this.bounceSlider;
+        }
+
+        refractionBounces(): int {
+            const r = this.bounceSlider + 2;
+            return r < 0 ? 0 : r > 5 ? 5 : r;
+        }
     }
 
     // The objects (the sources, then the static clones), the animated sphere and its clones, their
@@ -922,12 +964,13 @@ namespace ClusteredGeometry {
         animatedClusterIdOffset: int = 0;
         totalClusterCount: int = 0;
 
-        build(app: App, extraInstances: int) {
+        build(app: App, extraInstances: int, lowDetail: boolean) {
             this.objects = buildSceneObjects();
             this.sourceCount = this.objects.length;
+            this.animatedClones = [];
             addClones(app, this.objects, this.animatedClones, extraInstances);
-            // BuildAnimatedObjectSetup: a unit sphere of 96 x 192 quads in 4 x 6 tiles.
-            this.animated = generateUVSphere(ANIMATED_REST_RADIUS, 96, 192, 4, 6, 0);
+            // BuildAnimatedObjectSetup: a unit sphere of 96 x 192 quads (low detail: 64 x 144) in 4 x 6 tiles.
+            this.animated = generateUVSphere(ANIMATED_REST_RADIUS, lowDetail ? 64 : 96, lowDetail ? 144 : 192, 4, 6, 0);
 
             // finalizeClusterIdsAndCounts.
             let nextClusterId = 0;
@@ -1067,6 +1110,55 @@ namespace ClusteredGeometry {
             return this.objects.length + 1 + this.animatedClones.length;
         }
 
+        // An object's clusters in material region order (stable): the traditional path's geometry
+        // order, a geometry per region.
+        static regionOrder(obj: SceneObject): int[] {
+            const order: int[] = [];
+            for (let region = 0; region < MAX_GEOMS_PER_INSTANCE; region++) {
+                for (let c = 0; c < obj.mesh.clusters.length; c++) {
+                    if (obj.mesh.clusters[c].matRegionIdx == region) {
+                        order.push(c);
+                    }
+                }
+            }
+            return order;
+        }
+
+        // BuildTradCidLookup: per triangle of the traditional BLASes (in their order) its cluster ID and
+        // index in the cluster; per instance and geometry its first triangle (the clones of the animated
+        // sphere share its triangles).
+        traditionalTables(triangles: int[], geometryBases: int[]) {
+            for (let i = 0; i < this.instanceCount() * MAX_GEOMS_PER_INSTANCE; i++) {
+                geometryBases.push(0);
+            }
+            let next = 0;
+            for (let oi = 0; oi < this.objects.length; oi++) {
+                const obj = this.objects[oi];
+                let previous = -1;
+                for (const c of Scene.regionOrder(obj)) {
+                    const cluster = obj.mesh.clusters[c];
+                    if (cluster.matRegionIdx != previous) {
+                        geometryBases[oi * MAX_GEOMS_PER_INSTANCE + cluster.matRegionIdx] = next;
+                        previous = cluster.matRegionIdx;
+                    }
+                    for (let tri = 0; tri < cluster.triangleCount(); tri++) {
+                        triangles.push(cluster.clusterID);
+                        triangles.push(tri);
+                    }
+                    next += cluster.triangleCount();
+                }
+            }
+            for (let k = 0; k <= this.animatedClones.length; k++) {
+                geometryBases[(this.objects.length + k) * MAX_GEOMS_PER_INSTANCE] = next;
+            }
+            for (const cluster of this.animated.clusters) {
+                for (let tri = 0; tri < cluster.triangleCount(); tri++) {
+                    triangles.push(cluster.clusterID + this.animatedClusterIdOffset);
+                    triangles.push(tri);
+                }
+            }
+        }
+
         // BuildPerInstGeomMaterialTable: per instance and geometry index (material region) the material slot.
         perInstanceGeometryMaterials(): int[] {
             const table: int[] = [];
@@ -1183,7 +1275,7 @@ namespace ClusteredGeometry {
     // UpdateSceneConstantBuffer: the camera orbiting the scene (a turn in 30 s, swinging in from 6.5 to
     // 3.5 and back every 19 s), looking at (0.5, 0, 0) from 1.5 up with a 60 degree vertical field of
     // view; the sun; the bounce limits; the clustered path; wireframe.
-    function sceneConstants(width: int, height: int, cameraSeconds: number, animationSeconds: number, wireframe: boolean): f32[] {
+    function sceneConstants(width: int, height: int, cameraSeconds: number, animationSeconds: number, settings: Settings): f32[] {
         const data = zeros(SCENE_CONSTANTS_SIZE / 4);
         const angle = f(cameraSeconds * (2.0 * Math.PI / 30.0));
         const dollyPhase = f(cameraSeconds * (2.0 * Math.PI / 19.0));
@@ -1200,19 +1292,211 @@ namespace ClusteredGeometry {
         }
         data[20] = f(width / height);
         data[21] = Donut_Tanf(f(f(60.0 * f(XM_PI / 180.0)) * 0.5));
-        data[22] = 1.0;
-        data[23] = f(CLUSTER_TINT);
+        data[22] = settings.raysPerPixel;
+        data[23] = f(settings.clusterTint);
         const sun = normalize3([f(0.45), f(0.75), f(0.50), 0.0]);
         data[24] = sun[0];
         data[25] = sun[1];
         data[26] = sun[2];
         data[27] = f(0.40);
         data[28] = f(animationSeconds);
-        storeUint(data, 32, REFLECTION_BOUNCES);
-        storeUint(data, 33, REFRACTION_BOUNCES);
-        storeUint(data, 34, 0);
-        storeUint(data, 35, wireframe ? 1 : 0);
+        storeUint(data, 32, settings.reflectionBounces());
+        storeUint(data, 33, settings.refractionBounces());
+        storeUint(data, 34, settings.traditional ? 1 : 0);
+        storeUint(data, 35, settings.wireframe ? 1 : 0);
         return data;
+    }
+
+    // ---- Compressed1.h: COMPRESSED1 vertices ----------------------------------------------------
+
+    // A cluster's COMPRESSED1 vertices: the header (exponent, the anchor and bit count per axis) and the
+    // deltas from the anchor, packed LSB first.
+    class EncodedCluster {
+        header: int[] = [0, 0, 0];
+        bytes: int[] = [];
+
+        totalBytes(): int {
+            return 12 + this.bytes.length;
+        }
+    }
+
+    // BitsForValue: the bits v needs (at least 1).
+    function bitsForValue(v: number): int {
+        let bits = 1;
+        let limit = 2.0;
+        while (v >= limit && bits < 32) {
+            bits++;
+            limit *= 2.0;
+        }
+        return bits;
+    }
+
+    // Compressed1::Encode: the smallest exponent from forcedExponent up whose quantized deltas fit
+    // maxBits per axis (and the 24-bit anchors).
+    function encodeCompressed1(positions: number[], maxBits: int, forcedExponent: int): EncodedCluster {
+        const out = new EncodedCluster();
+        const count = positions.length / 3;
+        const mn = [3.4028234663852886e38, 3.4028234663852886e38, 3.4028234663852886e38];
+        for (let v = 0; v < count; v++) {
+            for (let c = 0; c < 3; c++) {
+                if (positions[v * 3 + c] < mn[c]) {
+                    mn[c] = positions[v * 3 + c];
+                }
+            }
+        }
+        const maxDeltaValue = Math.pow(2.0, maxBits) - 1.0;
+        let exponent = forcedExponent > 0 ? forcedExponent : 1;
+        const anchor = [0, 0, 0];
+        const deltas: number[] = [];
+        const maxDelta = [0.0, 0.0, 0.0];
+        for (;;) {
+            const invScale = Math.pow(2.0, 127 - exponent);
+            for (let c = 0; c < 3; c++) {
+                let a = Math.floor(mn[c] * invScale + 0.5);
+                a = a < -8388608.0 ? -8388608.0 : a > 8388607.0 ? 8388607.0 : a;
+                anchor[c] = a;
+            }
+            deltas.length = 0;
+            maxDelta[0] = 0.0;
+            maxDelta[1] = 0.0;
+            maxDelta[2] = 0.0;
+            let overflow = false;
+            for (let v = 0; v < count; v++) {
+                for (let c = 0; c < 3; c++) {
+                    const d = Math.floor(positions[v * 3 + c] * invScale + 0.5) - anchor[c];
+                    if (d < 0.0 || d > maxDeltaValue) {
+                        overflow = true;
+                    }
+                    deltas.push(d);
+                    if (d > maxDelta[c]) {
+                        maxDelta[c] = d;
+                    }
+                }
+            }
+            if (!overflow && anchor[0] + maxDelta[0] <= 8388607.0 && anchor[1] + maxDelta[1] <= 8388607.0
+                && anchor[2] + maxDelta[2] <= 8388607.0) {
+                break;
+            }
+            exponent++;
+            if (exponent > 232) {
+                break;
+            }
+        }
+        const bits: int[] = [];
+        for (let c = 0; c < 3; c++) {
+            const b = bitsForValue(maxDelta[c]);
+            bits.push(b > maxBits ? maxBits : b);
+        }
+        const ax: int = anchor[0];
+        const ay: int = anchor[1];
+        const az: int = anchor[2];
+        out.header = [
+            (exponent & 0xFF) | (ax << 8),
+            ((bits[0] - 1) & 0xF) | (((bits[1] - 1) & 0xF) << 4) | (ay << 8),
+            ((bits[2] - 1) & 0xF) | (az << 8),
+        ];
+        const totalBits = (bits[0] + bits[1] + bits[2]) * count;
+        for (let i = 0; i < Math.floor((totalBits + 7) / 8); i++) {
+            out.bytes.push(0);
+        }
+        let bitOffset = 0;
+        for (let v = 0; v < count; v++) {
+            for (let c = 0; c < 3; c++) {
+                const limit = Math.pow(2.0, bits[c]) - 1.0;
+                const d = deltas[v * 3 + c];
+                const value: int = d > limit ? limit : d;
+                for (let k = 0; k < bits[c]; k++) {
+                    if (((value >> k) & 1) != 0) {
+                        out.bytes[bitOffset >> 3] = out.bytes[bitOffset >> 3] | (1 << (bitOffset & 7));
+                    }
+                    bitOffset++;
+                }
+            }
+        }
+        return out;
+    }
+
+    // EncodeCompressedClusters: one exponent for the whole scene (the coarsest unit any cluster's
+    // extent needs at `bits` per component), so shared edges quantize alike.
+    function encodeScene(scene: Scene, bits: int): EncodedCluster[] {
+        let maxExtent = 0.0;
+        for (const obj of scene.objects) {
+            for (const c of obj.mesh.clusters) {
+                for (let axis = 0; axis < 3; axis++) {
+                    let lo = 3.4028234663852886e38;
+                    let hi = -3.4028234663852886e38;
+                    for (let k = axis; k < c.positions.length; k += 3) {
+                        lo = fmin(lo, c.positions[k]);
+                        hi = fmax(hi, c.positions[k]);
+                    }
+                    maxExtent = fmax(maxExtent, f(hi - lo));
+                }
+            }
+        }
+        const minUnit = f(maxExtent / f(Math.pow(2.0, bits) - 1.0));
+        let exponent = Math.ceil(Math.log2(minUnit)) + 127;
+        exponent = exponent < 1 ? 1 : exponent > 232 ? 232 : exponent;
+        const encoded: EncodedCluster[] = [];
+        for (const obj of scene.objects) {
+            for (const c of obj.mesh.clusters) {
+                encoded.push(encodeCompressed1(c.positions, bits, exponent));
+            }
+        }
+        return encoded;
+    }
+
+    // BuildAnimatedObjectSetup's COMPRESSED1 template header: an exponent whose unit covers the
+    // largest per-cluster component span across the animation's radial range (0.8 to 1.2 of the
+    // rest pose), grown until every cluster's quantized endpoints fit.
+    function templateCompressedHeader(mesh: Mesh, bits: int): int {
+        const minScale = f(1.0 - f(0.20));
+        const maxScale = f(1.0 + f(0.20));
+        let maxExtent = 0.0;
+        for (const c of mesh.clusters) {
+            for (let axis = 0; axis < 3; axis++) {
+                let lo = 3.4028234663852886e38;
+                let hi = -3.4028234663852886e38;
+                for (let k = axis; k < c.positions.length; k += 3) {
+                    const a = f(c.positions[k] * minScale);
+                    const b = f(c.positions[k] * maxScale);
+                    lo = fmin(lo, fmin(a, b));
+                    hi = fmax(hi, fmax(a, b));
+                }
+                maxExtent = fmax(maxExtent, f(hi - lo));
+            }
+        }
+        const maxDelta = Math.pow(2.0, bits) - 1.0;
+        const minUnit = maxExtent / maxDelta;
+        let exponent = minUnit > 0.0 ? Math.ceil(Math.log2(minUnit)) + 127 : 1;
+        exponent = exponent < 1 ? 1 : exponent > 232 ? 232 : exponent;
+        for (;;) {
+            const invScale = Math.pow(2.0, 127 - exponent);
+            let fits = true;
+            for (const c of mesh.clusters) {
+                for (let axis = 0; axis < 3 && fits; axis++) {
+                    let qMin = 1e300;
+                    let qMax = -1e300;
+                    for (let k = axis; k < c.positions.length; k += 3) {
+                        const ends = [c.positions[k] * minScale, c.positions[k] * maxScale];
+                        for (const v of ends) {
+                            const q = Math.floor(v * invScale + 0.5);
+                            qMin = q < qMin ? q : qMin;
+                            qMax = q > qMax ? q : qMax;
+                        }
+                    }
+                    fits = qMax - qMin <= maxDelta;
+                }
+                if (!fits) {
+                    break;
+                }
+            }
+            if (fits || exponent == 232) {
+                break;
+            }
+            exponent++;
+        }
+        const b = (bits - 1) & 0xF;
+        return (exponent & 0xFF) | (b << 8) | (b << 12) | (b << 16);
     }
 
     // ---- The GPU side ----------------------------------------------------------------------------
@@ -1240,6 +1524,16 @@ namespace ClusteredGeometry {
         params[9] = totalVertices;
     }
 
+    // BuildFlagModeRtas / BuildFlagModeDxr1: none, fast build (FAST_OPERATION, PREFER_FAST_BUILD), fast
+    // trace - the same bits in D3D12_RTAS_OPERATION_FLAGS and AccelStructBuildFlags (8, 4).
+    function buildFlags(mode: int): int {
+        return mode == 1 ? 8 : mode == 2 ? 4 : 0;
+    }
+
+    function roundUp(value: number, alignment: number): number {
+        return Math.floor((value + alignment - 1.0) / alignment) * alignment;
+    }
+
     class ComputePass {
         layout: BindingLayoutHandle;
         pipeline: ComputePipelineHandle;
@@ -1252,24 +1546,69 @@ namespace ClusteredGeometry {
         }
     }
 
+    // A ray tracing pipeline's solid and wireframe shader tables.
+    class RayTracingTables {
+        solid: ShaderTable = new ShaderTable(null);
+        wireframe: ShaderTable = new ShaderTable(null);
+    }
+
+    // What the overlay shows of the last build.
+    class BuildStats {
+        staticClusters: int = 0;
+        staticTriangles: int = 0;
+        animatedClusters: int = 0;
+        clasAllocatedBytes: number = 0.0;
+        clasActualBytes: number = 0.0;
+        blasBytes: number = 0.0;
+        animatedBytes: number = 0.0;
+        tlasInstances: int = 0;
+        buildMilliseconds: number = 0.0;
+    }
+
     class ClusteredGeometryPass {
         private app: App;
         private clas: Clas;
         private scene: Scene;
         private settings: Settings;
+        stats: BuildStats = new BuildStats();
 
         private fillClasArgs: ComputePass | null = null;
         private fillBlasArgs: ComputePass | null = null;
         private fillTemplateArgs: ComputePass | null = null;
         private fillInstantiateArgs: ComputePass | null = null;
+        private fillMoveArgs: ComputePass | null = null;
         private animateBall: ComputePass | null = null;
-        private animateSet: BindingSet = new BindingSet(null);
+        private rayTracingLayout: BindingLayoutHandle | null = null;
+        private clusteredTables: RayTracingTables = new RayTracingTables();
+        private traditionalTables: RayTracingTables = new RayTracingTables();
+        private output: TextureHandle | null = null;
+        private sceneConstantBuffer: BufferHandle | null = null;
 
-        // The static objects' cluster BLASes: one pool, an offset per object.
+        // ---- The current configuration's resources (rebuilt by rebuild()) ----
+        private animateSet: BindingSet = new BindingSet(null);
+        private rayTracingSet: BindingSet = new BindingSet(null);
+        // t1..t9: the materials, normals, indices, offsets, cluster metadata, the traditional path's
+        // two tables, the per-instance geometry materials, the material overrides (app-owned).
+        private shaderBuffers: BufferHandle[] = [];
+        private tlas: AccelStructHandle | null = null;
+        private tlasInstances: BufferHandle | null = null;
+        // Clustered static: the CLAS operation and its buffers (for per-frame rebuilds), the BLAS pool.
+        private staticClasOp: int[] = [];
+        private staticClasArgs: BufferHandle | null = null;
+        private staticClusterInput: BufferHandle | null = null;
+        private staticClasStorage: BufferHandle | null = null;
+        private staticClasScratch: BufferHandle | null = null;
+        private staticClasAddresses: BufferHandle | null = null;
+        private staticBlasOp: int[] = [];
+        private staticBlasArgs: BufferHandle | null = null;
+        private staticBlasDestinations: BufferHandle | null = null;
+        private staticBlasScratch: BufferHandle | null = null;
         private staticBlasPool: BufferHandle | null = null;
         private staticBlasOffsets: number[] = [];
-        // The animated sphere's per-frame resources: its deformed vertices, instantiation arguments,
-        // CLASes, and BLASes (its own first, then its clones') in one pool.
+        // Traditional: a BLAS per static object, the animated sphere's and its clones'.
+        private traditionalBlases: TriangleBlas[] = [];
+        private traditionalAnimatedBlases: TriangleBlas[] = [];
+        // The animated sphere: rest pose, deformed vertices, instantiation, per-frame CLASes, BLAS pool.
         private restPositions: BufferHandle | null = null;
         private animatedVertices: BufferHandle | null = null;
         private instantiateArgs: BufferHandle | null = null;
@@ -1285,18 +1624,11 @@ namespace ClusteredGeometry {
         private instantiateParams: int[] = [];
         private animatedBlasParams: int[] = [];
 
-        private tlas: AccelStructHandle | null = null;
-        private tlasInstances: BufferHandle | null = null;
-        private sceneConstantBuffer: BufferHandle | null = null;
-        private rayTracingLayout: BindingLayoutHandle | null = null;
-        private shaderTable: ShaderTable = new ShaderTable(null);
-        private wireframeTable: ShaderTable = new ShaderTable(null);
-        private rayTracingSet: BindingSet = new BindingSet(null);
-        private output: TextureHandle | null = null;
-        // t1..t9: the materials, normals, indices, offsets, cluster metadata, the traditional path's
-        // two tables, the per-instance geometry materials, the material overrides.
-        private shaderBuffers: BufferHandle[] = [];
-
+        // A rebuild asked for by a key (done before the next frame), and whether the scene itself
+        // (clones, animated detail) changes.
+        private rebuildPending: boolean = false;
+        private frameIndex: int = 0;
+        private regenerateScene: boolean = false;
         private cameraSeconds: number = 0.0;
         private animationSeconds: number = 0.0;
         private sceneData: f32[] = [];
@@ -1309,18 +1641,17 @@ namespace ClusteredGeometry {
             this.settings = settings;
         }
 
+        // Frees what the Clas holds (the app frees the rest).
+        destroy() {
+            this.clas.destroy();
+        }
+
         init() {
-            if (!this.createComputePasses() || !this.createRayTracingPipeline()) {
+            if (!this.createComputePasses() || !this.createRayTracingPipelines()) {
                 return false;
             }
-            const commandList = this.app.createCommandList();
-            commandList.open();
-            this.buildStatic(commandList);
-            this.buildAnimatedSetup(commandList);
-            this.uploadTables(commandList);
-            commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.releaseResource(commandList.handle);
+            this.sceneConstantBuffer = this.app.createConstantBuffer(256, "Scene constants");
+            this.build();
 
             const pass = this.app.addPass();
             pass.setAnimateCallback(this.onAnimate);
@@ -1354,9 +1685,82 @@ namespace ClusteredGeometry {
             this.fillBlasArgs = this.createComputePass("FillBlasFromClasArgs.hlsl", 8, 1, 1);
             this.fillTemplateArgs = this.createComputePass("FillClusterTemplateArgs.hlsl", 24, 1, 1);
             this.fillInstantiateArgs = this.createComputePass("FillInstantiateArgs.hlsl", 20, 1, 2);
+            this.fillMoveArgs = this.createComputePass("FillMoveClusterArgs.hlsl", 4, 0, 2);
             this.animateBall = this.createComputePass("AnimateBall.hlsl", 8, 1, 1);
             return this.fillClasArgs != null && this.fillBlasArgs != null && this.fillTemplateArgs != null
-                && this.fillInstantiateArgs != null && this.animateBall != null;
+                && this.fillInstantiateArgs != null && this.fillMoveArgs != null && this.animateBall != null;
+        }
+
+        // CreateRaytracingPipelineAndShaderTables: the clustered library (shader model 6.10, clustered
+        // geometry allowed) and the traditional one (6.6): RayGen, Miss, ShadowMiss; the opaque, glass,
+        // wireframe and (empty) shadow hit groups.
+        private createRayTracingPipelines() {
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.layoutTextureUAV(0);
+            layoutDesc.layoutAccelStruct(0);
+            layoutDesc.layoutConstantBuffer(0);
+            layoutDesc.layoutStructuredBufferSRV(1);
+            for (let t = 2; t <= 8; t++) {
+                layoutDesc.layoutRawBufferSRV(t);
+            }
+            layoutDesc.layoutStructuredBufferSRV(9);
+            this.rayTracingLayout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
+            const clustered = this.createRayTracingTables("clustered_geometry/Raytracing.hlsl", true);
+            const traditional = this.createRayTracingTables("clustered_geometry/RaytracingTraditional.hlsl", false);
+            if (!clustered || !traditional) {
+                return false;
+            }
+            this.clusteredTables = clustered;
+            this.traditionalTables = traditional;
+            return true;
+        }
+
+        // The hit group table: the opaque block, then glass blocks up to every contribution + geometry
+        // index (a shadow record after each primary); wireframe mode's all wireframe records.
+        private createRayTracingTables(library: string, clustered: boolean): RayTracingTables | null {
+            const shaderLibrary = this.app.createShaderLibrary(library);
+            if (!shaderLibrary) {
+                return null;
+            }
+            const pipelineDesc = RtPipelineDesc.create(PAYLOAD_SIZE, MAX_RECURSION_DEPTH);
+            pipelineDesc.setMaxAttributeSize(ATTRIBUTE_SIZE);
+            pipelineDesc.addGlobalBindingLayout(this.rayTracingLayout as BindingLayoutHandle);
+            pipelineDesc.addShader(shaderLibrary, "RayGen", ShaderType.RayGeneration);
+            pipelineDesc.addShader(shaderLibrary, "Miss", ShaderType.Miss);
+            pipelineDesc.addShader(shaderLibrary, "ShadowMiss", ShaderType.Miss);
+            pipelineDesc.addHitGroup(shaderLibrary, "OpaqueHitGroup", "OpaqueHit", "", null);
+            pipelineDesc.addHitGroup(shaderLibrary, "GlassHitGroup", "GlassHit", "GlassAnyHit", null);
+            pipelineDesc.addHitGroup(shaderLibrary, "WireframeHitGroup", "WireframeHit", "WireframeAnyHit", null);
+            pipelineDesc.addHitGroup(shaderLibrary, "ShadowHitGroup", "", "", null);
+            pipelineDesc.setAllowClusteredGeometry(clustered);
+            const pipeline = this.app.createRayTracingPipelineFromDesc(pipelineDesc);
+            if (!pipeline) {
+                return null;
+            }
+            const tables = new RayTracingTables();
+            for (let wireframe = 0; wireframe < 2; wireframe++) {
+                const table = this.app.createEmptyShaderTable(pipeline);
+                table.setRayGeneration("RayGen");
+                table.addMiss("Miss");
+                table.addMiss("ShadowMiss");
+                for (let record = 0; record < HIT_GROUP_RECORDS; record++) {
+                    if (wireframe == 1) {
+                        table.addHitGroup("WireframeHitGroup", null);
+                    } else if (record % 2 == 1) {
+                        table.addHitGroup("ShadowHitGroup", null);
+                    } else {
+                        table.addHitGroup(record == 0 ? "OpaqueHitGroup" : "GlassHitGroup", null);
+                    }
+                }
+                if (wireframe == 0) {
+                    tables.solid = table;
+                } else {
+                    tables.wireframe = table;
+                }
+            }
+            // The shader tables keep the pipeline alive.
+            this.app.releaseResource(pipeline);
+            return tables;
         }
 
         // A dispatch of a pass over count threads: t0.., u0.., the push constants.
@@ -1392,25 +1796,130 @@ namespace ClusteredGeometry {
             return sizes;
         }
 
-        // UploadClusterInputs, BuildClas (implicit destinations) and BuildBlasFromClasIndirect: every
-        // static cluster's vertices and indices in one buffer, the CLAS arguments the fill shader writes,
-        // the CLASes; per object the cluster BLAS of its CLASes in one pool, at addresses the TLAS gets.
-        private buildStatic(commandList: CommandList) {
+        // Executes the open command list, waits for the GPU, and opens a new one.
+        private flush(commandList: CommandList): CommandList {
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            const next = this.app.createCommandList();
+            next.open();
+            return next;
+        }
+
+        // The uint64 sizes an operation wrote (their low halves: none is 4 GB), copied back after a flush.
+        private readSizes(commandList: CommandList, sizes: BufferHandle, count: int): number[] {
+            const readback = this.app.createReadbackBuffer(count * 8, "Sizes readback");
+            commandList.copyBuffer(readback, 0, sizes, 0, count * 8);
+            this.flushed = this.flush(commandList);
+            const words: int[] = [];
+            for (let i = 0; i < count * 2; i++) {
+                words.push(0);
+            }
+            this.app.readBuffer(readback, Ref(words[0]), count * 8);
+            this.app.releaseResource(readback);
+            const result: number[] = [];
+            for (let i = 0; i < count; i++) {
+                const lo = words[i * 2];
+                result.push(lo < 0 ? lo + 4294967296.0 : lo);
+            }
+            return result;
+        }
+
+        // The command list readSizes reopened.
+        private flushed: CommandList | null = null;
+
+        // Builds everything the settings describe: the static objects' structures (clustered or
+        // traditional), the animated sphere's, the hit shaders' tables, the TLAS instances.
+        private build() {
+            const start = Date.now();
+            this.stats = new BuildStats();
+            let commandList = this.app.createCommandList();
+            commandList.open();
+            if (this.settings.traditional) {
+                commandList = this.buildTraditionalStatic(commandList);
+            } else {
+                commandList = this.buildClusteredStatic(commandList);
+            }
+            this.buildAnimatedSetup(commandList);
+            this.uploadTables(commandList);
+            commandList.close();
+            this.app.executeCommandList(commandList);
+            this.app.waitForIdle();
+            this.app.releaseResource(commandList.handle);
+            this.stats.buildMilliseconds = Date.now() - start;
+        }
+
+        // Frees the current configuration's resources (the GPU is idle).
+        private release() {
+            const app = this.app;
+            for (const set of [this.animateSet, this.rayTracingSet]) {
+                if (!set.isNull()) {
+                    app.releaseResource(set.handle);
+                }
+            }
+            this.animateSet = new BindingSet(null);
+            this.rayTracingSet = new BindingSet(null);
+            for (const buffer of this.shaderBuffers) {
+                app.releaseResource(buffer);
+            }
+            this.shaderBuffers = [];
+            for (const blas of this.traditionalBlases) {
+                app.releaseObject(blas.handle);
+            }
+            for (const blas of this.traditionalAnimatedBlases) {
+                app.releaseObject(blas.handle);
+            }
+            this.traditionalBlases = [];
+            this.traditionalAnimatedBlases = [];
+            this.staticBlasOffsets = [];
+            // The Clas owns every other buffer and the TLAS: a new one starts empty.
+            this.clas.destroy();
+            this.clas = Clas.create(app.getNvrhiDevice());
+        }
+
+        // RebuildStaticAccelerationStructures: after a key changed a setting.
+        private rebuild() {
+            this.app.waitForIdle();
+            this.release();
+            if (this.regenerateScene) {
+                this.scene.build(this.app, this.settings.extraInstances, this.settings.lowDetail);
+                this.regenerateScene = false;
+            }
+            this.build();
+        }
+
+        // UploadClusterInputs and BuildClasIndirect (the allocation mode's way) and
+        // BuildBlasFromClasIndirect: every static cluster's vertices (FLOAT32_3, or COMPRESSED1 blobs)
+        // and indices in one buffer, the CLAS arguments the fill shader writes, the CLASes; per object
+        // the cluster BLAS of its CLASes in one pool, at addresses the TLAS gets.
+        private buildClusteredStatic(commandListIn: CommandList): CommandList {
+            let commandList = commandListIn;
             const scene = this.scene;
+            const settings = this.settings;
             const clas = this.clas;
+            const compressed = settings.compressed;
+            let encoded: EncodedCluster[] = [];
+            if (compressed) {
+                encoded = encodeScene(scene, settings.compressedBits);
+            }
             const clusterCount = scene.totalClusterCount;
+            const align = compressed ? 256 : 16;
             const offsets: int[] = [];
             let cursor = 0;
             let maxTriangles = 0;
             let maxVertices = 0;
             let totalTriangles = 0;
             let totalVertices = 0;
+            let maxCompressedSize = 0;
+            let g = 0;
             for (const obj of scene.objects) {
                 for (const c of obj.mesh.clusters) {
-                    cursor = alignUp(cursor, 16);
+                    cursor = alignUp(cursor, align);
                     offsets.push(cursor);
-                    cursor += c.vertexCount() * 12;
-                    cursor = alignUp(cursor, 16);
+                    const vbSize = compressed ? encoded[g].totalBytes() : c.vertexCount() * 12;
+                    cursor += vbSize;
+                    cursor = alignUp(cursor, align);
                     offsets.push(cursor);
                     cursor += c.indices.length;
                     if (c.triangleCount() > maxTriangles) {
@@ -1419,23 +1928,37 @@ namespace ClusteredGeometry {
                     if (c.vertexCount() > maxVertices) {
                         maxVertices = c.vertexCount();
                     }
+                    if (compressed && vbSize > maxCompressedSize) {
+                        maxCompressedSize = vbSize;
+                    }
                     totalTriangles += c.triangleCount();
                     totalVertices += c.vertexCount();
+                    g++;
                 }
             }
+            this.stats.staticClusters = clusterCount;
+            this.stats.staticTriangles = totalTriangles;
             const inputSize = alignUp(cursor, 256);
             const input = zeros(inputSize / 4);
             const argsMeta = zeros(clusterCount * CLAS_ARGS_META_SIZE / 4);
-            let g = 0;
+            g = 0;
             for (const obj of scene.objects) {
                 for (const c of obj.mesh.clusters) {
                     const vb = offsets[g * 2] / 4;
-                    for (let k = 0; k < c.positions.length; k++) {
-                        input[vb + k] = c.positions[k];
+                    if (compressed) {
+                        const e = encoded[g];
+                        for (let k = 0; k < 3; k++) {
+                            storeUint(input, vb + k, e.header[k]);
+                        }
+                        storeBytes(input, offsets[g * 2] + 12, e.bytes);
+                    } else {
+                        for (let k = 0; k < c.positions.length; k++) {
+                            input[vb + k] = c.positions[k];
+                        }
                     }
                     storeBytes(input, offsets[g * 2 + 1], c.indices);
-                    // ClasArgsMeta: clusterID, triangles, vertices, vertex and index offsets, the OPAQUE flag
-                    // (no translucency or refraction in its material or the object's checker), region.
+                    // ClasArgsMeta: clusterID, triangles, vertices, vertex and index offsets, the OPAQUE
+                    // flag (no translucency or refraction in its material or the object's checker), region.
                     const m = g * CLAS_ARGS_META_SIZE / 4;
                     storeUint(argsMeta, m, c.clusterID);
                     storeUint(argsMeta, m + 1, c.triangleCount());
@@ -1454,23 +1977,131 @@ namespace ClusteredGeometry {
             commandList.writeBuffer(argsMetaBuffer, Ref(argsMeta[0]), argsMeta.length * 4);
             const base = this.address(inputBuffer, 0.0);
             this.dispatch(commandList, this.fillClasArgs, [argsMetaBuffer], [argsBuffer],
-                [base[0], base[1], clusterCount, 12, POSITION_TRUNCATE_BITS], clusterCount);
+                [base[0], base[1], clusterCount, compressed ? 0 : 12, compressed ? 0 : settings.positionTruncateBits], clusterCount);
+            this.staticClusterInput = inputBuffer;
+            this.staticClasArgs = argsBuffer;
 
-            // BuildSharedClusterTrianglesInputs: FLOAT32_3, the geometry index up to the material table's
-            // stride, 12 truncated bits.
-            const clasOp = clasParams(OP_CLAS_FROM_TRIANGLES, MODE_IMPLICIT, FLAG_FAST_TRACE, clusterCount);
+            // BuildSharedClusterTrianglesInputs: the format, the geometry index up to the material
+            // table's stride, the truncated bits (FLOAT32_3) or the largest blob (COMPRESSED1).
+            const flags = buildFlags(settings.buildFlagMode);
+            const clasOp = clasParams(OP_CLAS_FROM_TRIANGLES, MODE_IMPLICIT, flags, clusterCount);
             setClusterLimits(clasOp, MAX_GEOMS_PER_INSTANCE - 1, maxTriangles, maxVertices, totalTriangles, totalVertices);
-            clasOp[10] = VERTEX_FORMAT_FLOAT32_3;
-            clasOp[12] = POSITION_TRUNCATE_BITS;
-            const clasSizes = this.operationSizes(clasOp);
-            const clasStorage = clas.createStorage(clasSizes[0], "All-cluster CLAS result buffer");
-            const clasScratch = clas.createBuffer(fmax(clasSizes[1], 256.0), "CLAS scratch");
-            const clasAddresses = clas.createBuffer(clusterCount * 8, "CLAS address array");
-            clas.executeOperation(commandList.handle, Ref(clasOp[0]), argsBuffer, 0.0, CLAS_ARGS_SIZE, null,
-                clasStorage, clasScratch, clasAddresses, 0.0, null, 0.0, inputBuffer, null);
+            clasOp[10] = compressed ? VERTEX_FORMAT_COMPRESSED1 : VERTEX_FORMAT_FLOAT32_3;
+            clasOp[12] = compressed ? maxCompressedSize : settings.positionTruncateBits;
+            const sizesBuffer = clas.createBuffer(clusterCount * 8, "CLAS size array");
+            if (settings.clasAllocMode == 1) {
+                commandList = this.buildClasGetSizes(commandList, clasOp, sizesBuffer);
+            } else {
+                commandList = this.buildClasImplicit(commandList, clasOp, sizesBuffer, settings.clasAllocMode == 2);
+            }
+            this.buildStaticBlases(commandList);
+            return commandList;
+        }
 
-            // The cluster BLASes: each object's slice of the CLAS addresses, into a pool slot of the size
-            // its cluster count needs.
+        // BuildClasImplicit (all CLASes into one worst-case buffer) and BuildClasCompact (then moved,
+        // packed, into a buffer of the sizes the build reported).
+        private buildClasImplicit(commandListIn: CommandList, clasOp: int[], sizesBuffer: BufferHandle, compact: boolean): CommandList {
+            let commandList = commandListIn;
+            const clas = this.clas;
+            const clusterCount = clasOp[3];
+            const sizes = this.operationSizes(clasOp);
+            const storage = clas.createStorage(sizes[0], "All-cluster CLAS result buffer");
+            const scratch = clas.createBuffer(fmax(sizes[1], 256.0), "CLAS scratch");
+            const addresses = clas.createBuffer(clusterCount * 8, "CLAS address array");
+            clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, CLAS_ARGS_SIZE, null,
+                storage, scratch, addresses, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
+            this.staticClasOp = clasOp;
+            this.staticClasStorage = storage;
+            this.staticClasScratch = scratch;
+            this.staticClasAddresses = addresses;
+            this.stats.clasAllocatedBytes = sizes[0];
+            const actual = this.readSizes(commandList, sizesBuffer, clusterCount);
+            commandList = this.flushed as CommandList;
+            let sum = 0.0;
+            let packed = 0.0;
+            for (const size of actual) {
+                sum += size;
+                packed += roundUp(size, CLAS_ALIGNMENT);
+            }
+            this.stats.clasActualBytes = sum;
+            if (!compact) {
+                return commandList;
+            }
+
+            // MOVE_CLUSTER_OBJECTS (implicit destinations): the CLASes packed into the sizes reported,
+            // their new addresses in a new array; the worst-case buffer freed after.
+            const compactStorage = clas.createStorage(packed, "All-cluster CLAS result buffer (compacted)");
+            const compactAddresses = clas.createBuffer(clusterCount * 8, "CLAS address array (post-compact)");
+            const moveArgs = clas.createBuffer(clusterCount * 8, "CLAS move args");
+            this.dispatch(commandList, this.fillMoveArgs, [], [moveArgs, addresses], [clusterCount], clusterCount);
+            const moveOp = clasParams(OP_MOVE, MODE_IMPLICIT, 0, clusterCount);
+            moveOp[15] = MOVE_TYPE_CLAS;
+            moveOp[16] = packed;
+            const moveSizes = this.operationSizes(moveOp);
+            const moveScratch = clas.createBuffer(fmax(moveSizes[1], 256.0), "CLAS scratch (compact move)");
+            clas.executeOperation(commandList.handle, Ref(moveOp[0]), moveArgs, 0.0, 8, null,
+                compactStorage, moveScratch, compactAddresses, 0.0, sizesBuffer, 0.0, storage, null);
+            commandList = this.flush(commandList);
+            clas.releaseBuffer(storage);
+            clas.releaseBuffer(addresses);
+            this.staticClasStorage = compactStorage;
+            this.staticClasAddresses = compactAddresses;
+            this.stats.clasAllocatedBytes = packed;
+            return commandList;
+        }
+
+        // BuildClasGetSizes: GET_SIZES first, then the CLASes at explicit destinations, packed.
+        private buildClasGetSizes(commandListIn: CommandList, clasOp: int[], sizesBuffer: BufferHandle): CommandList {
+            let commandList = commandListIn;
+            const clas = this.clas;
+            const clusterCount = clasOp[3];
+            const sizesOp: int[] = [];
+            for (const value of clasOp) {
+                sizesOp.push(value);
+            }
+            sizesOp[1] = MODE_GET_SIZES;
+            const sizesSizes = this.operationSizes(sizesOp);
+            const sizesScratch = clas.createBuffer(fmax(sizesSizes[1], 256.0), "CLAS scratch (get-sizes phase)");
+            clas.executeOperation(commandList.handle, Ref(sizesOp[0]), this.staticClasArgs as BufferHandle, 0.0, CLAS_ARGS_SIZE, null,
+                null, sizesScratch, null, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
+            const actual = this.readSizes(commandList, sizesBuffer, clusterCount);
+            commandList = this.flushed as CommandList;
+            let packed = 0.0;
+            let sum = 0.0;
+            const offsets: number[] = [];
+            for (const size of actual) {
+                offsets.push(packed);
+                packed += roundUp(size, CLAS_ALIGNMENT);
+                sum += size;
+            }
+            const storage = clas.createStorage(packed, "All-cluster CLAS result buffer (get-sizes exact)");
+            const destinations: int[] = [];
+            for (const offset of offsets) {
+                const a = this.address(storage, offset);
+                destinations.push(a[0]);
+                destinations.push(a[1]);
+            }
+            const addresses = clas.createBuffer(clusterCount * 8, "CLAS address array (explicit destinations)");
+            commandList.writeBuffer(addresses, Ref(destinations[0]), destinations.length * 4);
+            clasOp[1] = MODE_EXPLICIT;
+            const buildSizes = this.operationSizes(clasOp);
+            const scratch = clas.createBuffer(fmax(buildSizes[1], 256.0), "CLAS scratch (explicit-build phase)");
+            clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, CLAS_ARGS_SIZE, null,
+                storage, scratch, addresses, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
+            this.staticClasOp = clasOp;
+            this.staticClasStorage = storage;
+            this.staticClasScratch = scratch;
+            this.staticClasAddresses = addresses;
+            this.stats.clasAllocatedBytes = packed;
+            this.stats.clasActualBytes = sum;
+            return commandList;
+        }
+
+        // BuildBlasFromClasIndirect: each object's slice of the CLAS addresses, into a pool slot of the
+        // size its cluster count needs (explicit destinations).
+        private buildStaticBlases(commandList: CommandList) {
+            const scene = this.scene;
+            const clas = this.clas;
             const objectCount = scene.objects.length;
             let maxClasPerArg = 0;
             for (const obj of scene.objects) {
@@ -1478,8 +2109,9 @@ namespace ClusteredGeometry {
                     maxClasPerArg = obj.clusterCount;
                 }
             }
-            const blasOp = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, FLAG_FAST_TRACE, objectCount);
-            blasOp[13] = clusterCount;
+            const flags = buildFlags(this.settings.buildFlagMode);
+            const blasOp = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, flags, objectCount);
+            blasOp[13] = scene.totalClusterCount;
             blasOp[14] = maxClasPerArg;
             const blasSizes = this.operationSizes(blasOp);
             const sizeCounts: int[] = [];
@@ -1493,7 +2125,7 @@ namespace ClusteredGeometry {
                     }
                 }
                 if (size < 0.0) {
-                    const one = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, FLAG_FAST_TRACE, 1);
+                    const one = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, flags, 1);
                     one[13] = obj.clusterCount;
                     one[14] = obj.clusterCount;
                     size = this.operationSizes(one)[0];
@@ -1501,10 +2133,12 @@ namespace ClusteredGeometry {
                     sizeBytes.push(size);
                 }
                 this.staticBlasOffsets.push(poolBytes);
-                poolBytes += Math.floor((size + 255.0) / 256.0) * 256.0;
+                poolBytes += roundUp(size, 256.0);
             }
             const pool = clas.createStorage(poolBytes, "Cluster BLAS pool (all objects)");
             this.staticBlasPool = pool;
+            this.stats.blasBytes = poolBytes;
+            const clasAddresses = this.staticClasAddresses as BufferHandle;
             const blasMeta: int[] = [];
             const destinations: int[] = [];
             for (let i = 0; i < objectCount; i++) {
@@ -1523,25 +2157,120 @@ namespace ClusteredGeometry {
             commandList.writeBuffer(blasDestinations, Ref(destinations[0]), destinations.length * 4);
             this.dispatch(commandList, this.fillBlasArgs, [blasMetaBuffer], [blasArgs], [objectCount, 8], objectCount);
             const blasScratch = clas.createBuffer(fmax(blasSizes[1], 256.0), "Cluster BLAS scratch");
-            clas.executeOperation(commandList.handle, Ref(blasOp[0]), blasArgs, 0.0, BLAS_ARGS_SIZE, null,
-                pool, blasScratch, blasDestinations, 0.0, null, 0.0, clasAddresses, clasStorage);
+            this.staticBlasOp = blasOp;
+            this.staticBlasArgs = blasArgs;
+            this.staticBlasDestinations = blasDestinations;
+            this.staticBlasScratch = blasScratch;
+            this.executeStaticBlases(commandList);
         }
 
-        // BuildAnimatedObjectSetup (clustered path) and BuildAnimatedClonesSetup: cluster templates built
-        // once from hint vertices (the rest pose x 1.30), the rest pose for the deforming shader, the
-        // instantiation arguments the fill shader writes (each template with its slice of the deformed
-        // vertices), the per-frame CLAS storage, and one BLAS pool for the sphere and its clones.
+        private executeStaticBlases(commandList: CommandList) {
+            this.clas.executeOperation(commandList.handle, Ref(this.staticBlasOp[0]), this.staticBlasArgs as BufferHandle, 0.0,
+                BLAS_ARGS_SIZE, null, this.staticBlasPool, this.staticBlasScratch as BufferHandle, this.staticBlasDestinations, 0.0,
+                null, 0.0, this.staticClasAddresses, this.staticClasStorage);
+        }
+
+        // RebuildStaticClasPerFrame: the implicit CLAS build again, in place (the other allocation
+        // modes' buffers are sized for their result: the BLASes only).
+        private executeStaticClases(commandList: CommandList) {
+            this.clas.executeOperation(commandList.handle, Ref(this.staticClasOp[0]), this.staticClasArgs as BufferHandle, 0.0,
+                CLAS_ARGS_SIZE, null, this.staticClasStorage, this.staticClasScratch as BufferHandle, this.staticClasAddresses, 0.0,
+                null, 0.0, this.staticClusterInput, null);
+        }
+
+        // BuildTraditionalStaticAS: per object one buffer of its clusters' vertices and 32-bit indices in
+        // material region order (pooled), a geometry per region (opaque unless its material or the
+        // checker refracts), a classic BLAS, compacted in Compact mode.
+        private buildTraditionalStatic(commandListIn: CommandList): CommandList {
+            let commandList = commandListIn;
+            const scene = this.scene;
+            const app = this.app;
+            const vertices: f32[] = [];
+            const indices: int[] = [];
+            class Region {
+                region: int = 0;
+                firstVertex: int = 0;
+                vertexCount: int = 0;
+                firstTriangle: int = 0;
+                triangleCount: int = 0;
+            }
+            const objectRegions: Region[][] = [];
+            let triangles = 0;
+            for (const obj of scene.objects) {
+                const regions: Region[] = [];
+                for (const c of Scene.regionOrder(obj)) {
+                    const cluster = obj.mesh.clusters[c];
+                    if (regions.length == 0 || regions[regions.length - 1].region != cluster.matRegionIdx) {
+                        const r = new Region();
+                        r.region = cluster.matRegionIdx;
+                        r.firstVertex = vertices.length / 3;
+                        r.firstTriangle = indices.length / 3;
+                        regions.push(r);
+                    }
+                    const r = regions[regions.length - 1];
+                    const baseInRegion = vertices.length / 3 - r.firstVertex;
+                    for (const p of cluster.positions) {
+                        vertices.push(p);
+                    }
+                    for (const index of cluster.indices) {
+                        indices.push(index + baseInRegion);
+                    }
+                    r.vertexCount += cluster.vertexCount();
+                    r.triangleCount += cluster.triangleCount();
+                }
+                triangles += indices.length / 3 - (regions.length > 0 ? regions[0].firstTriangle : 0);
+                objectRegions.push(regions);
+            }
+            this.stats.staticTriangles = triangles;
+            const vertexPool = this.clas.createBuffer(vertices.length * 4, "Traditional VB pool (all static objects)");
+            const indexPool = this.clas.createBuffer(indices.length * 4, "Traditional IB pool (all static objects)");
+            commandList.writeBuffer(vertexPool, Ref(vertices[0]), vertices.length * 4);
+            commandList.writeBuffer(indexPool, Ref(indices[0]), indices.length * 4);
+            const compact = this.settings.traditionalCompact;
+            let flags = buildFlags(this.settings.buildFlagMode);
+            if (compact) {
+                flags = flags | AccelStructBuildFlags.AllowCompaction;
+            }
+            for (let oi = 0; oi < scene.objects.length; oi++) {
+                const obj = scene.objects[oi];
+                const blas = app.createEmptyTriangleBlas("Traditional BLAS");
+                const regions = objectRegions[oi];
+                for (let gi = 0; gi < regions.length; gi++) {
+                    const r = regions[gi];
+                    blas.addGeometry(indexPool, r.firstTriangle * 12, r.triangleCount * 3, vertexPool, r.firstVertex * 12,
+                        r.vertexCount, 12, null);
+                    const slot = r.region < obj.perRegionMaterialSlot.length ? obj.perRegionMaterialSlot[r.region] : obj.instanceID;
+                    const opaque = materialTranslucency(slot) == 0.0 && materialRefractivity(slot) == 0.0 && !obj.checkerCouldRefract();
+                    blas.setGeometryFlags(gi, opaque ? 1 : 0);
+                }
+                blas.build(app, commandList, <AccelStructBuildFlags>flags);
+                this.traditionalBlases.push(blas);
+            }
+            if (compact) {
+                // The compacted sizes come back with the builds; NVRHI then copies each BLAS into a buffer
+                // of its size.
+                commandList = this.flush(commandList);
+                this.clas.compactBlases(commandList.handle);
+                commandList = this.flush(commandList);
+            }
+            return commandList;
+        }
+
+        // BuildAnimatedObjectSetup: the rest pose and the deformed vertices; clustered: cluster templates
+        // built once from hint vertices (the rest pose x 1.30; COMPRESSED1 or FLOAT32_3 instantiations),
+        // the instantiation arguments the fill shader writes (each template with its slice of the
+        // deformed vertices), the per-frame CLAS storage, and one BLAS pool for the sphere and its clones
+        // (BuildAnimatedClonesSetup); traditional: a classic BLAS each over one flat index buffer.
         private buildAnimatedSetup(commandList: CommandList) {
             const scene = this.scene;
+            const settings = this.settings;
             const clas = this.clas;
             const mesh = scene.animated;
             const clusterCount = mesh.clusters.length;
-            const envelope = f(1.30);
+            this.stats.animatedClusters = clusterCount;
             let maxTriangles = 0;
             let maxVertices = 0;
             let totalVertices = 0;
-            const offsets: int[] = [];
-            let cursor = 0;
             for (const c of mesh.clusters) {
                 if (c.triangleCount() > maxTriangles) {
                     maxTriangles = c.triangleCount();
@@ -1550,6 +2279,54 @@ namespace ClusteredGeometry {
                     maxVertices = c.vertexCount();
                 }
                 totalVertices += c.vertexCount();
+            }
+            const rest: f32[] = [];
+            for (const c of mesh.clusters) {
+                for (const p of c.positions) {
+                    rest.push(p);
+                }
+            }
+            const vertexBytes = alignUp(totalVertices * 12, 256);
+            const restPositions = clas.createBuffer(vertexBytes, "Animated: rest-pose positions");
+            commandList.writeBuffer(restPositions, Ref(rest[0]), rest.length * 4);
+            this.restPositions = restPositions;
+            const animatedVertices = clas.createBuffer(vertexBytes, "Animated: per-frame vertex buffer");
+            this.animatedVertices = animatedVertices;
+            storeUint(this.animateData, 1, totalVertices);
+            const blasCount = 1 + scene.animatedClones.length;
+
+            if (settings.traditional) {
+                // BuildAnimatedTraditionalAS / BuildAnimatedClonesTradSetup: the clusters' indices biased
+                // by their first vertex; the first build from the rest frame's deformation.
+                const flat: int[] = [];
+                let vertexBase = 0;
+                for (const c of mesh.clusters) {
+                    for (const index of c.indices) {
+                        flat.push(index + vertexBase);
+                    }
+                    vertexBase += c.vertexCount();
+                }
+                const indexBuffer = clas.createBuffer(flat.length * 4, "Animated: traditional flat IB");
+                commandList.writeBuffer(indexBuffer, Ref(flat[0]), flat.length * 4);
+                this.animateData[0] = f(this.animationSeconds);
+                this.dispatchAnimate(commandList, totalVertices);
+                let flags = buildFlags(settings.buildFlagMode);
+                if (settings.traditionalRefit) {
+                    flags = flags | AccelStructBuildFlags.AllowUpdate;
+                }
+                for (let k = 0; k < blasCount; k++) {
+                    const blas = this.app.createEmptyTriangleBlas(k == 0 ? "Animated: traditional BLAS" : "Animated clone: traditional BLAS");
+                    blas.addGeometry(indexBuffer, 0, flat.length, animatedVertices, 0, totalVertices, 12, null);
+                    blas.setGeometryFlags(0, 0);
+                    blas.build(this.app, commandList, <AccelStructBuildFlags>flags);
+                    this.traditionalAnimatedBlases.push(blas);
+                }
+                return;
+            }
+
+            const offsets: int[] = [];
+            let cursor = 0;
+            for (const c of mesh.clusters) {
                 cursor = alignUp(cursor, 16);
                 offsets.push(cursor);
                 cursor += c.vertexCount() * 12;
@@ -1560,15 +2337,14 @@ namespace ClusteredGeometry {
             const inputSize = alignUp(cursor, 256);
             const input = zeros(inputSize / 4);
             const meta: int[] = [];
-            const rest: f32[] = [];
             const vertexOffsets: int[] = [];
+            const envelope = f(1.30);
             let vertexCursor = 0;
             for (let c = 0; c < clusterCount; c++) {
                 const cluster = mesh.clusters[c];
                 const vb = offsets[c * 2] / 4;
                 for (let k = 0; k < cluster.positions.length; k++) {
                     input[vb + k] = f(cluster.positions[k] * envelope);
-                    rest.push(cluster.positions[k]);
                 }
                 storeBytes(input, offsets[c * 2 + 1], cluster.indices);
                 meta.push(cluster.triangleCount());
@@ -1578,7 +2354,8 @@ namespace ClusteredGeometry {
                 vertexOffsets.push(vertexCursor);
                 vertexCursor += cluster.vertexCount() * 12;
             }
-
+            const compressed = settings.compressed;
+            const templateHeader = compressed ? templateCompressedHeader(mesh, settings.compressedBits) : 0;
             const templateInput = clas.createBuffer(inputSize, "Animated: cluster-template input buffer (vert+idx)");
             const templateMeta = clas.createBuffer(meta.length * 4, "Animated: template args metadata");
             const templateArgs = clas.createBuffer(clusterCount * TEMPLATE_ARGS_SIZE, "Animated: template args");
@@ -1586,14 +2363,14 @@ namespace ClusteredGeometry {
             commandList.writeBuffer(templateMeta, Ref(meta[0]), meta.length * 4);
             const base = this.address(templateInput, 0.0);
             this.dispatch(commandList, this.fillTemplateArgs, [templateMeta], [templateArgs],
-                [base[0], base[1], clusterCount, POSITION_TRUNCATE_BITS, 0, 0], clusterCount);
+                [base[0], base[1], clusterCount, settings.positionTruncateBits, compressed ? 1 : 0, templateHeader], clusterCount);
 
-            // BUILD_CLUSTER_TEMPLATES_FROM_TRIANGLES: FLOAT32_3 hints and instantiations, data access (the
-            // hit shaders' TriangleObjectPositions()).
-            const templateOp = clasParams(OP_TEMPLATES_FROM_TRIANGLES, MODE_IMPLICIT, FLAG_FAST_TRACE | FLAG_ALLOW_DATA_ACCESS,
-                clusterCount);
+            // BUILD_CLUSTER_TEMPLATES_FROM_TRIANGLES: FLOAT32_3 hints, data access (the hit shaders'
+            // TriangleObjectPositions()).
+            const flags = buildFlags(settings.buildFlagMode);
+            const templateOp = clasParams(OP_TEMPLATES_FROM_TRIANGLES, MODE_IMPLICIT, flags | FLAG_ALLOW_DATA_ACCESS, clusterCount);
             setClusterLimits(templateOp, 0, maxTriangles, maxVertices, mesh.totalTriangles, totalVertices);
-            templateOp[10] = VERTEX_FORMAT_FLOAT32_3;
+            templateOp[10] = compressed ? VERTEX_FORMAT_COMPRESSED1 : VERTEX_FORMAT_FLOAT32_3;
             templateOp[11] = VERTEX_FORMAT_FLOAT32_3;
             const templateSizes = this.operationSizes(templateOp);
             const templateStorage = clas.createStorage(templateSizes[0], "Animated: cluster templates result buffer");
@@ -1602,15 +2379,6 @@ namespace ClusteredGeometry {
             clas.executeOperation(commandList.handle, Ref(templateOp[0]), templateArgs, 0.0, TEMPLATE_ARGS_SIZE, null,
                 templateStorage, templateScratch, templateAddresses, 0.0, null, 0.0, templateInput, null);
             this.templateStorage = templateStorage;
-
-            // The deformed vertices (AnimateBall writes them each frame from the rest pose).
-            const vertexBytes = alignUp(totalVertices * 12, 256);
-            const restPositions = clas.createBuffer(vertexBytes, "Animated: rest-pose positions");
-            commandList.writeBuffer(restPositions, Ref(rest[0]), rest.length * 4);
-            this.restPositions = restPositions;
-            const animatedVertices = clas.createBuffer(vertexBytes, "Animated: per-frame vertex buffer");
-            this.animatedVertices = animatedVertices;
-            storeUint(this.animateData, 1, totalVertices);
 
             // The instantiation arguments: each template, its cluster ID offset (after the static and
             // clone ranges), its slice of the deformed vertices.
@@ -1624,7 +2392,7 @@ namespace ClusteredGeometry {
                 [vertices[0], vertices[1], clusterCount, scene.animatedClusterIdOffset, 12], clusterCount);
 
             // INSTANTIATE_CLUSTER_TEMPLATES into implicit destinations each frame.
-            const instantiateOp = clasParams(OP_INSTANTIATE_TEMPLATES, MODE_IMPLICIT, FLAG_FAST_TRACE, clusterCount);
+            const instantiateOp = clasParams(OP_INSTANTIATE_TEMPLATES, MODE_IMPLICIT, flags, clusterCount);
             setClusterLimits(instantiateOp, 0, maxTriangles, maxVertices, mesh.totalTriangles, totalVertices);
             instantiateOp[10] = VERTEX_FORMAT_FLOAT32_3;
             this.instantiateParams = instantiateOp;
@@ -1635,13 +2403,12 @@ namespace ClusteredGeometry {
             this.animatedClasAddresses = animatedClasAddresses;
 
             // The BLASes: the sphere's and each clone's, from the same CLASes, slots of one pool.
-            const blasCount = 1 + scene.animatedClones.length;
-            const single = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, FLAG_FAST_TRACE, 1);
+            const single = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, flags, 1);
             single[13] = clusterCount;
             single[14] = clusterCount;
-            const perBlas = Math.floor((this.operationSizes(single)[0] + 255.0) / 256.0) * 256.0;
+            const perBlas = roundUp(this.operationSizes(single)[0], 256.0);
             this.animatedBlasSize = perBlas;
-            const blasOp = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, FLAG_FAST_TRACE, blasCount);
+            const blasOp = clasParams(OP_BLAS_FROM_CLAS, MODE_EXPLICIT, flags, blasCount);
             blasOp[13] = clusterCount * blasCount;
             blasOp[14] = clusterCount;
             this.animatedBlasParams = blasOp;
@@ -1649,6 +2416,7 @@ namespace ClusteredGeometry {
             const pool = clas.createStorage(perBlas * blasCount, "Animated: BLAS pool (sphere + clones)");
             this.animatedBlasPool = pool;
             this.animatedBlasScratch = clas.createBuffer(fmax(batchSizes[1], 256.0), "Animated: BLAS scratch");
+            this.stats.animatedBytes = templateSizes[0] + instantiateSizes[0] + perBlas * blasCount;
             const clasArray = this.address(animatedClasAddresses, 0.0);
             const args: int[] = [];
             const destinations: int[] = [];
@@ -1678,6 +2446,9 @@ namespace ClusteredGeometry {
             const indices: int[] = [];
             const offsets: int[] = [];
             scene.sideBuffers(normals, indices, offsets);
+            const triangles: int[] = [];
+            const geometryBases: int[] = [];
+            scene.traditionalTables(triangles, geometryBases);
             const materials: f32[] = [];
             for (const value of MATERIALS) {
                 materials.push(value);
@@ -1690,9 +2461,8 @@ namespace ClusteredGeometry {
             const indexBuffer = app.createRawBuffer(indices.length * 4, "Cluster indices");
             const offsetBuffer = app.createRawBuffer(offsets.length * 4, "Cluster vert/idx offset table");
             const metaBuffer = app.createRawBuffer(meta.length * 4, "Per-cluster metadata");
-            // The traditional path's cluster ID tables (the clustered path's shaders don't read them).
-            const traditionalTriangles = app.createRawBuffer(16, "Traditional tri-to-cid (unused)");
-            const traditionalBases = app.createRawBuffer(16, "Traditional geom tri-base (unused)");
+            const triangleBuffer = app.createRawBuffer(triangles.length * 4, "Traditional per-triangle (cid, localPrim) lookup");
+            const geometryBaseBuffer = app.createRawBuffer(geometryBases.length * 4, "Traditional per-(InstIdx, GeomIdx) tri-base table");
             const perInstanceBuffer = app.createRawBuffer(perInstanceMaterials.length * 4, "Per-(InstIdx, GeomIdx) materials");
             const overrideBuffer = app.createStructuredBuffer(4, overrides.length, "Per-instance material overrides");
             commandList.writeBuffer(materialBuffer, Ref(materials[0]), materials.length * 4);
@@ -1700,20 +2470,26 @@ namespace ClusteredGeometry {
             commandList.writeBuffer(indexBuffer, Ref(indices[0]), indices.length * 4);
             commandList.writeBuffer(offsetBuffer, Ref(offsets[0]), offsets.length * 4);
             commandList.writeBuffer(metaBuffer, Ref(meta[0]), meta.length * 4);
+            commandList.writeBuffer(triangleBuffer, Ref(triangles[0]), triangles.length * 4);
+            commandList.writeBuffer(geometryBaseBuffer, Ref(geometryBases[0]), geometryBases.length * 4);
             commandList.writeBuffer(perInstanceBuffer, Ref(perInstanceMaterials[0]), perInstanceMaterials.length * 4);
             commandList.writeBuffer(overrideBuffer, Ref(overrides[0]), overrides.length * 4);
-            this.shaderBuffers = [materialBuffer, normalBuffer, indexBuffer, offsetBuffer, metaBuffer, traditionalTriangles,
-                traditionalBases, perInstanceBuffer, overrideBuffer];
+            this.shaderBuffers = [materialBuffer, normalBuffer, indexBuffer, offsetBuffer, metaBuffer, triangleBuffer,
+                geometryBaseBuffer, perInstanceBuffer, overrideBuffer];
 
-            // The instances: the static objects' BLASes in their pool, the animated ones in theirs.
+            // The instances' BLASes: the static ones (a pool, or the traditional BLASes), the animated
+            // sphere's and its clones' (a pool, or their BLASes).
             const blasAddresses: int[] = [];
+            const traditional = this.settings.traditional;
             for (let i = 0; i < scene.objects.length; i++) {
-                const a = this.address(this.staticBlasPool as BufferHandle, this.staticBlasOffsets[i]);
+                const a = traditional ? this.accelStructAddress(this.traditionalBlases[i])
+                    : this.address(this.staticBlasPool as BufferHandle, this.staticBlasOffsets[i]);
                 blasAddresses.push(a[0]);
                 blasAddresses.push(a[1]);
             }
             for (let k = 0; k <= scene.animatedClones.length; k++) {
-                const a = this.address(this.animatedBlasPool as BufferHandle, k * this.animatedBlasSize);
+                const a = traditional ? this.accelStructAddress(this.traditionalAnimatedBlases[k])
+                    : this.address(this.animatedBlasPool as BufferHandle, k * this.animatedBlasSize);
                 blasAddresses.push(a[0]);
                 blasAddresses.push(a[1]);
             }
@@ -1721,12 +2497,18 @@ namespace ClusteredGeometry {
             const instanceBuffer = this.clas.createBuffer(instances.length * 4, "TLAS instance descs");
             commandList.writeBuffer(instanceBuffer, Ref(instances[0]), instances.length * 4);
             this.tlasInstances = instanceBuffer;
-            this.tlas = this.clas.createTlas(scene.instanceCount(), AccelStructBuildFlags.PreferFastTrace, "TLAS");
-            this.sceneConstantBuffer = app.createConstantBuffer(256, "Scene constants");
+            this.tlas = this.clas.createTlas(scene.instanceCount(), buildFlags(this.settings.buildFlagMode), "TLAS");
+            this.stats.tlasInstances = scene.instanceCount();
 
             if (this.settings.dumpScenePath != "") {
                 this.dumpScene(meta, normals, indices, offsets, perInstanceMaterials, overrides, instances);
             }
+        }
+
+        private accelStructAddress(blas: TriangleBlas): int[] {
+            const result = [0, 0];
+            this.clas.getAccelStructAddress(blas.getAccelStruct(), Ref(result[0]));
+            return result;
         }
 
         // -dumpScene: the tables the reference's dump hooks write, for a script to compare.
@@ -1754,7 +2536,7 @@ namespace ClusteredGeometry {
                     rest.push(p);
                 }
             }
-            const cb = sceneConstants(1280, 720, 0.0, 0.0, false);
+            const cb = sceneConstants(1280, 720, 0.0, 0.0, this.settings);
             Donut_WriteBinaryFile(`${dir}/positions.bin`, Ref(positions[0]), positions.length * 4);
             Donut_WriteBinaryFile(`${dir}/clasargs.bin`, Ref(clasArgs[0]), clasArgs.length * 4);
             Donut_WriteBinaryFile(`${dir}/normals.bin`, Ref(normals[0]), normals.length * 4);
@@ -1766,66 +2548,6 @@ namespace ClusteredGeometry {
             Donut_WriteBinaryFile(`${dir}/overrides.bin`, Ref(overrides[0]), overrides.length * 4);
             Donut_WriteBinaryFile(`${dir}/pergeommat.bin`, Ref(perInstanceMaterials[0]), perInstanceMaterials.length * 4);
             Donut_WriteBinaryFile(`${dir}/scenecb.bin`, Ref(cb[0]), cb.length * 4);
-        }
-
-        // CreateRaytracingPipelineAndShaderTables: RayGen, Miss, ShadowMiss; the opaque, glass, wireframe
-        // and (empty) shadow hit groups; clustered geometry allowed. The hit group table: the opaque
-        // block, then glass blocks up to every contribution + geometry index (a shadow record after each
-        // primary); wireframe mode's table all wireframe records.
-        private createRayTracingPipeline() {
-            const shaderLibrary = this.app.createShaderLibrary("clustered_geometry/Raytracing.hlsl");
-            if (!shaderLibrary) {
-                return false;
-            }
-            const layoutDesc = BindingLayoutDesc.create();
-            layoutDesc.layoutTextureUAV(0);
-            layoutDesc.layoutAccelStruct(0);
-            layoutDesc.layoutConstantBuffer(0);
-            layoutDesc.layoutStructuredBufferSRV(1);
-            for (let t = 2; t <= 8; t++) {
-                layoutDesc.layoutRawBufferSRV(t);
-            }
-            layoutDesc.layoutStructuredBufferSRV(9);
-            const layout = this.app.createBindingLayout(layoutDesc, ShaderType.All);
-            this.rayTracingLayout = layout;
-
-            const pipelineDesc = RtPipelineDesc.create(PAYLOAD_SIZE, MAX_RECURSION_DEPTH);
-            pipelineDesc.setMaxAttributeSize(ATTRIBUTE_SIZE);
-            pipelineDesc.addGlobalBindingLayout(layout);
-            pipelineDesc.addShader(shaderLibrary, "RayGen", ShaderType.RayGeneration);
-            pipelineDesc.addShader(shaderLibrary, "Miss", ShaderType.Miss);
-            pipelineDesc.addShader(shaderLibrary, "ShadowMiss", ShaderType.Miss);
-            pipelineDesc.addHitGroup(shaderLibrary, "OpaqueHitGroup", "OpaqueHit", "", null);
-            pipelineDesc.addHitGroup(shaderLibrary, "GlassHitGroup", "GlassHit", "GlassAnyHit", null);
-            pipelineDesc.addHitGroup(shaderLibrary, "WireframeHitGroup", "WireframeHit", "WireframeAnyHit", null);
-            pipelineDesc.addHitGroup(shaderLibrary, "ShadowHitGroup", "", "", null);
-            pipelineDesc.setAllowClusteredGeometry(true);
-            const pipeline = this.app.createRayTracingPipelineFromDesc(pipelineDesc);
-            if (!pipeline) {
-                return false;
-            }
-            this.shaderTable = this.createShaderTable(pipeline, false);
-            this.wireframeTable = this.createShaderTable(pipeline, true);
-            // The shader tables keep the pipeline alive.
-            this.app.releaseResource(pipeline);
-            return true;
-        }
-
-        private createShaderTable(pipeline: RtPipelineHandle, wireframe: boolean): ShaderTable {
-            const table = this.app.createEmptyShaderTable(pipeline);
-            table.setRayGeneration("RayGen");
-            table.addMiss("Miss");
-            table.addMiss("ShadowMiss");
-            for (let record = 0; record < HIT_GROUP_RECORDS; record++) {
-                if (wireframe) {
-                    table.addHitGroup("WireframeHitGroup", null);
-                } else if (record % 2 == 1) {
-                    table.addHitGroup("ShadowHitGroup", null);
-                } else {
-                    table.addHitGroup(record == 0 ? "OpaqueHitGroup" : "GlassHitGroup", null);
-                }
-            }
-            return table;
         }
 
         onBackBufferResizing() {
@@ -1841,13 +2563,14 @@ namespace ClusteredGeometry {
             }
         }
 
-        private createOutput(frame: Frame) {
-            // UNORM, in the back buffer's channel order, for the copy to the frame.
-            const output = this.app.createUAVTextureForFrameCopy(frame, "Raytracing output");
-            this.output = output;
+        private createRayTracingSet(frame: Frame) {
+            if (!this.output) {
+                // UNORM, in the back buffer's channel order, for the copy to the frame.
+                this.output = this.app.createUAVTextureForFrameCopy(frame, "Raytracing output");
+            }
             const b = this.shaderBuffers;
             const desc = BindingSetDesc.create();
-            desc.bindTextureUAV(0, output);
+            desc.bindTextureUAV(0, this.output as TextureHandle);
             desc.bindAccelStruct(0, this.tlas as AccelStructHandle);
             desc.bindConstantBuffer(0, this.sceneConstantBuffer as BufferHandle, 0, 256);
             desc.bindStructuredBufferSRV(1, b[0]);
@@ -1858,65 +2581,177 @@ namespace ClusteredGeometry {
             this.rayTracingSet = this.app.createBindingSetForLayout(desc, this.rayTracingLayout as BindingLayoutHandle);
         }
 
+        // The sample's scheduled actions (OnRender), as the keys and settings they stand for.
+        private runAction(action: string) {
+            const s = this.settings;
+            if (action == "alloc-implicit" || action == "alloc-getsizes" || action == "alloc-compact") {
+                s.clasAllocMode = action == "alloc-implicit" ? 0 : action == "alloc-getsizes" ? 1 : 2;
+                this.requestRebuild(false);
+            } else if (action == "rebuild-none" || action == "rebuild-blas" || action == "rebuild-clas-blas") {
+                s.rebuildMode = action == "rebuild-none" ? 0 : action == "rebuild-blas" ? 1 : 2;
+            } else if (action == "geom-clusters" || action == "geom-traditional") {
+                s.traditional = action == "geom-traditional";
+                this.requestRebuild(false);
+            } else if (action == "trad-implicit" || action == "trad-compact") {
+                s.traditionalCompact = action == "trad-compact";
+                this.requestRebuild(false);
+            } else if (action == "anim-rebuild" || action == "anim-refit") {
+                s.traditionalRefit = action == "anim-refit";
+                this.requestRebuild(false);
+            } else if (action == "extra-none" || action == "extra-100" || action == "extra-1k" || action == "extra-1000"
+                || action == "extra-10k" || action == "extra-10000") {
+                s.extraInstances = action == "extra-none" ? 0 : action == "extra-100" ? 100
+                    : action == "extra-1k" || action == "extra-1000" ? 1000 : 10000;
+                this.requestRebuild(true);
+            } else if (action == "flags-none" || action == "flags-fast-build" || action == "flags-fast-trace") {
+                s.buildFlagMode = action == "flags-none" ? 0 : action == "flags-fast-build" ? 1 : 2;
+                this.requestRebuild(false);
+            } else if (action == "wireframe") {
+                s.wireframe = !s.wireframe;
+            }
+        }
+
         onAnimate(elapsedSeconds: number) {
             const settings = this.settings;
+            for (let i = 0; i < settings.scheduledFrames.length; i++) {
+                if (settings.scheduledFrames[i] == this.frameIndex) {
+                    this.runAction(settings.scheduledActions[i]);
+                }
+            }
             if (!settings.animationPaused) {
                 this.animationSeconds += elapsedSeconds;
             }
             if (!settings.cameraPaused) {
                 this.cameraSeconds += elapsedSeconds;
             }
+            if (this.rebuildPending) {
+                this.rebuildPending = false;
+                this.rebuild();
+            }
         }
 
-        // [W] wireframe, [Space] camera motion, [M] animation.
+        private requestRebuild(regenerateScene: boolean) {
+            this.rebuildPending = true;
+            this.regenerateScene = this.regenerateScene || regenerateScene;
+        }
+
+        // OnKeyDown: [Space] camera, [M] animation, [A] allocation mode, [P] vertex format, [L] animated
+        // detail, [R] per-frame rebuilds, [T] geometry path, [F] traditional refit, [N] clones, [B] build
+        // flags, [, .] bounces, [/] rays per pixel, [W] wireframe, [[ ]] precision.
         onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods): int {
             if (action != Action.Press) {
                 return 0;
             }
-            const settings = this.settings;
-            if (key == Key.W) {
-                settings.wireframe = !settings.wireframe;
-            } else if (key == Key.Space) {
-                settings.cameraPaused = !settings.cameraPaused;
+            const s = this.settings;
+            if (key == Key.Space) {
+                s.cameraPaused = !s.cameraPaused;
             } else if (key == Key.M) {
-                settings.animationPaused = !settings.animationPaused;
+                s.animationPaused = !s.animationPaused;
+            } else if (key == Key.A) {
+                if (s.traditional) {
+                    s.traditionalCompact = !s.traditionalCompact;
+                } else {
+                    s.clasAllocMode = (s.clasAllocMode + 1) % 3;
+                }
+                this.requestRebuild(false);
+            } else if (key == Key.P) {
+                s.compressed = !s.compressed;
+                this.requestRebuild(false);
+            } else if (key == Key.L) {
+                s.lowDetail = !s.lowDetail;
+                this.requestRebuild(true);
+            } else if (key == Key.R) {
+                if (!s.traditional) {
+                    s.rebuildMode = (s.rebuildMode + 1) % 3;
+                }
+            } else if (key == Key.T) {
+                s.traditional = !s.traditional;
+                this.requestRebuild(false);
+            } else if (key == Key.F) {
+                if (s.traditional) {
+                    s.traditionalRefit = !s.traditionalRefit;
+                    this.requestRebuild(false);
+                }
+            } else if (key == Key.N) {
+                s.extraInstances = s.extraInstances == 0 ? 100 : s.extraInstances == 100 ? 1000 : s.extraInstances == 1000 ? 10000 : 0;
+                this.requestRebuild(true);
+            } else if (key == Key.B) {
+                s.buildFlagMode = (s.buildFlagMode + 1) % 3;
+                this.requestRebuild(false);
+            } else if (key == Key.Comma) {
+                s.bounceSlider = s.bounceSlider > -2 ? s.bounceSlider - 1 : s.bounceSlider;
+            } else if (key == Key.Period) {
+                s.bounceSlider = s.bounceSlider < 5 ? s.bounceSlider + 1 : s.bounceSlider;
+            } else if (key == Key.Slash) {
+                s.raysPerPixel = s.raysPerPixel == 1 ? 2 : s.raysPerPixel == 2 ? 4 : 1;
+            } else if (key == Key.W) {
+                s.wireframe = !s.wireframe;
+            } else if (key == Key.LeftBracket || key == Key.RightBracket) {
+                const less = key == Key.LeftBracket;
+                if (s.compressed) {
+                    s.compressedBits = less ? (s.compressedBits > 1 ? s.compressedBits - 1 : 1) : (s.compressedBits < 16 ? s.compressedBits + 1 : 16);
+                } else {
+                    s.positionTruncateBits = less ? (s.positionTruncateBits < 23 ? s.positionTruncateBits + 1 : 23)
+                        : (s.positionTruncateBits > 0 ? s.positionTruncateBits - 1 : 0);
+                }
+                this.requestRebuild(false);
             } else {
                 return 0;
             }
             return 1;
         }
 
-        // DoRender: the animated sphere deformed, its CLASes instantiated and its BLASes (and its
-        // clones') rebuilt, the TLAS rebuilt, the rays dispatched, the output copied to the frame.
+        // DoRender: the animated sphere deformed and its structures updated (instantiated CLASes and
+        // cluster BLASes, or classic BLASes rebuilt or refitted), the static ones rebuilt per [R], the
+        // TLAS rebuilt, the rays dispatched, the output copied to the frame.
         onRender(frameHandle: FrameHandle) {
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const width = frame.getWidth();
             const height = frame.getHeight();
             if (this.rayTracingSet.isNull()) {
-                this.createOutput(frame);
+                this.createRayTracingSet(frame);
             }
             const settings = this.settings;
-            this.sceneData = sceneConstants(width, height, this.cameraSeconds, this.animationSeconds, settings.wireframe);
+            this.sceneData = sceneConstants(width, height, this.cameraSeconds, this.animationSeconds, settings);
             commandList.writeBuffer(this.sceneConstantBuffer as BufferHandle, Ref(this.sceneData[0]), SCENE_CONSTANTS_SIZE);
 
             const clas = this.clas;
             this.animateData[0] = f(this.animationSeconds);
             this.dispatchAnimate(commandList, this.scene.animated.totalVertices);
-            clas.executeOperation(commandList.handle, Ref(this.instantiateParams[0]), this.instantiateArgs as BufferHandle, 0.0,
-                INSTANTIATE_ARGS_SIZE, null, this.animatedClasStorage, this.animatedClasScratch as BufferHandle,
-                this.animatedClasAddresses, 0.0, null, 0.0, this.animatedVertices, this.templateStorage);
-            clas.executeOperation(commandList.handle, Ref(this.animatedBlasParams[0]), this.animatedBlasArgs as BufferHandle, 0.0,
-                BLAS_ARGS_SIZE, null, this.animatedBlasPool, this.animatedBlasScratch as BufferHandle,
-                this.animatedBlasDestinations, 0.0, null, 0.0, this.animatedClasAddresses, this.animatedClasStorage);
+            if (settings.traditional) {
+                // UpdateAnimatedTradPerFrame: refitted once built, else built anew.
+                for (const blas of this.traditionalAnimatedBlases) {
+                    if (settings.traditionalRefit) {
+                        blas.update(commandList);
+                    } else {
+                        blas.rebuild(commandList);
+                    }
+                }
+            } else {
+                clas.executeOperation(commandList.handle, Ref(this.instantiateParams[0]), this.instantiateArgs as BufferHandle, 0.0,
+                    INSTANTIATE_ARGS_SIZE, null, this.animatedClasStorage, this.animatedClasScratch as BufferHandle,
+                    this.animatedClasAddresses, 0.0, null, 0.0, this.animatedVertices, this.templateStorage);
+                clas.executeOperation(commandList.handle, Ref(this.animatedBlasParams[0]), this.animatedBlasArgs as BufferHandle, 0.0,
+                    BLAS_ARGS_SIZE, null, this.animatedBlasPool, this.animatedBlasScratch as BufferHandle,
+                    this.animatedBlasDestinations, 0.0, null, 0.0, this.animatedClasAddresses, this.animatedClasStorage);
+                if (settings.rebuildMode == 2 && settings.clasAllocMode == 0) {
+                    this.executeStaticClases(commandList);
+                }
+                if (settings.rebuildMode != 0) {
+                    this.executeStaticBlases(commandList);
+                }
+            }
             clas.buildTlas(commandList.handle, this.tlas as AccelStructHandle, this.tlasInstances as BufferHandle,
-                this.scene.instanceCount(), AccelStructBuildFlags.PreferFastTrace);
+                this.scene.instanceCount(), buildFlags(settings.buildFlagMode));
 
-            frame.dispatchRays(settings.wireframe ? this.wireframeTable : this.shaderTable, this.rayTracingSet, width, height);
+            const tables = settings.traditional ? this.traditionalTables : this.clusteredTables;
+            frame.dispatchRays(settings.wireframe ? tables.wireframe : tables.solid, this.rayTracingSet, width, height);
             const output = this.output;
             if (output) {
                 frame.copyTextureToFrame(output);
             }
+            this.frameIndex++;
         }
 
         private dispatchAnimate(commandList: CommandList, vertexCount: int) {
@@ -1944,35 +2779,156 @@ namespace ClusteredGeometry {
         return opaque ? CLUSTER_FLAG_OPAQUE : 0;
     }
 
+    function megabytes(bytes: number): string {
+        return formatFixed(bytes / (1024.0 * 1024.0), 2);
+    }
+
+    // The overlay: the settings with their keys, the last build's sizes.
+    class UserInterface {
+        private pass: ClusteredGeometryPass;
+        private settings: Settings;
+        private fps: number = 0.0;
+
+        constructor(pass: ClusteredGeometryPass, settings: Settings) {
+            this.pass = pass;
+            this.settings = settings;
+        }
+
+        init(app: App) {
+            return !app.addImGuiPass(this.buildUI).isNull();
+        }
+
+        buildUI() {
+            const s = this.settings;
+            const stats = this.pass.stats;
+            ImGui.setNextWindowPos(10.0, 10.0);
+            ImGui.begin("Clustered Geometry", true);
+            const allocNames = ["implicit-dest", "get-sizes + explicit", "implicit-dest + post-build compact"];
+            const flagNames = ["NONE", s.traditional ? "FAST_BUILD" : "FAST_OPERATION", "FAST_TRACE"];
+            const rebuildNames = ["off", "BLAS only", "CLAS + BLAS"];
+            ImGui.text(`[T] geometry path: ${s.traditional ? "traditional" : "clustered"}`);
+            if (s.traditional) {
+                ImGui.text(`[A] BLAS alloc: ${s.traditionalCompact ? "post-build compact" : "implicit (no compaction)"}`);
+                ImGui.text(`[F] animated BLAS: ${s.traditionalRefit ? "refit" : "rebuild"}`);
+            } else {
+                ImGui.text(`[A] CLAS alloc mode: ${allocNames[s.clasAllocMode]}`);
+                ImGui.text(`[R] per-frame static-AS rebuild: ${rebuildNames[s.rebuildMode]}`);
+                ImGui.text(`[P] vertex format: ${s.compressed ? "COMPRESSED1" : "FLOAT32_3"}`);
+                ImGui.text(s.compressed ? `[ ] vertex precision: ${s.compressedBits} bits/component`
+                    : `[ ] vertex precision: ${32 - s.positionTruncateBits} bits (PositionTruncateBitCount=${s.positionTruncateBits})`);
+            }
+            ImGui.text(`[B] BVH build flag: ${flagNames[s.buildFlagMode]}`);
+            ImGui.text(`[N] extra instances: ${s.extraInstances}`);
+            ImGui.text(`[, .] ray bounces: reflection ${s.reflectionBounces()}, refraction ${s.refractionBounces()}`);
+            ImGui.text(`[/] rays/pixel: ${s.raysPerPixel}`);
+            ImGui.text(`[L] animated detail: ${s.lowDetail ? "LOW" : "FULL"}`);
+            ImGui.text(`[W] wireframe: ${s.wireframe ? "ON" : "OFF"}`);
+            ImGui.text(`[M] animation: ${s.animationPaused ? "paused" : "playing"}  [Space] camera: ${s.cameraPaused ? "paused" : "playing"}`);
+            ImGui.separator();
+            if (!s.traditional) {
+                ImGui.text(`${stats.staticClusters} static CLASes (${stats.staticTriangles} triangles), ${stats.animatedClusters} animated`);
+                ImGui.text(`CLASes ${megabytes(stats.clasAllocatedBytes)} MB alloc (${megabytes(stats.clasActualBytes)} MB actual)`);
+                ImGui.text(`cluster BLASes ${megabytes(stats.blasBytes)} MB, animated ${megabytes(stats.animatedBytes)} MB`);
+            } else {
+                ImGui.text(`${stats.staticTriangles} static triangles in classic BLASes`);
+            }
+            ImGui.text(`${stats.tlasInstances} TLAS instances; last build ${formatFixed(stats.buildMilliseconds, 0)} ms`);
+            ImGui.end();
+        }
+    }
+
     class ClusteredGeometryArgs extends Args {
-        // -extraInstances 0|100|1000|10000 (the sample's --extra-instances), -wireframe, -cameraPaused,
-        // -animPaused (both paused in test mode, as the reference runs), -dumpScene <dir>.
+        // The sample's options: -extraInstances 0|100|1000|10000, -geometryMode clusters|traditional,
+        // -vertexFormat float|compressed, -compressedBits 1..16, -positionTruncate 0..22, -clasAlloc
+        // implicit|get-sizes|compact, -tradAlloc implicit|compact, -tradAnim rebuild|refit, -rebuildMode
+        // none|blas|clas-blas, -buildFlags none|fast-build|fast-trace, -raysPerPixel 1|2|4,
+        // -animatedDetail full|low, -clusterTint 0..1, -bounces -2..5 (the slider), -wireframe,
+        // -cameraPaused, -animPaused (both paused in test mode, as the reference runs), -dumpScene <dir>,
+        // -at <frame>:<action> (alloc-*, rebuild-*, geom-*, trad-*, anim-*, extra-*, flags-*, wireframe),
+        // -overlay (the overlay in test mode too).
         settings = new Settings();
 
         protected parseOptions() {
-            const settings = this.settings;
+            const s = this.settings;
             for (let i = 1; i < this.argc; i++) {
                 const arg = this[i];
+                const hasValue = i + 1 < this.argc;
+                const value = hasValue ? this[i + 1] : "";
                 if (arg == "-wireframe") {
-                    settings.wireframe = true;
+                    s.wireframe = true;
+                } else if (arg == "-overlay") {
+                    s.overlay = true;
                 } else if (arg == "-cameraPaused") {
-                    settings.cameraPaused = true;
+                    s.cameraPaused = true;
                 } else if (arg == "-animPaused") {
-                    settings.animationPaused = true;
-                } else if (arg == "-extraInstances" && i + 1 < this.argc) {
+                    s.animationPaused = true;
+                } else if (!hasValue) {
+                    continue;
+                } else if (arg == "-extraInstances") {
+                    const n = parseInt(value);
+                    s.extraInstances = n >= 10000 ? 10000 : n >= 1000 ? 1000 : n >= 100 ? 100 : 0;
                     i++;
-                    const n = parseInt(this[i]);
-                    settings.extraInstances = n >= 10000 ? 10000 : n >= 1000 ? 1000 : n >= 100 ? 100 : 0;
-                } else if (arg == "-dumpScene" && i + 1 < this.argc) {
+                } else if (arg == "-geometryMode") {
+                    s.traditional = value == "traditional";
                     i++;
-                    settings.dumpScenePath = this[i];
+                } else if (arg == "-vertexFormat") {
+                    s.compressed = value == "compressed";
+                    i++;
+                } else if (arg == "-compressedBits") {
+                    const n = parseInt(value);
+                    s.compressedBits = n < 1 ? 1 : n > 16 ? 16 : n;
+                    i++;
+                } else if (arg == "-positionTruncate") {
+                    const n = parseInt(value);
+                    s.positionTruncateBits = n < 0 ? 0 : n > 22 ? 22 : n;
+                    i++;
+                } else if (arg == "-clasAlloc") {
+                    s.clasAllocMode = value == "implicit" ? 0 : value == "get-sizes" ? 1 : 2;
+                    i++;
+                } else if (arg == "-tradAlloc") {
+                    s.traditionalCompact = value != "implicit";
+                    i++;
+                } else if (arg == "-tradAnim") {
+                    s.traditionalRefit = value == "refit";
+                    i++;
+                } else if (arg == "-rebuildMode") {
+                    s.rebuildMode = value == "blas" ? 1 : value == "clas-blas" ? 2 : 0;
+                    i++;
+                } else if (arg == "-buildFlags") {
+                    s.buildFlagMode = value == "none" ? 0 : value == "fast-build" ? 1 : 2;
+                    i++;
+                } else if (arg == "-raysPerPixel") {
+                    const n = parseInt(value);
+                    s.raysPerPixel = n <= 1 ? 1 : n <= 2 ? 2 : 4;
+                    i++;
+                } else if (arg == "-animatedDetail") {
+                    s.lowDetail = value == "low";
+                    i++;
+                } else if (arg == "-clusterTint") {
+                    const t = parseFloat(value);
+                    s.clusterTint = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : f(t);
+                    i++;
+                } else if (arg == "-bounces") {
+                    const n = parseInt(value);
+                    s.bounceSlider = n < -2 ? -2 : n > 5 ? 5 : n;
+                    i++;
+                } else if (arg == "-dumpScene") {
+                    s.dumpScenePath = value;
+                    i++;
+                } else if (arg == "-at") {
+                    const colon = value.indexOf(":");
+                    if (colon > 0) {
+                        s.scheduledFrames.push(parseInt(value.substring(0, colon)));
+                        s.scheduledActions.push(value.substring(colon + 1));
+                    }
+                    i++;
                 }
             }
         }
     }
 
     // -test: checks the last frame: the sky at the top corners, and the clusters' colors.
-    function checkFrame(app: App) {
+    function checkFrame(app: App, settings: Settings) {
         const check = new TestCheck(app);
         const failure = check.frameRead();
         if (failure != "") {
@@ -1980,8 +2936,8 @@ namespace ClusteredGeometry {
         }
         const w = check.width;
         const h = check.height;
-        if (check.countInRange(20, 90, 60, 130, 140, 210, 0, 0, 1, 1) != 1
-            || check.countInRange(20, 90, 60, 130, 140, 210, w - 1, 0, 1, 1) != 1) {
+        if (!settings.wireframe && (check.countInRange(20, 90, 60, 130, 140, 210, 0, 0, 1, 1) != 1
+            || check.countInRange(20, 90, 60, 130, 140, 210, w - 1, 0, 1, 1) != 1)) {
             const p = check.rgb(0, 0);
             return `the top corners aren't the sky: ${p & 0xFF}, ${(p >> 8) & 0xFF}, ${(p >> 16) & 0xFF}`;
         }
@@ -2024,16 +2980,23 @@ namespace ClusteredGeometry {
             app.destroy();
             return unsupported(args.test, "The graphics device does not support clustered geometry (CLASes and shader model 6.10)");
         }
+        clas.destroy();
         console.log(`Renderer: ${app.getRendererString()}`);
 
         const scene = new Scene();
-        scene.build(app, settings.extraInstances);
+        scene.build(app, settings.extraInstances, settings.lowDetail);
         console.log(`${scene.objects.length} objects (${scene.sourceCount} + clones), ${scene.totalClusterCount} static clusters, `
             + `${scene.animated.clusters.length} animated clusters, ${scene.animatedClones.length} animated clones`);
 
-        const pass = new ClusteredGeometryPass(app, clas, scene, settings);
+        const pass = new ClusteredGeometryPass(app, Clas.create(app.getNvrhiDevice()), scene, settings);
         if (!pass.init()) {
-            clas.destroy();
+            app.destroy();
+            return 1;
+        }
+        // Drawn after (over) the scene.
+        const gui = new UserInterface(pass, settings);
+        if (!args.noUI && (!args.test || settings.overlay) && !gui.init(app)) {
+            console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;
         }
@@ -2042,10 +3005,10 @@ namespace ClusteredGeometry {
         app.run();
         let result = 0;
         if (args.test) {
-            result = app.finishTest(checkFrame(app));
+            result = app.finishTest(checkFrame(app, settings));
         }
         app.waitForIdle();
-        clas.destroy();
+        pass.destroy();
         app.destroy();
         return result;
     }

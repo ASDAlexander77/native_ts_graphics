@@ -428,6 +428,25 @@ extern "C"
         return clas->Own(tlas);
     }
 
+    // Stores the GPU address of an acceleration structure (a BLAS for an instance buffer's
+    // D3D12_RAYTRACING_INSTANCE_DESC) at dst[0] (low 32 bits) and dst[1] (high).
+    DONUT_API void Donut_GetClasAccelStructAddress(Clas* clas, nvrhi::rt::IAccelStruct* accelStruct, int* dst)
+    {
+        (void)clas;
+        const uint64_t address = accelStruct->getDeviceAddress();
+        dst[0] = int(uint32_t(address));
+        dst[1] = int(uint32_t(address >> 32));
+    }
+
+    // Records the compaction of the BLASes built with AllowCompaction whose compacted sizes the GPU has
+    // reported since (their builds executed and finished): NVRHI copies each into a buffer of that size,
+    // so their addresses change.
+    DONUT_API void Donut_CompactClasBlases(Clas* clas, nvrhi::ICommandList* commandList)
+    {
+        (void)clas;
+        commandList->compactBottomLevelAccelStructs();
+    }
+
     // Records a build of `tlas` from the first instanceCount instances of `instances`.
     DONUT_API void Donut_BuildClasTlas(Clas* clas, nvrhi::ICommandList* commandList, nvrhi::rt::IAccelStruct* tlas,
         nvrhi::IBuffer* instances, int instanceCount, int buildFlags)
