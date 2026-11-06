@@ -42,11 +42,13 @@ export class NriSlider {
         const h = this.height;
         NriImgui.drawRect(this.left, this.top - 2.0, this.x1 + h, this.top + h + 2.0, 0.08, 0.08, 0.1, 0.8);
         NriImgui.drawText(this.left + 8.0, this.top + (h - labelHeight) * 0.5 + 2.0, label, 1.0, 1.0, 1.0, 1.0, 0);
+        // (the track and knob grow with the row: a finger's on a phone)
         const mid = this.top + h * 0.5;
-        NriImgui.drawRect(this.x0, mid - 2.0, this.x1, mid + 2.0, 0.45, 0.45, 0.5, 1.0);
+        const track = Math.max(2.0, h * 0.05);
+        NriImgui.drawRect(this.x0, mid - track, this.x1, mid + track, 0.45, 0.45, 0.5, 1.0);
         const knobX = this.x0 + fraction * (this.x1 - this.x0);
         const knob = h * 0.3;
-        NriImgui.drawRect(this.x0, mid - 2.0, knobX, mid + 2.0, 0.95, 0.95, 0.95, 1.0);
+        NriImgui.drawRect(this.x0, mid - track, knobX, mid + track, 0.95, 0.95, 0.95, 1.0);
         NriImgui.drawRect(knobX - knob, mid - knob * 1.4, knobX + knob, mid + knob * 1.4, 0.95, 0.95, 0.95, 1.0);
     }
 }
