@@ -58,6 +58,8 @@ namespace
     constexpr int PtlasFlag_FastTrace = 1;
     constexpr int PtlasFlag_FastBuild = 2;
     constexpr int PtlasFlag_PartitionTranslation = 4;
+    // Not an API flag: the reference TLAS allows updates (Donut_UpdatePtlasReferenceTlas refits it).
+    constexpr int PtlasFlag_UpdatableReferenceTlas = 8;
 
     // The argument records of the three operations, the same size on both APIs.
     constexpr uint32_t WriteInstanceStride = 104;
@@ -176,6 +178,13 @@ struct Ptlas
     nvrhi::rt::AccelStructHandle referenceTlas;
     nvrhi::BufferHandle referenceInstances;
 
+    nvrhi::rt::AccelStructBuildFlags ReferenceTlasFlags() const
+    {
+        return (flags & PtlasFlag_UpdatableReferenceTlas) != 0
+            ? nvrhi::rt::AccelStructBuildFlags::PreferFastTrace | nvrhi::rt::AccelStructBuildFlags::AllowUpdate
+            : nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
+    }
+
     VkPartitionedAccelerationStructureFlagsNV VulkanFlags() const
     {
         VkPartitionedAccelerationStructureFlagsNV result{ VK_STRUCTURE_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_FLAGS_NV };
@@ -228,6 +237,66 @@ namespace
             .setDebugName(name);
         return device->createBuffer(desc);
     }
+}
+
+// Records a build of the PTLAS from the operation buffer's operations: from nothing the first time, in
+// place since.
+static void RecordPtlasBuild(Ptlas* ptlas, nvrhi::ICommandList* commandList)
+{
+    commandList->setBufferState(ptlas->operations, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(ptlas->writeInstanceArgs, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(ptlas->updateInstanceArgs, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(ptlas->translatePartitionArgs, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(ptlas->scratch, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(ptlas->storage, nvrhi::ResourceStates::AccelStructWrite);
+    commandList->commitBarriers();
+
+    const uint64_t storageAddress = ptlas->storage->getGpuVirtualAddress();
+    const uint64_t sourceAddress = ptlas->built ? storageAddress : 0;
+    const uint64_t operationsAddress = ptlas->operations->getGpuVirtualAddress();
+
+    if (ptlas->api == nvrhi::GraphicsAPI::VULKAN)
+    {
+        VkPartitionedAccelerationStructureFlagsNV vkFlags = ptlas->VulkanFlags();
+        VkBuildPartitionedAccelerationStructureInfoNV info{ VK_STRUCTURE_TYPE_BUILD_PARTITIONED_ACCELERATION_STRUCTURE_INFO_NV };
+        info.input = ptlas->VulkanInputs(vkFlags);
+        info.srcAccelerationStructureData = sourceAddress;
+        info.dstAccelerationStructureData = storageAddress;
+        info.scratchData = ptlas->scratch->getGpuVirtualAddress();
+        info.srcInfos = operationsAddress + OperationsOffset;
+        info.srcInfosCount = operationsAddress;
+        VkCommandBuffer commandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
+        ptlas->vk.cmdBuild(commandBuffer, &info);
+    }
+#if defined(DONUT_PTLAS_WITH_D3D12_PREVIEW)
+    else
+    {
+        ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
+        ID3D12CommandListRaytracing2* raytracingCommandList = nullptr;
+        if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&raytracingCommandList))))
+        {
+            donut::log::error("Donut_BuildPtlas: the command list has no ID3D12CommandListRaytracing2");
+            return;
+        }
+        D3D12_RTAS_PARTITIONED_TLAS_INPUTS_DESC ptlasInputs = ptlas->D3D12Inputs();
+        D3D12_RTAS_PARTITIONED_TLAS_OPERATION_DATA operationData = {};
+        operationData.SourceAccelerationStructureData = sourceAddress;
+        operationData.DestAccelerationStructureData = storageAddress;
+        operationData.ScratchAccelerationStructureData = ptlas->scratch->getGpuVirtualAddress();
+        operationData.IndirectPartitionedTlasOpCount = operationsAddress;
+        operationData.IndirectPartitionedTlasOps = operationsAddress + OperationsOffset;
+        D3D12_RTAS_OPERATION_DESC build = {};
+        FillD3D12Inputs(ptlasInputs, build.Inputs);
+        build.pPartitionedTlasOperationData = &operationData;
+        raytracingCommandList->ExecuteIndirectRTASOperations(1, &build, D3D12_EXECUTE_INDIRECT_RTAS_OPERATIONS_FLAG_NONE);
+        raytracingCommandList->Release();
+    }
+#endif
+    ptlas->built = true;
+
+    // Traces wait for the build (a UAV barrier on D3D12, which keeps both in one state).
+    commandList->setBufferState(ptlas->storage, nvrhi::ResourceStates::AccelStructRead);
+    commandList->commitBarriers();
 }
 
 extern "C"
@@ -333,6 +402,8 @@ extern "C"
             .setDebugName("PTLAS scratch"));
         ptlas->operations = nvrhiDevice->createBuffer(nvrhi::BufferDesc()
             .setByteSize(OperationsOffset + MaxOperations * sizeof(PtlasOperation))
+            // Shaders count their instance writes into it (Donut_ResetPtlasGpuWrites).
+            .setCanHaveUAVs(true)
             .setCanHaveRawViews(true)
             .setIsAccelStructBuildInput(true)
             .setInitialState(nvrhi::ResourceStates::AccelStructBuildInput)
@@ -345,7 +416,7 @@ extern "C"
 
         ptlas->referenceTlas = nvrhiDevice->createAccelStruct(nvrhi::rt::AccelStructDesc()
             .setTopLevelMaxInstances(size_t(instanceCount))
-            .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+            .setBuildFlags(ptlas->ReferenceTlasFlags())
             .setDebugName("Reference TLAS"));
         ptlas->referenceInstances = CreateArgumentBuffer(nvrhiDevice, uint64_t(instanceCount) * TlasInstanceStride, "Reference TLAS instances");
 
@@ -437,60 +508,42 @@ extern "C"
 
         commandList->writeBuffer(ptlas->operations, &data, sizeof(data));
 
-        commandList->setBufferState(ptlas->operations, nvrhi::ResourceStates::AccelStructBuildInput);
-        commandList->setBufferState(ptlas->writeInstanceArgs, nvrhi::ResourceStates::AccelStructBuildInput);
-        commandList->setBufferState(ptlas->updateInstanceArgs, nvrhi::ResourceStates::AccelStructBuildInput);
-        commandList->setBufferState(ptlas->translatePartitionArgs, nvrhi::ResourceStates::AccelStructBuildInput);
-        commandList->setBufferState(ptlas->scratch, nvrhi::ResourceStates::UnorderedAccess);
-        commandList->setBufferState(ptlas->storage, nvrhi::ResourceStates::AccelStructWrite);
-        commandList->commitBarriers();
+        RecordPtlasBuild(ptlas, commandList);
+    }
 
-        const uint64_t storageAddress = ptlas->storage->getGpuVirtualAddress();
-        const uint64_t sourceAddress = ptlas->built ? storageAddress : 0;
-        const uint64_t operationsAddress = ptlas->operations->getGpuVirtualAddress();
+    // The operation buffer (Donut_BuildPtlas's layout: a 4-byte operation count, then 24-byte
+    // operations from byte 8), a RWByteAddressBuffer. The Ptlas's: don't release it.
+    DONUT_API nvrhi::IBuffer* Donut_GetPtlasOperations(Ptlas* ptlas)
+    {
+        return ptlas->operations;
+    }
 
-        if (ptlas->api == nvrhi::GraphicsAPI::VULKAN)
+    // Records the operation buffer's reset to one instance-write operation of no arguments (over the
+    // write arguments, 104 bytes apart), for shaders to append writes to: each adds 1 to its argument
+    // count (InterlockedAdd at byte 12) and fills the record of the slot it got back. Then
+    // Donut_BuildPtlasFromOperations builds from the count the GPU left there.
+    DONUT_API void Donut_ResetPtlasGpuWrites(Ptlas* ptlas, nvrhi::ICommandList* commandList)
+    {
+        struct
         {
-            VkPartitionedAccelerationStructureFlagsNV vkFlags = ptlas->VulkanFlags();
-            VkBuildPartitionedAccelerationStructureInfoNV info{ VK_STRUCTURE_TYPE_BUILD_PARTITIONED_ACCELERATION_STRUCTURE_INFO_NV };
-            info.input = ptlas->VulkanInputs(vkFlags);
-            info.srcAccelerationStructureData = sourceAddress;
-            info.dstAccelerationStructureData = storageAddress;
-            info.scratchData = ptlas->scratch->getGpuVirtualAddress();
-            info.srcInfos = operationsAddress + OperationsOffset;
-            info.srcInfosCount = operationsAddress;
-            VkCommandBuffer commandBuffer = commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer);
-            ptlas->vk.cmdBuild(commandBuffer, &info);
-        }
-#if defined(DONUT_PTLAS_WITH_D3D12_PREVIEW)
-        else
-        {
-            ID3D12GraphicsCommandList* d3dCommandList = commandList->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList);
-            ID3D12CommandListRaytracing2* raytracingCommandList = nullptr;
-            if (!d3dCommandList || FAILED(d3dCommandList->QueryInterface(IID_PPV_ARGS(&raytracingCommandList))))
-            {
-                donut::log::error("Donut_BuildPtlas: the command list has no ID3D12CommandListRaytracing2");
-                return;
-            }
-            D3D12_RTAS_PARTITIONED_TLAS_INPUTS_DESC ptlasInputs = ptlas->D3D12Inputs();
-            D3D12_RTAS_PARTITIONED_TLAS_OPERATION_DATA operationData = {};
-            operationData.SourceAccelerationStructureData = sourceAddress;
-            operationData.DestAccelerationStructureData = storageAddress;
-            operationData.ScratchAccelerationStructureData = ptlas->scratch->getGpuVirtualAddress();
-            operationData.IndirectPartitionedTlasOpCount = operationsAddress;
-            operationData.IndirectPartitionedTlasOps = operationsAddress + OperationsOffset;
-            D3D12_RTAS_OPERATION_DESC build = {};
-            FillD3D12Inputs(ptlasInputs, build.Inputs);
-            build.pPartitionedTlasOperationData = &operationData;
-            raytracingCommandList->ExecuteIndirectRTASOperations(1, &build, D3D12_EXECUTE_INDIRECT_RTAS_OPERATIONS_FLAG_NONE);
-            raytracingCommandList->Release();
-        }
-#endif
-        ptlas->built = true;
+            uint32_t count;
+            uint32_t padding;
+            PtlasOperation operation;
+        } data = {};
+        static_assert(offsetof(decltype(data), operation) == OperationsOffset);
+        data.count = 1;
+        data.operation.type = 0;
+        data.operation.argCount = 0;
+        data.operation.argAddress = ptlas->writeInstanceArgs->getGpuVirtualAddress();
+        data.operation.argStride = WriteInstanceStride;
+        commandList->writeBuffer(ptlas->operations, &data, sizeof(data));
+    }
 
-        // Traces wait for the build (a UAV barrier on D3D12, which keeps both in one state).
-        commandList->setBufferState(ptlas->storage, nvrhi::ResourceStates::AccelStructRead);
-        commandList->commitBarriers();
+    // Records a build from the operations the operation buffer holds now (as Donut_ResetPtlasGpuWrites
+    // and shaders left them): even with no arguments, as only the GPU knows their counts.
+    DONUT_API void Donut_BuildPtlasFromOperations(Ptlas* ptlas, nvrhi::ICommandList* commandList)
+    {
+        RecordPtlasBuild(ptlas, commandList);
     }
 
     // The reference TLAS (Donut_BindAccelStruct) and its instance buffer (instanceCount of
@@ -510,6 +563,17 @@ extern "C"
     DONUT_API void Donut_BuildPtlasReferenceTlas(Ptlas* ptlas, nvrhi::ICommandList* commandList, int instanceCount)
     {
         commandList->buildTopLevelAccelStructFromBuffer(ptlas->referenceTlas, ptlas->referenceInstances, 0,
-            size_t(instanceCount), nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+            size_t(instanceCount), ptlas->ReferenceTlasFlags());
+    }
+
+    // Same, refitting it in place (refit non-zero; its instances moved, their count is the same) if it
+    // was created updatable (Donut_CreatePtlas's flag 8), else building it anew.
+    DONUT_API void Donut_UpdatePtlasReferenceTlas(Ptlas* ptlas, nvrhi::ICommandList* commandList, int instanceCount, int refit)
+    {
+        nvrhi::rt::AccelStructBuildFlags buildFlags = ptlas->ReferenceTlasFlags();
+        if (refit != 0 && (ptlas->flags & PtlasFlag_UpdatableReferenceTlas) != 0)
+            buildFlags = buildFlags | nvrhi::rt::AccelStructBuildFlags::PerformUpdate;
+        commandList->buildTopLevelAccelStructFromBuffer(ptlas->referenceTlas, ptlas->referenceInstances, 0,
+            size_t(instanceCount), buildFlags);
     }
 }

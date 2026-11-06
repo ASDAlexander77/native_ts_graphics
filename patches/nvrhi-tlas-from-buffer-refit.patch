@@ -1,0 +1,39 @@
+--- a/src/validation/validation-commandlist.cpp
++++ b/src/validation/validation-commandlist.cpp
+@@ -1858,6 +1858,12 @@
+             return;
+         }
+ 
++        if (wrapper)
++        {
++            wrapper->wasBuilt = true;
++            wrapper->buildInstances = numInstances;
++        }
++
+         m_CommandList->buildTopLevelAccelStructFromBuffer(underlyingAS, instanceBuffer, instanceBufferOffset, numInstances, buildFlags);
+     }
+ 
+--- a/src/d3d12/d3d12-raytracing.cpp
++++ b/src/d3d12/d3d12-raytracing.cpp
+@@ -2370,7 +2370,8 @@
+         AccelStruct* as = checked_cast<AccelStruct*>(_as);
+         
+         as->bottomLevelASes.clear();
+-        as->dxrInstances.clear();
++        // Sized to the build's instances (their data stays in the buffer): updates check the count.
++        as->dxrInstances.resize(numInstances);
+ 
+         if (m_EnableAutomaticBarriers)
+         {
+--- a/src/vulkan/vulkan-raytracing.cpp
++++ b/src/vulkan/vulkan-raytracing.cpp
+@@ -1082,7 +1082,8 @@
+         AccelStruct* as = checked_cast<AccelStruct*>(_as);
+         Buffer* instanceBuffer = checked_cast<Buffer*>(_instanceBuffer);
+ 
+-        as->instances.clear();
++        // Sized to the build's instances (their data stays in the buffer): updates check the count.
++        as->instances.resize(numInstances);
+ 
+         if (m_EnableAutomaticBarriers)
+         {
