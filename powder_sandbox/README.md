@@ -441,6 +441,14 @@ format is unchanged (version 2): the new state lives in the particles.
   rotation (`Display.getRotation`, through JNI every half second). While the phone lies flat (under
   0.15 g across the screen) the last direction is kept. On desktop there's no sensor: Tilt is down,
   or `-tilt x y`'s direction. Saves keep the mode (a tilted save loads tilted).
+  - Fix: the reading's array was a `number[]` (doubles) while `Nri_GetGravity` writes three
+    floats, so the first double took the x and y floats' bits (its sign from y): the gravity
+    pointed right with the phone upright, left upside down, and stayed put held sideways. It's an
+    `f32[]` now. tslang took `Ref` of a double for the `Ref<f32>` with no error. The rotation's
+    mapping was right: the reading points up in the device's natural frame (x right, y toward its
+    top); rotation 1 (90) gives the screen's (-y, x), 2 gives (-x, -y), 3 gives (y, -x) (y up);
+    negated and with y flipped, that's the down the grid uses (+y down, as `GRAVITY_DOWN`). The
+    `tilted` test sets `-tilt`, which skips the sensor, so only a phone checks this.
 - **Test** `tilted`: scene 13 with `-gravity tilt -tilt 1 0`. In 3 s the water's center moves about
   145 cells right and the sand's 91, under 5 across; with the shader's tilt ignored (gravity down)
   the water moves -44 along it and 73 across, and the test fails.

@@ -303,8 +303,8 @@ export class SandboxSimulation extends SandboxSaves {
         if (Nri.getGravity(1, Ref(this.sensed[0])) == 0) {
             return;
         }
-        const x = this.sensed[0];
-        const y = this.sensed[1];
+        const x: number = this.sensed[0];
+        const y: number = this.sensed[1];
         const across = Math.sqrt(x * x + y * y);
         if (across > TILT_FLAT * STANDARD_GRAVITY) {
             this.tiltX = x / across;
