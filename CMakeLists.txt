@@ -289,6 +289,9 @@ set(DONUT_NVRHI_PATCHES
     # validation layer marks them built as buildTopLevelAccelStruct does (else "Cannot perform an
     # update on TLAS ... before the same TLAS was initially built"; partitioned_tlas -tlas).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-tlas-from-buffer-refit.patch"
+    # rt::PipelineDesc::allowClusteredGeometry: D3D12's preview pipeline flag ALLOW_CLUSTERED_GEOMETRY,
+    # without which shaders can't trace cluster BLASes (clustered_geometry; Vulkan pipelines always can).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d12-clustered-geometry-pipeline.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -483,6 +486,31 @@ if (WITH_D3D12_PREVIEW_SDK AND WIN32 AND NVRHI_WITH_DX12)
             INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/d3d12_preview")
         set_source_files_properties(core/d3d12_preview_sdk.cpp PROPERTIES
             COMPILE_DEFINITIONS DONUT_D3D12_PREVIEW_SDK_VERSION=${D3D12_PREVIEW_SDK_VERSION})
+        # The preview's clustered geometry operations (clustered_geometry).
+        set_source_files_properties(core/clas.cpp PROPERTIES
+            COMPILE_DEFINITIONS DONUT_CLAS_WITH_D3D12_PREVIEW=1
+            INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/d3d12_preview")
+    endif()
+
+    # The preview DXC, whose shader model 6.10 has the cluster hit intrinsics (ClusterID(),
+    # TriangleObjectPositions()) the pinned DXC lacks: for clustered_geometry's ray tracing library.
+    # Fetched from NuGet at configure time into the build folder, like the preview SDK.
+    set(DXC_PREVIEW_VERSION_STRING "1.10.2605.37-preview")
+    set(DXC_PREVIEW_DIR "${CMAKE_BINARY_DIR}/_deps/dxc_preview-${DXC_PREVIEW_VERSION_STRING}")
+    if (NOT EXISTS "${DXC_PREVIEW_DIR}/build/native/bin/x64/dxc.exe")
+        set(package "${CMAKE_BINARY_DIR}/_deps/dxc_preview.nupkg")
+        file(DOWNLOAD "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.DXC/${DXC_PREVIEW_VERSION_STRING}"
+            "${package}" STATUS download_status)
+        list(GET download_status 0 download_code)
+        if (download_code EQUAL 0)
+            file(ARCHIVE_EXTRACT INPUT "${package}" DESTINATION "${DXC_PREVIEW_DIR}")
+        else()
+            message(WARNING "Couldn't download the preview DXC (${download_status}): no clustered_geometry")
+        endif()
+        file(REMOVE "${package}")
+    endif()
+    if (EXISTS "${DXC_PREVIEW_DIR}/build/native/bin/x64/dxc.exe")
+        set(DXC_PREVIEW_PATH "${DXC_PREVIEW_DIR}/build/native/bin/x64/dxc.exe")
     endif()
 endif()
 
@@ -630,7 +658,8 @@ set(JIT_MODULE_SOURCES
     core/fbc_cpu.cpp
     core/paged_images.cpp
     core/omm_bake.cpp
-    core/ptlas.cpp)
+    core/ptlas.cpp
+    core/clas.cpp)
 if (WIN32)
     # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
     list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
@@ -4150,6 +4179,28 @@ add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS dx12 ARGS -tlas)
 add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS vk NO_DEBUG ARGS -tlas)
 add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS dx12 ARGS -mode 2)
 add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS vk NO_DEBUG ARGS -mode 2)
+
+# Port of DirectX-Graphics-Samples' D3D12RaytracingClusteredGeometry: spheres, a torus, a cube, a Klein
+# bottle and a glass slab floor decomposed into clusters of up to 256 triangles, each a CLAS built by
+# GPU-driven operations (core/clas.cpp), each object a cluster BLAS of its CLASes; an animated sphere's
+# CLASes instantiated every frame from cluster templates and its deformed vertices; a spiral of clones;
+# glass, chrome and per-cluster colors through ClusterID(). D3D12's preview (as partitioned_tlas) and
+# the preview DXC's shader model 6.10.
+if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
+    file(GLOB CLUSTERED_GEOMETRY_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_geometry/*)
+    set(SHADERMAKE_DXC_PATH "${DXC_PREVIEW_PATH}")
+    donut_compile_shaders(
+        TARGET clustered_geometry_shaders
+        PROJECT_NAME "Clustered Geometry"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/clustered_geometry.cfg
+        SOURCES ${CLUSTERED_GEOMETRY_SHADER_SOURCES}
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/clustered_geometry/dxil
+    )
+    unset(SHADERMAKE_DXC_PATH)
+    # core/ptlas.cpp: Donut_EnableD3D12RaytracingPreview.
+    add_tslang_example(clustered_geometry core/directx_math.ts core/clas.ts core/clas.cpp core/ptlas.cpp core/d3d12_preview_sdk.cpp)
+    add_tslang_example_test(clustered_geometry APIS dx12)
+endif()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
 # mesh shader alone (a group per meshlet, no vertex or index buffers bound), each meshlet in a color

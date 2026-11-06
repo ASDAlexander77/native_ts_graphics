@@ -376,6 +376,50 @@ enum MeshletModelData {
 // Same, refitting it in place if refit is non-zero and it was created updatable (flag 8), else anew.
 @nodrops declare function Donut_UpdatePtlasReferenceTlas(ptlas: PtlasHandle, commandList: CommandListHandle, instanceCount: int, refit: int): void;
 
+// Clustered geometry (core/clas.cpp, linked only into the examples that list it): cluster level
+// acceleration structures (CLASes) built from clusters of triangles, cluster templates instantiated from
+// new vertex positions, cluster BLASes built from CLASes - batches of operations reading their arguments
+// from buffers (D3D12's preview: Donut_EnableD3D12RaytracingPreview before the app). Null where they
+// aren't supported (Vulkan: not yet). Free it with Donut_DestroyClas before the app.
+@nodrops declare function Donut_CreateClas(device: Opaque): ClasHandle | null;
+@nodrops declare function Donut_DestroyClas(clas: ClasHandle): void;
+// A buffer of byteSize for operations' results (CLASes, templates, cluster BLASes), or a raw buffer (a
+// RWByteAddressBuffer to shaders) for their arguments, scratch, and results' addresses and sizes. The
+// Clas's (Donut_ReleaseClasBuffer frees one sooner).
+@nodrops declare function Donut_CreateClasStorage(clas: ClasHandle, byteSize: number, debugName: string): BufferHandle;
+@nodrops declare function Donut_CreateClasBuffer(clas: ClasHandle, byteSize: number, debugName: string): BufferHandle;
+@nodrops declare function Donut_ReleaseClasBuffer(clas: ClasHandle, buffer: BufferHandle): void;
+// Stores the GPU address of byte `offset` of `buffer` at dst[0] (low 32 bits) and dst[1] (high).
+@nodrops declare function Donut_GetClasBufferAddress(clas: ClasHandle, buffer: BufferHandle, offset: number, dst: Ref<int>): void;
+// An operation is described by 17 ints (core/clas.cpp's ClasParam, D3D12's enumeration values): type (0
+// move, 1 cluster BLASes from CLASes, 2 CLASes from triangles, 3 templates from triangles, 4 CLASes
+// instantiated from templates), mode (0 implicit destinations, 1 explicit, 2 sizes only), flags (4 fast
+// trace, 8 fast operation, 0x100 allow data access; moves: 0x200 no overlap), max argument count, the
+// cluster limits (max geometry index value, max unique geometry indices per cluster, max triangles and
+// vertices per cluster, max total triangles and vertices), vertex format (2 FLOAT32_3, 14 COMPRESSED1;
+// templates: their instantiation format), templates' hint vertex format, CLASes' min position
+// truncate bit count (or COMPRESSED1's max compressed size), cluster BLASes' max total and per BLAS
+// CLAS counts, moves' type (0 cluster BLASes, 1 CLASes, 2 templates) and max bytes moved.
+// The sizes it needs: sizes[0] its results' storage at most, sizes[1] its scratch.
+@nodrops declare function Donut_GetClasOperationSizes(clas: ClasHandle, params: Ref<int>, sizes: Ref<number>): void;
+// Records an operation reading its arguments from `args` (byte argsOffset on, argsStride apart; their
+// count from argCount's first uint if not null, else the max argument count) with `scratch`. `storage`
+// receives the results: all of them with implicit destinations (their addresses written to
+// `addresses`), where `addresses` says with explicit ones. `sizes` (or null) receives each result's size
+// (uint64). input0 / input1 (or null): buffers the arguments point into (vertices, indices, CLASes,
+// templates, address arrays).
+@nodrops declare function Donut_ExecuteClasOperation(clas: ClasHandle, commandList: CommandListHandle, params: Ref<int>,
+    args: BufferHandle, argsOffset: number, argsStride: int, argCount: BufferHandle | null,
+    storage: BufferHandle | null, scratch: BufferHandle, addresses: BufferHandle | null, addressesOffset: number,
+    sizes: BufferHandle | null, sizesOffset: number, input0: BufferHandle | null, input1: BufferHandle | null): void;
+// A TLAS of up to maxInstances (buildFlags: AccelStructBuildFlags) built from buffers of
+// D3D12_RAYTRACING_INSTANCE_DESC (Donut_BuildClasTlas), whose BLASes may be cluster BLASes. The Clas's
+// (Donut_ReleaseClasTlas frees it sooner).
+@nodrops declare function Donut_CreateClasTlas(clas: ClasHandle, maxInstances: int, buildFlags: int, debugName: string): AccelStructHandle;
+@nodrops declare function Donut_ReleaseClasTlas(clas: ClasHandle, tlas: AccelStructHandle): void;
+@nodrops declare function Donut_BuildClasTlas(clas: ClasHandle, commandList: CommandListHandle, tlas: AccelStructHandle,
+    instances: BufferHandle, instanceCount: int, buildFlags: int): void;
+
 // Wavefront OBJ models (core/obj_model.cpp, linked only into the examples that list it):
 // DirectX-Graphics-Samples' D3D12RaytracingSakuraForestSER loader (ObjModelLoader), objects by their
 // `o` names, then an object's triangles as three vertices each. Free it with Donut_DestroyObjModel.
@@ -1860,6 +1904,8 @@ enum ShaderType {
 @nodrops declare function Donut_RtPipelineSetHlslExtensionsUAV(pipelineDesc: RtPipelineDescHandle, slot: int): void;
 // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
 @nodrops declare function Donut_RtPipelineSetAllowOpacityMicromaps(pipelineDesc: RtPipelineDescHandle, allow: boolean): void;
+// Whether the pipeline's rays may hit cluster BLASes (core/clas.cpp; D3D12's preview, off by default).
+@nodrops declare function Donut_RtPipelineSetAllowClusteredGeometry(pipelineDesc: RtPipelineDescHandle, allow: boolean): void;
 @nodrops declare function Donut_CreateRayTracingPipelineFromDesc(app: AppHandle, pipelineDesc: RtPipelineDescHandle): RtPipelineHandle;
 // Shader tables of any shape, filled with the Donut_ShaderTable* functions; they keep the
 // pipeline alive. The Add functions return the new entry's index.
@@ -1891,6 +1937,13 @@ enum ShaderType {
 // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
 // (different every run).
 @nodrops declare function Donut_CreateRandomEngine(app: AppHandle, seed: int): RandomEngineHandle;
+// Same, seeded with all 32 bits of seedBits (as unsigned; a negative one is no random seed here).
+@nodrops declare function Donut_CreateRandomEngineFromBits(app: AppHandle, seedBits: int): RandomEngineHandle;
+// The C runtime's sinf, cosf and tanf of (float)x: not correctly rounded (Math.fround(Math.sin(x)) can
+// differ in the last bits), for ports of samples whose geometry depends on them to the last bit.
+@nodrops declare function Donut_Sinf(x: number): number;
+@nodrops declare function Donut_Cosf(x: number): number;
+@nodrops declare function Donut_Tanf(x: number): number;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 @nodrops declare function Donut_RandomUniformFloat(randomEngine: RandomEngineHandle, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).
