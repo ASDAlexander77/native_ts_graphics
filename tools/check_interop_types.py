@@ -38,6 +38,7 @@ TYPES = {
     # Arrays of a known element type: TypeScript passes Ref of an array element. (tslang doesn't
     # check the element type, so these document what the memory holds.)
     "float*": {"Ref<f32>"},
+    "double*": {"Ref<number>"},
     "const float*": {"Ref<f32>"},
     "int*": {"Ref<int>"},
     "const int*": {"Ref<int>"},
@@ -153,6 +154,7 @@ HANDLES = {
     "PagedImageSet": "PagedImageSetHandle",
     "OmmBaker": "OmmBakerHandle",
     "Ptlas": "PtlasHandle",
+    "Clas": "ClasHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",
@@ -182,6 +184,7 @@ RAW_MEMORY = {
     ("Donut_InitPagedImageSet", "device"),
     ("Donut_CreateOmmBaker", "device"),
     ("Donut_CreatePtlas", "device"),
+    ("Donut_CreateClas", "device"),
     ("Donut_RtxcrCreateScene", "device"),
     ("Donut_RtxcrNrdCreate", "device"),
     ("Donut_RtxptRendererCreate", "device"),

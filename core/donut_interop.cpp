@@ -4034,6 +4034,11 @@ extern "C"
         pipelineDesc->allowOpacityMicromaps = allow != 0;
     }
 
+    DONUT_API void Donut_RtPipelineSetAllowClusteredGeometry(nvrhi::rt::PipelineDesc* pipelineDesc, bool allow)
+    {
+        pipelineDesc->allowClusteredGeometry = allow != 0;
+    }
+
     // Returns null on failure.
     DONUT_API nvrhi::rt::IPipeline* Donut_CreateRayTracingPipelineFromDesc(App* app, nvrhi::rt::PipelineDesc* pipelineDesc)
     {
@@ -7958,6 +7963,30 @@ extern "C"
         const auto value = seed >= 0 ? static_cast<std::default_random_engine::result_type>(seed)
                                      : static_cast<std::default_random_engine::result_type>(std::random_device()());
         return app->OwnObject(std::make_shared<std::default_random_engine>(value));
+    }
+
+    // The C runtime's float trigonometry of (float)x (ports of samples that call it: its results aren't
+    // always the correctly rounded ones).
+    DONUT_API double Donut_Sinf(double x)
+    {
+        return std::sin(static_cast<float>(x));
+    }
+
+    DONUT_API double Donut_Cosf(double x)
+    {
+        return std::cos(static_cast<float>(x));
+    }
+
+    DONUT_API double Donut_Tanf(double x)
+    {
+        return std::tan(static_cast<float>(x));
+    }
+
+    // Same, seeded with all 32 bits of seedBits (unsigned).
+    DONUT_API RandomEngine* Donut_CreateRandomEngineFromBits(App* app, int seedBits)
+    {
+        return app->OwnObject(std::make_shared<std::default_random_engine>(
+            static_cast<std::default_random_engine::result_type>(static_cast<uint32_t>(seedBits))));
     }
 
     // count numbers from one std::normal_distribution<float>(mean, stddev) over the engine, into dst

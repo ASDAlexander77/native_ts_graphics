@@ -384,3 +384,71 @@ export function matrixPerspectiveFovLH(fovAngleY: number, aspectRatio: number, n
         0.0, 0.0, Math.fround(-range * near), 0.0,
     ];
 }
+
+// Whether a float's sign bit is set (-0 included), as the SSE code's masks see it.
+function signBit(x: number): boolean {
+    return x < 0.0 || (x == 0.0 && 1.0 / x < 0.0);
+}
+
+// XMVectorSinCos's lane: [sin, cos] by its minimax polynomials after XMVectorModAngles (whose
+// XMVectorRound rounds half to even), as its SSE2 code (no FMA).
+export function vectorSinCos(value: number): number[] {
+    let quotient = Math.fround(value * XM_1DIV2PI);
+    if (Math.abs(quotient) <= 8388608.0) {
+        const magic = signBit(quotient) ? -8388608.0 : 8388608.0;
+        quotient = Math.fround(Math.fround(quotient + magic) - magic);
+    }
+    let x = Math.fround(value - Math.fround(quotient * XM_2PI));
+    // Map x to [-pi/2, pi/2] with sin(y) = sin(x), cos(y) = sign * cos(x).
+    const negative = signBit(x);
+    const reflected = Math.fround((negative ? -XM_PI : XM_PI) - x);
+    const inside = Math.abs(x) <= XM_PIDIV2;
+    if (!inside) {
+        x = reflected;
+    }
+    const sign = inside ? 1.0 : -1.0;
+    const x2 = Math.fround(x * x);
+    let s = Math.fround(Math.fround(Math.fround(-2.3889859e-08) * x2) + Math.fround(2.7525562e-06));
+    s = Math.fround(Math.fround(s * x2) + Math.fround(-0.00019840874));
+    s = Math.fround(Math.fround(s * x2) + Math.fround(0.0083333310));
+    s = Math.fround(Math.fround(s * x2) + Math.fround(-0.16666667));
+    s = Math.fround(Math.fround(s * x2) + 1.0);
+    s = Math.fround(s * x);
+    let c = Math.fround(Math.fround(Math.fround(-2.6051615e-07) * x2) + Math.fround(2.4760495e-05));
+    c = Math.fround(Math.fround(c * x2) + Math.fround(-0.0013888378));
+    c = Math.fround(Math.fround(c * x2) + Math.fround(0.041666638));
+    c = Math.fround(Math.fround(c * x2) + -0.5);
+    c = Math.fround(Math.fround(c * x2) + 1.0);
+    c = Math.fround(c * sign);
+    return [s, c];
+}
+
+// XMMatrixRotationRollPitchYaw(pitch, yaw, roll) (about x, y, z; applied roll, then pitch, then yaw),
+// as XMMatrixRotationRollPitchYawFromVector's SSE2 code computes it.
+export function matrixRotationRollPitchYaw(pitch: number, yaw: number, roll: number): number[] {
+    const p = vectorSinCos(pitch);
+    const y = vectorSinCos(yaw);
+    const r = vectorSinCos(roll);
+    const sp = p[0];
+    const cp = p[1];
+    const sy = y[0];
+    const cy = y[1];
+    const sr = r[0];
+    const cr = r[1];
+    const f = (a: number, b: number) => Math.fround(a * b);
+    // Q0 = P0 * Y0; Q1 = P1 * Sign * Y1; Q2 = P2 * Y2 * P3 + Q1.
+    const q0 = [f(cp, sy), f(sr, cp), f(cr, cp), f(cp, cy)];
+    const q1 = [f(cr, cy), f(-sr, cy), f(-cr, sy), f(sr, sy)];
+    const q2 = [
+        Math.fround(f(f(sr, sp), sy) + q1[0]),
+        Math.fround(f(f(cr, sp), sy) + q1[1]),
+        Math.fround(f(f(sr, sp), cy) + q1[2]),
+        Math.fround(f(f(cr, sp), cy) + q1[3]),
+    ];
+    return [
+        q2[0], q0[1], q2[2], 0.0,
+        q2[1], q0[2], q2[3], 0.0,
+        q0[0], -sp, q0[3], 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ];
+}

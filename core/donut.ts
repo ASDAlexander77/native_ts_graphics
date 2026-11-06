@@ -986,6 +986,11 @@ export class App {
         return new RandomEngine(Donut_CreateRandomEngine(this.handle, seed));
     }
 
+    // Same, seeded with all 32 bits of seedBits (as unsigned; a negative one is no random seed here).
+    createRandomEngineFromBits(seedBits: int): RandomEngine {
+        return new RandomEngine(Donut_CreateRandomEngineFromBits(this.handle, seedBits));
+    }
+
     // Register space 0, visible to shaderType's stages.
     createBindingLayout(bindingLayoutDesc: BindingLayoutDesc, shaderType: ShaderType): BindingLayoutHandle {
         return Donut_CreateBindingLayout(this.handle, bindingLayoutDesc.handle, shaderType);
@@ -2906,6 +2911,11 @@ export class RtPipelineDesc {
     // Whether the pipeline's rays see the opacity micromaps of the BLASes they trace (off by default).
     setAllowOpacityMicromaps(allow: boolean): void {
         Donut_RtPipelineSetAllowOpacityMicromaps(this.handle, allow);
+    }
+
+    // Whether the pipeline's rays may hit cluster BLASes (core/clas.cpp; D3D12's preview, off by default).
+    setAllowClusteredGeometry(allow: boolean): void {
+        Donut_RtPipelineSetAllowClusteredGeometry(this.handle, allow);
     }
 }
 
