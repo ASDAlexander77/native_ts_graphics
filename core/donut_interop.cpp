@@ -2211,7 +2211,8 @@ namespace
     // extensions), 16-bit floats in shaders and 16-bit values in uniform buffers and push constants,
     // derivatives in compute shaders (with its extension), logic operations, shader execution
     // reordering, coherent advanced blend operations, shader quad control and line rasterization
-    // modes (with their extensions), wide lines, and clip and cull distances, when the GPU has them.
+    // modes (with their extensions), wide lines, clip and cull distances, and sample-rate shading, when
+    // the GPU has them.
     void EnableCoreFeatures(DeviceManager_VK* deviceManager, VkDeviceCreateInfo& info, VulkanCoreFeatures& result)
     {
         VkPhysicalDeviceFeatures available{};
@@ -2227,6 +2228,9 @@ namespace
         // Also for vertex shaders: the validation layer's shader printf (AppOption_ShaderPrintf)
         // writes its output to a buffer from instrumented shaders of every stage.
         features.vertexPipelineStoresAndAtomics = available.vertexPipelineStoresAndAtomics;
+        // Sample-frequency interpolation (HLSL's sample qualifier, which declares SPIR-V's
+        // SampleRateShading even at one sample a pixel; raytracing_mini_engine's MiniEngine shaders).
+        features.sampleRateShading = available.sampleRateShading;
         features.sparseBinding = available.sparseBinding;
         features.sparseResidencyImage2D = available.sparseResidencyImage2D;
         features.shaderResourceResidency = available.shaderResourceResidency;

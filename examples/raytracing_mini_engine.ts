@@ -59,8 +59,9 @@ namespace RaytracingMiniEngine {
     const PIPELINE_REFLECTION = 4;
     const PIPELINE_COUNT = 5;
 
-    // Test mode: the frames rendered (the camera and lighting don't move).
-    const TEST_FRAMES = 4;
+    // Test mode: the frames rendered (the camera and lighting don't move), the reference build's dump
+    // frame.
+    const TEST_FRAMES = 3;
 
     // The characters a texture path can have, by code from 32 (tslang strings are built from them).
     const PRINTABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
@@ -264,6 +265,22 @@ namespace RaytracingMiniEngine {
             this.proj = [x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, q1, -1.0, 0.0, 0.0, q2, 0.0];
         }
 
+        // FlyingFPSCamera::Update: the heading turned by -yaw and the pitch by pitch (clamped), then
+        // the position moved by (strafe, ascent, -forward) in the new orientation.
+        move(yaw: number, pitch: number, forward: number, strafe: number, ascent: number) {
+            let p = Math.fround(this.pitch + pitch);
+            p = XM_PIDIV2 < p ? XM_PIDIV2 : p;
+            p = -XM_PIDIV2 > p ? -XM_PIDIV2 : p;
+            const h = Math.fround(this.heading - yaw);
+            const world = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+            const orientation = matrix3Multiply(matrix3Multiply(world, matrixRotationY(h > XM_PI ? Math.fround(h - XM_2PI)
+                : h <= -XM_PI ? Math.fround(h + XM_2PI) : h)), matrixRotationX(p));
+            const offset = transformNormal3([Math.fround(strafe), Math.fround(ascent), Math.fround(-forward), 0.0], orientation);
+            const position = this.position;
+            this.setHeadingPitchAndPosition(h, p, [Math.fround(offset[0] + position[0]), Math.fround(offset[1] + position[1]),
+                Math.fround(offset[2] + position[2])]);
+        }
+
         setHeadingPitchAndPosition(heading: number, pitch: number, position: number[]) {
             let h = Math.fround(heading);
             if (h > XM_PI) {
@@ -370,6 +387,30 @@ namespace RaytracingMiniEngine {
         }
     }
 
+    // Port of DirectX-Graphics-Samples' D3D12RaytracingMiniEngineSample (MiniEngine's model viewer with
+    // DirectX Raytracing) on NVRHI: MiniEngine's Sponza (sponza.h3d, its DDS textures) as a BLAS per
+    // mesh in one TLAS, and the sample's seven modes (keys 1 to 7):
+    //   1 Off: rasterized (the depth prepass, the sun's shadow map, the color pass).
+    //   2 Bary Rays: primary rays showing the hit's barycentrics.
+    //   3 Refl Bary: reflection rays from the depth and normals buffers showing barycentrics - which,
+    //     as in the sample, only run where the normals' w (never written) isn't 0: the raster image.
+    //   4 Shadow Rays: shadow rays from the depth buffer, white where they miss (the sample's known
+    //     bug: mostly black).
+    //   5 Diffuse&ShadowMaps: primary rays shaded by the diffuse hit shader (its normal map, texture
+    //     LOD from ray differentials, the sun, ambient), shadowed by the sun's shadow map.
+    //   6 Diffuse&ShadowRays: the same, shadowed by shadow rays.
+    //   7 Reflection Rays: reflections over the raster image - again where the normals' w isn't 0.
+    // The sample's five state objects (one exported ray generation, hit and miss shader, their
+    // libraries swapped) are five pipelines here; its per-mesh local root signature (the material's
+    // textures and the mesh's index) the instance ID and a bindless texture table. MiniEngine's
+    // camera (FlyingFPSCamera, Camera) and shadow camera are computed as it computes them, to the
+    // last bit (core/directx_math.ts, MSVC's /fp:fast sincos for the sun: core/msvc_fast_math.cpp), so
+    // the ray traced modes match the sample's image bit for bit. Not ported (the raster modes are
+    // close, not exact): MiniEngine's point lights (they were black in the comparison), particles,
+    // SSAO (off: its buffer is 1, as the sample's with SSAO off), and the temporal resolve and
+    // sharpening it runs even with TAA off. Left / right cycle the sample's camera positions; W, A,
+    // S, D, E, Q move (left shift: finely) and the mouse looks while its left button is held, as
+    // MiniEngine's FlyingFPSCamera; F freezes the camera.
     class RaytracingMiniEnginePass {
         private app: App;
         private settings: Settings;
@@ -400,6 +441,7 @@ namespace RaytracingMiniEngine {
         // color pass, each opaque materials then (two-sided, alpha-tested) cutouts.
         private materialIsCutout: boolean[] = [];
         private inputLayout: InputLayoutHandle | null = null;
+        private depthInputLayout: InputLayoutHandle | null = null;
         private depthVS: ShaderHandle | null = null;
         private depthPS: ShaderHandle | null = null;
         private modelVS: ShaderHandle | null = null;
@@ -482,6 +524,8 @@ namespace RaytracingMiniEngine {
             pass.setBackBufferResizingCallback(this.onBackBufferResizing);
             pass.setRenderCallback(this.onRender);
             pass.setKeyboardCallback(this.onKey);
+            pass.setMouseButtonCallback(this.onMouseButton);
+            pass.setMousePosCallback(this.onMousePos);
             return true;
         }
 
@@ -627,6 +671,11 @@ namespace RaytracingMiniEngine {
             inputLayoutDesc.addVertexAttribute("TANGENT", Format.RGB32_FLOAT, offsets[3], 0, stride);
             inputLayoutDesc.addVertexAttribute("BITANGENT", Format.RGB32_FLOAT, offsets[4], 0, stride);
             this.inputLayout = app.createInputLayout(inputLayoutDesc, this.modelVS as ShaderHandle);
+            // The depth passes' vertex shader reads the position and texcoord only.
+            const depthLayoutDesc = InputLayoutDesc.create();
+            depthLayoutDesc.addVertexAttribute("POSITION", Format.RGB32_FLOAT, offsets[0], 0, stride);
+            depthLayoutDesc.addVertexAttribute("TEXCOORD", Format.RG32_FLOAT, offsets[1], 0, stride);
+            this.depthInputLayout = app.createInputLayout(depthLayoutDesc, this.depthVS as ShaderHandle);
 
             const layoutDesc = BindingLayoutDesc.create();
             layoutDesc.layoutConstantBuffer(0);
@@ -653,7 +702,7 @@ namespace RaytracingMiniEngine {
             const desc = GraphicsPipelineDesc.create(vs as ShaderHandle, ps);
             desc.addBindingLayout(this.rasterLayout as BindingLayoutHandle);
             desc.addBindingLayout(this.bindlessLayout as BindingLayoutHandle);
-            desc.setInputLayout(this.inputLayout as InputLayoutHandle);
+            desc.setInputLayout((color ? this.inputLayout : this.depthInputLayout) as InputLayoutHandle);
             desc.setRasterState(cutout ? CullMode.None : CullMode.Back, FillMode.Solid, 1);
             desc.setScissorEnable(true);
             if (shadow) {
@@ -741,6 +790,15 @@ namespace RaytracingMiniEngine {
         }
 
         private cameraPosition: int = 0;
+        // FlyingFPSCamera's inputs: the movement keys held, fine movement (left shift), the mouse's
+        // motion while its left button is held.
+        private keysHeld: boolean[] = [false, false, false, false, false, false];
+        private fineMovement: boolean = false;
+        private mouseLook: boolean = false;
+        private mouseX: number = 0.0;
+        private mouseY: number = 0.0;
+        private mouseDeltaX: number = 0.0;
+        private mouseDeltaY: number = 0.0;
 
         // -dumpScene: the camera's matrices as the reference dump has them (view, proj, viewProj,
         // cameraToWorld, position), the sun's shadow matrix and view-projection matrix, the sun.
@@ -764,10 +822,23 @@ namespace RaytracingMiniEngine {
         }
 
         onKey(key: Key, scancode: ScanCode, action: Action, mods: KeyMods): int {
+            const movementKeys = [Key.W, Key.S, Key.D, Key.A, Key.E, Key.Q];
+            for (let k = 0; k < movementKeys.length; k++) {
+                if (key == movementKeys[k]) {
+                    if (action != Action.Repeat) {
+                        this.keysHeld[k] = action == Action.Press;
+                    }
+                    return 1;
+                }
+            }
             if (action != Action.Press) {
                 return 0;
             }
             const settings = this.settings;
+            if (key == Key.LeftShift) {
+                this.fineMovement = !this.fineMovement;
+                return 1;
+            }
             if (key >= Key.Num1 && key <= Key.Num7) {
                 settings.mode = key - Key.Num1 + 1;
                 return 1;
@@ -782,6 +853,24 @@ namespace RaytracingMiniEngine {
                 return 1;
             }
             return 0;
+        }
+
+        onMouseButton(button: MouseButton, action: Action, mods: KeyMods): int {
+            if (button == MouseButton.Left) {
+                this.mouseLook = action == Action.Press;
+                return 1;
+            }
+            return 0;
+        }
+
+        onMousePos(x: number, y: number): int {
+            if (this.mouseLook) {
+                this.mouseDeltaX += x - this.mouseX;
+                this.mouseDeltaY += y - this.mouseY;
+            }
+            this.mouseX = x;
+            this.mouseY = y;
+            return this.mouseLook ? 1 : 0;
         }
 
         onBackBufferResizing() {
@@ -823,6 +912,22 @@ namespace RaytracingMiniEngine {
 
         onAnimate(elapsedSeconds: number) {
             this.app.setInformativeWindowTitle(`${WINDOW_TITLE} - ${MODE_NAMES[this.settings.mode - 1]}`);
+            // FlyingFPSCamera::Update (its move and strafe speeds 1000 a second, a tenth with fine
+            // movement; GameInput's mouse scale 0.0018 a pixel), unless frozen.
+            if (!this.settings.frozen) {
+                const step = Math.fround(1000.0 * (this.fineMovement ? 0.1 : 1.0) * elapsedSeconds);
+                const held = this.keysHeld;
+                const forward = (held[0] ? step : 0.0) - (held[1] ? step : 0.0);
+                const strafe = (held[2] ? step : 0.0) - (held[3] ? step : 0.0);
+                const ascent = (held[4] ? step : 0.0) - (held[5] ? step : 0.0);
+                const yaw = this.mouseDeltaX * 0.0018;
+                const pitch = -this.mouseDeltaY * 0.0018;
+                this.mouseDeltaX = 0.0;
+                this.mouseDeltaY = 0.0;
+                if (forward != 0.0 || strafe != 0.0 || ascent != 0.0 || yaw != 0.0 || pitch != 0.0) {
+                    this.camera.move(yaw, pitch, forward, strafe, ascent);
+                }
+            }
         }
 
         // The buffers at the back buffers' size (MiniEngine's native resolution): the scene color
@@ -1099,7 +1204,10 @@ namespace RaytracingMiniEngine {
         }
     }
 
-    // -test: the scene color buffer is all written (no NaNs) and not black.
+    // -test (camera position 3, the second floor's view down the courtyard): the share of lit (not
+    // black) pixels for the mode. Barycentrics cover every pixel that hits; the sample's shadow rays
+    // (its known bug: aimed from the depth buffer's unprojection) light few; the shaded modes most,
+    // with sunlit (bright) patches.
     function checkFrame(app: App, settings: Settings) {
         const check = new TestCheck(app);
         const failure = check.frameRead();
@@ -1109,14 +1217,35 @@ namespace RaytracingMiniEngine {
         const w = check.width;
         const h = check.height;
         let lit = 0;
+        let bright = 0;
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
-                if (check.rgb(x, y) != 0) {
+                const p = check.rgb(x, y);
+                if (p != 0) {
                     lit++;
+                }
+                if ((p & 0xFF) >= 200 || ((p >> 8) & 0xFF) >= 200 || ((p >> 16) & 0xFF) >= 200) {
+                    bright++;
                 }
             }
         }
-        return check.share(lit, w * h, 5.0, 100.0, "Non-black");
+        const mode = settings.mode;
+        if (mode == MODE_SHADOW_RAYS) {
+            return check.share(lit, w * h, 0.05, 5.0, "Sunlit (shadow rays)");
+        }
+        if (mode == MODE_BARYCENTRICS) {
+            return check.share(lit, w * h, 95.0, 100.0, "Hit (barycentrics)");
+        }
+        const litFailure = check.share(lit, w * h, 90.0, 100.0, "Lit");
+        if (litFailure != "") {
+            return litFailure;
+        }
+        // The sunlit patches of the floor and walls; everything is sunlit without the shadow map
+        // (the reflection barycentrics mode skips it, as the sample's).
+        if (mode == MODE_REFLECTION_BARYCENTRICS) {
+            return check.share(bright, w * h, 15.0, 35.0, "Bright (no shadow map)");
+        }
+        return check.share(bright, w * h, 1.5, 4.0, "Bright (sunlit)");
     }
 
     export function main(argc: int, argv: Ref<string>) {

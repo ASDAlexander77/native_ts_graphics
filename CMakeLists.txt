@@ -4248,8 +4248,10 @@ if (DIRECTX_GRAPHICS_SAMPLES_DIR)
     file(GLOB sponza_textures RELATIVE "${DIRECTX_GRAPHICS_SAMPLES_DIR}" "${DIRECTX_GRAPHICS_SAMPLES_DIR}/${sponza_dir}/*.dds")
     add_dxgs_media(raytracing_mini_engine raytracing_mini_engine ${sponza_dir}/sponza.h3d ${sponza_textures})
 endif()
-add_tslang_example_test(raytracing_mini_engine SUFFIX barycentrics APIS dx12 ARGS -mode 2)
-add_tslang_example_test(raytracing_mini_engine SUFFIX diffuse_shadow_rays APIS dx12 ARGS -mode 6 -ssao 0)
+# Each mode from the sample's second-floor camera position (3).
+foreach(mode 1 2 3 4 5 6 7)
+    add_tslang_example_test(raytracing_mini_engine SUFFIX mode${mode} ARGS -mode ${mode})
+endforeach()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
 # mesh shader alone (a group per meshlet, no vertex or index buffers bound), each meshlet in a color
