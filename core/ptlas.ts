@@ -22,8 +22,9 @@ export class Ptlas {
 
     // A PTLAS on the app's device (Donut_GetNvrhiDevice) of instanceCount instance slots in partitionCount
     // partitions of up to maxInstancesPerPartition, and a global partition of up to
-    // maxInstancesInGlobalPartition; flags: 1 fast trace, 2 fast build, 4 partition translation. Null where
-    // PTLASes aren't supported. Free it with Donut_DestroyPtlas before the app.
+    // maxInstancesInGlobalPartition; flags: 1 fast trace, 2 fast build, 4 partition translation, 8 an updatable
+    // reference TLAS (Donut_UpdatePtlasReferenceTlas). Null where PTLASes aren't supported. Free it with
+    // Donut_DestroyPtlas before the app.
     static create(device: Opaque, instanceCount: int, maxInstancesPerPartition: int, partitionCount: int, maxInstancesInGlobalPartition: int, flags: int): Ptlas {
         return new Ptlas(Donut_CreatePtlas(device, instanceCount, maxInstancesPerPartition, partitionCount, maxInstancesInGlobalPartition, flags));
     }
@@ -64,6 +65,25 @@ export class Ptlas {
         Donut_BuildPtlas(this.handle, commandList, writeCount, updateCount, translateCount);
     }
 
+    // The operation buffer (a 4-byte operation count, then 24-byte operations from byte 8), a
+    // RWByteAddressBuffer (the Ptlas's: don't release it).
+    getOperations(): BufferHandle {
+        return Donut_GetPtlasOperations(this.handle);
+    }
+
+    // Records the operation buffer's reset to one instance-write operation of no arguments, for shaders to
+    // append instance writes to: each adds 1 to its argument count (InterlockedAdd at byte 12) and fills the
+    // write arguments' record of the slot it got back.
+    resetGpuWrites(commandList: CommandListHandle): void {
+        Donut_ResetPtlasGpuWrites(this.handle, commandList);
+    }
+
+    // Records a build from the operations the operation buffer holds now (Donut_ResetPtlasGpuWrites' operation,
+    // its count as shaders left it).
+    buildFromOperations(commandList: CommandListHandle): void {
+        Donut_BuildPtlasFromOperations(this.handle, commandList);
+    }
+
     // An ordinary TLAS of as many instances, to check the PTLAS against (bind with Donut_BindAccelStruct), and
     // its instances (D3D12_RAYTRACING_INSTANCE_DESC / VkAccelerationStructureInstanceKHR, 64 bytes each, a
     // RWByteAddressBuffer). The Ptlas's: don't release them.
@@ -78,5 +98,10 @@ export class Ptlas {
     // Records a build of the reference TLAS from the first instanceCount instances.
     buildReferenceTlas(commandList: CommandListHandle, instanceCount: int): void {
         Donut_BuildPtlasReferenceTlas(this.handle, commandList, instanceCount);
+    }
+
+    // Same, refitting it in place if refit is non-zero and it was created updatable (flag 8), else anew.
+    updateReferenceTlas(commandList: CommandListHandle, instanceCount: int, refit: int): void {
+        Donut_UpdatePtlasReferenceTlas(this.handle, commandList, instanceCount, refit);
     }
 }

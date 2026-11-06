@@ -845,6 +845,12 @@ export class App {
         return Donut_CreateAccelStructInputRawBuffer(this.handle, byteSize, debugName);
     }
 
+    // A buffer that shaders read and write as a (RW)ByteAddressBuffer (Donut_BindRawBufferSRV / UAV) and
+    // Donut_WriteBuffer / Donut_CopyBuffer fill; it rests at UnorderedAccess.
+    createRawBuffer(byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateRawBuffer(this.handle, byteSize, debugName);
+    }
+
     // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
     createAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
         return Donut_CreateAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);

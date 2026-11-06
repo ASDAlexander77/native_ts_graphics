@@ -31,6 +31,7 @@ enum Key {
     K = 75,
     L = 76,
     M = 77,
+    N = 78,
     O = 79,
     P = 80,
     Q = 81,
@@ -335,8 +336,9 @@ enum MeshletModelData {
 @nodrops declare function Donut_EnableD3D12RaytracingPreview(): int;
 // A PTLAS on the app's device (Donut_GetNvrhiDevice) of instanceCount instance slots in partitionCount
 // partitions of up to maxInstancesPerPartition, and a global partition of up to
-// maxInstancesInGlobalPartition; flags: 1 fast trace, 2 fast build, 4 partition translation. Null where
-// PTLASes aren't supported. Free it with Donut_DestroyPtlas before the app.
+// maxInstancesInGlobalPartition; flags: 1 fast trace, 2 fast build, 4 partition translation, 8 an updatable
+// reference TLAS (Donut_UpdatePtlasReferenceTlas). Null where PTLASes aren't supported. Free it with
+// Donut_DestroyPtlas before the app.
 @nodrops declare function Donut_CreatePtlas(device: Opaque, instanceCount: int, maxInstancesPerPartition: int, partitionCount: int,
     maxInstancesInGlobalPartition: int, flags: int): PtlasHandle | null;
 @nodrops declare function Donut_DestroyPtlas(ptlas: PtlasHandle): void;
@@ -354,6 +356,16 @@ enum MeshletModelData {
 // updates and translateCount partition translations of the argument buffers: the first from nothing,
 // later ones in place. An instance or a partition in one operation at most.
 @nodrops declare function Donut_BuildPtlas(ptlas: PtlasHandle, commandList: CommandListHandle, writeCount: int, updateCount: int, translateCount: int): void;
+// The operation buffer (a 4-byte operation count, then 24-byte operations from byte 8), a
+// RWByteAddressBuffer (the Ptlas's: don't release it).
+@nodrops declare function Donut_GetPtlasOperations(ptlas: PtlasHandle): BufferHandle;
+// Records the operation buffer's reset to one instance-write operation of no arguments, for shaders to
+// append instance writes to: each adds 1 to its argument count (InterlockedAdd at byte 12) and fills the
+// write arguments' record of the slot it got back.
+@nodrops declare function Donut_ResetPtlasGpuWrites(ptlas: PtlasHandle, commandList: CommandListHandle): void;
+// Records a build from the operations the operation buffer holds now (Donut_ResetPtlasGpuWrites' operation,
+// its count as shaders left it).
+@nodrops declare function Donut_BuildPtlasFromOperations(ptlas: PtlasHandle, commandList: CommandListHandle): void;
 // An ordinary TLAS of as many instances, to check the PTLAS against (bind with Donut_BindAccelStruct), and
 // its instances (D3D12_RAYTRACING_INSTANCE_DESC / VkAccelerationStructureInstanceKHR, 64 bytes each, a
 // RWByteAddressBuffer). The Ptlas's: don't release them.
@@ -361,6 +373,8 @@ enum MeshletModelData {
 @nodrops declare function Donut_GetPtlasReferenceInstances(ptlas: PtlasHandle): BufferHandle;
 // Records a build of the reference TLAS from the first instanceCount instances.
 @nodrops declare function Donut_BuildPtlasReferenceTlas(ptlas: PtlasHandle, commandList: CommandListHandle, instanceCount: int): void;
+// Same, refitting it in place if refit is non-zero and it was created updatable (flag 8), else anew.
+@nodrops declare function Donut_UpdatePtlasReferenceTlas(ptlas: PtlasHandle, commandList: CommandListHandle, instanceCount: int, refit: int): void;
 
 // Wavefront OBJ models (core/obj_model.cpp, linked only into the examples that list it):
 // DirectX-Graphics-Samples' D3D12RaytracingSakuraForestSER loader (ObjModelLoader), objects by their
@@ -1643,6 +1657,9 @@ enum ShaderType {
 @nodrops declare function Donut_CreateAccelStructInputBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // Same, that shaders also read as a ByteAddressBuffer (Donut_BindRawBufferSRV).
 @nodrops declare function Donut_CreateAccelStructInputRawBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
+// A buffer that shaders read and write as a (RW)ByteAddressBuffer (Donut_BindRawBufferSRV / UAV) and
+// Donut_WriteBuffer / Donut_CopyBuffer fill; it rests at UnorderedAccess.
+@nodrops declare function Donut_CreateRawBuffer(app: AppHandle, byteSize: int, debugName: string): BufferHandle;
 // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
 @nodrops declare function Donut_CreateAccelStructInputStructuredBuffer(app: AppHandle, stride: int, count: int, debugName: string): BufferHandle;
 // Same, that compute shaders also write (RWStructuredBuffer): e.g. vertices animated on the GPU

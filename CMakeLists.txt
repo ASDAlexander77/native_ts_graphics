@@ -284,6 +284,11 @@ set(DONUT_NVRHI_PATCHES
     # built into - a VK_DESCRIPTOR_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_NV descriptor of its
     # address on Vulkan, an acceleration structure SRV on D3D12 (ptlas; its builds are core/ptlas.cpp's).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-partitioned-accel-struct-binding.patch"
+    # TLASes built from an instance buffer can be refitted: the backends keep the build's instance
+    # count (they emptied their instance arrays, which a refit's assert compares with), and the
+    # validation layer marks them built as buildTopLevelAccelStruct does (else "Cannot perform an
+    # update on TLAS ... before the same TLAS was initially built"; partitioned_tlas -tlas).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-tlas-from-buffer-refit.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -4114,6 +4119,37 @@ add_tslang_example_test(ptlas APIS dx12)
 # it reports the PTLAS binding as mismatching the shader's, garbles the set's other bindings, and
 # crashes in VkLayer_khronos_validation.dll.
 add_tslang_example_test(ptlas APIS vk NO_DEBUG)
+
+# Port of DirectX-Graphics-Samples' D3D12RaytracingPartitionedTLAS (NVIDIA's port of vk_partitioned_tlas):
+# a 16 x 16 grid of dominoes in 16 partitions, toppled by GPU physics, a compute shader appending a PTLAS
+# instance write for each domino that moved (counted on the GPU, core/ptlas.cpp's
+# Donut_ResetPtlasGpuWrites), or writing every instance of a regular TLAS refitted instead (-tlas); the
+# three partition modes (update the partition, move moving dominoes to the global partition, or only the
+# far ones); a ray traced image (GGX sun, shadows, AO, reflections, refraction) composited into a sketch
+# style. Same requirements as ptlas.
+file(GLOB PARTITIONED_TLAS_SHADER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/partitioned_tlas/*)
+donut_compile_shaders(
+    TARGET partitioned_tlas_shaders
+    PROJECT_NAME "Partitioned TLAS dominoes"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/partitioned_tlas.cfg
+    SOURCES ${PARTITIONED_TLAS_SHADER_SOURCES}
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/partitioned_tlas/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/partitioned_tlas/spirv
+)
+if (D3D12_PREVIEW_SDK_VERSION)
+    add_tslang_example(partitioned_tlas core/directx_math.ts core/text_format.ts core/ptlas.ts core/ptlas.cpp core/d3d12_preview_sdk.cpp)
+else()
+    add_tslang_example(partitioned_tlas core/directx_math.ts core/text_format.ts core/ptlas.ts core/ptlas.cpp)
+endif()
+add_tslang_example_test(partitioned_tlas APIS dx12)
+# The Vulkan SDK's validation layer doesn't know the PTLAS descriptor type (see ptlas).
+add_tslang_example_test(partitioned_tlas APIS vk NO_DEBUG)
+# The regular TLAS, refitted (patches/nvrhi-tlas-from-buffer-refit.patch), and the moving dominoes moved
+# into the global partition.
+add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS dx12 ARGS -tlas)
+add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS vk NO_DEBUG ARGS -tlas)
+add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS dx12 ARGS -mode 2)
+add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS vk NO_DEBUG ARGS -mode 2)
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
 # mesh shader alone (a group per meshlet, no vertex or index buffers bound), each meshlet in a color

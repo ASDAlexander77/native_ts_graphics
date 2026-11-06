@@ -4125,6 +4125,22 @@ extern "C"
         return a->Own(a->device()->createBuffer(desc));
     }
 
+    // A buffer of byteSize bytes that shaders read and write as a (RW)ByteAddressBuffer
+    // (Donut_BindRawBufferSRV / Donut_BindRawBufferUAV) and copies fill; it rests at UnorderedAccess.
+    DONUT_API nvrhi::IBuffer* Donut_CreateRawBuffer(App* app, int byteSize, const char* debugName)
+    {
+        auto desc = nvrhi::BufferDesc()
+            .setByteSize(static_cast<uint64_t>(byteSize))
+            .setCanHaveRawViews(true)
+            .setCanHaveUAVs(true)
+            .setDebugName(debugName)
+            .setInitialState(nvrhi::ResourceStates::UnorderedAccess)
+            .setKeepInitialState(true);
+
+        App* a = app;
+        return a->Own(a->device()->createBuffer(desc));
+    }
+
     // Same, that shaders also read as a StructuredBuffer of `count` elements of `stride` bytes.
     DONUT_API nvrhi::IBuffer* Donut_CreateAccelStructInputStructuredBuffer(App* app, int stride, int count, const char* debugName)
     {
