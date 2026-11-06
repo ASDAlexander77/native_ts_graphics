@@ -6,6 +6,11 @@
 
 #include <cmath>
 
+#if defined(_M_X64) || defined(__x86_64__) || defined(_M_IX86) || defined(__i386__)
+#include <xmmintrin.h>
+#define DONUT_HAS_SSE_RCP 1
+#endif
+
 #if defined(_MSC_VER) && defined(_M_X64)
 #include <emmintrin.h>
 // sin(x) in lane 0, cos(x) in lane 1.
@@ -28,6 +33,19 @@ extern "C"
 #else
         dst[0] = sinf(value);
         dst[1] = cosf(value);
+#endif
+    }
+
+    // The CPU's approximate reciprocal of (float)x (SSE's rcpss, about 12 bits): /fp:fast turns
+    // divisions into it and a Newton-Raphson step, r + r - r * r * x (MiniEngine's SSAO constants).
+    // Without SSE, 1 / x.
+    DONUT_API double Donut_ApproxRcpf(double x)
+    {
+        const float value = static_cast<float>(x);
+#if defined(DONUT_HAS_SSE_RCP)
+        return _mm_cvtss_f32(_mm_rcp_ss(_mm_set_ss(value)));
+#else
+        return 1.0f / value;
 #endif
     }
 }

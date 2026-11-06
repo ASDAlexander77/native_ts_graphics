@@ -1241,6 +1241,7 @@ enum Format {
     R8_UNORM = 3,
     RG8_UINT = 5,
     R16_UINT = 9,
+    R16_UNORM = 11,
     R16_FLOAT = 13,
     RGBA8_UINT = 17,
     RGBA8_UNORM = 19,
@@ -1971,6 +1972,9 @@ enum ShaderType {
 // MSVC's /fp:fast sinf and cosf of (float)x into dst[0] and dst[1] (core/msvc_fast_math.cpp, linked only
 // into the examples that list it): its cosine can differ from cosf's in the last bits.
 @nodrops declare function Donut_FastSinCosf(x: number, dst: Ref<f32>): void;
+// The CPU's approximate reciprocal of (float)x (SSE's rcpss; 1 / x without SSE): MSVC's /fp:fast divides
+// by it and a Newton-Raphson step (core/msvc_fast_math.cpp).
+@nodrops declare function Donut_ApproxRcpf(x: number): number;
 // The engine's next number from std::uniform_real_distribution<float>(a, b).
 @nodrops declare function Donut_RandomUniformFloat(randomEngine: RandomEngineHandle, a: number, b: number): number;
 // The engine's next number from std::uniform_int_distribution<int>(a, b).
