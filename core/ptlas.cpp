@@ -309,6 +309,8 @@ extern "C"
         // Built by the build, read by traces: tracked by the builds' and binding sets' states.
         ptlas->storage = nvrhiDevice->createBuffer(nvrhi::BufferDesc()
             .setByteSize(storageSize)
+            // D3D12 acceleration structures need UAV access (as NVRHI's own).
+            .setCanHaveUAVs(true)
             .setIsAccelStructStorage(true)
             .setInitialState(nvrhi::ResourceStates::AccelStructRead)
             .setKeepInitialState(true)
