@@ -215,7 +215,18 @@ Ported from [NVIDIA DxrTutorials](https://github.com/NVIDIAGameWorks/DxrTutorial
 
 <table>
 <tr><td valign="top" width="33%"><a href="examples/compute_nbody_collisions.ts"><img src="docs/screenshots/compute_nbody_collisions.jpg" alt="Compute N-Body Collisions (TypeScript, DirectX 12 / Vulkan). compute_nbody with a third compute pass: particles bounce off each other" width="270"></a><br><a href="examples/compute_nbody_collisions.ts"><b>Compute N-Body Collisions</b></a><br><sub>compute_nbody with a third compute pass: particles bounce off each other.</sub></td><td valign="top" width="33%"><a href="examples/environment_map.ts"><img src="docs/screenshots/environment_map.jpg" alt="Environment Map (TypeScript, DirectX 12 / Vulkan). Sponza under an environment map with planar shadow maps, DDS or KTX 2" width="270"></a><br><a href="examples/environment_map.ts"><b>Environment Map</b></a><br><sub>Sponza under an environment map with planar shadow maps, DDS or KTX 2.</sub></td><td valign="top" width="33%"><a href="examples/gravity_light_bending.ts"><img src="docs/screenshots/gravity_light_bending.jpg" alt="Gravity Light Bending (TypeScript, DirectX 12 / Vulkan). Light rays bent by the gravity of orbiting bodies, and the sky lensed behind them" width="270"></a><br><a href="examples/gravity_light_bending.ts"><b>Gravity Light Bending</b></a><br><sub>Light rays bent by the gravity of orbiting bodies, and the sky lensed behind them.</sub></td></tr>
+<tr><td valign="top" width="33%"><a href="examples/ptlas.ts"><img src="docs/screenshots/ptlas.jpg" alt="Partitioned TLAS (TypeScript, DirectX 12 preview / Vulkan). A grid of cubes in 16 partitions kept up to date by sparse instance writes, updates and partition translations, checked against an ordinary TLAS" width="270"></a><br><a href="examples/ptlas.ts"><b>Partitioned TLAS</b></a><br><sub>A grid of cubes in 16 partitions kept up to date by sparse instance writes, updates and partition translations, checked against an ordinary TLAS.</sub></td></tr>
 </table>
+
+`ptlas` builds a partitioned top-level acceleration structure (PTLAS): Vulkan's `VK_NV_partitioned_acceleration_structure`
+and D3D12's [preview PTLAS](https://devblogs.microsoft.com/directx/clas-ptlas-preview). A compute shader writes each
+frame's operations: instance writes for what moved (orbiting cubes, a spinning tile, half of which spins in the global
+partition and is then written back into its own), instance updates swapping the BLAS of half a tile's cubes, and a
+translation per partition. The ray generation shader traces the PTLAS and an ordinary TLAS rebuilt from the same
+instances, and paints any pixel where they disagree magenta (`-reference` shows the ordinary TLAS's image). NVRHI only
+binds the PTLAS; `core/ptlas.cpp` sizes and builds it natively. D3D12 needs the preview Agility SDK (fetched at
+configure time, `WITH_D3D12_PREVIEW_SDK`, on by default; ahead-of-time builds only), Windows' Developer Mode and a driver
+reporting PTLAS support (NVIDIA 621.14 does, 617.42 doesn't); without them, `ptlas.dx12` is skipped.
 
 ## External assets
 

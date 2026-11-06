@@ -4089,8 +4089,9 @@ add_dxgs_media(opacity_micromaps opacity_micromaps ${omm_media})
 
 # Partitioned top level acceleration structures (PTLAS): Vulkan's VK_NV_partitioned_acceleration_structure
 # and D3D12's preview (devblogs.microsoft.com/directx/clas-ptlas-preview). A grid of cubes in 16
-# partitions, a ground and orbiting cubes in the global partition, kept up to date by sparse
-# operations a compute shader writes each frame (instance writes, instance updates, partition
+# partitions, a ground and orbiting cubes in the global partition (which half the spinning tile
+# joins while it spins), kept up to date by sparse operations a compute shader writes each frame
+# (instance writes, instance updates, partition
 # translations; core/ptlas.cpp builds them natively), checked per pixel against an ordinary TLAS of
 # the same instances. D3D12 needs the preview Agility SDK (WITH_D3D12_PREVIEW_SDK; ahead-of-time
 # builds only, the JIT DLL exports the pinned one) and Windows' Developer Mode.
