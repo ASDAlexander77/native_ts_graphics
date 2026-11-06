@@ -1,6 +1,6 @@
 /// <reference path="../core/nri/nri_interop.d.ts" />
 import {
-    MAX_GRID_LONG, MIN_TILE_WIDTH
+    MAX_GRID_LONG, MIN_TILE_WIDTH, DRAG_THRESHOLD
 } from "./defs";
 import { SandboxState } from "./state";
 
@@ -108,6 +108,10 @@ export class SandboxView extends SandboxState {
         this.tabHeight = this.toolbarTabHeight();
         this.tileWidth = Math.max(this.width / Math.max(this.groupTiles.length, 1), Math.max(MIN_TILE_WIDTH, this.tileHeight));
         this.toolbarHeight = this.tileHeight + this.tabHeight;
+        // A press is a drag (a toolbar row's scroll, not a tap) once it moves 2% of the screen's
+        // shorter side: a finger's jitter on a phone's dense screen is far more than a mouse's
+        // DRAG_THRESHOLD pixels, and a tap taken for a drag did nothing.
+        this.pointer.dragThreshold = Math.max(DRAG_THRESHOLD, Math.floor(Math.min(this.width, this.height) * 0.02));
         this.panZoom.setArea(0.0, 0.0, this.width, this.height - this.toolbarHeight);
         this.panZoom.setContent(this.gridW, this.gridH);
         this.panZoom.layout();

@@ -56,21 +56,24 @@ export class SandboxUI extends SandboxSimulation {
     }
 
     // The size slider shows while the brush is sized by its radius (a circle, a square, a line's
-    // half width; not a box, the size it's stretched to), along the top, sliderHeight() tall.
+    // half width; not a box, the size it's stretched to), along the top, sliderHeight() tall: most
+    // of a tile's height, a finger's width on a phone, kept off the screen's top edge (where a
+    // swipe is the system's).
     sliderShown(): boolean {
         return this.brushShape != SHAPE_BOX;
     }
 
     sliderTop(): number {
-        return 6.0;
+        return Math.max(6.0, Math.floor(Math.min(this.width, this.height) * 0.02));
     }
 
     sliderHeight(): number {
-        return this.tabHeight;
+        return Math.max(this.tabHeight, Math.floor(this.tileHeight * 0.75));
     }
 
+    // (the margin above it is the slider's too)
     onSlider(x: number, y: number): boolean {
-        return this.sliderShown() && this.slider.contains(x, y);
+        return this.sliderShown() && this.slider.contains(x, Math.max(y, this.sliderTop()));
     }
 
     // The brush's radius from x along the slider's track (whole cells, or the smallest).
