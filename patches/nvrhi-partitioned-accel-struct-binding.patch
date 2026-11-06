@@ -1,0 +1,259 @@
+diff --git a/include/nvrhi/nvrhi.h b/include/nvrhi/nvrhi.h
+index 9fe47a7..5dff493 100644
+--- a/include/nvrhi/nvrhi.h
++++ b/include/nvrhi/nvrhi.h
+@@ -2115,6 +2115,11 @@ namespace nvrhi
+         RayTracingAccelStruct,
+         PushConstants,
+         SamplerFeedbackTexture_UAV,
++        // A partitioned top level acceleration structure (VK_NV_partitioned_acceleration_structure,
++        // D3D12's preview PTLAS): the buffer it was built into (isAccelStructStorage), bound by its
++        // address. Shaders trace it as any RaytracingAccelerationStructure. D3D12 binds it as
++        // RayTracingAccelStruct does, Vulkan as a VK_DESCRIPTOR_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_NV.
++        RayTracingPartitionedAccelStruct,
+ 
+         Count
+     };
+@@ -2167,6 +2172,7 @@ namespace nvrhi
+         NVRHI_BINDING_LAYOUT_ITEM_INITIALIZER(Sampler)
+         NVRHI_BINDING_LAYOUT_ITEM_INITIALIZER(RayTracingAccelStruct)
+         NVRHI_BINDING_LAYOUT_ITEM_INITIALIZER(SamplerFeedbackTexture_UAV)
++        NVRHI_BINDING_LAYOUT_ITEM_INITIALIZER(RayTracingPartitionedAccelStruct)
+ 
+         static BindingLayoutItem PushConstants(const uint32_t slot, const size_t size)
+         {
+@@ -2485,6 +2491,24 @@ namespace nvrhi
+             return result;
+         }
+ 
++        // A partitioned TLAS: the buffer it was built into, at its start.
++        static BindingSetItem RayTracingPartitionedAccelStruct(uint32_t slot, IBuffer* buffer)
++        {
++            BindingSetItem result;
++            result.slot = slot;
++            result.arrayElement = 0;
++            result.type = ResourceType::RayTracingPartitionedAccelStruct;
++            result.resourceHandle = buffer;
++            result.format = Format::UNKNOWN;
++            result.dimension = TextureDimension::Unknown;
++            result.rawData[0] = 0;
++            result.rawData[1] = 0;
++            result.unused = 0;
++            result.overrideComponentMapping = 0;
++            result.unused2 = 0;
++            return result;
++        }
++
+         static BindingSetItem StructuredBuffer_SRV(uint32_t slot, IBuffer* buffer, Format format = Format::UNKNOWN, BufferRange range = EntireBuffer)
+         {
+             BindingSetItem result;
+diff --git a/src/common/utils.cpp b/src/common/utils.cpp
+index 8066782..9c350d0 100644
+--- a/src/common/utils.cpp
++++ b/src/common/utils.cpp
+@@ -243,6 +243,7 @@ namespace nvrhi::utils
+         case ResourceType::VolatileConstantBuffer:  return "VolatileConstantBuffer";
+         case ResourceType::Sampler:                 return "Sampler";
+         case ResourceType::RayTracingAccelStruct:   return "RayTracingAccelStruct";
++        case ResourceType::RayTracingPartitionedAccelStruct: return "RayTracingPartitionedAccelStruct";
+         case ResourceType::PushConstants:           return "PushConstants";
+         case ResourceType::Count:
+         default:                                    return "<INVALID>";
+diff --git a/src/d3d12/d3d12-resource-bindings.cpp b/src/d3d12/d3d12-resource-bindings.cpp
+index 34eafde..227f9dd 100644
+--- a/src/d3d12/d3d12-resource-bindings.cpp
++++ b/src/d3d12/d3d12-resource-bindings.cpp
+@@ -28,6 +28,18 @@
+ 
+ namespace nvrhi::d3d12
+ {
++    // A partitioned TLAS's SRV: as an acceleration structure's, at the start of its buffer.
++    static void CreatePartitionedAccelStructSRV(const Context& context, Buffer* buffer, size_t descriptor)
++    {
++        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
++        srvDesc.Format = DXGI_FORMAT_UNKNOWN;
++        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
++        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++        srvDesc.RaytracingAccelerationStructure.Location = buffer->gpuVA;
++
++        context.device->CreateShaderResourceView(nullptr, &srvDesc, { descriptor });
++    }
++
+     static ResourceType GetNormalizedResourceType(ResourceType type)
+     {
+         switch (type)  // NOLINT(clang-diagnostic-switch-enum)
+@@ -269,6 +281,17 @@ namespace nvrhi::d3d12
+                             found = true;
+                             break;
+                         }
++                        else if (range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SRV && bindingType == ResourceType::RayTracingPartitionedAccelStruct)
++                        {
++                            Buffer* buffer = checked_cast<Buffer*>(binding.resourceHandle);
++                            CreatePartitionedAccelStructSRV(m_Context, buffer, descriptorHandle.ptr);
++                            pResource = buffer;
++
++                            bindingsThatNeedTransitions.push_back(static_cast<uint16_t>(bindingIndex));
++
++                            found = true;
++                            break;
++                        }
+                         else if (range.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_CBV && bindingType == ResourceType::ConstantBuffer)
+                         {
+                             Buffer* buffer = checked_cast<Buffer*>(binding.resourceHandle);
+@@ -475,6 +498,7 @@ namespace nvrhi::d3d12
+                     case ResourceType::StructuredBuffer_SRV:
+                     case ResourceType::RawBuffer_SRV:
+                     case ResourceType::RayTracingAccelStruct:
++                    case ResourceType::RayTracingPartitionedAccelStruct:
+                         range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                         break;
+ 
+@@ -614,6 +638,7 @@ namespace nvrhi::d3d12
+             case ResourceType::StructuredBuffer_SRV:
+             case ResourceType::RawBuffer_SRV:
+             case ResourceType::RayTracingAccelStruct:
++            case ResourceType::RayTracingPartitionedAccelStruct:
+                 rangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                 break;
+ 
+@@ -884,6 +909,10 @@ namespace nvrhi::d3d12
+             accelStruct->createSRV(descriptorHandle.ptr);
+             break;
+         }
++        case ResourceType::RayTracingPartitionedAccelStruct: {
++            CreatePartitionedAccelStructSRV(m_Context, checked_cast<Buffer*>(binding.resourceHandle), descriptorHandle.ptr);
++            break;
++        }
+ 
+         case ResourceType::VolatileConstantBuffer:
+             m_Context.error("Attempted to bind a volatile constant buffer to a bindless set.");
+diff --git a/src/d3d12/d3d12-state-tracking.cpp b/src/d3d12/d3d12-state-tracking.cpp
+index 986f9c7..1a82022 100644
+--- a/src/d3d12/d3d12-state-tracking.cpp
++++ b/src/d3d12/d3d12-state-tracking.cpp
+@@ -70,6 +70,10 @@ namespace nvrhi::d3d12
+                 requireBufferState(checked_cast<AccelStruct*>(binding.resourceHandle)->dataBuffer, ResourceStates::AccelStructRead);
+                 break;
+ 
++            case ResourceType::RayTracingPartitionedAccelStruct:
++                requireBufferState(checked_cast<IBuffer*>(binding.resourceHandle), ResourceStates::AccelStructRead);
++                break;
++
+             case ResourceType::SamplerFeedbackTexture_UAV:
+                 requireSamplerFeedbackTextureState(checked_cast<ISamplerFeedbackTexture*>(binding.resourceHandle), ResourceStates::UnorderedAccess);
+                 break;
+diff --git a/src/validation/validation-device.cpp b/src/validation/validation-device.cpp
+index 6435d66..42bddc9 100644
+--- a/src/validation/validation-device.cpp
++++ b/src/validation/validation-device.cpp
+@@ -827,6 +827,7 @@ namespace nvrhi::validation
+         case ResourceType::StructuredBuffer_SRV:
+         case ResourceType::RawBuffer_SRV:
+         case ResourceType::RayTracingAccelStruct:
++        case ResourceType::RayTracingPartitionedAccelStruct:
+             location.type = GraphicsResourceType::SRV;
+             bindings.rangeSRV.add(location.slot);
+             break;
+@@ -1794,6 +1795,20 @@ namespace nvrhi::validation
+             }
+             break;
+ 
++        case ResourceType::RayTracingPartitionedAccelStruct:
++            if (binding.resourceHandle == nullptr)
++            {
++                errorStream << "Null resource bindings are not allowed for partitioned acceleration structures." << std::endl;
++                return false;
++            }
++            if (!checked_cast<IBuffer*>(binding.resourceHandle)->getDesc().isAccelStructStorage)
++            {
++                errorStream << "Buffer " << utils::DebugNameToString(checked_cast<IBuffer*>(binding.resourceHandle)->getDesc().debugName)
++                    << " bound as a partitioned acceleration structure is not an acceleration structure storage buffer (isAccelStructStorage)." << std::endl;
++                return false;
++            }
++            break;
++
+         case ResourceType::PushConstants:
+             if (isDescriptorTable)
+             {
+diff --git a/src/vulkan/vulkan-constants.cpp b/src/vulkan/vulkan-constants.cpp
+index fbc6d00..c018870 100644
+--- a/src/vulkan/vulkan-constants.cpp
++++ b/src/vulkan/vulkan-constants.cpp
+@@ -876,6 +876,9 @@ namespace nvrhi::vulkan
+             return vk::DescriptorType::eAccelerationStructureKHR;
+             break;
+ 
++        case ResourceType::RayTracingPartitionedAccelStruct:
++            return vk::DescriptorType::ePartitionedAccelerationStructureNV;
++
+         default:
+             utils::InvalidEnum();
+             return vk::DescriptorType(0);
+diff --git a/src/vulkan/vulkan-resource-bindings.cpp b/src/vulkan/vulkan-resource-bindings.cpp
+index 887ae9a..ede55dc 100644
+--- a/src/vulkan/vulkan-resource-bindings.cpp
++++ b/src/vulkan/vulkan-resource-bindings.cpp
+@@ -54,6 +54,7 @@ namespace nvrhi::vulkan
+         case ResourceType::StructuredBuffer_SRV:
+         case ResourceType::RawBuffer_SRV:
+         case ResourceType::RayTracingAccelStruct:
++        case ResourceType::RayTracingPartitionedAccelStruct:
+             return bindingOffsets.shaderResource;
+ 
+         case ResourceType::Texture_UAV:
+@@ -350,6 +351,12 @@ namespace nvrhi::vulkan
+         std::vector<vk::DescriptorBufferInfo> descriptorBufferInfo;
+         std::vector<vk::WriteDescriptorSet> descriptorWriteInfo;
+         std::vector<vk::WriteDescriptorSetAccelerationStructureKHR> accelStructWriteInfo;
++        // Partitioned acceleration structures are written by address: the addresses and their
++        // writes, reserved so that the pointers into them stay valid.
++        std::vector<vk::DeviceAddress> partitionedAccelStructAddresses;
++        std::vector<vk::WriteDescriptorSetPartitionedAccelerationStructureNV> partitionedAccelStructWriteInfo;
++        partitionedAccelStructAddresses.reserve(desc.bindings.size());
++        partitionedAccelStructWriteInfo.reserve(desc.bindings.size());
+         descriptorImageInfo.reserve(desc.bindings.size());
+         descriptorBufferInfo.reserve(desc.bindings.size());
+         descriptorWriteInfo.reserve(desc.bindings.size());
+@@ -615,6 +622,26 @@ namespace nvrhi::vulkan
+ 
+             break;
+ 
++            case ResourceType::RayTracingPartitionedAccelStruct:
++            {
++                const auto buffer = checked_cast<Buffer*>(binding.resourceHandle);
++
++                partitionedAccelStructAddresses.push_back(buffer->deviceAddress);
++                auto& partitionedWrite = partitionedAccelStructWriteInfo.emplace_back();
++                partitionedWrite.accelerationStructureCount = 1;
++                partitionedWrite.pAccelerationStructures = &partitionedAccelStructAddresses.back();
++
++                generateWriteDescriptorData(
++                    registerOffset + binding.slot,
++                    binding.arrayElement,
++                    descriptorType,
++                    nullptr, nullptr, nullptr, &partitionedWrite);
++
++                ret->bindingsThatNeedTransitions.push_back(static_cast<uint16_t>(bindingIndex));
++            }
++
++            break;
++
+             case ResourceType::PushConstants:
+                 break;
+ 
+diff --git a/src/vulkan/vulkan-state-tracking.cpp b/src/vulkan/vulkan-state-tracking.cpp
+index c625f9f..6e93f92 100644
+--- a/src/vulkan/vulkan-state-tracking.cpp
++++ b/src/vulkan/vulkan-state-tracking.cpp
+@@ -80,6 +80,11 @@ namespace nvrhi::vulkan
+ 
+                 case ResourceType::RayTracingAccelStruct:
+                     requireBufferState(checked_cast<AccelStruct*>(binding.resourceHandle)->dataBuffer, ResourceStates::AccelStructRead);
++                    break;
++
++                case ResourceType::RayTracingPartitionedAccelStruct:
++                    requireBufferState(checked_cast<IBuffer*>(binding.resourceHandle), ResourceStates::AccelStructRead);
++                    break;
+ 
+                 default:
+                     // do nothing
