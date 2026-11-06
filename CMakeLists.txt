@@ -4422,6 +4422,20 @@ donut_compile_shaders(
 add_tslang_example(raytracing_simple_lighting core/directx_math.ts)
 add_tslang_example_test(raytracing_simple_lighting)
 
+# Port of DirectX-Graphics-Samples' D3D12RaytracingHelloWorld: one triangle ray traced in screen space
+# (orthographic rays along z), showing the hit's barycentrics inside a stencil window and the
+# dispatch coordinates around it. Ray tracing pipelines: D3D12 or Vulkan.
+donut_compile_shaders(
+    TARGET raytracing_hello_world_shaders
+    PROJECT_NAME "Raytracing Hello World"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_hello_world.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/raytracing_hello_world.hlsl
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_hello_world/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/raytracing_hello_world/spirv
+)
+add_tslang_example(raytracing_hello_world)
+add_tslang_example_test(raytracing_hello_world)
+
 # raytracing_simple_lighting with NRI and NRIFramework instead of Donut: the same shader library.
 add_tslang_nri_example(raytracing_simple_lighting_nri SHADERS raytracing_simple_lighting_shaders core/directx_math.ts core/nri_frame_ring.ts core/nri_swap_chain.ts)
 add_tslang_example_test(raytracing_simple_lighting_nri)
