@@ -214,11 +214,12 @@ export class SandboxState {
     protected gravityX: number = -1.0;
     protected gravityY: number = -1.0;
     // Tilting: the gravity's direction across the grid (a unit vector), whether -tilt set it, and
-    // the sensor's reading.
+    // the sensor's reading (f32s: Nri_GetGravity writes floats; a number[]'s doubles would take the
+    // x and y floats' bits as one double, and the gravity would point across the screen).
     protected tiltX: number = 0.0;
     protected tiltY: number = 1.0;
     tiltFixed: boolean = false;
-    protected sensed: number[] = [0.0, 0.0, 0.0];
+    protected sensed: f32[] = [<f32>0.0, <f32>0.0, <f32>0.0];
     protected toolBeforePlace: int = WATER;
     // handleInput's brush shape and cursor (constants[27], the gravity's mode above them).
     protected shapeWord: int = 0;
