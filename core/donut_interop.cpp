@@ -2196,6 +2196,9 @@ namespace
         // Chained into the device's creation when VK_EXT_opacity_micromap is enabled.
         VkPhysicalDeviceOpacityMicromapFeaturesEXT opacityMicromap{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT };
+        // Chained into the device's creation when VK_NV_partitioned_acceleration_structure is enabled.
+        VkPhysicalDevicePartitionedAccelerationStructureFeaturesNV partitionedAccelerationStructure{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PARTITIONED_ACCELERATION_STRUCTURE_FEATURES_NV };
         // Chained into the device's creation when VK_NV_cooperative_vector is enabled.
         VkPhysicalDeviceCooperativeVectorFeaturesNV cooperativeVector{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV };
@@ -2417,6 +2420,22 @@ namespace
                     result.opacityMicromap.micromap = VK_TRUE;
                     result.opacityMicromap.pNext = const_cast<void*>(info.pNext);
                     info.pNext = &result.opacityMicromap;
+                }
+                continue;
+            }
+            if (strcmp(info.ppEnabledExtensionNames[i], VK_NV_PARTITIONED_ACCELERATION_STRUCTURE_EXTENSION_NAME) == 0)
+            {
+                VkPhysicalDevicePartitionedAccelerationStructureFeaturesNV available2{
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PARTITIONED_ACCELERATION_STRUCTURE_FEATURES_NV };
+                VkPhysicalDeviceFeatures2 features2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                features2.pNext = &available2;
+                VULKAN_HPP_DEFAULT_DISPATCHER.vkGetPhysicalDeviceFeatures2(
+                    DeviceManagerVKAccess::PhysicalDevice(deviceManager), &features2);
+                if (available2.partitionedAccelerationStructure)
+                {
+                    result.partitionedAccelerationStructure.partitionedAccelerationStructure = VK_TRUE;
+                    result.partitionedAccelerationStructure.pNext = const_cast<void*>(info.pNext);
+                    info.pNext = &result.partitionedAccelerationStructure;
                 }
                 continue;
             }
@@ -2773,6 +2792,10 @@ extern "C"
         // EnableCoreFeatures).
         if ((options & AppOption_RayTracing) != 0)
             params.optionalVulkanDeviceExtensions.push_back("VK_EXT_opacity_micromap");
+        // Partitioned top level acceleration structures (core/ptlas.cpp; its feature chained by
+        // EnableCoreFeatures).
+        if ((options & AppOption_RayTracing) != 0)
+            params.optionalVulkanDeviceExtensions.push_back(VK_NV_PARTITIONED_ACCELERATION_STRUCTURE_EXTENSION_NAME);
         // Advanced blend operations (Donut_GetAdvancedBlendOperations).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_blend_operation_advanced");
         // Quad control in shaders (Donut_HasShaderQuadControl), which needs maximal reconvergence.
@@ -3332,11 +3355,14 @@ extern "C"
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
 #if DONUT_WITH_VULKAN
         // the core features a window's device has (Donut_CreateAppWithOptions), and of its optional
-        // extensions those of cooperative vectors and opacity micromaps
+        // extensions those of cooperative vectors, opacity micromaps and partitioned TLASes
         auto vulkanFeatures = HookCoreFeatures(deviceManager.get(), api, params);
         params.optionalVulkanDeviceExtensions.push_back(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
         if ((options & AppOption_RayTracing) != 0)
+        {
             params.optionalVulkanDeviceExtensions.push_back("VK_EXT_opacity_micromap");
+            params.optionalVulkanDeviceExtensions.push_back(VK_NV_PARTITIONED_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        }
 #endif
 
         if (!deviceManager->CreateHeadlessDevice(params))
@@ -4774,6 +4800,13 @@ extern "C"
                 accelStruct));
     }
 
+    // A partitioned TLAS (core/ptlas.cpp) by the buffer it was built into.
+    DONUT_API void Donut_BindPartitionedAccelStruct(nvrhi::BindingSetDesc* bindingSetDesc, int slot, nvrhi::IBuffer* buffer)
+    {
+        bindingSetDesc->addItem(
+            nvrhi::BindingSetItem::RayTracingPartitionedAccelStruct(static_cast<uint32_t>(slot), buffer));
+    }
+
     // Creates a binding set for an existing layout (see Donut_CreateBindingLayout) from a
     // description, which it frees. Returns null on failure.
     DONUT_API nvrhi::IBindingSet* Donut_CreateBindingSetForLayout(App* app, nvrhi::BindingSetDesc* bindingSetDesc, nvrhi::IBindingLayout* bindingLayout)
@@ -4801,6 +4834,12 @@ extern "C"
     {
         bindingLayoutDesc->addItem(
             nvrhi::BindingLayoutItem::RayTracingAccelStruct(static_cast<uint32_t>(slot)));
+    }
+
+    DONUT_API void Donut_LayoutPartitionedAccelStruct(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
+    {
+        bindingLayoutDesc->addItem(
+            nvrhi::BindingLayoutItem::RayTracingPartitionedAccelStruct(static_cast<uint32_t>(slot)));
     }
 
     DONUT_API void Donut_LayoutTextureSRV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)

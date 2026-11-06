@@ -279,6 +279,11 @@ set(DONUT_NVRHI_PATCHES
     # pipeline's count, and lavapipe drops the primitives past it (bokeh's far layer, on Android's
     # emulator).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-viewport-count.patch"
+    # ResourceType::RayTracingPartitionedAccelStruct: a partitioned TLAS (Vulkan's
+    # VK_NV_partitioned_acceleration_structure, D3D12's preview PTLAS) bound by the buffer it was
+    # built into - a VK_DESCRIPTOR_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_NV descriptor of its
+    # address on Vulkan, an acceleration structure SRV on D3D12 (ptlas; its builds are core/ptlas.cpp's).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-partitioned-accel-struct-binding.patch"
 )
 
 # Applies the patches to the repository in <folder>, unless they are applied already.
@@ -433,6 +438,48 @@ if (NVRHI_WITH_DX12)
         COMPILE_DEFINITIONS DONUT_D3D_AGILITY_SDK_VERSION=${DONUT_D3D_AGILITY_SDK_VERSION})
 endif()
 
+# The preview Agility SDK of D3D12's partitioned TLASes (devblogs.microsoft.com/directx/clas-ptlas-preview):
+# its headers for core/ptlas.cpp alone (the other D3D12 code stays on the pinned SDK's), its runtime in
+# bin/D3D12Preview for the executables linking core/d3d12_preview_sdk.cpp (ptlas). Fetched from NuGet
+# at configure time into the build folder. The runtime loads only with Windows' Developer Mode on.
+option(WITH_D3D12_PREVIEW_SDK "Fetch the preview Agility SDK for ptlas's D3D12 path" ON)
+if (WITH_D3D12_PREVIEW_SDK AND WIN32 AND NVRHI_WITH_DX12)
+    set(D3D12_PREVIEW_SDK_VERSION_STRING "1.722.0-preview")
+    set(D3D12_PREVIEW_SDK_DIR "${CMAKE_BINARY_DIR}/_deps/d3d12_preview_sdk-${D3D12_PREVIEW_SDK_VERSION_STRING}")
+    if (NOT EXISTS "${D3D12_PREVIEW_SDK_DIR}/build/native/include/d3d12.h")
+        set(package "${CMAKE_BINARY_DIR}/_deps/d3d12_preview_sdk.nupkg")
+        file(DOWNLOAD "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/${D3D12_PREVIEW_SDK_VERSION_STRING}"
+            "${package}" STATUS download_status)
+        list(GET download_status 0 download_code)
+        if (download_code EQUAL 0)
+            file(ARCHIVE_EXTRACT INPUT "${package}" DESTINATION "${D3D12_PREVIEW_SDK_DIR}")
+        else()
+            message(WARNING "Couldn't download the preview Agility SDK (${download_status}): ptlas without D3D12")
+        endif()
+        file(REMOVE "${package}")
+    endif()
+    if (EXISTS "${D3D12_PREVIEW_SDK_DIR}/build/native/include/d3d12.h")
+        file(STRINGS "${D3D12_PREVIEW_SDK_DIR}/build/native/include/d3d12.h" preview_version_line
+            REGEX "#define[ 	]+D3D12_PREVIEW_SDK_VERSION[ 	]")
+        string(REGEX MATCH "[0-9]+" D3D12_PREVIEW_SDK_VERSION "${preview_version_line}")
+        file(COPY
+            "${D3D12_PREVIEW_SDK_DIR}/build/native/bin/x64/D3D12Core.dll"
+            "${D3D12_PREVIEW_SDK_DIR}/build/native/bin/x64/d3d12SDKLayers.dll"
+            DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/D3D12Preview/")
+        # Included by core/ptlas.cpp before anything else can include another d3d12.h (its siblings
+        # come from its folder).
+        file(WRITE "${CMAKE_BINARY_DIR}/d3d12_preview/ptlas_d3d12_preview.h"
+            "#pragma once
+#include \"${D3D12_PREVIEW_SDK_DIR}/build/native/include/d3d12.h\"
+")
+        set_source_files_properties(core/ptlas.cpp PROPERTIES
+            COMPILE_DEFINITIONS DONUT_PTLAS_WITH_D3D12_PREVIEW=1
+            INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/d3d12_preview")
+        set_source_files_properties(core/d3d12_preview_sdk.cpp PROPERTIES
+            COMPILE_DEFINITIONS DONUT_D3D12_PREVIEW_SDK_VERSION=${D3D12_PREVIEW_SDK_VERSION})
+    endif()
+endif()
+
 # DLSS 5, NVIDIA's DLSS 3D-Guided Neural Rendering (DLSS-NR), for feature_demo (Vulkan or D3D12, RTX GPU,
 # driver 616.92+). Its SDK isn't in the public DLSS one: RTX Remix's build fetches it as a packman
 # package (dxvk-remix/packman-external.xml), from the public remote downloaded here, at configure
@@ -565,7 +612,8 @@ add_dependencies(donut_interop_static check_interop_types)
 # Under the JIT this one library is all an example gets, so it also holds the C++ modules that only
 # some examples link into their executables (their add_tslang_example sources), with what those
 # need: the OBJ, SDKMESH and meshlet loaders, the PBRT scene, DirectXCollision, Basis Universal's
-# transcoder, the fast block compressor, the paged images, and (Windows) the video player.
+# transcoder, the fast block compressor, the paged images, the PTLAS builds (on D3D12 the JIT gets
+# the pinned Agility SDK, not the preview: Vulkan only), and (Windows) the video player.
 set(JIT_MODULE_SOURCES
     core/obj_model.cpp
     core/sdkmesh.cpp
@@ -575,7 +623,8 @@ set(JIT_MODULE_SOURCES
     core/fast_block_compress.cpp
     core/fbc_cpu.cpp
     core/paged_images.cpp
-    core/omm_bake.cpp)
+    core/omm_bake.cpp
+    core/ptlas.cpp)
 if (WIN32)
     # denoised_rtao is Windows only (its PBRT parser includes windows.h, it decodes with WIC).
     list(APPEND JIT_MODULE_SOURCES core/denoised_rtao.cpp core/pbrt/PBRTParser.cpp core/pbrt/PlyParser.cpp
@@ -1046,8 +1095,10 @@ endfunction()
 # code, or an error line from Donut, NVRHI's validation or the API's (D3D12's, Vulkan's) layer;
 # Donut logs every message of Vulkan's validation layer as a warning, so those fail it too.
 enable_testing()
+# NO_DEBUG: without -debug (the API's debug layer and NVRHI's validation), for what the installed
+# debug layer can't handle.
 function(add_tslang_example_test name)
-    cmake_parse_arguments(PARSE_ARGV 1 TEST "" "SUFFIX" "APIS;ARGS")
+    cmake_parse_arguments(PARSE_ARGV 1 TEST "NO_DEBUG" "SUFFIX" "APIS;ARGS")
     if (ANDROID)
         return()
     endif()
@@ -1058,9 +1109,13 @@ function(add_tslang_example_test name)
     if (TEST_SUFFIX)
         set(test_name ${name}.${TEST_SUFFIX})
     endif()
+    set(debug_arg -debug)
+    if (TEST_NO_DEBUG)
+        set(debug_arg)
+    endif()
     foreach(api ${TEST_APIS})
         add_test(NAME ${test_name}.${api}
-            COMMAND ${name} -${api} -debug -test ${TEST_ARGS}
+            COMMAND ${name} -${api} ${debug_arg} -test ${TEST_ARGS}
             WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
         set_tests_properties(${test_name}.${api} PROPERTIES
             FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION|layerPrefix='Validation'"
@@ -4030,6 +4085,33 @@ foreach(level RANGE 1 12)
     list(APPEND omm_media "${omm_dir}/treeOMM_SubD${level}_2State.bin" "${omm_dir}/treeOMM_SubD${level}_4State.bin")
 endforeach()
 add_dxgs_media(opacity_micromaps opacity_micromaps ${omm_media})
+
+# Partitioned top level acceleration structures (PTLAS): Vulkan's VK_NV_partitioned_acceleration_structure
+# and D3D12's preview (devblogs.microsoft.com/directx/clas-ptlas-preview). A grid of cubes in 16
+# partitions, a ground and orbiting cubes in the global partition, kept up to date by sparse
+# operations a compute shader writes each frame (instance writes, instance updates, partition
+# translations; core/ptlas.cpp builds them natively), checked per pixel against an ordinary TLAS of
+# the same instances. D3D12 needs the preview Agility SDK (WITH_D3D12_PREVIEW_SDK; ahead-of-time
+# builds only, the JIT DLL exports the pinned one) and Windows' Developer Mode.
+donut_compile_shaders(
+    TARGET ptlas_shaders
+    PROJECT_NAME "Partitioned TLAS"
+    CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ptlas.cfg
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ptlas.hlsl ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ptlas_animate.hlsl
+        ${CMAKE_CURRENT_SOURCE_DIR}/shaders/ptlas_scene.hlsli
+    DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ptlas/dxil
+    SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/ptlas/spirv
+)
+if (D3D12_PREVIEW_SDK_VERSION)
+    add_tslang_example(ptlas core/ptlas.ts core/ptlas.cpp core/d3d12_preview_sdk.cpp)
+else()
+    add_tslang_example(ptlas core/ptlas.ts core/ptlas.cpp)
+endif()
+add_tslang_example_test(ptlas APIS dx12)
+# The Vulkan SDK's validation layer (1.4.321) doesn't know VK_DESCRIPTOR_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_NV:
+# it reports the PTLAS binding as mismatching the shader's, garbles the set's other bindings, and
+# crashes in VkLayer_khronos_validation.dll.
+add_tslang_example_test(ptlas APIS vk NO_DEBUG)
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
 # mesh shader alone (a group per meshlet, no vertex or index buffers bound), each meshlet in a color

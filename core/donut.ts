@@ -2646,6 +2646,11 @@ export class BindingSetDesc {
         Donut_BindAccelStruct(this.handle, slot, accelStruct);
     }
 
+    // A partitioned TLAS (core/ptlas.ts's Ptlas.getBuffer) as a RaytracingAccelerationStructure at t<slot>.
+    bindPartitionedAccelStruct(slot: int, buffer: BufferHandle): void {
+        Donut_BindPartitionedAccelStruct(this.handle, slot, buffer);
+    }
+
     // Per-geometry bindings, e.g. for local binding sets: Buffer<uint> of the geometry's indices;
     // Buffer<...> of one vertex attribute; a material texture (or Donut's white / black texture if the
     // material has none); the MaterialConstants cbuffer.
@@ -2706,6 +2711,10 @@ export class BindingLayoutDesc {
 
     layoutAccelStruct(slot: int): void {
         Donut_LayoutAccelStruct(this.handle, slot);
+    }
+
+    layoutPartitionedAccelStruct(slot: int): void {
+        Donut_LayoutPartitionedAccelStruct(this.handle, slot);
     }
 
     layoutTextureSRV(slot: int): void {

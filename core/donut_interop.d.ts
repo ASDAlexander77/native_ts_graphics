@@ -327,6 +327,41 @@ enum MeshletModelData {
 // and unknown, the OMMs fully opaque, transparent and unknown.
 @nodrops declare function Donut_GetOmmBakerStat(ommBaker: OmmBakerHandle, bake: int, stat: int): int;
 
+// Partitioned top level acceleration structures (core/ptlas.cpp, linked only into the examples that list it):
+// Vulkan's VK_NV_partitioned_acceleration_structure and D3D12's preview PTLAS, built by operations whose
+// arguments shaders write. Enables D3D12's experimental features of the preview; call before creating a
+// D3D12 app (whose executable links core/d3d12_preview_sdk.cpp). 1 on success, 0 without the preview or
+// Windows' Developer Mode.
+@nodrops declare function Donut_EnableD3D12RaytracingPreview(): int;
+// A PTLAS on the app's device (Donut_GetNvrhiDevice) of instanceCount instance slots in partitionCount
+// partitions of up to maxInstancesPerPartition, and a global partition of up to
+// maxInstancesInGlobalPartition; flags: 1 fast trace, 2 fast build, 4 partition translation. Null where
+// PTLASes aren't supported. Free it with Donut_DestroyPtlas before the app.
+@nodrops declare function Donut_CreatePtlas(device: Opaque, instanceCount: int, maxInstancesPerPartition: int, partitionCount: int,
+    maxInstancesInGlobalPartition: int, flags: int): PtlasHandle | null;
+@nodrops declare function Donut_DestroyPtlas(ptlas: PtlasHandle): void;
+// The PTLAS's buffer, to bind with Donut_BindPartitionedAccelStruct (the Ptlas's: don't release it).
+@nodrops declare function Donut_GetPtlasBuffer(ptlas: PtlasHandle): BufferHandle;
+// The arguments the next build's operations read, RWByteAddressBuffers for shaders to write: instance
+// writes (104 bytes each, laid out differently on Vulkan and D3D12), instance updates and partition
+// translations (16 bytes each); room for one per instance slot or partition.
+@nodrops declare function Donut_GetPtlasWriteInstanceArgs(ptlas: PtlasHandle): BufferHandle;
+@nodrops declare function Donut_GetPtlasUpdateInstanceArgs(ptlas: PtlasHandle): BufferHandle;
+@nodrops declare function Donut_GetPtlasTranslatePartitionArgs(ptlas: PtlasHandle): BufferHandle;
+// Writes accelStruct's address as instances reference it to dst (two ints, low half first).
+@nodrops declare function Donut_PtlasStoreAccelStructAddress(ptlas: PtlasHandle, accelStruct: AccelStructHandle, dst: Ref<int>): void;
+// Records a build on an open command list from the first writeCount instance writes, updateCount instance
+// updates and translateCount partition translations of the argument buffers: the first from nothing,
+// later ones in place. An instance or a partition in one operation at most.
+@nodrops declare function Donut_BuildPtlas(ptlas: PtlasHandle, commandList: CommandListHandle, writeCount: int, updateCount: int, translateCount: int): void;
+// An ordinary TLAS of as many instances, to check the PTLAS against (bind with Donut_BindAccelStruct), and
+// its instances (D3D12_RAYTRACING_INSTANCE_DESC / VkAccelerationStructureInstanceKHR, 64 bytes each, a
+// RWByteAddressBuffer). The Ptlas's: don't release them.
+@nodrops declare function Donut_GetPtlasReferenceTlas(ptlas: PtlasHandle): AccelStructHandle;
+@nodrops declare function Donut_GetPtlasReferenceInstances(ptlas: PtlasHandle): BufferHandle;
+// Records a build of the reference TLAS from the first instanceCount instances.
+@nodrops declare function Donut_BuildPtlasReferenceTlas(ptlas: PtlasHandle, commandList: CommandListHandle, instanceCount: int): void;
+
 // Wavefront OBJ models (core/obj_model.cpp, linked only into the examples that list it):
 // DirectX-Graphics-Samples' D3D12RaytracingSakuraForestSER loader (ObjModelLoader), objects by their
 // `o` names, then an object's triangles as three vertices each. Free it with Donut_DestroyObjModel.
@@ -1744,6 +1779,8 @@ enum ShaderType {
 @nodrops declare function Donut_BindTextureUAV(bindingSetDesc: BindingSetDescHandle, slot: int, texture: TextureHandle): void;
 // RaytracingAccelerationStructure at t<slot>.
 @nodrops declare function Donut_BindAccelStruct(bindingSetDesc: BindingSetDescHandle, slot: int, accelStruct: AccelStructHandle): void;
+// A partitioned TLAS (core/ptlas.ts's Ptlas.getBuffer) as a RaytracingAccelerationStructure at t<slot>.
+@nodrops declare function Donut_BindPartitionedAccelStruct(bindingSetDesc: BindingSetDescHandle, slot: int, buffer: BufferHandle): void;
 // Binding set plus matching layout (register space 0) visible to shaderType's stages.
 @nodrops declare function Donut_CreateBindingSet(app: AppHandle, bindingSetDesc: BindingSetDescHandle, shaderType: ShaderType): BindingSetHandle;
 // Binding set for an existing layout.
@@ -1756,6 +1793,7 @@ enum ShaderType {
 @nodrops declare function Donut_CreateBindingLayoutDesc(): BindingLayoutDescHandle;
 @nodrops declare function Donut_LayoutTextureUAV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutAccelStruct(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
+@nodrops declare function Donut_LayoutPartitionedAccelStruct(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutTextureSRV(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutVolatileConstantBuffer(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
 @nodrops declare function Donut_LayoutSampler(bindingLayoutDesc: BindingLayoutDescHandle, slot: int): void;
