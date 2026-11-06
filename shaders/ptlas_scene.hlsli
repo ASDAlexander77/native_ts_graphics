@@ -1,6 +1,7 @@
 // The ptlas example's scene, shared by its animation (ptlas_animate.hlsl) and ray tracing
 // (ptlas.hlsl) shaders: a 16 x 16 grid of cubes in 16 partitions of 4 x 4 (a partition per tile), a
-// ground plane and 8 cubes orbiting above, the last 9 in the global partition. Everything is a
+// ground plane and 8 cubes orbiting above, the last 9 in the global partition, joined there by half
+// the spinning tile's cubes while it spins (moved by instance writes). Everything is a
 // function of the frame index, so that the reference TLAS can be rebuilt each frame from what the
 // PTLAS's sparse operations have accumulated.
 
@@ -20,7 +21,9 @@ static const uint GlobalPartition = 0xffffffff;
 
 // Each second (60 frames) one tile spins (its cubes rewritten every frame), and from the second
 // second on, half the cubes of another tile swap their BLAS (cube <-> octahedron) by an instance
-// update at the second's first frame.
+// update at the second's first frame. The spinning tile's other half (Migrates) spins in the global
+// partition, without the tile's translation, and is written back into the tile's partition at the
+// next second's first frame.
 static const uint FramesPerPhase = 60;
 static const float SpinPerFrame = 0.03;
 static const float BobPerFrame = 0.05;
@@ -60,6 +63,18 @@ uint IndexInPartition(uint instance)
 bool Swaps(uint indexInPartition)
 {
     return ((indexInPartition % TileSize) + indexInPartition / TileSize) % 2 == 0;
+}
+
+// The other half moves to the global partition while its tile spins.
+bool Migrates(uint indexInPartition)
+{
+    return !Swaps(indexInPartition);
+}
+
+// The index of a checkerboard half's cube among its tile's 8.
+uint IndexInHalf(uint indexInPartition)
+{
+    return (indexInPartition / TileSize) * (TileSize / 2) + (indexInPartition % TileSize) / 2;
 }
 
 // The partition's translation (a bob up and down).
@@ -121,8 +136,9 @@ InstanceState GetInstanceState(uint instance, uint frame)
         state.rows[0] = float4(c, 0, s, x);
         state.rows[1] = float4(0, 1, 0, 0.5);
         state.rows[2] = float4(-s, 0, c, z);
-        state.blas = GridBlas(partition, IndexInPartition(instance), frame);
-        state.partition = partition;
+        uint indexInPartition = IndexInPartition(instance);
+        state.blas = GridBlas(partition, indexInPartition, frame);
+        state.partition = SpinningPartition(frame) == partition && Migrates(indexInPartition) ? GlobalPartition : partition;
     }
     else if (instance == GroundInstance)
     {
