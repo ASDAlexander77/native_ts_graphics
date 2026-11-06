@@ -50,7 +50,7 @@
 #define HLSL
 #include "RaytracingHlslCompat.h"
 
-cbuffer Constants : register(b0)
+struct ConstantsData
 {
     uint g_baseGpuVaLo;
     uint g_baseGpuVaHi;
@@ -58,6 +58,12 @@ cbuffer Constants : register(b0)
     uint g_vertexBufferStride; // 12 (FLOAT32_3) or 0 (COMPRESSED1)
     uint g_positionTruncateBits; // 0..23
 };
+
+// Root constants on D3D12, push constants on Vulkan.
+#ifdef SPIRV
+[[vk::push_constant]]
+#endif
+ConstantBuffer<ConstantsData> c_Constants : register(b0);
 
 // Input metadata uses the 28-byte ClasArgsMeta layout documented above.
 ByteAddressBuffer g_meta : register(t0);
@@ -82,7 +88,7 @@ uint pack16(uint lo, uint hi)
 [numthreads(64, 1, 1)] void main(uint3 tid : SV_DispatchThreadID)
 {
     const uint idx = tid.x;
-    if (idx >= g_clusterCount)
+    if (idx >= c_Constants.g_clusterCount)
         return;
 
     // Load 28 bytes of per-cluster metadata.
@@ -98,14 +104,31 @@ uint pack16(uint lo, uint hi)
     const uint opaqueFlag = m1.z;
     const uint matRegionIdx = m2;
 
-    const uint2 vbGva = add64(g_baseGpuVaLo, g_baseGpuVaHi, vbOff);
-    const uint2 ibGva = add64(g_baseGpuVaLo, g_baseGpuVaHi, ibOff);
+    const uint2 vbGva = add64(c_Constants.g_baseGpuVaLo, c_Constants.g_baseGpuVaHi, vbOff);
+    const uint2 ibGva = add64(c_Constants.g_baseGpuVaLo, c_Constants.g_baseGpuVaHi, ibOff);
 
     // Geometry index occupies bits 0..23; clustered flags occupy bits 31..30.
     // `opaqueFlag` is already the full
     // D3D12_RTAS_CLUSTERED_GEOMETRY_FLAG_OPAQUE mask (or zero), not a boolean.
     const uint baseGeomIdxAndFlags = (matRegionIdx & 0x00FFFFFFu) | opaqueFlag;
 
+#if defined(__spirv__)
+    // Vulkan's VkClusterAccelerationStructureBuildTriangleClusterInfoNV (64 bytes, not the sample's):
+    // the counts, truncation and 8-bit index type packed in one word, the index buffer first.
+    const uint baseByte = idx * 64u;
+    g_argsOut.Store(baseByte + 0, clusterID); // clusterID
+    g_argsOut.Store(baseByte + 4, 0u); // clusterFlags
+    g_argsOut.Store(baseByte + 8, (triCount & 0x1FFu) | ((vertCount & 0x1FFu) << 9)
+        | ((c_Constants.g_positionTruncateBits & 0x3Fu) << 18) | (1u << 24)); // counts, truncation, 8-bit indices
+    g_argsOut.Store(baseByte + 12, baseGeomIdxAndFlags); // baseGeometryIndexAndGeometryFlags
+    g_argsOut.Store(baseByte + 16, pack16(1u, c_Constants.g_vertexBufferStride)); // index/vertex buffer strides
+    g_argsOut.Store(baseByte + 20, 0u); // geometry index / micromap index strides
+    g_argsOut.Store2(baseByte + 24, ibGva); // indexBuffer
+    g_argsOut.Store2(baseByte + 32, vbGva); // vertexBuffer
+    g_argsOut.Store2(baseByte + 40, uint2(0, 0)); // geometryIndexAndFlagsBuffer
+    g_argsOut.Store2(baseByte + 48, uint2(0, 0)); // opacityMicromapArray
+    g_argsOut.Store2(baseByte + 56, uint2(0, 0)); // opacityMicromapIndexBuffer
+#else
     const uint baseByte = idx * 80u;
     g_argsOut.Store(baseByte + 0, clusterID); // ClusterID
     g_argsOut.Store(baseByte + 4, 0u); // ClusterFlags
@@ -113,13 +136,14 @@ uint pack16(uint lo, uint hi)
                     pack16(triCount, vertCount)); // TriangleCount/UniqueVertexIndexCount
     g_argsOut.Store(baseByte + 12, baseGeomIdxAndFlags); // BaseGeometryIndexAndFlags
     g_argsOut.Store(baseByte + 16, 0u); // OpacityMicromapBaseLocation
-    g_argsOut.Store(baseByte + 20, pack16(g_vertexBufferStride, 1u)); // VBStride/IBStride
+    g_argsOut.Store(baseByte + 20, pack16(c_Constants.g_vertexBufferStride, 1u)); // VBStride/IBStride
     g_argsOut.Store(baseByte + 24, pack16(0u, 0u)); // OMM IB Stride / GeomIdxAndFlagsArrayStride
-    g_argsOut.Store(baseByte + 28, pack16(g_positionTruncateBits, 0u)); // PosTruncBits/Pad
+    g_argsOut.Store(baseByte + 28, pack16(c_Constants.g_positionTruncateBits, 0u)); // PosTruncBits/Pad
     g_argsOut.Store2(baseByte + 32, vbGva); // VertexBuffer
     g_argsOut.Store2(baseByte + 40, ibGva); // IndexBuffer
     g_argsOut.Store2(baseByte + 48, uint2(0, 0)); // GeometryIndexAndFlagsArray
     g_argsOut.Store2(baseByte + 56, uint2(0, 0)); // GeometryIndexAndFlagsIndexBuffer
     g_argsOut.Store2(baseByte + 64, uint2(0, 0)); // OpacityMicromapArray
     g_argsOut.Store2(baseByte + 72, uint2(0, 0)); // OpacityMicromapIndexBuffer
+#endif
 }

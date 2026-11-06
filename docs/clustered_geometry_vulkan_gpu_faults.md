@@ -1,17 +1,17 @@
-# ClusteredGeometry on Vulkan: GPU faults (parked)
+# ClusteredGeometry on Vulkan: GPU faults (resolved)
 
 `examples/clustered_geometry.ts` (the port of DirectX-Graphics-Samples' D3D12RaytracingClusteredGeometry) runs on
-D3D12 only. A Vulkan path was written on top of `VK_NV_cluster_acceleration_structure`, but its test runs faulted
-the GPU twice, badly enough that the second time only a reboot brought the machine back. The work is parked: it is
-not on `main`, and nothing in this repository runs it.
+D3D12's preview and, since #280, on Vulkan through `VK_NV_cluster_acceleration_structure`. While the Vulkan path was
+being written, its test runs faulted the GPU twice, badly enough that the second time only a reboot brought the
+machine back. The cause was an undersized scratch buffer for cluster move operations, fixed in #280.
 
-This document records what happened, what is known about the cause, and how to resume safely.
+This document records what happened, how the cause was found, and how to work on cluster operations safely.
 
 ## Status
 
 | | |
 |---|---|
-| Code | local branch `clustered-geometry-vulkan`: `e1a5913` (the path, based on #277), `759d708` (move scratch fix); not pushed |
+| Code | merged in #280 (`core/clas.cpp`, the argument-filling shaders, `shaders/clustered_geometry_spirv.cfg`) |
 | Machine | NVIDIA GeForce RTX 5080, driver 621.14, Windows 11, Vulkan SDK 1.4.321.1 |
 | Before the fix | plain and traditional runs passed; the mode-switch run, `-vk -test -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes`, faulted the GPU |
 | After the fix | with `-debug`, the plain run, each switch alone (`geom-traditional`, `extra-1k`, `alloc-getsizes`) and the full mode-switch run pass, with the validation layer clean and no driver events; all 7 `clustered_geometry` CTests (4 D3D12, 3 Vulkan) pass |
@@ -87,7 +87,7 @@ which of the actions (or which build in the rebuild) faults, or whether a single
   The original D3D12 sample, run with the same switches (`--at 1:geom-traditional --at 2:geom-clusters
   --at 2:extra-1k --at 3:alloc-getsizes`), doesn't fault the GPU either.
 
-### Likely cause: undersized scratch for move operations
+### Cause: undersized scratch for move operations
 
 Found by comparing with NVIDIA's [vk_animated_clusters](https://github.com/nvpro-samples/vk_animated_clusters)
 sample (no GPU work was run to find it):
@@ -111,8 +111,8 @@ sample (no GPU work was run to find it):
 - On D3D12, `ScratchDataSizeInBytes` covers moves too, which is why the same TypeScript passes there.
 - `core/ptlas.cpp` already uses the larger of the two sizes for partitioned TLASes.
 
-The fix (scratch = max of the build and update sizes) is on the `clustered-geometry-vulkan` branch. With it, the
-mode-switch run that faulted passes (see Status).
+The fix (scratch = max of the build and update sizes, in `Donut_GetClasOperationSizes`) merged in #280. With it,
+the mode-switch run that faulted passes (see Status).
 
 ### Checked and matching vk_animated_clusters
 
@@ -126,11 +126,14 @@ mode-switch run that faulted passes (see Status).
 - An implicit move's result size equals `maxMovedBytes`, so sizing the compacted buffer from the packed sum is
   safe.
 
-## Resuming safely
+## Working on cluster operations safely
 
-Each fault here cost a driver reset, and the second one a reboot, so:
+Each fault here cost a driver reset, and the second one a reboot. When changing this path:
 
-- **Ask the user before every run of this path**, and run nothing else on the GPU at the same time.
+- **Check the code first, without the GPU:** compare with NVIDIA's nvpro-samples (vk_animated_clusters,
+  vk_partitioned_tlas), and query sizes and properties on the CPU (`vkGetClusterAccelerationStructureBuildSizesNV`,
+  `VkPhysicalDeviceClusterAccelerationStructurePropertiesNV`). That is how this cause was found.
+- **Ask the user before every GPU run of a changed path**, and run nothing else on the GPU at the same time.
 - **Run with `-debug`** (validation) and fix every warning before looking at results. Incident 1 was announced by a
   warning.
 - **Check the driver's event log after every run.** Stop at the first new entry, because everything after it is
@@ -144,7 +147,6 @@ Each fault here cost a driver reset, and the second one a reboot, so:
   1. A rebuild with no setting change (an action that only calls `requestRebuild`).
   2. `geom-traditional` alone.
   3. Each of `extra-1k`, `alloc-getsizes` and the compaction (default) allocation alone.
-- **Before running, make sure the branch has the move scratch fix** above.
 - **Get more information from a fault:** `VK_EXT_device_fault` (`vkGetDeviceFaultInfoEXT` after
   `VK_ERROR_DEVICE_LOST`) or NVIDIA Nsight Aftermath can report the faulting address and which command was running.
   The validation layer's GPU-assisted validation doesn't cover cluster operations.

@@ -2816,6 +2816,9 @@ extern "C"
         // EnableCoreFeatures).
         if ((options & AppOption_RayTracing) != 0)
             params.optionalVulkanDeviceExtensions.push_back(VK_NV_PARTITIONED_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        // Clustered geometry (core/clas.cpp; Donut chains its feature).
+        if ((options & AppOption_RayTracing) != 0)
+            params.optionalVulkanDeviceExtensions.push_back(VK_NV_CLUSTER_ACCELERATION_STRUCTURE_EXTENSION_NAME);
         // Advanced blend operations (Donut_GetAdvancedBlendOperations).
         params.optionalVulkanDeviceExtensions.push_back("VK_EXT_blend_operation_advanced");
         // Quad control in shaders (Donut_HasShaderQuadControl), which needs maximal reconvergence.
@@ -3375,13 +3378,16 @@ extern "C"
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
 #if DONUT_WITH_VULKAN
         // the core features a window's device has (Donut_CreateAppWithOptions), and of its optional
-        // extensions those of cooperative vectors, opacity micromaps and partitioned TLASes
+        // extensions those of cooperative vectors, opacity micromaps, partitioned TLASes, clustered
+        // geometry and position fetch
         auto vulkanFeatures = HookCoreFeatures(deviceManager.get(), api, params);
         params.optionalVulkanDeviceExtensions.push_back(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
         if ((options & AppOption_RayTracing) != 0)
         {
             params.optionalVulkanDeviceExtensions.push_back("VK_EXT_opacity_micromap");
             params.optionalVulkanDeviceExtensions.push_back(VK_NV_PARTITIONED_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            params.optionalVulkanDeviceExtensions.push_back(VK_NV_CLUSTER_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            params.optionalVulkanDeviceExtensions.push_back("VK_KHR_ray_tracing_position_fetch");
         }
 #endif
 

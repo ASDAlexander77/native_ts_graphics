@@ -21,6 +21,43 @@
 #include "RaytracingHlslCompat.h"
 #include "AnimatedSphere.hlsli"
 
+#if defined(__spirv__)
+// Vulkan (not the sample's): shader model 6.10's cluster intrinsics as the SPIR-V built-ins they map
+// to, through DXC's inline SPIR-V - the hit's cluster (VK_NV_cluster_acceleration_structure's
+// ClusterIDNV) and its triangle's vertices (VK_KHR_ray_tracing_position_fetch's
+// HitTriangleVertexPositionsKHR; the CLASes and templates built allowing data access).
+[[vk::ext_extension("SPV_NV_cluster_acceleration_structure")]]
+[[vk::ext_capability(/* RayTracingClusterAccelerationStructureNV */ 5437)]]
+[[vk::ext_builtin_input(/* ClusterIDNV */ 5436)]]
+static const int gl_ClusterIDNV;
+
+[[vk::ext_extension("SPV_KHR_ray_tracing_position_fetch")]]
+[[vk::ext_capability(/* RayTracingPositionFetchKHR */ 5336)]]
+[[vk::ext_builtin_input(/* HitTriangleVertexPositionsKHR */ 5335)]]
+static const float3 gl_HitTriangleVertexPositions[3];
+
+uint ClusterID()
+{
+    return uint(gl_ClusterIDNV);
+}
+
+struct BuiltInTrianglePositions
+{
+    float3 p0;
+    float3 p1;
+    float3 p2;
+};
+
+BuiltInTrianglePositions TriangleObjectPositions()
+{
+    BuiltInTrianglePositions positions;
+    positions.p0 = gl_HitTriangleVertexPositions[0];
+    positions.p1 = gl_HitTriangleVertexPositions[1];
+    positions.p2 = gl_HitTriangleVertexPositions[2];
+    return positions;
+}
+#endif
+
 RaytracingAccelerationStructure   Scene       : register(t0);
 RWTexture2D<float4>               Output      : register(u0);
 ConstantBuffer<SceneConstantBuffer> g_scene   : register(b0);

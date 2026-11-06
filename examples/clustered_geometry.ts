@@ -33,10 +33,13 @@ namespace ClusteredGeometry {
     const CLUSTER_META_SIZE = 48;
     const SCENE_CONSTANTS_SIZE = 144;
     const INSTANCE_SIZE = 64;
-    // The indirect arguments of the operations (D3D12_RTAS_OPERATION_*_ARGS), in bytes; the shader-side
-    // metadata the argument-filling shaders read per cluster / per BLAS.
+    // The indirect arguments of the operations (D3D12_RTAS_OPERATION_*_ARGS), in bytes; Vulkan's
+    // VkClusterAccelerationStructureBuildTriangleCluster(Template)InfoNV are smaller (the others are the
+    // same size); the shader-side metadata the argument-filling shaders read per cluster / per BLAS.
     const CLAS_ARGS_SIZE = 80;
     const TEMPLATE_ARGS_SIZE = 96;
+    const VK_CLAS_ARGS_SIZE = 64;
+    const VK_TEMPLATE_ARGS_SIZE = 72;
     const INSTANTIATE_ARGS_SIZE = 32;
     const BLAS_ARGS_SIZE = 16;
     const CLAS_ARGS_META_SIZE = 28;
@@ -903,6 +906,14 @@ namespace ClusteredGeometry {
 
     // ---- The scene on the CPU --------------------------------------------------------------------
 
+    function clasArgsSize(settings: Settings): int {
+        return settings.vulkan ? VK_CLAS_ARGS_SIZE : CLAS_ARGS_SIZE;
+    }
+
+    function templateArgsSize(settings: Settings): int {
+        return settings.vulkan ? VK_TEMPLATE_ARGS_SIZE : TEMPLATE_ARGS_SIZE;
+    }
+
     // The sample's settings (its defaults) and the keys that change them.
     class Settings {
         // [N] clones: 0, 100, 1000, 10000.
@@ -913,6 +924,8 @@ namespace ClusteredGeometry {
         // component, or FLOAT32_3's truncated mantissa bits.
         compressed: boolean = false;
         compressedBits: int = 12;
+        // Vulkan (not the sample's): its argument layouts, and FLOAT32_3 vertices only.
+        vulkan: boolean = false;
         positionTruncateBits: int = 12;
         // [A] CLAS allocation: 0 implicit destinations, 1 get sizes then explicit, 2 implicit then
         // compacted by a move; the traditional path's: compacted BLASes or not.
@@ -1972,7 +1985,7 @@ namespace ClusteredGeometry {
             }
             const inputBuffer = clas.createBuffer(inputSize, "Cluster input buffer (vertex + index data)");
             const argsMetaBuffer = clas.createBuffer(argsMeta.length * 4, "Cluster args metadata");
-            const argsBuffer = clas.createBuffer(clusterCount * CLAS_ARGS_SIZE, "CLAS-from-triangles args");
+            const argsBuffer = clas.createBuffer(clusterCount * clasArgsSize(settings), "CLAS-from-triangles args");
             commandList.writeBuffer(inputBuffer, Ref(input[0]), inputSize);
             commandList.writeBuffer(argsMetaBuffer, Ref(argsMeta[0]), argsMeta.length * 4);
             const base = this.address(inputBuffer, 0.0);
@@ -2008,7 +2021,7 @@ namespace ClusteredGeometry {
             const storage = clas.createStorage(sizes[0], "All-cluster CLAS result buffer");
             const scratch = clas.createBuffer(fmax(sizes[1], 256.0), "CLAS scratch");
             const addresses = clas.createBuffer(clusterCount * 8, "CLAS address array");
-            clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, CLAS_ARGS_SIZE, null,
+            clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, clasArgsSize(this.settings), null,
                 storage, scratch, addresses, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
             this.staticClasOp = clasOp;
             this.staticClasStorage = storage;
@@ -2062,7 +2075,7 @@ namespace ClusteredGeometry {
             sizesOp[1] = MODE_GET_SIZES;
             const sizesSizes = this.operationSizes(sizesOp);
             const sizesScratch = clas.createBuffer(fmax(sizesSizes[1], 256.0), "CLAS scratch (get-sizes phase)");
-            clas.executeOperation(commandList.handle, Ref(sizesOp[0]), this.staticClasArgs as BufferHandle, 0.0, CLAS_ARGS_SIZE, null,
+            clas.executeOperation(commandList.handle, Ref(sizesOp[0]), this.staticClasArgs as BufferHandle, 0.0, clasArgsSize(this.settings), null,
                 null, sizesScratch, null, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
             const actual = this.readSizes(commandList, sizesBuffer, clusterCount);
             commandList = this.flushed as CommandList;
@@ -2086,7 +2099,7 @@ namespace ClusteredGeometry {
             clasOp[1] = MODE_EXPLICIT;
             const buildSizes = this.operationSizes(clasOp);
             const scratch = clas.createBuffer(fmax(buildSizes[1], 256.0), "CLAS scratch (explicit-build phase)");
-            clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, CLAS_ARGS_SIZE, null,
+            clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, clasArgsSize(this.settings), null,
                 storage, scratch, addresses, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
             this.staticClasOp = clasOp;
             this.staticClasStorage = storage;
@@ -2174,7 +2187,7 @@ namespace ClusteredGeometry {
         // modes' buffers are sized for their result: the BLASes only).
         private executeStaticClases(commandList: CommandList) {
             this.clas.executeOperation(commandList.handle, Ref(this.staticClasOp[0]), this.staticClasArgs as BufferHandle, 0.0,
-                CLAS_ARGS_SIZE, null, this.staticClasStorage, this.staticClasScratch as BufferHandle, this.staticClasAddresses, 0.0,
+                clasArgsSize(this.settings), null, this.staticClasStorage, this.staticClasScratch as BufferHandle, this.staticClasAddresses, 0.0,
                 null, 0.0, this.staticClusterInput, null);
         }
 
@@ -2358,7 +2371,7 @@ namespace ClusteredGeometry {
             const templateHeader = compressed ? templateCompressedHeader(mesh, settings.compressedBits) : 0;
             const templateInput = clas.createBuffer(inputSize, "Animated: cluster-template input buffer (vert+idx)");
             const templateMeta = clas.createBuffer(meta.length * 4, "Animated: template args metadata");
-            const templateArgs = clas.createBuffer(clusterCount * TEMPLATE_ARGS_SIZE, "Animated: template args");
+            const templateArgs = clas.createBuffer(clusterCount * templateArgsSize(settings), "Animated: template args");
             commandList.writeBuffer(templateInput, Ref(input[0]), inputSize);
             commandList.writeBuffer(templateMeta, Ref(meta[0]), meta.length * 4);
             const base = this.address(templateInput, 0.0);
@@ -2376,7 +2389,7 @@ namespace ClusteredGeometry {
             const templateStorage = clas.createStorage(templateSizes[0], "Animated: cluster templates result buffer");
             const templateScratch = clas.createBuffer(fmax(templateSizes[1], 256.0), "Animated: cluster templates scratch");
             const templateAddresses = clas.createBuffer(clusterCount * 8, "Animated: cluster templates address array");
-            clas.executeOperation(commandList.handle, Ref(templateOp[0]), templateArgs, 0.0, TEMPLATE_ARGS_SIZE, null,
+            clas.executeOperation(commandList.handle, Ref(templateOp[0]), templateArgs, 0.0, templateArgsSize(settings), null,
                 templateStorage, templateScratch, templateAddresses, 0.0, null, 0.0, templateInput, null);
             this.templateStorage = templateStorage;
 
@@ -2655,8 +2668,10 @@ namespace ClusteredGeometry {
                 }
                 this.requestRebuild(false);
             } else if (key == Key.P) {
-                s.compressed = !s.compressed;
-                this.requestRebuild(false);
+                if (!s.vulkan) {
+                    s.compressed = !s.compressed;
+                    this.requestRebuild(false);
+                }
             } else if (key == Key.L) {
                 s.lowDetail = !s.lowDetail;
                 this.requestRebuild(true);
@@ -2956,14 +2971,17 @@ namespace ClusteredGeometry {
             settings.cameraPaused = true;
             settings.animationPaused = true;
         }
-        // A Vulkan path (VK_NV_cluster_acceleration_structure) is parked: its test runs faulted the GPU
-        // (docs/clustered_geometry_vulkan_gpu_faults.md).
-        if (args.api != GraphicsAPI.D3D12) {
-            return unsupported(args.test, "Clustered geometry is D3D12's preview here (Vulkan's VK_NV_cluster_acceleration_structure: not yet)");
-        }
-        // The preview's experimental features before the device (the executable loads the preview
-        // runtime, which needs Windows' Developer Mode).
-        if (Donut_EnableD3D12RaytracingPreview() == 0) {
+        settings.vulkan = args.api == GraphicsAPI.VULKAN;
+        if (settings.vulkan) {
+            if (settings.compressed) {
+                console.log("Vulkan's clustered geometry has no COMPRESSED1 vertices: FLOAT32_3");
+                settings.compressed = false;
+            }
+        } else if (args.api != GraphicsAPI.D3D12) {
+            return unsupported(args.test, "Clustered geometry needs D3D12's preview or Vulkan's VK_NV_cluster_acceleration_structure");
+        } else if (Donut_EnableD3D12RaytracingPreview() == 0) {
+            // The preview's experimental features before the device (the executable loads the preview
+            // runtime, which needs Windows' Developer Mode).
             return unsupported(args.test, "The D3D12 raytracing preview is unavailable (needs the preview Agility SDK and Developer Mode)");
         }
         // UNORM back buffers, as the sample's B8G8R8A8_UNORM.
@@ -2980,7 +2998,8 @@ namespace ClusteredGeometry {
         const clas = Clas.create(app.getNvrhiDevice());
         if (clas.isNull()) {
             app.destroy();
-            return unsupported(args.test, "The graphics device does not support clustered geometry (CLASes and shader model 6.10)");
+            return unsupported(args.test, settings.vulkan ? "The graphics device does not support clustered geometry (VK_NV_cluster_acceleration_structure and position fetch)"
+                : "The graphics device does not support clustered geometry (CLASes and shader model 6.10)");
         }
         clas.destroy();
         console.log(`Renderer: ${app.getRendererString()}`);
