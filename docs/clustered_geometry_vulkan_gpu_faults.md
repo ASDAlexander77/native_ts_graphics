@@ -13,8 +13,8 @@ This document records what happened, what is known about the cause, and how to r
 |---|---|
 | Code | local branch `clustered-geometry-vulkan`: `e1a5913` (the path, based on #277), `759d708` (move scratch fix); not pushed |
 | Machine | NVIDIA GeForce RTX 5080, driver 621.14, Windows 11, Vulkan SDK 1.4.321.1 |
-| Works | `clustered_geometry -vk -test` (clusters) and `-geometryMode traditional`: pass with the validation layer clean |
-| Faults | the mode-switch run, `-vk -test -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes` |
+| Before the fix | plain and traditional runs passed; the mode-switch run, `-vk -test -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes`, faulted the GPU |
+| After the fix | with `-debug`, the plain run, each switch alone (`geom-traditional`, `extra-1k`, `alloc-getsizes`) and the full mode-switch run pass, with the validation layer clean and no driver events; all 7 `clustered_geometry` CTests (4 D3D12, 3 Vulkan) pass |
 
 ## What the Vulkan path does
 
@@ -111,8 +111,8 @@ sample (no GPU work was run to find it):
 - On D3D12, `ScratchDataSizeInBytes` covers moves too, which is why the same TypeScript passes there.
 - `core/ptlas.cpp` already uses the larger of the two sizes for partitioned TLASes.
 
-The fix (scratch = max of the build and update sizes) is on the `clustered-geometry-vulkan` branch, not yet run on
-the GPU.
+The fix (scratch = max of the build and update sizes) is on the `clustered-geometry-vulkan` branch. With it, the
+mode-switch run that faulted passes (see Status).
 
 ### Checked and matching vk_animated_clusters
 
