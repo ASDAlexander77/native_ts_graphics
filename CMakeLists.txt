@@ -461,7 +461,8 @@ if (WITH_D3D12_PREVIEW_SDK AND WIN32 AND NVRHI_WITH_DX12)
     if (EXISTS "${D3D12_PREVIEW_SDK_DIR}/build/native/include/d3d12.h")
         file(STRINGS "${D3D12_PREVIEW_SDK_DIR}/build/native/include/d3d12.h" preview_version_line
             REGEX "#define[ 	]+D3D12_PREVIEW_SDK_VERSION[ 	]")
-        string(REGEX MATCH "[0-9]+" D3D12_PREVIEW_SDK_VERSION "${preview_version_line}")
+        string(REGEX MATCH "VERSION[ 	]+\\( *([0-9]+) *\\)" preview_version_match "${preview_version_line}")
+        set(D3D12_PREVIEW_SDK_VERSION "${CMAKE_MATCH_1}")
         file(COPY
             "${D3D12_PREVIEW_SDK_DIR}/build/native/bin/x64/D3D12Core.dll"
             "${D3D12_PREVIEW_SDK_DIR}/build/native/bin/x64/d3d12SDKLayers.dll"
