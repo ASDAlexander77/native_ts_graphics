@@ -11,7 +11,7 @@ This document records what happened, what is known about the cause, and how to r
 
 | | |
 |---|---|
-| Code | local branch `clustered-geometry-vulkan`, commit `e1a5913` (based on #277; not pushed) |
+| Code | local branch `clustered-geometry-vulkan`: `e1a5913` (the path, based on #277), `759d708` (move scratch fix); not pushed |
 | Machine | NVIDIA GeForce RTX 5080, driver 621.14, Windows 11, Vulkan SDK 1.4.321.1 |
 | Works | `clustered_geometry -vk -test` (clusters) and `-geometryMode traditional`: pass with the validation layer clean |
 | Faults | the mode-switch run, `-vk -test -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes` |
