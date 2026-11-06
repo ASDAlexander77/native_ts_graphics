@@ -88,6 +88,17 @@ export class Clas {
         Donut_ReleaseClasTlas(this.handle, tlas);
     }
 
+    // Stores an acceleration structure's GPU address (for an instance buffer) at dst[0] (low 32 bits) and dst[1].
+    getAccelStructAddress(accelStruct: AccelStructHandle, dst: Ref<int>): void {
+        Donut_GetClasAccelStructAddress(this.handle, accelStruct, dst);
+    }
+
+    // Records the compaction of the BLASes built with AllowCompaction whose builds finished since (their
+    // addresses change).
+    compactBlases(commandList: CommandListHandle): void {
+        Donut_CompactClasBlases(this.handle, commandList);
+    }
+
     buildTlas(commandList: CommandListHandle, tlas: AccelStructHandle, instances: BufferHandle, instanceCount: int, buildFlags: int): void {
         Donut_BuildClasTlas(this.handle, commandList, tlas, instances, instanceCount, buildFlags);
     }

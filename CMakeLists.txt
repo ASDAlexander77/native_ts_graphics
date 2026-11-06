@@ -4198,8 +4198,14 @@ if (D3D12_PREVIEW_SDK_VERSION AND DXC_PREVIEW_PATH)
     )
     unset(SHADERMAKE_DXC_PATH)
     # core/ptlas.cpp: Donut_EnableD3D12RaytracingPreview.
-    add_tslang_example(clustered_geometry core/directx_math.ts core/clas.ts core/clas.cpp core/ptlas.cpp core/d3d12_preview_sdk.cpp)
+    add_tslang_example(clustered_geometry core/directx_math.ts core/text_format.ts core/clas.ts core/clas.cpp core/ptlas.cpp core/d3d12_preview_sdk.cpp)
     add_tslang_example_test(clustered_geometry APIS dx12)
+    # The traditional path (a DXR1 BLAS per object), COMPRESSED1 vertices, and settings switched while it
+    # runs (rebuilds: traditional and back, 1000 clones, CLASes sized first).
+    add_tslang_example_test(clustered_geometry SUFFIX traditional APIS dx12 ARGS -geometryMode traditional)
+    add_tslang_example_test(clustered_geometry SUFFIX compressed APIS dx12 ARGS -vertexFormat compressed)
+    add_tslang_example_test(clustered_geometry SUFFIX switches APIS dx12
+        ARGS -at 1:geom-traditional -at 2:geom-clusters -at 2:extra-1k -at 3:alloc-getsizes)
 endif()
 
 # Port of DirectX-Graphics-Samples' D3D12MeshShaders MeshletRender: the Stanford dragon drawn by a
