@@ -409,6 +409,9 @@ set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with i
 # Tracing (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets, configured once by its own
 # CMake (which downloads the DXC its run-time shader compiler uses, External/dxc).
 set(RTXPT_DIR "" CACHE PATH "RTXPT checkout (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets")
+# rtxmg_demo (see the end of this file) builds only with RTXMG_DIR: a checkout of NVIDIA's RTX Mega
+# Geometry (github.com/NVIDIA-RTX/RTXMG) with its submodules (osd_lite, the assets).
+set(RTXMG_DIR "" CACHE PATH "RTXMG checkout (github.com/NVIDIA-RTX/RTXMG) with its submodules and assets")
 
 # Opacity micromaps on D3D12 through the Agility SDK's DXR 1.2 (raytracing tier 1.2) rather than
 # NVAPI (opacity_micromaps; Vulkan has them through VK_EXT_opacity_micromap).
@@ -429,6 +432,60 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 add_subdirectory(external/Donut)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 unset(CMAKE_PROJECT_zstd_INCLUDE_BEFORE)
+
+# RTX Mega Geometry's library (RTXMG_DIR/rtxmg: subdivision surfaces, cluster tessellation, cluster LOD,
+# HiZ, its scene), built from the checkout against this Donut (the version RTXMG pins), for core/rtxmg.cpp.
+# Under the NVIDIA RTX SDKs License: built in place, nothing copied. Its CMake files read what RTXMG's root
+# CMakeLists.txt defines (DONUT_DIR, RTXMG_SHADER*), and link what it fetches (meshoptimizer, mimalloc,
+# implot); demo/envmap is added too, as rtxmg links its target.
+if (RTXMG_DIR)
+    include(FetchContent)
+    set(MESHOPT_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_BUILD_GLTFPACK OFF CACHE BOOL "" FORCE)
+    set(MESHOPT_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(meshoptimizer GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git GIT_TAG v1.1)
+    set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(mimalloc GIT_REPOSITORY https://github.com/microsoft/mimalloc.git GIT_TAG v2.1.7)
+    # NVAPI's HLSL extension headers, which the D3D12 shaders include (RTXMG's pin). Headers only: NVRHI
+    # stays without NVAPI.
+    FetchContent_Declare(rtxmg_nvapi GIT_REPOSITORY https://github.com/NVIDIA/nvapi.git
+        GIT_TAG 87dca625e83fd89a983e19b904e5f3a580da90d2)
+    FetchContent_MakeAvailable(meshoptimizer mimalloc rtxmg_nvapi)
+    set_property(DIRECTORY "${mimalloc_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL YES)
+    include("${RTXMG_DIR}/CMake/FetchImplot.cmake")
+
+    set(DONUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut")
+    set(RTXMG_SHADERS_INCLUDE_DIR
+        "${RTXMG_DIR}" "${RTXMG_DIR}/extern" "${DONUT_DIR}/include" "${RTXMG_DIR}/rtxmg/include"
+        "${DONUT_DIR}/nvrhi/include" "${RTXMG_DIR}/demo" "${rtxmg_nvapi_SOURCE_DIR}")
+    set(RTXMG_SHADERMAKE_OPTIONS "--embedPDB --hlsl2021")
+    set(RTXMG_SHADERMAKE_OPTIONS_SPIRV "--vulkanMemoryLayout scalar --compilerOptions -Vd")
+    set(RTXMG_SHADERS_SHADERMODEL "6_6")
+    set(RTXMG_SHADERS_IGNORED_INCLUDES "donut/core/math/math.h" "nvrhi/nvrhi.h" "array" "assert.h" "cstddef"
+        "cstdint" "cstdio" "stdio.h" "cmath" "ostream" "rtxmg/utils/buffer.h")
+
+    # RTXMG is C++23; osd_lite builds with /WX, which newer MSVCs stop at (C5333). Both only for the
+    # targets of these subdirectories: the directory's options are restored after them.
+    set(CMAKE_CXX_STANDARD 23)
+    get_directory_property(rtxmg_saved_compile_options COMPILE_OPTIONS)
+    if (MSVC)
+        add_compile_options(/wd5333 /wd26495)
+    endif()
+    # No D3D11 shaders (RTXMG has none: FXC rejects its options): a variable shadowing the cache's, for
+    # donut_compile_shaders_all_platforms in these subdirectories.
+    set(DONUT_WITH_DX11 OFF)
+    add_subdirectory("${RTXMG_DIR}/extern/osd_lite" rtxmg/osd_lite EXCLUDE_FROM_ALL)
+    add_subdirectory("${RTXMG_DIR}/rtxmg" rtxmg/rtxmg EXCLUDE_FROM_ALL)
+    add_subdirectory("${RTXMG_DIR}/demo/envmap" rtxmg/envmap EXCLUDE_FROM_ALL)
+    set(CMAKE_CXX_STANDARD 17)
+    unset(DONUT_WITH_DX11)
+    set_directory_properties(PROPERTIES COMPILE_OPTIONS "${rtxmg_saved_compile_options}")
+    # envmap's include directory is relative to PROJECT_SOURCE_DIR, RTXMG's root there.
+    target_include_directories(envmap PUBLIC "${RTXMG_DIR}/rtxmg/include")
+endif()
 
 if (NVRHI_WITH_DX12)
     set(DONUT_D3D_AGILITY_SDK_URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/1.619.6")
@@ -671,6 +728,14 @@ endif()
 if (RTXPT_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxpt.cpp)
 endif()
+if (RTXMG_DIR)
+    # core/rtxmg.cpp includes RTXMG's library and demo headers (C++23) and the demo's HiZ prepass, built in place.
+    set(RTXMG_GLUE_SOURCES core/rtxmg.cpp "${RTXMG_DIR}/demo/zrenderer.cpp")
+    list(APPEND JIT_MODULE_SOURCES ${RTXMG_GLUE_SOURCES})
+    set_source_files_properties(${RTXMG_GLUE_SOURCES} PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXMG_DIR}/demo;${RTXMG_DIR}/rtxmg/include;${RTXMG_DIR};${RTXMG_DIR}/extern"
+        COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/std:c++latest;/wd5333,-std=c++23>")
+endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
     set_source_files_properties(core/rtxcr.cpp PROPERTIES INCLUDE_DIRECTORIES "${RTXCR_DIR}/libraries;${RTXCR_DIR}/samples/pathtracer;${RTXCR_DIR}/external/RayTracingDenoiser/Include")
@@ -680,6 +745,9 @@ if (NOT ANDROID)
     configure_donut_interop(donut_interop_shared)
     target_compile_definitions(donut_interop_shared PRIVATE DONUT_INTEROP_SHARED)
     target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder ${OMM_SDK_LIBRARIES})
+    if (RTXMG_DIR)
+        target_link_libraries(donut_interop_shared PRIVATE rtxmg)
+    endif()
     # On Linux a shared library goes to LIBRARY_OUTPUT_DIRECTORY, not bin/ as a DLL does: put it next
     # to bin/shaders and bin/media too.
     set_target_properties(donut_interop_shared PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
@@ -5297,6 +5365,34 @@ if (RTXPT_DIR)
         add_tslang_example_test(rtxpt SUFFIX dlss5 ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
             -captureWarmup 64 -overrideToReferenceMode -dlss5 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
     endif()
+endif()
+
+# Port of NVIDIA's RTX Mega Geometry demo (github.com/NVIDIA-RTX/RTXMG), its cluster tessellation path:
+# subdivision surfaces tessellated into clusters every frame and path traced. Under the NVIDIA RTX SDKs
+# License, so nothing of it is copied: with RTXMG_DIR set, its library builds from the checkout (see
+# RTXMG_DIR above), the demo's shaders compile in place (shaders/rtxmg_demo.cfg names them) and the
+# example loads its scenes from RTXMG_DIR/assets.
+if (RTXMG_DIR)
+    set(DONUT_WITH_DX11 OFF)  # no D3D11 shaders, as for the library's
+    donut_compile_shaders_all_platforms(
+        TARGET rtxmg_demo_shaders
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxmg_demo.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxmg_demo.cfg
+        OUTPUT_BASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxmg_demo
+        SHADERMAKE_OPTIONS "${RTXMG_SHADERMAKE_OPTIONS} --sourceDir ${RTXMG_DIR}/demo"
+        SHADERMAKE_OPTIONS_SPIRV ${RTXMG_SHADERMAKE_OPTIONS_SPIRV}
+        SHADER_MODEL ${RTXMG_SHADERS_SHADERMODEL}
+        IGNORE_INCLUDES ${RTXMG_SHADERS_IGNORED_INCLUDES}
+        INCLUDES ${RTXMG_SHADERS_INCLUDE_DIR}
+    )
+    unset(DONUT_WITH_DX11)
+    add_tslang_example(rtxmg_demo core/rtxmg.ts ${RTXMG_GLUE_SOURCES})
+    target_link_libraries(rtxmg_demo PRIVATE rtxmg)
+    add_dependencies(rtxmg_demo rtxmg_demo_shaders cluster_tess_shaders hiz_shaders envmap_shaders)
+    # The kitchen set (its first animation frame, as the demo shows it paused), path traced. Vulkan only:
+    # the D3D12 test exits as skipped.
+    add_tslang_example_test(rtxmg_demo ARGS -width 1280 -height 720
+        --media ${RTXMG_DIR}/assets --scene subdivision/amy_kitchenset.scene.json)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
