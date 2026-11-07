@@ -21,7 +21,6 @@ export class RtxcrScene {
         return !this.handle;
     }
 
-    // --- RTX Character Rendering (core/rtxcr.cpp; the rtxcr_pathtracer example links it) ---
     // Takes a scene loaded by Donut_LoadSceneWithDescriptorTableDeferred: tessellates its hair curves into
     // polytubes, DOTS and LSS (hairRadiusScale scales their radii), makes tessellationType (0 polytubes,
     // 1 DOTS, 2 LSS) the scene's and uploads its buffers. `device` is Donut_GetNvrhiDevice's.

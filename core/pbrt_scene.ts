@@ -21,7 +21,6 @@ export class PbrtScene {
         return !this.handle;
     }
 
-    // --- PBRT scenes and RTAO sample sets (core/denoised_rtao.cpp; the denoised_rtao example links it) ---
     // Loads a PBRT scene (DirectX-Graphics-Samples' D3D12RaytracingRealTimeDenoisedAmbientOcclusion's
     // subset: shapes in PLY files, named materials, image map textures, transforms) with that sample's
     // parser: the meshes with vertices and indices, positions and normals transformed by their
