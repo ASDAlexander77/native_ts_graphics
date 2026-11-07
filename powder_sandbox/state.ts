@@ -138,11 +138,12 @@ export class SandboxState {
     // row's scroll then: pressScroll).
     protected zWasDown: boolean = false;
     protected pressOnToolbar: boolean = false;
-    // The press went to the menu or the size slider, not the grid; it opened the menu (held);
-    // the menu's open, around (menuX, menuY).
+    // The press went to the menu or the size slider, not the grid; the two fingers down closed the
+    // menu (their tap doesn't open it again); the menu's open, around (menuX, menuY).
     protected pressOnUi: boolean = false;
     protected pressOnSlider: boolean = false;
-    protected longPressed: boolean = false;
+    protected pressOnShape: boolean = false;
+    protected tapClosedMenu: boolean = false;
     protected menuOpen: boolean = false;
     protected menuX: number = 0.0;
     protected menuY: number = 0.0;

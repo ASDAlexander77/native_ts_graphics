@@ -5,7 +5,7 @@ import {
     ALL_INT_SECTIONS, EVENT_COUNT, EVENT_NAMES, I_SALT, SALT_SCALE, FLOAT_SECTIONS, F_BODY,
     MAX_BODIES, BODY_FLOATS, I_COUNT, PROBE_WIND, PROBE_AIR, PROBE_GOAL, CLINGING_DROPS, WATER, OIL,
     SAND, SMOKE, EMBER, STEAM, ACID, SALT, GUNPOWDER, HONEY, PETROL, WALL, GLASS, WOOD, ICE, STONE,
-    METAL, BLOCK, C4, COAL, FUSE, HYDROGEN, OXYGEN, NITRO, PLANT, HEATER, GRAVITY_OFF,
+    METAL, BLOCK, TWO_FINGER_TAP_TIME, SHAPE_NAMES, opensMenu, C4, COAL, FUSE, HYDROGEN, OXYGEN, NITRO, PLANT, HEATER, GRAVITY_OFF,
     GRAVITY_POINT, GRAVITY_TILT, GRAVITY_NAMES, ICE_BLOCK, BAR_PROBE, ACID_TUB, SALT_TANK,
     SALT_POUR, GUNPOWDER_PILE, GUNPOWDER_WALL, HONEY_DIVIDER, BEAD, BEAD_SHARE, WIND_SAND,
     WIND_DRIFT, BODY_POOL, TUBS, TUB_TOP, GAS_WOOD, GAS_CEILING, PLUME_WIND, SMOKE_SPREAD,
@@ -18,10 +18,29 @@ import {
     SWITCH_ROWS, LAMP_X, DETECTOR_ROWS, HEATERS, HEATED, COLD, countSection, materialName, Level
 } from "./defs";
 import { SandboxApp } from "./sandbox";
+import { PointerGestures } from "../core/pointer_gestures";
 
 // The sandbox with its -test checks: the U-tube's levels, each test scene's own check, the
 // sound events, a level's goal and the regrid's particles; "" if they pass, else what failed.
 export class PowderSandbox extends SandboxApp {
+    // The shape buttons at the top right: a press at each one's middle is that button (not the
+    // slider's), one in the gap after it or under the row none.
+    checkShapeButtons(): string {
+        const size = this.shapeButtonSize();
+        const y = this.sliderTop() + size * 0.5;
+        for (let k = 0; k < SHAPE_NAMES.length; k++) {
+            const x = this.shapeButtonsLeft() + k * (size + this.shapeButtonGap());
+            if (this.shapeButtonAt(x + size * 0.5, y) != k || this.onSlider(x + 1.0, y)) {
+                return `the shape button ${SHAPE_NAMES[k]} isn't at its place, or the slider covers it`;
+            }
+            if (this.shapeButtonAt(x + size + this.shapeButtonGap() * 0.5, y) >= 0 || this.shapeButtonAt(x + size * 0.5, y + size) >= 0) {
+                return `a press beside the shape button ${SHAPE_NAMES[k]} picked a shape`;
+            }
+        }
+        console.log(`Shape buttons: ${SHAPE_NAMES.length}, ${formatFixed(size, 0)} px, from x ${formatFixed(this.shapeButtonsLeft(), 0)}`);
+        return "";
+    }
+
     // -test: the U-tube's two sides hold water to the same level (its mean depth in cells over
     // each side's columns, at REST_COUNT particles a cell), and the water went under the divider.
     checkTest(): string {
@@ -50,6 +69,14 @@ export class PowderSandbox extends SandboxApp {
         }
         if (frameReadback.readRGBA8(this.rowPitch, this.width, this.height, this.viewFormat, Ref(pixels[0]), pixels.length) == 0) {
             return "cannot read the frame back";
+        }
+        const gestures = checkGestures();
+        if (gestures != "") {
+            return gestures;
+        }
+        const buttons = this.checkShapeButtons();
+        if (buttons != "") {
+            return buttons;
         }
 
         const divider: int = Math.floor(this.gridW / 2);
@@ -1217,4 +1244,70 @@ export class PowderSandbox extends SandboxApp {
         }
         return sum / (x1 - x0 + 1);
     }
+}
+
+// The gestures that open the brush menu, driven frame by frame (60 a second) as handleInput reads
+// them (-test never runs handleInput): a two-finger tap does, with the fingers' jitter under the
+// threshold; a pan, a pinch, a slow one or a held finger (pouring) don't. "" if they pass.
+function tapsIn(pointer: PointerGestures, frames: int[], dx: number, zoom: number): int {
+    // frames: each frame's fingers (0 up, 1 one, 2 two); the two fingers' midpoint drifts dx a
+    // frame and they pinch zoom notches a frame. How many frames report a two-finger tap.
+    let taps = 0;
+    let x = 100.0;
+    for (let i = 0; i < frames.length; i++) {
+        const fingers = frames[i];
+        if (fingers == 2) {
+            x += dx;
+        }
+        pointer.update(x, 100.0, fingers == 1, fingers == 2, i / 60.0);
+        if (fingers == 2) {
+            pointer.zoomed(zoom);
+        }
+        if (pointer.twoFingerTap(i / 60.0, TWO_FINGER_TAP_TIME)) {
+            taps++;
+        }
+    }
+    return taps;
+}
+
+function fingerFrames(before: int, one: int, two: int, after: int): int[] {
+    const frames: int[] = [];
+    for (let i = 0; i < before + one + two + after; i++) {
+        frames.push(i < before ? 0 : (i < before + one ? 1 : (i < before + one + two ? 2 : 0)));
+    }
+    return frames;
+}
+
+function checkGestures(): string {
+    const threshold = 20.0;
+    const tap = fingerFrames(2, 2, 8, 4);
+    const cases: string[] = ["a two-finger tap", "a tap with jitter", "a pan", "a pinch", "a slow tap", "a held finger"];
+    const expected: int[] = [1, 1, 0, 0, 0, 0];
+    for (let c = 0; c < cases.length; c++) {
+        const pointer = new PointerGestures();
+        pointer.dragThreshold = threshold;
+        let taps = 0;
+        if (c == 0) {
+            taps = tapsIn(pointer, tap, 0.0, 0.0);
+        } else if (c == 1) {
+            taps = tapsIn(pointer, tap, 2.0, 0.05);
+        } else if (c == 2) {
+            taps = tapsIn(pointer, tap, 4.0, 0.0);
+        } else if (c == 3) {
+            taps = tapsIn(pointer, tap, 0.0, 0.1);
+        } else if (c == 4) {
+            taps = tapsIn(pointer, fingerFrames(2, 2, 30, 4), 0.0, 0.0);
+        } else {
+            taps = tapsIn(pointer, fingerFrames(2, 90, 0, 4), 0.0, 0.0);
+        }
+        console.log(`Gesture: ${cases[c]}: ${taps} two-finger tap(s)`);
+        if (taps != expected[c]) {
+            return `${cases[c]} gave ${taps} two-finger taps, not ${expected[c]}`;
+        }
+    }
+    if (!opensMenu(false, false, 100.0, 500.0) || opensMenu(true, false, 100.0, 500.0)
+        || opensMenu(false, true, 100.0, 500.0) || opensMenu(false, false, 600.0, 500.0)) {
+        return "a two-finger tap opens the menu only on the grid, closed, with a brush";
+    }
+    return "";
 }

@@ -39,10 +39,18 @@ export const DRAG_THRESHOLD = 8.0;
 // A second finger down this soon (in seconds) after the first takes back what the first painted:
 // it was a pinch, not a stroke.
 export const STROKE_CANCEL_TIME = 0.3;
-// A press held this long (in seconds) on the grid without moving (DRAG_THRESHOLD) opens the
-// brushes' menu around it: the shapes in a ring, up, right, down and left; what it painted is
-// taken back.
-export const LONG_PRESS_TIME = 0.45;
+// A two-finger tap (a middle click) on the grid opens the brushes' menu around it: the shapes in a
+// ring, up, right, down and left. The fingers are lifted within this long (in seconds), their
+// midpoint moved no more than the drag threshold and pinched less than half a wheel notch. (A held
+// finger opened it once, after 0.45 s still; but holding still is how you pour.)
+export const TWO_FINGER_TAP_TIME = 0.4;
+
+// Whether a two-finger tap opens the menu: not one that closed it (it was open when the fingers
+// came down), nor with no brush (Inspect, placing the attraction point), nor over the toolbar
+// (at y past playHeight).
+export function opensMenu(closedMenu: boolean, inspecting: boolean, y: number, playHeight: number): boolean {
+    return !closedMenu && !inspecting && y < playHeight;
+}
 // -profile: every PROFILE_EVERY frames, a timestamp after each of the simulation's dispatches (at
 // most PROFILE_QUERIES); every PROFILE_REPORT such frames, each entry's mean milliseconds a frame,
 // the costliest first.

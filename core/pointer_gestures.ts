@@ -1,7 +1,8 @@
 // A pointer's gestures (a mouse, or touch: NRIFramework reports one finger as the left button, two
 // as the middle one at their midpoint): the press (where and when it began), a drag past a
-// threshold, a long press (held still), a recent press a second finger turns into a pinch, and the
-// two fingers' movement (a pan). What each one does is the app's.
+// threshold, a long press (held still), a recent press a second finger turns into a pinch, the
+// two fingers' movement (a pan), and a two-finger tap (down and up again quickly, neither panning
+// nor pinching; a middle click with a mouse). What each one does is the app's.
 //
 // Imported with `import { PointerGestures } from "../core/pointer_gestures";` (add_tslang_nri_example
 // adds it to the app's sources). Each frame: update() with the pointer, then ask.
@@ -36,6 +37,13 @@ export class PointerGestures {
     panDX: number = 0.0;
     panDY: number = 0.0;
     private forget: boolean = false;
+    // Where (their midpoint) and when two fingers came down; since then, whether it moved past
+    // dragThreshold, and how far they pinched (wheel notches, as zoomed() reports them).
+    twoFingerX: number = 0.0;
+    twoFingerY: number = 0.0;
+    private twoFingerTime: number = 0.0;
+    private twoFingerMoved: boolean = false;
+    private twoFingerZoom: number = 0.0;
 
     // The pointer at (x, y), its button (one finger) and the second (two fingers) down, at time
     // (seconds).
@@ -66,6 +74,14 @@ export class PointerGestures {
         if (second && !this.twoFingersBefore) {
             this.panX = x;
             this.panY = y;
+            this.twoFingerX = x;
+            this.twoFingerY = y;
+            this.twoFingerTime = time;
+            this.twoFingerMoved = false;
+            this.twoFingerZoom = 0.0;
+        }
+        if (second && (Math.abs(x - this.twoFingerX) > this.dragThreshold || Math.abs(y - this.twoFingerY) > this.dragThreshold)) {
+            this.twoFingerMoved = true;
         }
         this.panDX = second ? x - this.panX : 0.0;
         this.panDY = second ? y - this.panY : 0.0;
@@ -106,6 +122,20 @@ export class PointerGestures {
         }
         this.longPressed = true;
         return true;
+    }
+
+    // The two fingers pinched by notches (the wheel's, this frame): a pinch isn't a tap.
+    zoomed(notches: number) {
+        if (this.twoFingers) {
+            this.twoFingerZoom += Math.abs(notches);
+        }
+    }
+
+    // True the frame two fingers lift, if they came down under within seconds before time and
+    // neither moved past dragThreshold nor pinched half a wheel notch: a two-finger tap.
+    twoFingerTap(time: number, within: number): boolean {
+        return !this.twoFingers && this.twoFingersBefore && !this.twoFingerMoved && this.twoFingerZoom < 0.5
+            && time - this.twoFingerTime < within;
     }
 
     // The last press began under within seconds before time and hasn't moved: a second finger now
