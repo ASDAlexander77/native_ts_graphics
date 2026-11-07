@@ -22,7 +22,7 @@ The folder follows fastlane's `metadata/android` layout, so `fastlane supply` ca
 - Target SDK 36 (Google Play's level for new apps since 31 August 2026), minimum SDK 29.
 - Needs Vulkan 1.3 (`android.hardware.vulkan.version` 0x403000, required; NRI itself needs 1.2 with
   dynamic rendering and synchronization2, which 1.3 makes core): Play offers it only to
-  devices that can run it. arm64 only.
+  devices that can run it. arm64-v8a and x86_64 (Chromebooks, emulators) in one bundle.
 - Not debuggable, no backup, no permissions. The system bars are hidden (a swipe shows them).
 
 ## 1. A release keystore (once)
@@ -35,28 +35,37 @@ app's signing key, and a lost upload key can be reset through Play support.)
 "C:\Android\jdk\jdk-21.0.12.1+1\bin\keytool" -genkeypair -keystore D:\keys\powder-sandbox-upload.jks -storetype PKCS12 -alias upload -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Your Name"
 ```
 
-keytool asks for the password. Then point the Android build at the keystore (once):
+keytool asks for the password. Then configure the two Android builds (once):
+`../config_release_apk_for_deployment.bat` does it, with the keystore at I:\keys (edit it for
+another place):
 
 ```bat
-cmake --preset android-arm64 -DANDROID_RELEASE_KEYSTORE=D:\keys\powder-sandbox-upload.jks
+cmake --preset android-x86_64
+cmake --preset android-arm64 -DANDROID_RELEASE_KEYSTORE=D:\keys\powder-sandbox-upload.jks -DANDROID_RELEASE_MERGE_BUILDS=<repository>/build-android-x86_64
 ```
+
+The arm64 build makes the release; `ANDROID_RELEASE_MERGE_BUILDS` has it package the x86_64 build's
+libraries too.
 
 ## 2. Build
 
-The passwords come from environment variables, never from the command line or a file in the repo:
+The passwords come from environment variables, never from the command line or a file in the repo.
+`../build_release_apk_for_deployment.bat` builds the x86_64 libraries first, then the release:
 
 ```bat
 set ANDROID_RELEASE_STORE_PASSWORD=...
 set ANDROID_RELEASE_KEY_PASSWORD=...
+cmake --build --preset android-x86_64 --target powder_sandbox_nri_apk
 cmake --build --preset android-arm64 --target powder_sandbox_nri_release
 ```
 
 It writes to `build-android-arm64/bin/`:
 
-- `powder_sandbox_nri-release.aab`: the bundle to upload to Google Play;
-- `powder_sandbox_nri-release.apk`: the same build as an APK, to install and check first
-  (`adb install -r ...`) or for other stores;
-- `powder_sandbox_nri-native-debug-symbols.zip`: upload it with the bundle (App bundle explorer >
+- `powder_sandbox_nri-release.aab`: the bundle to upload to Google Play (both ABIs, one version
+  code: Play gives each device its ABI's split);
+- `powder_sandbox_nri-release.apk`: the same build as an APK with both ABIs, to install and check
+  first (`../install_apk.bat release`) or for other stores;
+- `powder_sandbox_nri-native-debug-symbols.zip`: both ABIs' libraries; upload it with the bundle (App bundle explorer >
   Downloads > Native debug symbols), so crash reports show function names.
 
 For each next release, raise `VERSION_CODE` (and `VERSION_NAME`) in `../powder_sandbox.cmake` and

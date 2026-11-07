@@ -21,6 +21,10 @@ passwords from the environment variables --store-pass-env and --key-pass-env nam
 command line), and with --bundle an Android App Bundle (.aab, what Google Play takes) too, built by
 bundletool (--bundletool, fetched if it isn't there) and signed by the JDK's jarsigner; with
 --symbols the libraries' debug symbols zipped for the store's crash reports.
+
+--abi-libs adds another ABI's build of the same app (the list add_tslang_android_release writes in
+each Android build folder: its ABI, then lib<name>.so and the libraries it loads), so one APK and one
+bundle carry both (arm64-v8a and x86_64): the store hands each device its own.
 """
 
 import argparse
@@ -145,8 +149,8 @@ def build_bundle(args, env, aapt2, link_args, libraries, work):
             if name == "AndroidManifest.xml":
                 name = "manifest/AndroidManifest.xml"
             base.writestr(name, source.read(entry))
-        for packaged, library in libraries.items():
-            base.write(library, f"lib/{args.abi}/{packaged}")
+        for abi, packaged, _, library in libraries:
+            base.write(library, f"lib/{abi}/{packaged}")
     bundletool = fetch_bundletool(args.bundletool or os.path.join(work, f"bundletool-{BUNDLETOOL_VERSION}.jar"))
     unsigned = os.path.join(work, "unsigned.aab")
     if os.path.isfile(unsigned):
@@ -161,6 +165,24 @@ def build_bundle(args, env, aapt2, link_args, libraries, work):
     os.makedirs(os.path.dirname(os.path.abspath(args.bundle)), exist_ok=True)
     shutil.copyfile(signed, args.bundle)
     print(f"package_apk: {args.bundle}")
+
+
+def read_abi_libs(path, name, abi):
+    """Another build's libraries of the app, from the list add_tslang_android_release writes: its
+    ABI on the first line, then lib<name>.so and the libraries it loads."""
+    if not os.path.isfile(path):
+        fail(f"no {path}: configure and build {name}_apk in that Android build folder first")
+    with open(path, encoding="utf-8") as listing:
+        lines = [line.strip() for line in listing if line.strip()]
+    if len(lines) < 2:
+        fail(f"{path} lists no libraries")
+    other_abi, libs = lines[0], lines[1:]
+    if other_abi == abi:
+        fail(f"{path} is the {abi} build's own list: name another ABI's build folder")
+    for lib in libs:
+        if not os.path.isfile(lib):
+            fail(f"no {lib}: build {name}_apk in the {other_abi} build folder first")
+    return other_abi, libs
 
 
 def stage_assets(assets, folder):
@@ -202,6 +224,9 @@ def main():
     parser.add_argument("--extra-lib", action="append", default=[], metavar="LIB",
                         help="a shared library the example's loads, packaged next to it under its own name")
     parser.add_argument("--abi", required=True, help="its Android ABI: arm64-v8a, armeabi-v7a or x86_64")
+    parser.add_argument("--abi-libs", action="append", default=[], metavar="LIST",
+                        help="another ABI's libraries of the app to package too: the list file "
+                             "add_tslang_android_release writes (its ABI, then the libraries)")
     parser.add_argument("--assets", action="append", default=[], metavar="SOURCE=PATH",
                         help="a file or folder to package, and its path among the assets")
     parser.add_argument("--sdk", required=True, help="the Android SDK")
@@ -282,22 +307,29 @@ def main():
     base = os.path.join(work, "base.apk")
     run([aapt2, "link", "-o", base] + link_args)
 
-    # each library under its name in the APK, stripped if asked
-    libraries = {}
-    for source, packaged in [(args.lib, f"lib{args.name}.so")] + [(lib, os.path.basename(lib)) for lib in args.extra_lib]:
+    # each library under its ABI and name in the APK, stripped if asked: (abi, name, source, packaged copy)
+    sources = [(args.abi, f"lib{args.name}.so", args.lib)] + [(args.abi, os.path.basename(lib), lib) for lib in args.extra_lib]
+    for listing in args.abi_libs:
+        other_abi, libs = read_abi_libs(listing, args.name, args.abi)
+        if any(abi == other_abi for abi, _, _ in sources):
+            fail(f"{other_abi} is given twice")
+        sources += [(other_abi, f"lib{args.name}.so", libs[0])] + [(other_abi, os.path.basename(lib), lib) for lib in libs[1:]]
+    libraries = []
+    for abi, packaged, source in sources:
         library = source
         if args.strip:
-            library = os.path.join(work, packaged)
+            library = os.path.join(work, abi, packaged)
+            os.makedirs(os.path.dirname(library), exist_ok=True)
             run([args.strip, "--strip-unneeded", "-o", library, source])
-        libraries[packaged] = library
+        libraries.append((abi, packaged, source, library))
 
     # aapt2 has no say over native libraries: copy its entries as they are and add the library
     unaligned = os.path.join(work, "unaligned.apk")
     with zipfile.ZipFile(base) as source, zipfile.ZipFile(unaligned, "w") as apk:
         for entry in source.infolist():
             apk.writestr(entry, source.read(entry), compress_type=entry.compress_type)
-        for packaged, library in libraries.items():
-            apk.write(library, f"lib/{args.abi}/{packaged}", compress_type=zipfile.ZIP_STORED)
+        for abi, packaged, _, library in libraries:
+            apk.write(library, f"lib/{abi}/{packaged}", compress_type=zipfile.ZIP_STORED)
 
     aligned = os.path.join(work, "aligned.apk")
     run([zipalign, "-f", "-P", "16", "4", unaligned, aligned])
@@ -324,11 +356,12 @@ def main():
     if args.symbols:
         os.makedirs(os.path.dirname(os.path.abspath(args.symbols)), exist_ok=True)
         with zipfile.ZipFile(args.symbols, "w", zipfile.ZIP_DEFLATED) as symbols:
-            for source, packaged in [(args.lib, f"lib{args.name}.so")] + [(lib, os.path.basename(lib)) for lib in args.extra_lib]:
-                symbols.write(source, f"{args.abi}/{packaged}")
+            for abi, packaged, source, _ in libraries:
+                symbols.write(source, f"{abi}/{packaged}")
         print(f"package_apk: {args.symbols}")
 
-    print(f"package_apk: {args.out} ({package}, {len(files)} assets)")
+    abis = ", ".join(dict.fromkeys(abi for abi, _, _, _ in libraries))
+    print(f"package_apk: {args.out} ({package}, {abis}, {len(files)} assets)")
 
 
 if __name__ == "__main__":
