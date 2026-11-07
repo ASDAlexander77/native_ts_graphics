@@ -256,8 +256,10 @@ export class SandboxState {
 
     // A message shown on the HUD for MESSAGE_TIME seconds, and logged.
     showMessage(text: string) {
-        console.log(text);
+        // Kept before it's logged: under -mm=rc a freshly built string (`Gravity: ${...}`) arrives
+        // with no count, and console.log's argument array, released, freed it before the store.
         this.message = text;
+        console.log(text);
         this.messageTime = MESSAGE_TIME;
     }
 
