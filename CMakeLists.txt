@@ -904,10 +904,15 @@ endfunction()
 # and TARGET_SDK (the store's required level; its SDK platform installed). Signed with the release
 # keystore ANDROID_RELEASE_KEYSTORE (key ANDROID_RELEASE_KEY_ALIAS), whose passwords the build reads
 # from the environment variables ANDROID_RELEASE_STORE_PASSWORD and ANDROID_RELEASE_KEY_PASSWORD.
+# One release carries several ABIs: each Android build folder lists its <name>_apk libraries in
+# android/<name>/release-libs.txt, and ANDROID_RELEASE_MERGE_BUILDS names the other build folders
+# (build-android-x86_64 for the arm64 one) whose libraries go in too, built there first.
 if (ANDROID)
     set(ANDROID_RELEASE_KEYSTORE "$ENV{ANDROID_RELEASE_KEYSTORE}" CACHE FILEPATH
         "The release keystore the <app>_release targets sign with (keep it: every update needs it)")
     set(ANDROID_RELEASE_KEY_ALIAS "upload" CACHE STRING "The release key's alias in ANDROID_RELEASE_KEYSTORE")
+    set(ANDROID_RELEASE_MERGE_BUILDS "" CACHE STRING
+        "Other Android build folders (other ABIs) whose <app>_apk libraries the <app>_release targets package too")
 endif()
 
 function(add_tslang_android_release name)
@@ -930,6 +935,19 @@ function(add_tslang_android_release name)
             endif()
             list(APPEND options --${flag} "${RELEASE_${option}}")
         endif()
+    endforeach()
+    # this build's libraries, for another ABI's release to package (see ANDROID_RELEASE_MERGE_BUILDS)
+    set(libs "$<TARGET_FILE:${name}_app>")
+    foreach(item ${extra_libs})
+        if (NOT item STREQUAL "--extra-lib")
+            list(APPEND libs "${item}")
+        endif()
+    endforeach()
+    list(JOIN libs "\n" libs)
+    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/android/${name}/release-libs.txt"
+        CONTENT "${CMAKE_ANDROID_ARCH_ABI}\n${libs}\n")
+    foreach(folder ${ANDROID_RELEASE_MERGE_BUILDS})
+        list(APPEND options --abi-libs "${folder}/android/${name}/release-libs.txt")
     endforeach()
     add_custom_target(${name}_release
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
