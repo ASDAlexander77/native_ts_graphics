@@ -427,6 +427,20 @@ else()
     set(NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP ON CACHE BOOL "Use D3D12 native Opacity Micromaps from DXR 1.2" FORCE)
 endif()
 
+# NVRHI's D3D12 DXR cluster path builds against exactly the 1.722 preview Agility SDK, and Donut
+# sets NVRHI_D3D12_DXRCLUSTER_INCLUDE_DIR from the fetched SDK: fetch it before NVRHI is configured.
+# Its runtime loads only with Windows' Developer Mode on.
+if (NVRHI_D3D12_WITH_DXRCLUSTER)
+    set(D3D12_AGILITY_SDK_URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/1.722.0-preview")
+else()
+    set(D3D12_AGILITY_SDK_URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/1.619.6")
+endif()
+if (WIN32 AND NVRHI_D3D12_WITH_DXRCLUSTER)
+    set(DONUT_D3D_AGILITY_SDK_URL "${D3D12_AGILITY_SDK_URL}")
+    set(DONUT_D3D_AGILITY_SDK_FETCH_DIR "" CACHE STRING "" FORCE)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/cmake/FetchAgilitySDK.cmake")
+endif()
+
 set(CMAKE_PROJECT_zstd_INCLUDE_BEFORE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/zstd_policies.cmake")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 add_subdirectory(external/Donut)
@@ -488,9 +502,11 @@ if (RTXMG_DIR)
 endif()
 
 if (NVRHI_WITH_DX12)
-    set(DONUT_D3D_AGILITY_SDK_URL "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.D3D12/1.619.6")
-    set(DONUT_D3D_AGILITY_SDK_FETCH_DIR "" CACHE STRING "" FORCE)
-    include("${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/cmake/FetchAgilitySDK.cmake")
+    if (NOT NVRHI_D3D12_WITH_DXRCLUSTER) # else fetched before Donut
+        set(DONUT_D3D_AGILITY_SDK_URL "${D3D12_AGILITY_SDK_URL}")
+        set(DONUT_D3D_AGILITY_SDK_FETCH_DIR "" CACHE STRING "" FORCE)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/cmake/FetchAgilitySDK.cmake")
+    endif()
 
     file(COPY
         "${DONUT_D3D_AGILITY_SDK_PATH}/build/native/bin/x64/D3D12Core.dll"
