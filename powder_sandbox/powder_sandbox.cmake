@@ -121,8 +121,8 @@ endif()
 add_tslang_android_release(powder_sandbox_nri
     PACKAGE io.github.asdalexander77.powdersandbox
     LABEL "Powder Sandbox"
-    VERSION_CODE 6
-    VERSION_NAME 0.4
+    VERSION_CODE 8
+    VERSION_NAME 0.5
     RES powder_sandbox/android/res
     ICON @mipmap/ic_launcher
     CATEGORY game

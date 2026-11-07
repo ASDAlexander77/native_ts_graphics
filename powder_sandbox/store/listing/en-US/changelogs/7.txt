@@ -1,0 +1,5 @@
+- Hold your finger down to keep painting
+- Tap with two fingers to open the brush menu; shape buttons sit at the top right
+- Bigger size slider, and toolbar buttons respond to the first tap
+- Tilt gravity follows your phone correctly
+- Fixed a crash after tapping the Gravity button
