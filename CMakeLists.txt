@@ -226,10 +226,6 @@ set(DONUT_NVRHI_PATCHES
     # rt::AccelStructBuildFlags::AllowDataAccess: Vulkan BLASes whose vertex positions hit shaders
     # read (VK_KHR_ray_tracing_position_fetch; ray_tracing_position_fetch).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-accel-struct-allow-data-access.patch"
-    # Vulkan render passes take their framebuffer's shading rate attachment (it was made but never
-    # passed to vkCmdBeginRendering, so shading rate images did nothing), with pipelines made for it
-    # (fragment_shading_rate_dynamic).
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-shading-rate-attachment.patch"
     # RasterState::lineRasterizationMode, lineWidth and line stipple: Vulkan's line rasterization
     # modes (VK_EXT_line_rasterization), wide and stippled lines (dynamic_line_rasterization).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-vulkan-line-rasterization.patch"
@@ -292,8 +288,8 @@ set(DONUT_NVRHI_PATCHES
     # validation layer marks them built as buildTopLevelAccelStruct does (else "Cannot perform an
     # update on TLAS ... before the same TLAS was initially built"; partitioned_tlas -tlas).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-tlas-from-buffer-refit.patch"
-    # rt::PipelineDesc::allowClusteredGeometry: D3D12's preview pipeline flag ALLOW_CLUSTERED_GEOMETRY,
-    # without which shaders can't trace cluster BLASes (clustered_geometry; Vulkan pipelines always can).
+    # rt::PipelineDesc::allowClusters sets D3D12's preview pipeline flag ALLOW_CLUSTERED_GEOMETRY also
+    # without NVRHI_D3D12_WITH_DXRCLUSTER, for cluster BLASes core/clas.cpp builds (clustered_geometry).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/nvrhi-d3d12-clustered-geometry-pipeline.patch"
 )
 
