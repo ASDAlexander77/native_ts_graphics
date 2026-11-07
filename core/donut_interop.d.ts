@@ -3200,6 +3200,8 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 // texture cache they need. `device` is Donut_GetNvrhiDevice's. Null without cluster acceleration
 // structures (Vulkan's; D3D12's need NVAPI or NVRHI's DXR cluster build) or if its shaders aren't built.
 @nodrops declare function Donut_RtxmgCreate(device: Opaque): RtxmgDemoHandle;
+// Also releases the library's profiler (its GPU timers), a process-wide singleton: once per process, before
+// the device goes.
 @nodrops declare function Donut_RtxmgDestroy(rtxmgDemo: RtxmgDemoHandle): void;
 // Loads sceneFile, relative to mediaDirectory (RTXMG_DIR/assets for its scenes), and its "settings";
 // makes the tessellator, the TLAS and the environment map's tables, and points the camera at the
@@ -3210,8 +3212,8 @@ declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
 @nodrops declare function Donut_RtxmgGetExposure(rtxmgDemo: RtxmgDemoHandle): number;
 @nodrops declare function Donut_RtxmgGetMaxBounces(rtxmgDemo: RtxmgDemoHandle): int;
 @nodrops declare function Donut_RtxmgGetPayloadSize(rtxmgDemo: RtxmgDemoHandle): int;
-// The path tracer's samples per pixel, bounces and firefly clamp (the scene file's until set; negative keeps
-// one). Before the pipeline, whose recursion depth is the bounces + 1.
+// The path tracer's samples per pixel and bounces (the scene file's until set) and firefly clamp (none until
+// set, as the demo's frames; 0 is none); negative keeps one. Before the pipeline, whose recursion depth is the bounces + 1.
 @nodrops declare function Donut_RtxmgSetPathTracing(rtxmgDemo: RtxmgDemoHandle, spp: int, maxBounces: int, fireflyMaxIntensity: number): void;
 // The demo's shading mode (0 primary rays, 1 ambient occlusion, 2 path tracing, the default) and color mode
 // (0 base color, the default; the demo's ColorMode); the accumulation starts over.

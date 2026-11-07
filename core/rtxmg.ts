@@ -29,6 +29,8 @@ export class RtxmgDemo {
         return new RtxmgDemo(Donut_RtxmgCreate(device));
     }
 
+    // Also releases the library's profiler (its GPU timers), a process-wide singleton: once per process, before
+    // the device goes.
     destroy(): void {
         Donut_RtxmgDestroy(this.handle);
     }
@@ -54,8 +56,8 @@ export class RtxmgDemo {
         return Donut_RtxmgGetPayloadSize(this.handle);
     }
 
-    // The path tracer's samples per pixel, bounces and firefly clamp (the scene file's until set; negative keeps
-    // one). Before the pipeline, whose recursion depth is the bounces + 1.
+    // The path tracer's samples per pixel and bounces (the scene file's until set) and firefly clamp (none until
+    // set, as the demo's frames; 0 is none); negative keeps one. Before the pipeline, whose recursion depth is the bounces + 1.
     setPathTracing(spp: int, maxBounces: int, fireflyMaxIntensity: number): void {
         Donut_RtxmgSetPathTracing(this.handle, spp, maxBounces, fireflyMaxIntensity);
     }

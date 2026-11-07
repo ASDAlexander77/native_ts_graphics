@@ -241,7 +241,7 @@ namespace RtxmgDemoExample {
         exposure: number = -1.0;
         // -mode pt|primary|ao: the demo's shading modes (primary rays and AO show the base color).
         shadingMode: int = 2;
-        // -spp, -maxBounces, -firefly: the path tracer's, over the scene file's.
+        // -spp, -maxBounces: the path tracer's, over the scene file's; -firefly: a clamp (the demo's frames have none).
         spp: int = -1;
         maxBounces: int = -1;
         firefly: number = -1.0;

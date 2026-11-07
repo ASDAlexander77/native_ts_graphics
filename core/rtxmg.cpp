@@ -47,6 +47,7 @@
 #include "rtxmg/cluster_tess/cluster_tessellator.h"
 #include "rtxmg/cluster_tess/fill_instance_descs_params.h"
 #include "rtxmg/hiz/zbuffer.h"
+#include "rtxmg/profiler/profiler.h"
 #include "rtxmg/scene/camera.h"
 #include "rtxmg/scene/scene.h"
 #include "rtxmg/subdivision/subdivision_surface.h"
@@ -105,7 +106,6 @@ namespace
         float envmapIntensity = 1.f;
         uint32_t spp = 1;
         uint32_t maxBounces = 8;
-        float fireflyMaxIntensity = 1000.f;
         float exposure = 1.f;
     };
 }
@@ -231,7 +231,6 @@ namespace
         if (node["envmap intensity"].isNumeric()) s.envmapIntensity = node["envmap intensity"].asFloat();
         if (node["spp"].isIntegral()) s.spp = node["spp"].asUInt();
         if (node["max bounces"].isIntegral()) s.maxBounces = node["max bounces"].asUInt();
-        if (node["firefly max intensity"].isNumeric()) s.fireflyMaxIntensity = node["firefly max intensity"].asFloat();
         if (node["exposure"].isNumeric()) s.exposure = node["exposure"].asFloat();
     }
 
@@ -523,6 +522,11 @@ extern "C"
         if (r)
             r->device->waitForIdle();
         delete r;
+        // The library's GPU timers (the tessellator's and the HiZ's) are its profiler's, a process-wide
+        // singleton holding the device's timer queries and command lists until the process exits, after the
+        // device is gone (Vulkan's validation reports the command buffers). Released here, before the device,
+        // as the demo does at exit: once per process (the library's statistics keep references to them).
+        Profiler::Terminate();
     }
 
     // Loads `sceneFile` (relative to `mediaDirectory`, RTXMG_DIR/assets for its scenes) and its "settings",
@@ -580,7 +584,10 @@ extern "C"
         const SceneSettings& s = r->settings;
         r->params.spp = s.spp;
         r->params.ptMaxBounces = s.maxBounces;
-        r->params.fireflyMaxIntensity = s.fireflyMaxIntensity;
+        // No firefly clamp, although the scene files set one ("firefly max intensity"): the demo's frames are
+        // the unclamped ones (the kitchen set's 1.0 takes 7% of its indirect light away; measured against the
+        // reference exe's captures). -firefly sets one.
+        r->params.fireflyMaxIntensity = 0.f;
         r->params.hasEnvironmentMap = r->envMap ? 1 : 0;
         r->params.envmapIntensity = s.envmapIntensity;
         const affine3 rotation = donut::math::rotation(float3(0, 1, 0), s.envmapAzimuth) * donut::math::rotation(float3(1, 0, 0), s.envmapElevation);
@@ -613,8 +620,8 @@ extern "C"
         return int(sizeof(RayPayload));
     }
 
-    // The path tracer's samples per pixel, bounces and firefly clamp (the scene file's, until set); negative
-    // values keep the current ones. Set before the pipeline, whose recursion depth is the bounces + 1.
+    // The path tracer's samples per pixel and bounces (the scene file's, until set) and firefly clamp (none,
+    // until set: the demo's); negative values keep the current ones. Set before the pipeline, whose recursion depth is the bounces + 1.
     DONUT_API void Donut_RtxmgSetPathTracing(RtxmgDemo* r, int spp, int maxBounces, double fireflyMaxIntensity)
     {
         if (spp >= 0) r->params.spp = uint32_t(spp);
