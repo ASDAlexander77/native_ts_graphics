@@ -4046,7 +4046,7 @@ extern "C"
 
     DONUT_API void Donut_RtPipelineSetAllowClusteredGeometry(nvrhi::rt::PipelineDesc* pipelineDesc, bool allow)
     {
-        pipelineDesc->allowClusteredGeometry = allow != 0;
+        pipelineDesc->allowClusters = allow != 0;
     }
 
     // Returns null on failure.

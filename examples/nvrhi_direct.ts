@@ -3403,7 +3403,7 @@ namespace NvrhiDirect {
 
         // one CLAS of one triangle, three RGB32_FLOAT vertices
         let params: nvrhi.OperationParams = [1, nvrhi.CLUSTER_OPERATION_CLAS_BUILD, nvrhi.CLUSTER_OPERATION_MODE_GET_SIZES, 0,
-            [0, 0], [<u8>Format.RGB32_FLOAT, 0, 1, 1, 3, 1, 3, 0], [0, 0]];
+            [0, 0], [<u8>Format.RGB32_FLOAT, 0, 1, 1, 3, 1, 3, 0, 0, <u8>nvrhi.CLUSTER_INDEX_FORMAT_32BIT], [0, 0]];
         const sizeInfo = device.getClusterOperationSizeInfo(Ref(params));
         console.log(`IDevice::getClusterOperationSizeInfo: result ${sizeInfo.resultMaxSizeInBytes}, scratch ${sizeInfo.scratchSizeInBytes}`);
         check(sizeInfo.scratchSizeInBytes > 0, "IDevice::getClusterOperationSizeInfo");

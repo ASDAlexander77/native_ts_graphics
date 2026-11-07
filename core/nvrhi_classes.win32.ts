@@ -57,7 +57,7 @@ export namespace nvrhi {
     export type AccelStructPrebuildInfo = [resultBytes: u64, scratchBytes: u64, updateScratchBytes: u64];
     export type AccelStructDesc = [topLevelMaxInstances: index, bottomLevelGeometries: vector<GeometryDesc>, buildFlags: u8, debugName: basic_string_char, trackLiveness: boolean, isTopLevel: boolean, isVirtual: boolean];
     export type OperationMoveParams = [type: u8, maxBytes: u32];
-    export type OperationClasBuildParams = [vertexFormat: u8, maxGeometryIndex: u32, maxUniqueGeometryCount: u32, maxTriangleCount: u32, maxVertexCount: u32, maxTotalTriangleCount: u32, maxTotalVertexCount: u32, minPositionTruncateBitCount: u32];
+    export type OperationClasBuildParams = [vertexFormat: u8, maxGeometryIndex: u32, maxUniqueGeometryCount: u32, maxTriangleCount: u32, maxVertexCount: u32, maxTotalTriangleCount: u32, maxTotalVertexCount: u32, minPositionTruncateBitCount: u32, maxOpacityMicromapIndexCount: u32, indexFormat: u8];
     export type OperationBlasBuildParams = [maxClasPerBlasCount: u32, maxTotalClasCount: u32];
     export type OperationParams = [maxArgCount: u32, type: u8, mode: u8, flags: u8, move: OperationMoveParams, clas: OperationClasBuildParams, blas: OperationBlasBuildParams];
     export type OperationDesc = [params: OperationParams, scratchSizeInBytes: u64, inIndirectArgCountBuffer: IBuffer | null, inIndirectArgCountOffsetInBytes: u64, inIndirectArgsBuffer: IBuffer | null, inIndirectArgsOffsetInBytes: u64, inOutAddressesBuffer: IBuffer | null, inOutAddressesOffsetInBytes: u64, outSizesBuffer: IBuffer | null, outSizesOffsetInBytes: u64, outAccelerationStructuresBuffer: IBuffer | null, outAccelerationStructuresOffsetInBytes: u64];
@@ -81,7 +81,7 @@ export namespace nvrhi {
     export type MeshletState = [pipeline: IMeshletPipeline | null, framebuffer: IFramebuffer | null, viewport: ViewportState, blendConstantColor: Color, dynamicStencilRefValue: u8, bindings: static_vector8<IBindingSet | null>, indirectParams: IBuffer | null, indirectCountBuffer: IBuffer | null];
     export type PipelineShaderDesc = [exportName: basic_string_char, shader: RefCountPtr<IShader>, bindingLayout: RefCountPtr<IBindingLayout>];
     export type PipelineHitGroupDesc = [exportName: basic_string_char, closestHitShader: RefCountPtr<IShader>, anyHitShader: RefCountPtr<IShader>, intersectionShader: RefCountPtr<IShader>, bindingLayout: RefCountPtr<IBindingLayout>, isProceduralPrimitive: boolean];
-    export type PipelineDesc = [shaders: vector<PipelineShaderDesc>, hitGroups: vector<PipelineHitGroupDesc>, globalBindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>, maxPayloadSize: u32, maxAttributeSize: u32, maxRecursionDepth: u32, hlslExtensionsUAV: s32, allowOpacityMicromaps: boolean, allowClusteredGeometry: boolean];
+    export type PipelineDesc = [shaders: vector<PipelineShaderDesc>, hitGroups: vector<PipelineHitGroupDesc>, globalBindingLayouts: static_vector8<RefCountPtr<IBindingLayout>>, maxPayloadSize: u32, maxAttributeSize: u32, maxRecursionDepth: u32, hlslExtensionsUAV: s32, allowOpacityMicromaps: boolean, allowClusters: boolean];
     export type ShaderTableDesc = [isCached: boolean, maxEntries: u32, debugName: basic_string_char];
     export type State = [shaderTable: IShaderTable | null, bindings: static_vector8<IBindingSet | null>];
     export type DispatchRaysArguments = [width: u32, height: u32, depth: u32];
@@ -392,5 +392,6 @@ export namespace nvrhi {
         @slot(64) getBufferState(buffer: IBuffer | null): u32;
         @slot(65) getDevice(): IDevice;
         @slot(66) getDesc(): Ref<CommandListParameters>;
+        @slot(67) getInternalMemoryUsage(): [scratchBytes: u64, uploadBytes: u64];
     }
 }
