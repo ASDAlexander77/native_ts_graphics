@@ -142,6 +142,28 @@
       }
     },
     {
+      "name": "default-rtxmg",
+      "displayName": "Default with RTXMG (Ninja)",
+      "description": "Debug with the rtxmp demo (RTXMG_DIR: a checkout of github.com/NVIDIA-RTX/RTXMG with submodules and assets, configured once by its own CMake). Override the path with -DRTXMG_DIR=<path>.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-rtxmg",
+      "cacheVariables": {
+        "NVRHI_D3D12_WITH_DXRCLUSTER": "ON",
+        "RTXMG_DIR": "E:/Gits/RTXMG"
+      }
+    },
+    {
+      "name": "release-rtxmg",
+      "displayName": "Release with RTXMG (Ninja)",
+      "description": "Release with the rtxmp demo (RTXMG_DIR: a checkout of github.com/NVIDIA-RTX/RTXMG with submodules and assets, configured once by its own CMake). Override the path with -DRTXMG_DIR=<path>.",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-release-rtxmg",
+      "cacheVariables": {
+        "NVRHI_D3D12_WITH_DXRCLUSTER": "ON",
+        "RTXMG_DIR": "E:/Gits/RTXMG"
+      }
+    },  
+    {
       "name": "android-x86_64",
       "displayName": "Android x86_64 Release (Ninja, NDK)",
       "description": "Release for Android x86_64 (the emulator), API 29, Vulkan only. Needs ANDROID_NDK_HOME, and a desktop build first for its ShaderMake.",

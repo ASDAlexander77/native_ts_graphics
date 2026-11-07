@@ -37,6 +37,17 @@
             "environment": []
         },
         {
+            "name": "Run selected CMake target (RTXMG)",
+            "type": "cppvsdbg", // MSVC debugger; use "cppdbg" for gdb/lldb
+            "request": "launch",
+            "program": "${command:cmake.launchTargetPath}",
+            "args": [
+                "-dx12", "--media", "E:/Gits/RTXMG/assets", "--scene", "subdivision/amy_kitchenset.scene.json"
+            ],
+            "cwd": "${command:cmake.launchTargetDirectory}",
+            "environment": []
+        },        
+        {
             // rtxpt's SampleGame: the Bistro scene with game settings; its props come from RTXPT_DIR's
             // Assets/SampleGame. "Interactive elements" in the window attaches the camera to a prop.
             "name": "RTXPT: SampleGame (Bistro)",
