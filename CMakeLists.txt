@@ -728,6 +728,14 @@ endif()
 if (RTXPT_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxpt.cpp)
 endif()
+if (RTXMG_DIR)
+    # core/rtxmg.cpp includes RTXMG's library and demo headers (C++23) and the demo's HiZ prepass, built in place.
+    set(RTXMG_GLUE_SOURCES core/rtxmg.cpp "${RTXMG_DIR}/demo/zrenderer.cpp")
+    list(APPEND JIT_MODULE_SOURCES ${RTXMG_GLUE_SOURCES})
+    set_source_files_properties(${RTXMG_GLUE_SOURCES} PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXMG_DIR}/demo;${RTXMG_DIR}/rtxmg/include;${RTXMG_DIR};${RTXMG_DIR}/extern"
+        COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/std:c++latest;/wd5333,-std=c++23>")
+endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
     set_source_files_properties(core/rtxcr.cpp PROPERTIES INCLUDE_DIRECTORIES "${RTXCR_DIR}/libraries;${RTXCR_DIR}/samples/pathtracer;${RTXCR_DIR}/external/RayTracingDenoiser/Include")
@@ -737,6 +745,9 @@ if (NOT ANDROID)
     configure_donut_interop(donut_interop_shared)
     target_compile_definitions(donut_interop_shared PRIVATE DONUT_INTEROP_SHARED)
     target_link_libraries(donut_interop_shared PRIVATE basisu_transcoder ${OMM_SDK_LIBRARIES})
+    if (RTXMG_DIR)
+        target_link_libraries(donut_interop_shared PRIVATE rtxmg)
+    endif()
     # On Linux a shared library goes to LIBRARY_OUTPUT_DIRECTORY, not bin/ as a DLL does: put it next
     # to bin/shaders and bin/media too.
     set_target_properties(donut_interop_shared PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
@@ -5375,6 +5386,13 @@ if (RTXMG_DIR)
         INCLUDES ${RTXMG_SHADERS_INCLUDE_DIR}
     )
     unset(DONUT_WITH_DX11)
+    add_tslang_example(rtxmg_demo core/rtxmg.ts ${RTXMG_GLUE_SOURCES})
+    target_link_libraries(rtxmg_demo PRIVATE rtxmg)
+    add_dependencies(rtxmg_demo rtxmg_demo_shaders cluster_tess_shaders hiz_shaders envmap_shaders)
+    # The kitchen set (its first animation frame, as the demo shows it paused), path traced. Vulkan only:
+    # the D3D12 test exits as skipped.
+    add_tslang_example_test(rtxmg_demo ARGS -width 1280 -height 720
+        --media ${RTXMG_DIR}/assets --scene subdivision/amy_kitchenset.scene.json)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
