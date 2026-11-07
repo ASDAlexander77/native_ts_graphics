@@ -26,12 +26,24 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   window's grid wider (308 cells, from 290), and three tests had only passed at some widths: the cup's
   goal is 900 now, the black hole's bin narrower, the coal scene's fire lasts 10 frames; each now
   passes from a 277- to a 326-cell-wide grid.
-- **Brush menu:** a press held still on the grid for 0.45 s opens the brush shapes in a ring around
-  it (Circle up, Square right, Line down, Box left), the one in use lit; released on one, or a tap on
-  one next, picks it; a tap elsewhere closes it. What the held press painted is taken back (so holding
-  still to pour now opens the menu: keep the finger moving). While the brush is a circle, a square or a
-  line, a slider along the top sizes it (0.5 to 30 cells: a line's half width); the HUD sits under
-  it.
+- **Shape buttons:** at the top right, in the slider's row, a button for each brush shape (Circle,
+  Square, Line, Box: its glyph), the one in use lit; a tap picks it (a press that drags past the tap
+  threshold doesn't). They show always, the slider (when it shows) ending left of them, so a shape
+  is a tap away without the toolbar's Tools tab or the menu below. The HUD now sits under the row
+  with a box brush too.
+- **Brush menu:** a two-finger tap on the grid (on a desktop, a middle click) opens the brush shapes
+  in a ring around it (Circle up, Square right, Line down, Box left), the one in use lit; a tap on
+  one picks it, a tap elsewhere (or another two-finger tap) closes it. The tap is two fingers down
+  and up within 0.4 s, their midpoint moved no more than a tap may (2% of the screen's short side)
+  and pinched less than half a zoom notch; more is a pan or a pinch. The second finger landing
+  within 0.3 s takes back what the first had begun painting, as for a pinch. (The Shape tile in
+  Tools still cycles the shapes.) While the brush is a circle, a square or a line, a slider along
+  the top sizes it (0.5 to 30 cells: a line's half width); the HUD sits under it.
+  - It used to open on a press held still for 0.45 s, taking back what the press had painted, so a
+    finger held still to pour opened the menu instead (on the S23: you had to keep the finger
+    moving). A held finger now always paints. A second finger that comes down while one is
+    pouring ends the pour (Android's window ignores the remaining finger till both are up), as a
+    pinch always did.
 - **Painting:** materials and tools (Heat, Cool, Erase); circle, square, line and box
   brushes with an outline cursor; mouse or touch.
 - **Window:** resizable; the grid keeps its cells and is fitted to the window, and is remade when
@@ -163,8 +175,8 @@ Run so far on two phones:
   zoomed (for a test's frame).
 - **Inspect**, a tile: touching paints nothing, a crosshair marks the cell under the finger and the
   HUD reads it (temperature, pressure, contents). A long press couldn't do it: holding still is
-  how you pour. Holding still with Inspect (or while placing the attraction point) doesn't open the
-  brush menu: neither has a brush, and on the S23 the menu came up over the cell being read.
+  how you pour. A two-finger tap with Inspect (or while placing the attraction point) doesn't open
+  the brush menu: neither has a brush.
 - **Profile** (`-profile`): every 30 frames, a timestamp after each of the simulation's dispatches;
   every 8 such frames, each kernel's mean milliseconds a frame, the costliest first. On the S23
   (Adreno 740) a kernel's time shows on the one after it: the timestamps don't wait for the kernel
@@ -687,8 +699,10 @@ barriers, the GPU profiler, the toolbar, tabs, slider and radial menu, touch ges
     loudness, its cooldown; the totals the tests check).
   - **Gestures and widgets** (done): `core/pointer_gestures.ts`'s `PointerGestures` (the press,
     its drag past a threshold, a long press, a recent press a second finger makes a pinch, the two
-    fingers' pan); what each does stays the sandbox's `handleInput`. The widgets (the slider and
+    fingers' pan and their tap); what each does stays the sandbox's `handleInput`. The widgets (the slider and
     the tab row) moved to `core/ui/`, apart from the engine parts in `core/`.
-  - Left in the sandbox: the radial menu (never open in a test: it needs a phone to check; it can
+  - Left in the sandbox: the radial menu (never open in a test: it needs a phone to check, but
+    `-test` drives `PointerGestures` through a two-finger tap, one with jitter, a pan, a pinch, a
+    slow tap and a held finger, and checks only the taps would open it; it can
     join `core/ui/` if a second app wants it). The tiles' row stays the sandbox's (its labels,
     swatches and selection are the game's).

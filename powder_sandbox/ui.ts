@@ -8,7 +8,7 @@ import {
     ACTION_CLEAR, ACTION_SHAPE, ACTION_UNDO, ACTION_SAVE, ACTION_LOAD, ACTION_LEVEL, ACTION_GRAVITY,
     GRAVITY_OFF, GRAVITY_POINT, GRAVITY_TILT, GRAVITY_NAMES, GRAVITY_LABELS, GRAVITY_PLACE, KEY_Z, KEY_LEFT_CONTROL,
     KEY_RIGHT_CONTROL, VIEW_NAMES, SHAPE_CIRCLE, SHAPE_SQUARE, SHAPE_LINE, SHAPE_BOX, SHAPE_NAMES,
-    fanDirectionOf, sectionMaterial, materialName, starText
+    TWO_FINGER_TAP_TIME, fanDirectionOf, opensMenu, sectionMaterial, materialName, starText
 } from "./defs";
 import { SandboxSimulation } from "./simulation";
 import { NriImgui } from "../core/nri";
@@ -74,6 +74,36 @@ export class SandboxUI extends SandboxSimulation {
     // (the margin above it is the slider's too)
     onSlider(x: number, y: number): boolean {
         return this.sliderShown() && this.slider.contains(x, Math.max(y, this.sliderTop()));
+    }
+
+    // The shape buttons, a square each, the slider's height, in a row at the top right (the slider
+    // left of them): their size, the gap between them, the first's left edge.
+    shapeButtonSize(): number {
+        return this.sliderHeight();
+    }
+
+    shapeButtonGap(): number {
+        return Math.max(4.0, Math.floor(this.shapeButtonSize() * 0.12));
+    }
+
+    shapeButtonsLeft(): number {
+        const n = SHAPE_NAMES.length;
+        return this.width - 8.0 - n * this.shapeButtonSize() - (n - 1) * this.shapeButtonGap();
+    }
+
+    // The shape button at (x, y), or -1 (the margin above them is theirs too, as the slider's).
+    shapeButtonAt(x: number, y: number): int {
+        const size = this.shapeButtonSize();
+        const step = size + this.shapeButtonGap();
+        const left = this.shapeButtonsLeft();
+        if (y > this.sliderTop() + size || x < left) {
+            return -1;
+        }
+        const k: int = Math.floor((x - left) / step);
+        if (k >= SHAPE_NAMES.length || x - left - k * step > size) {
+            return -1;
+        }
+        return k;
     }
 
     // The brush's radius from x along the slider's track (whole cells, or the smallest).
@@ -181,12 +211,17 @@ export class SandboxUI extends SandboxSimulation {
         const overToolbar = my >= this.height - this.toolbarHeight;
 
         // Two fingers down (or the middle button): if the first finger has only just begun a
-        // stroke, it was the start of a pinch, so what it painted is taken back. Then the view
+        // stroke, it was the start of a pinch (or a two-finger tap), so what it painted is taken
+        // back (only a stroke: a press on the menu, the slider or with no brush took no snapshot).
+        // An open menu closes, and the tap that may follow doesn't open it again. Then the view
         // follows the pointer (the fingers' midpoint).
         if (pointer.twoFingersStarted()) {
-            if (pointer.wasDown && !this.pressOnToolbar && this.tool != INSPECT && pointer.pressedRecently(this.time, STROKE_CANCEL_TIME)) {
+            if (pointer.wasDown && !this.pressOnToolbar && !this.pressOnUi && this.tool != INSPECT && this.tool != GRAVITY_PLACE
+                && pointer.pressedRecently(this.time, STROKE_CANCEL_TIME)) {
                 this.undoRequested = true;
             }
+            this.tapClosedMenu = this.menuOpen;
+            this.menuOpen = false;
         }
         if (middle) {
             this.panZoom.pan(pointer.panDX, pointer.panDY);
@@ -196,6 +231,9 @@ export class SandboxUI extends SandboxSimulation {
         // The wheel over the toolbar scrolls it (half a tile a notch); over the grid it zooms
         // (with Control, or the middle button down: a pinch), or sizes the brush.
         const wheel = this.sample.getMouseWheel();
+        if (middle) {
+            pointer.zoomed(wheel);
+        }
         if (overToolbar && wheel != 0.0 && this.onTabRow(my)) {
             this.tabs.scrollTo(this.tabs.offset() + (wheel > 0.0 ? -0.5 : 0.5) * this.tileWidth);
         } else if (overToolbar && wheel != 0.0) {
@@ -233,9 +271,9 @@ export class SandboxUI extends SandboxSimulation {
             this.pressOnToolbar = overToolbar;
             // (a press while the menu's open picks from it, or closes it; one on the slider sizes
             // the brush)
-            this.longPressed = false;
-            this.pressOnSlider = !overToolbar && !this.menuOpen && this.onSlider(mx, my);
-            this.pressOnUi = !overToolbar && (this.menuOpen || this.pressOnSlider);
+            this.pressOnSlider = !overToolbar && !this.menuOpen && this.onSlider(mx, my) && this.shapeButtonAt(mx, my) < 0;
+            this.pressOnShape = !overToolbar && !this.menuOpen && this.shapeButtonAt(mx, my) >= 0;
+            this.pressOnUi = !overToolbar && (this.menuOpen || this.pressOnSlider || this.pressOnShape);
             // A stroke begins: what it changes can be undone.
             if (!overToolbar && !this.pressOnUi && !inspecting) {
                 this.snapshotRequested = true;
@@ -272,27 +310,26 @@ export class SandboxUI extends SandboxSimulation {
         if (down && this.pressOnSlider) {
             this.slideBrush(mx);
         }
-        // A press held still on the grid opens the menu around it (and takes back what it
-        // painted); it's then the menu's. Not while inspecting or placing the attraction point:
-        // they have no brush, and holding still is how a cell is read.
-        if (down && !this.pressOnToolbar && !this.pressOnUi && !inspecting) {
-            if (pointer.longPress(this.time)) {
-                this.undoRequested = true;
-                this.openMenu(pointer.pressX, pointer.pressY);
-                this.longPressed = true;
-                this.pressOnUi = true;
+        // A two-finger tap on the grid (a middle click) opens the menu around it; one while it
+        // was open closed it. A held finger never does: holding still is how you pour (and with
+        // Inspect, or placing the attraction point, how a cell is read; they have no brush).
+        if (pointer.twoFingerTap(this.time, TWO_FINGER_TAP_TIME) && opensMenu(this.tapClosedMenu, inspecting, pointer.twoFingerY, this.height - this.toolbarHeight)) {
+            this.openMenu(pointer.twoFingerX, pointer.twoFingerY);
+        }
+        // A tap on a shape button (released without dragging) picks its shape.
+        if (pointer.released() && this.pressOnShape && !pointer.hasMoved()) {
+            const button = this.shapeButtonAt(pointer.pressX, pointer.pressY);
+            if (button >= 0) {
+                this.brushShape = button;
             }
         }
-        // Released on an icon: its shape. The press that opened the menu leaves it open when
-        // released elsewhere (to tap an icon next); another closes it.
+        // A tap on an icon picks its shape; one elsewhere closes the menu.
         if (pointer.released() && this.menuOpen && this.pressOnUi) {
             const icon = this.menuIconAt(mx, my);
             if (icon >= 0) {
                 this.brushShape = icon;
-                this.menuOpen = false;
-            } else if (!this.longPressed) {
-                this.menuOpen = false;
             }
+            this.menuOpen = false;
         }
         const toGrid = !this.pressOnToolbar && !this.pressOnUi;
 
@@ -336,7 +373,7 @@ export class SandboxUI extends SandboxSimulation {
         if (inspecting) {
             cursorMode = 3;
         }
-        if (overToolbar || (down && !toGrid) || middle || this.menuOpen || this.onSlider(mx, my)) {
+        if (overToolbar || (down && !toGrid) || middle || this.menuOpen || this.onSlider(mx, my) || this.shapeButtonAt(mx, my) >= 0) {
             cursorMode = 0;
         }
         const shape = this.brushShape == SHAPE_SQUARE ? 1 : 0;
@@ -416,17 +453,24 @@ export class SandboxUI extends SandboxSimulation {
             NriImgui.drawRect(barX0, top, barX1, top + 3.0, 0.7, 0.7, 0.75, 1.0);
         }
 
-        // The size slider: "Size N", then its track and knob.
-        let hudTop = 6.0;
+        // The size slider: "Size N", then its track and knob; right of it, the shape buttons.
+        const sliderTop = this.sliderTop();
+        const sliderHeight = this.sliderHeight();
+        const hudTop = sliderTop + sliderHeight + 6.0;
         if (this.sliderShown()) {
-            const sliderTop = this.sliderTop();
-            const sliderHeight = this.sliderHeight();
             const sizeLabel = `Size ${formatFixed(this.brushRadius, this.brushRadius < 1.0 ? 1 : 0)}`;
             const x0 = 8.0 + NriImgui.calcTextWidth("Size 30.0") + sliderHeight;
-            const x1 = Math.min(this.width - 8.0 - sliderHeight * 0.5, x0 + this.width * 0.6);
-            this.slider.place(0.0, x0, x1, sliderTop, sliderHeight);
+            const x1 = Math.min(this.shapeButtonsLeft() - this.shapeButtonGap() - sliderHeight, x0 + this.width * 0.6);
+            this.slider.place(0.0, x0, Math.max(x1, x0 + sliderHeight), sliderTop, sliderHeight);
             this.slider.draw(sizeLabel, (this.brushRadius - MIN_BRUSH) / (MAX_BRUSH - MIN_BRUSH), labelHeight);
-            hudTop = sliderTop + sliderHeight + 6.0;
+        }
+        // The shape buttons: each shape's glyph, the brush's lit.
+        const buttonSize = this.shapeButtonSize();
+        for (let k = 0; k < SHAPE_NAMES.length; k++) {
+            const bx = this.shapeButtonsLeft() + k * (buttonSize + this.shapeButtonGap());
+            const lit = k == this.brushShape;
+            NriImgui.drawRect(bx, sliderTop, bx + buttonSize, sliderTop + buttonSize, lit ? 0.95 : 0.12, lit ? 0.95 : 0.12, lit ? 0.95 : 0.15, 0.85);
+            this.drawShapeIcon(k, bx + buttonSize * 0.5, sliderTop + buttonSize * 0.5, buttonSize * 0.28, lit ? 0.1 : 0.9);
         }
         // The brushes' menu: an icon for each shape, the brush's lit.
         if (this.menuOpen) {
