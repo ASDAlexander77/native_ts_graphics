@@ -5,6 +5,7 @@
     python tools/android.py run <example> [--screenshot <file.png>]
     python tools/android.py headless
     python tools/android.py test [--seconds N] [<example>...]
+    python tools/android.py shadermake
 
 build      configures the android-<abi> preset if its folder has none, then builds the headless
            tests (headless, nvrhi_direct) and the APKs (<example>_apk, all of them if none are named). It finds the NDK for the preset
@@ -19,6 +20,8 @@ test       a smoke test: the headless tests, then each example's APK installed a
            --seconds, a screenshot, then Back, which has to close it without a crash. Starts an
            emulator if no device is connected. The screenshots and logs go to
            <build folder>/android-test. With no examples, the ones that run on the emulator.
+shadermake builds the desktop ShaderMake the Android builds compile their shaders with, if there is
+           none (build does it too): for configuring an android-* preset by hand.
 
 The SDK, the NDK and the AVDs are found from ANDROID_HOME / ANDROID_SDK_ROOT, ANDROID_NDK_HOME,
 the android-* build folders' caches, or next to each other; --sdk and --ndk override them.
@@ -259,6 +262,10 @@ def apk_targets(folder):
     ninja = read_cache(folder).get("CMAKE_MAKE_PROGRAM") or "ninja"
     output = subprocess.run([ninja, "-C", folder, "-t", "targets", "all"], capture_output=True, text=True).stdout
     return sorted({match.group(1) for match in re.finditer(r"^(\w+)_apk:", output, re.MULTILINE)})
+
+
+def command_shadermake(tools, args):
+    ensure_host_shadermake()
 
 
 def command_build(tools, args):
@@ -638,6 +645,9 @@ def main():
     ctest.add_argument("tests", nargs="*", help="regular expressions of the tests to run (CTest's names without the API; default: all on Vulkan)")
     ctest.add_argument("--timeout", type=int, default=300, help="seconds each test may take")
     ctest.set_defaults(handler=command_ctest)
+
+    shadermake = commands.add_parser("shadermake", parents=[common, devices], help="build the desktop ShaderMake the Android builds need, if there is none")
+    shadermake.set_defaults(handler=command_shadermake)
 
     args = parser.parse_args()
     args.handler(Tools(args), args)
