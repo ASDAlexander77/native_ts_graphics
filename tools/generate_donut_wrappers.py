@@ -1,4 +1,5 @@
-"""Generates donut.ts, the class wrappers over donut_interop.d.ts.
+"""Generates donut.ts, the class wrappers over donut_interop.d.ts (the declarations of the files it
+references, core/interop/*.d.ts, in its order).
 
 Every Donut_* function whose first parameter is a C++ object handle (`app: Opaque`,
 `frame: Opaque`, ...) becomes a method of the class for that object (App, Frame, ...), which holds
@@ -13,7 +14,7 @@ The classes of objects that an optional C++ file defines (one some examples link
 core/sdkmesh.cpp) go to a module of their own instead (MODULES), which those examples import:
 donut.ts is linked into every example.
 
-Run it after changing donut_interop.d.ts, and commit donut.ts, donut_globals.d.ts and the
+Run it after changing the declarations, and commit donut.ts, donut_globals.d.ts and the
 modules with it.
 """
 
@@ -22,11 +23,11 @@ import re
 import sys
 import textwrap
 
+from check_interop_types import declaration_files
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE = os.path.join(ROOT, "core", "donut_interop.d.ts")
 OUTPUT = os.path.join(ROOT, "core", "donut.ts")
 GLOBALS = os.path.join(ROOT, "core", "donut_globals.d.ts")
-HANDLES = os.path.join(ROOT, "core", "donut_handles.d.ts")
 
 # Handle parameter name -> wrapper class, in the order the classes are emitted. A function goes to
 # the class of its first parameter; any other parameter with one of these names takes the class too.
@@ -719,12 +720,15 @@ def report(functions):
 
 
 def main():
-    with open(SOURCE, encoding="utf-8") as f:
-        functions = parse(f.read())
-    handles = set()
-    if os.path.exists(HANDLES):
-        with open(HANDLES, encoding="utf-8") as f:
-            handles = set(re.findall(r"^(?:@cpp )?declare class (\w+)", f.read(), re.M))
+    # The declaration files as tools/check_interop_types.py reads them: donut_handles.d.ts, the
+    # files donut_interop.d.ts references, then donut_interop.d.ts.
+    texts = []
+    for rel in declaration_files(ROOT):
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+            texts.append(f.read())
+    source = "\n".join(texts)
+    functions = parse(source)
+    handles = set(re.findall(r"^(?:@cpp )?declare class (\w+)", source, re.M))
     if "--report" in sys.argv:
         report(functions)
     text = generate(functions, handles)

@@ -250,13 +250,44 @@ def parse_cpp(root):
     return functions, callbacks, unexported
 
 
+def declaration_files(root):
+    """The interop's declaration files, repo-relative and each once: core/donut_handles.d.ts, then
+    core/donut_interop.d.ts's `/// <reference path>`s (core/interop/*.d.ts), recursively, in order
+    (a file's references before it), then core/donut_interop.d.ts itself."""
+    files = []
+
+    def visit(rel):
+        if rel in files:
+            return
+        path = os.path.join(root, rel)
+        if not os.path.exists(path):
+            raise Problem(f"{rel}: referenced, but there's no such file")
+        files.append(rel)  # here while its references are visited: a cycle ends at it
+        with open(path, encoding="utf-8") as f:
+            refs = re.findall(r'^/// <reference path="([^"]+)" />', f.read(), re.M)
+        files.remove(rel)
+        for ref in refs:
+            visit(os.path.normpath(os.path.join(os.path.dirname(rel), ref)).replace(os.sep, "/"))
+        files.append(rel)
+
+    if os.path.exists(os.path.join(root, "core", "donut_handles.d.ts")):
+        visit("core/donut_handles.d.ts")
+    visit("core/donut_interop.d.ts")
+    return files
+
+
 def parse_ts(root):
     """Declared functions: name -> (file, line, return type, [(type, name)]); also the enums and
     callback types."""
-    with open(os.path.join(root, "core", "donut_interop.d.ts"), encoding="utf-8") as f:
-        lines = f.read().splitlines()
-    rel = "core/donut_interop.d.ts"
     functions, callbacks, enums = {}, {}, set()
+    for rel in declaration_files(root):
+        with open(os.path.join(root, rel), encoding="utf-8") as f:
+            parse_ts_file(rel, f.read().splitlines(), functions, callbacks, enums)
+    return functions, callbacks, enums
+
+
+def parse_ts_file(rel, lines, functions, callbacks, enums):
+    """Adds one declaration file's functions, callback types and enums to the others'."""
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -282,10 +313,12 @@ def parse_ts(root):
             m = re.match(r"declare function (\w+)\((.*)\)\s*:\s*(.+);$", text)
             if not m:
                 raise Problem(f"{rel}:{start + 1}: can't parse: {text}")
+            if m.group(1) in functions:
+                raise Problem(f"{rel}:{start + 1}: {m.group(1)} is declared again "
+                              f"(first in {functions[m.group(1)][0]})")
             functions[m.group(1)] = (rel, start + 1, " ".join(m.group(3).split()),
                                      [ts_param(p) for p in split_params(m.group(2))])
         i += 1
-    return functions, callbacks, enums
 
 
 def ts_param(text):
@@ -294,14 +327,15 @@ def ts_param(text):
 
 
 def handle_classes(root):
-    """Handle classes in donut_handles.d.ts: name -> base class (or None)."""
-    path = os.path.join(root, "core", "donut_handles.d.ts")
-    if not os.path.exists(path):
-        return {}
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    return {m.group(1): m.group(2) for m in
-            re.finditer(r"^(?:@cpp )?declare class (\w+)(?: extends (\w+))? \{", text, re.M)}
+    """Handle classes in the declaration files (core/donut_handles.d.ts; the optional modules'
+    files in core/interop/ declare their own): name -> base class (or None)."""
+    classes = {}
+    for rel in declaration_files(root):
+        with open(os.path.join(root, rel), encoding="utf-8") as f:
+            text = f.read()
+        classes.update({m.group(1): m.group(2) for m in
+                        re.finditer(r"^(?:@cpp )?declare class (\w+)(?: extends (\w+))? \{", text, re.M)})
+    return classes
 
 
 def accepted(cpp_type, enums):
@@ -359,8 +393,8 @@ def collapse_callbacks(params, where, problems):
 
 
 def check(root, strict, fixes=None):
-    """The problems found; with a `fixes` list, also appends (line, parameter or None for the
-    return value, handle type) for each Opaque declaration --fix can rewrite."""
+    """The problems found; with a `fixes` list, also appends (declaration file, line, parameter or
+    None for the return value, handle type) for each Opaque declaration --fix can rewrite."""
     if fixes is None:
         fixes = []
     cpp, cpp_callbacks, unexported = parse_cpp(root)
@@ -372,7 +406,7 @@ def check(root, strict, fixes=None):
 
     for name in sorted(set(cpp) - set(ts) - CPP_ONLY):
         path, line, _, _ = cpp[name]
-        problems.append(f"{path}:{line}: {name} isn't declared in donut_interop.d.ts")
+        problems.append(f"{path}:{line}: {name} isn't declared in donut_interop.d.ts (or a file it references)")
     for name in sorted(set(ts) - set(cpp)):
         path, line, _, _ = ts[name]
         problems.append(f"{path}:{line}: {name} has no C++ definition")
@@ -396,7 +430,7 @@ def check(root, strict, fixes=None):
             continue
         compare(f"{where}: return", cret, tret, enums, problems)
         if fixable(cret, tret):
-            fixes.append((tline, None, fixable(cret, tret)))
+            fixes.append((tpath, tline, None, fixable(cret, tret)))
         used.add(tret.replace(" | null", ""))
         if strict and cret == "void*" and (name, "*") not in RAW_MEMORY:
             problems.append(f"{where}: returns void* (type it, or list it in RAW_MEMORY)")
@@ -414,7 +448,7 @@ def check(root, strict, fixes=None):
                 continue
             compare(f"{where}: parameter '{cname}'", ctype, ttype, enums, problems)
             if fixable(ctype, ttype):
-                fixes.append((tline, tname, fixable(ctype, ttype)))
+                fixes.append((tpath, tline, tname, fixable(ctype, ttype)))
             if strict and ctype == "void*" and (name, cname) not in RAW_MEMORY:
                 problems.append(f"{where}: parameter '{cname}' is void* (type it, or list it in RAW_MEMORY)")
 
@@ -437,22 +471,27 @@ def check(root, strict, fixes=None):
             used.add(ttype.replace(" | null", ""))
             compare(f"{where}: parameter '{cname}'", ctype, ttype, enums, problems)
             if fixable(ctype, ttype):
-                fixes.append((tline, tname, fixable(ctype, ttype)))
+                fixes.append((tpath, tline, tname, fixable(ctype, ttype)))
 
     classes = handle_classes(root)
     for cls in HANDLES.values():
         if cls not in classes:
-            problems.append(f"HANDLES maps to '{cls}', which donut_handles.d.ts doesn't declare")
+            problems.append(f"HANDLES maps to '{cls}', which no declaration file declares")
     bases = {base for base in classes.values() if base}
     for cls in sorted(classes):
         if cls not in used and cls not in bases:
-            problems.append(f"core/donut_handles.d.ts: {cls} is used by no function")
+            problems.append(f"handle {cls} is used by no function")
     return problems
 
 
 def apply_fixes(root, fixes):
     """Rewrites the Opaque declarations `fixes` lists with their handle or Ref<T> types."""
-    path = os.path.join(root, "core", "donut_interop.d.ts")
+    for rel in sorted({fix[0] for fix in fixes}):
+        apply_file_fixes(os.path.join(root, rel), [fix[1:] for fix in fixes if fix[0] == rel])
+
+
+def apply_file_fixes(path, fixes):
+    """Rewrites one declaration file's: `fixes` are (line, parameter or None, handle type)."""
     with open(path, encoding="utf-8") as f:
         lines = f.read().split("\n")
     for line, param, handle in fixes:

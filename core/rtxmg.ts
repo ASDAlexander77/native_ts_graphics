@@ -20,7 +20,6 @@ export class RtxmgDemo {
         return !this.handle;
     }
 
-    // --- RTX Mega Geometry (core/rtxmg.cpp; the rtxmg_demo example links it) ---
     // The demo's cluster tessellation path: its library's scene, cluster tessellator, HiZ buffer and TLAS,
     // and the environment map's sampling tables, with the shader factory, bindless descriptor table and
     // texture cache they need. `device` is Donut_GetNvrhiDevice's. Null without cluster acceleration

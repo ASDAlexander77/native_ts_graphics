@@ -72,38 +72,347 @@ export class App {
         return new App(Donut_CreateHeadlessAppWithOptions(api, adapterIndex, options));
     }
 
-    // Blocks until the window is closed; in test mode renders the test's frames and returns.
-    run(): void {
-        Donut_RunApp(this.handle);
+    // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
+    releaseResource(resource: ResourceHandle): void {
+        Donut_ReleaseResource(this.handle, resource);
     }
 
-    // Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image file,
-    // its format from the extension (.png, .bmp, .tga, .jpg). Not in a render callback.
-    saveBackBufferToFile(path: string): boolean {
-        return Donut_SaveBackBufferToFile(this.handle, path) != 0;
+    // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
+    // otherwise shader-readable only, filled with Donut_WriteBuffer.
+    createUIntBuffer(elementCount: int, writable: int, debugName: string): BufferHandle {
+        return Donut_CreateUIntBuffer(this.handle, elementCount, writable, debugName);
     }
 
-    // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
-    // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
-    // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
-    readBackBufferRGBA8(dst: Ref<int>, pixelCount: int): int {
-        return Donut_ReadBackBufferRGBA8(this.handle, dst, pixelCount);
+    // CPU-readable buffer to copy GPU results into.
+    createReadbackBuffer(byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateReadbackBuffer(this.handle, byteSize, debugName);
     }
 
-    // Ends a test after Donut_RunApp: saves the last frame to -testOutput's file if given, prints "Test
-    // PASSED" if failure is "", else "Test FAILED: <failure>"; returns the exit code (0, 1).
-    finishTest(failure: string): int {
-        return Donut_FinishTest(this.handle, failure);
+    // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
+    // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
+    readBuffer(readbackBuffer: BufferHandle, dst: Opaque, byteSize: int): boolean {
+        return Donut_ReadBuffer(this.handle, readbackBuffer, dst, byteSize) != 0;
     }
 
-    // True for an app created in test mode.
-    isTestMode(): boolean {
-        return Donut_IsTestMode(this.handle) != 0;
+    // Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
+    // rows (of 4 x 4 blocks for block-compressed formats) one after the other, without padding.
+    // Submits its own command list and waits for it: call it while no other one is open (not in a
+    // render callback). Not for textures the texture cache loaded (Donut_LoadTexture: they stay
+    // shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
+    readTextureLevel(texture: TextureHandle, mipLevel: int, dst: Opaque, byteSize: int): int {
+        return Donut_ReadTextureLevel(this.handle, texture, mipLevel, dst, byteSize);
     }
 
-    // Destroys the app with all its passes and resources.
-    destroy(): void {
-        Donut_DestroyApp(this.handle);
+    // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
+    createConstantBuffer(byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateConstantBuffer(this.handle, byteSize, debugName);
+    }
+
+    // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
+    // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
+    createVolatileConstantBuffer(byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateVolatileConstantBuffer(this.handle, byteSize, debugName);
+    }
+
+    // StructuredBuffer of count elements of stride bytes, filled with Donut_WriteBuffer.
+    createStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
+        return Donut_CreateStructuredBuffer(this.handle, stride, count, debugName);
+    }
+
+    // Same, that shaders can also write (RWStructuredBuffer).
+    createRWStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
+        return Donut_CreateRWStructuredBuffer(this.handle, stride, count, debugName);
+    }
+
+    // RGBA8_UNORM texture that compute shaders write (RWTexture2D<float4>) and pixel shaders read;
+    // NVRHI tracks its state.
+    createUAVTexture(width: int, height: int, debugName: string): TextureHandle {
+        return Donut_CreateUAVTexture(this.handle, width, height, debugName);
+    }
+
+    // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
+    // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
+    createRenderTargetTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateRenderTargetTexture(this.handle, width, height, format, debugName);
+    }
+
+    // Texture of width x height with mipLevels levels (block-compressed formats too) for shaders to
+    // read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
+    createTextureWithLevels(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateTextureWithLevels(this.handle, width, height, mipLevels, format, debugName);
+    }
+
+    // Render target that shaders also read and write as a UAV (RWTexture2D<...>), resting at
+    // UnorderedAccess.
+    createRenderTargetUAVTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateRenderTargetUAVTexture(this.handle, width, height, format, debugName);
+    }
+
+    // Same, with mipLevels levels (draw into one with Donut_CreateFramebufferForMip, read another with
+    // Donut_BindTextureSRVMip), typeless: copies of other formats of its family land (RGBA8_UNORM data
+    // into SRGBA8_UNORM).
+    createMipmappedRenderTarget(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateMipmappedRenderTarget(this.handle, width, height, mipLevels, format, debugName);
+    }
+
+    // Same, typeless: framebuffers can see it in other formats of its family
+    // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
+    // without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
+    // shaders read it in `format`.
+    createTypelessRenderTargetTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateTypelessRenderTargetTexture(this.handle, width, height, format, debugName);
+    }
+
+    // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
+    // read by shaders as Texture2D<float>; resting at ShaderResource.
+    createDepthTexture(width: int, height: int, format: Format, clearDepth: number, debugName: string): TextureHandle {
+        return Donut_CreateDepthTexture(this.handle, width, height, format, clearDepth, debugName);
+    }
+
+    // Textures that compute shaders on the compute queue use too (they rest at NonPixelShaderResource):
+    // a render target that shaders read, and a texture that compute shaders write
+    // (RWTexture2D<float4>) and shaders read.
+    createComputeReadableRenderTarget(width: int, height: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateComputeReadableRenderTarget(this.handle, width, height, format, debugName);
+    }
+
+    createComputeTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateComputeTexture(this.handle, width, height, format, debugName);
+    }
+
+    // Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
+    // UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
+    createUAVTextureWithFormat(width: int, height: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateUAVTextureWithFormat(this.handle, width, height, format, debugName);
+    }
+
+    // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read: the bind
+    // functions bind all slices).
+    createUAVTextureArray(width: int, height: int, arraySize: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateUAVTextureArray(this.handle, width, height, arraySize, format, debugName);
+    }
+
+    // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
+    createFramebuffer(colorTexture: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
+        return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
+    }
+
+    // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
+    // Donut_CreateTypelessRenderTargetTexture).
+    createFramebufferWithColorFormat(colorTexture: TextureHandle, colorFormat: Format, depthTexture: TextureHandle | null): FramebufferHandle {
+        return Donut_CreateFramebufferWithColorFormat(this.handle, colorTexture, colorFormat, depthTexture);
+    }
+
+    // A depth target alone (e.g. a shadow map).
+    createDepthFramebuffer(depthTexture: TextureHandle): FramebufferHandle {
+        return Donut_CreateDepthFramebuffer(this.handle, depthTexture);
+    }
+
+    // Same, with two color targets (SV_Target0 and SV_Target1).
+    createFramebufferWithTwoTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
+        return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
+    }
+
+    // Same, with three color targets (SV_Target0 to SV_Target2).
+    createFramebufferWithThreeTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, colorTexture2: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
+        return Donut_CreateFramebufferWithThreeTargets(this.handle, colorTexture0, colorTexture1, colorTexture2, depthTexture);
+    }
+
+    // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
+    createFramebufferForMip(colorTexture: TextureHandle, mipLevel: int): FramebufferHandle {
+        return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
+    }
+
+    // A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
+    // views RGBA8 data as sRGB) written by the CPU, with no staging buffer or command list:
+    // Vulkan's VK_EXT_host_image_copy (vkTransitionImageLayoutEXT, vkCopyMemoryToImageEXT into an
+    // optimally tiled device-local image), D3D12's WriteToSubresource (a texture in a CPU-writable
+    // custom heap). It rests as a shader resource. Release it with Donut_ReleaseObject; a null
+    // handle (after logging why) on failure.
+    createHostCopiedTexture(path: string, sRGB: int, debugName: string): HostCopiedTexture {
+        return new HostCopiedTexture(Donut_CreateHostCopiedTexture(this.handle, path, sRGB, debugName));
+    }
+
+    // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
+    // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
+    // and destination and a render target.
+    createTiledTexture(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
+        return Donut_CreateTiledTexture(this.handle, width, height, mipLevels, format, debugName);
+    }
+
+    // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
+    // levels made of whole tiles, the number of levels packed into the mip tail.
+    getTextureTiling(texture: TextureHandle, dst: Ref<int>): void {
+        Donut_GetTextureTiling(this.handle, texture, dst);
+    }
+
+    // The number of tiles the packed levels (the mip tail) take together: 0 if there are none.
+    getTexturePackedMipTileCount(texture: TextureHandle): int {
+        return Donut_GetTexturePackedMipTileCount(this.handle, texture);
+    }
+
+    // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
+    // is mapped to it and the GPU is done with what used it.
+    // Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
+    // textures bound to memory), versus committed ones with their own allocations. The bytes a
+    // width x height, one-level texture of `format` takes in a heap, its alignment included: on D3D12
+    // at the 4 KB small resource alignment when the device grants it (a committed texture rounds up to
+    // 64 KB), Vulkan's memory requirements.
+    getPlacedTextureSize(width: int, height: int, format: Format): number {
+        return Donut_GetPlacedTextureSize(this.handle, width, height, format);
+    }
+
+    // A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
+    createTextureHeap(byteSize: number, debugName: string): TextureHeapHandle | null {
+        return Donut_CreateTextureHeap(this.handle, byteSize, debugName);
+    }
+
+    // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
+    // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
+    // Donut_WriteTextureLevel; release it before the heap. Null on failure.
+    createPlacedTexture(commandList: CommandList, textureHeap: TextureHeapHandle, byteOffset: number, width: int, height: int, format: Format, debugName: string): TextureHandle | null {
+        return Donut_CreatePlacedTexture(this.handle, commandList.handle, textureHeap, byteOffset, width, height, format, debugName);
+    }
+
+    createTileHeap(byteSize: number, debugName: string): HeapHandle {
+        return Donut_CreateTileHeap(this.handle, byteSize, debugName);
+    }
+
+    // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
+    // after: its sparse binding isn't ordered with other work).
+    applyTileMappings(texture: TextureHandle, tileMappings: TileMappings): void {
+        Donut_ApplyTileMappings(this.handle, texture, tileMappings.handle);
+    }
+
+    // The first level of a DDS file (path relative to the executable's directory) in a staging
+    // texture: memory on the CPU's side the GPU copies from. A null handle (after logging why) on
+    // failure.
+    loadStagingTexture(path: string): StagingTexture {
+        return new StagingTexture(Donut_LoadStagingTexture(this.handle, path));
+    }
+
+    // Vertex / index buffers uploaded once by an open command list (data copied during the call).
+    createStaticVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateStaticVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
+    }
+
+    // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
+    createDynamicVertexBuffer(byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateDynamicVertexBuffer(this.handle, byteSize, debugName);
+    }
+
+    // A static buffer of byteSize bytes of data for shaders to read: a StructuredBuffer of
+    // structStride-byte elements if structStride > 0, else a ByteAddressBuffer. Null on failure.
+    createStaticShaderBuffer(commandList: CommandList, data: Opaque, byteSize: int, structStride: int, debugName: string): BufferHandle {
+        return Donut_CreateStaticShaderBuffer(this.handle, commandList.handle, data, byteSize, structStride, debugName);
+    }
+
+    createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
+    }
+
+    // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
+    // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
+    // one copy of a mesh for rasterization and ray tracing.
+    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
+        return Donut_CreateStaticGeometryBuffer(this.handle, commandList.handle, data, byteSize, isIndexBuffer, debugName);
+    }
+
+    // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
+    createStaticRawVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateStaticRawVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
+    }
+
+    // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
+    // first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
+    // also write as a RWByteAddressBuffer.
+    createDrawIndexedIndirectBuffer(count: int, debugName: string): BufferHandle {
+        return Donut_CreateDrawIndexedIndirectBuffer(this.handle, count, debugName);
+    }
+
+    getCommonSampler(which: CommonSampler): SamplerHandle {
+        return Donut_GetCommonSampler(this.handle, which);
+    }
+
+    // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
+    // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
+    createComparisonSampler(): SamplerHandle {
+        return Donut_CreateComparisonSampler(this.handle);
+    }
+
+    // Same, comparing by func (patches/nvrhi-sampler-comparison-func.patch), bilinear between texels and
+    // point between levels: MiniEngine's shadow sampler (GreaterOrEqual for reversed depth).
+    createComparisonSamplerWithFunc(func: ComparisonFunc): SamplerHandle {
+        return Donut_CreateComparisonSamplerWithFunc(this.handle, func);
+    }
+
+    // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
+    // otherwise); wrap non-zero: repeating (clamped otherwise).
+    createSampler(linearFilter: int, linearMipFilter: int, wrap: int): SamplerHandle {
+        return Donut_CreateSampler(this.handle, linearFilter, linearMipFilter, wrap);
+    }
+
+    // A sampler by its whole description: linear (non-zero) or point filtering when minifying,
+    // magnifying and between levels; the address mode of all coordinates; a bias added to the level of
+    // detail, the range it's clamped to (maxLod 0: level 0 only), and anisotropic filtering up to
+    // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
+    createSamplerWithDesc(linearMin: int, linearMag: int, linearMip: int, addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): SamplerHandle {
+        return Donut_CreateSamplerWithDesc(this.handle, linearMin, linearMag, linearMip, addressMode, mipBias, minLod, maxLod, maxAnisotropy);
+    }
+
+    // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero) or
+    // point filtering when minifying, magnifying and between levels, every level.
+    createBorderSampler(linearMin: int, linearMag: int, linearMip: int, r: number, g: number, b: number, a: number): SamplerHandle {
+        return Donut_CreateBorderSampler(this.handle, linearMin, linearMag, linearMip, r, g, b, a);
+    }
+
+    // A buffer that shaders read and write as a (RW)ByteAddressBuffer (Donut_BindRawBufferSRV / UAV) and
+    // Donut_WriteBuffer / Donut_CopyBuffer fill; it rests at UnorderedAccess.
+    createRawBuffer(byteSize: int, debugName: string): BufferHandle {
+        return Donut_CreateRawBuffer(this.handle, byteSize, debugName);
+    }
+
+    // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
+    createUAVTextureForFrame(frame: Frame, debugName: string): TextureHandle {
+        return Donut_CreateUAVTextureForFrame(this.handle, frame.handle, debugName);
+    }
+
+    // Same, in another format.
+    createUAVTextureForFrameWithFormat(frame: Frame, debugName: string, format: Format): TextureHandle {
+        return Donut_CreateUAVTextureForFrameWithFormat(this.handle, frame.handle, debugName, format);
+    }
+
+    // Same, in the back buffer's format without sRGB, for Donut_CopyTextureToFrame (a bit-for-bit copy).
+    createUAVTextureForFrameCopy(frame: Frame, debugName: string): TextureHandle {
+        return Donut_CreateUAVTextureForFrameCopy(this.handle, frame.handle, debugName);
+    }
+
+    // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
+    releaseObject(object: ObjectHandle): void {
+        Donut_ReleaseObject(this.handle, object);
+    }
+
+    // Render target (color format) or depth buffer (depth format, cleared to clearDepth) of width x
+    // height with sampleCount samples (Texture2DMS when more than 1) that shaders can read and that can
+    // be resolved; resting at ShaderResource. Null on failure.
+    createMultisampledTexture(width: int, height: int, format: Format, sampleCount: int, clearDepth: number, debugName: string): TextureHandle {
+        return Donut_CreateMultisampledTexture(this.handle, width, height, format, sampleCount, clearDepth, debugName);
+    }
+
+    // Framebuffer drawing into colorTexture and depthTexture (null for none) whose render passes, as
+    // they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
+    // depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
+    // pass at every barrier, so a pass may resolve more than once (with the same result).
+    createResolveFramebuffer(colorTexture: TextureHandle | null, colorResolveTexture: TextureHandle | null, depthTexture: TextureHandle | null, depthResolveTexture: TextureHandle | null, depthResolveMode: ResolveMode): FramebufferHandle {
+        return Donut_CreateResolveFramebuffer(this.handle, colorTexture, colorResolveTexture, depthTexture, depthResolveTexture, depthResolveMode);
+    }
+
+    // A texture another D3D11 device writes and this one's shaders read (e.g. Media Foundation's video
+    // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
+    // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
+    // APIs, and (after logging why) on failure.
+    createSharedTexture(width: int, height: int, format: Format, debugName: string): SharedTexture {
+        return new SharedTexture(Donut_CreateSharedTexture(this.handle, width, height, format, debugName));
     }
 
     isFeatureSupported(feature: Feature): boolean {
@@ -263,51 +572,6 @@ export class App {
         return Donut_HasNative16BitConstants(this.handle) != 0;
     }
 
-    // True if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor;
-    // not D3D): Donut_CreatePushDescriptorPipeline.
-    hasPushDescriptors(): boolean {
-        return Donut_HasPushDescriptors(this.handle) != 0;
-    }
-
-    // The most descriptors one push can set (maxPushDescriptors); 0 without push descriptors.
-    getMaxPushDescriptors(): int {
-        return Donut_GetMaxPushDescriptors(this.handle);
-    }
-
-    // A graphics pipeline whose descriptors are pushed with each draw (VK_KHR_push_descriptor, raw
-    // Vulkan recorded into NVRHI's command buffer): a vertex and a pixel shader, the vertex input from
-    // inputLayout (attribute i at location i, one vertex buffer), triangle lists, for framebuffers like
-    // framebuffer; cull mode, winding, depth test, write and comparison; no blending. Add its bindings,
-    // then build it. Null without push descriptors; release it with Donut_ReleaseObject.
-    createPushDescriptorPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): PushDescriptorPipeline {
-        return new PushDescriptorPipeline(Donut_CreatePushDescriptorPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
-    }
-
-    // True if descriptor sets can live in buffers (Vulkan's VK_EXT_descriptor_buffer, for apps
-    // created with AppOptions.DescriptorBuffers; not D3D): Donut_CreateDescriptorBufferPipeline.
-    hasDescriptorBuffers(): boolean {
-        return Donut_HasDescriptorBuffers(this.handle) != 0;
-    }
-
-    // How many descriptor buffers with resource descriptors a pass can bind; 0 without them.
-    getMaxResourceDescriptorBufferBindings(): int {
-        return Donut_GetMaxResourceDescriptorBufferBindings(this.handle);
-    }
-
-    // A buffer of byteSize bytes of descriptors, resource ones and (samplers != 0) sampler ones
-    // (combined image samplers included), written by the CPU. Null without descriptor buffers;
-    // release it with Donut_ReleaseObject.
-    createDescriptorBuffer(byteSize: int, samplers: int): DescriptorBuffer {
-        return new DescriptorBuffer(Donut_CreateDescriptorBuffer(this.handle, byteSize, samplers));
-    }
-
-    // A graphics pipeline whose descriptor sets live in descriptor buffers (raw Vulkan recorded into
-    // NVRHI's command buffer), its states as Donut_CreatePushDescriptorPipeline's. Add its sets, then
-    // build it. Null without descriptor buffers; release it with Donut_ReleaseObject.
-    createDescriptorBufferPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): DescriptorBufferPipeline {
-        return new DescriptorBufferPipeline(Donut_CreateDescriptorBufferPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
-    }
-
     // True if shaders can reach buffers through device addresses (Vulkan's bufferDeviceAddress;
     // not D3D, whose shaders have no pointers).
     hasBufferDeviceAddress(): boolean {
@@ -336,6 +600,76 @@ export class App {
     // The app's nvrhi::IDevice, for code that works with NVRHI directly (e.g. core/paged_images.cpp).
     getNvrhiDevice(): Opaque {
         return Donut_GetNvrhiDevice(this.handle);
+    }
+
+    // True if textures can be written by the CPU without a copy on the GPU: Vulkan with
+    // VK_EXT_host_image_copy, D3D12.
+    hasHostImageCopy(): boolean {
+        return Donut_HasHostImageCopy(this.handle) != 0;
+    }
+
+    // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
+    // samplerAnisotropy feature (1 without), 16 on D3D.
+    getMaxSamplerAnisotropy(): number {
+        return Donut_GetMaxSamplerAnisotropy(this.handle);
+    }
+
+    queryFormatSupport(format: int): int {
+        return Donut_QueryFormatSupport(this.handle, format);
+    }
+
+    // Multisampling.
+    // The sample counts that a color target in colorFormat and a depth buffer in depthFormat can both
+    // have, as bits (bit n for n samples: 0x1 | 0x2 | 0x4 ...): on Vulkan the device's
+    // framebufferColorSampleCounts & framebufferDepthSampleCounts, on D3D the formats' quality levels.
+    getSupportedSampleCounts(colorFormat: Format, depthFormat: Format): int {
+        return Donut_GetSupportedSampleCounts(this.handle, colorFormat, depthFormat);
+    }
+
+    // True if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
+    // Donut_CreateResolveFramebuffer). NVRHI runs D3D without render passes: use Donut_ResolveTexture.
+    hasRenderPassResolve(): boolean {
+        return Donut_HasRenderPassResolve(this.handle) != 0;
+    }
+
+    // The ResolveModes render passes can resolve depth by, as bits 1 << mode (Vulkan's
+    // supportedDepthResolveModes); 0 without render pass resolves.
+    getDepthResolveModes(): int {
+        return Donut_GetDepthResolveModes(this.handle);
+    }
+
+    // Blocks until the window is closed; in test mode renders the test's frames and returns.
+    run(): void {
+        Donut_RunApp(this.handle);
+    }
+
+    // Saves the current back buffer (in test mode after Donut_RunApp, the last frame's) as an image file,
+    // its format from the extension (.png, .bmp, .tga, .jpg). Not in a render callback.
+    saveBackBufferToFile(path: string): boolean {
+        return Donut_SaveBackBufferToFile(this.handle, path) != 0;
+    }
+
+    // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
+    // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
+    // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
+    readBackBufferRGBA8(dst: Ref<int>, pixelCount: int): int {
+        return Donut_ReadBackBufferRGBA8(this.handle, dst, pixelCount);
+    }
+
+    // Ends a test after Donut_RunApp: saves the last frame to -testOutput's file if given, prints "Test
+    // PASSED" if failure is "", else "Test FAILED: <failure>"; returns the exit code (0, 1).
+    finishTest(failure: string): int {
+        return Donut_FinishTest(this.handle, failure);
+    }
+
+    // True for an app created in test mode.
+    isTestMode(): boolean {
+        return Donut_IsTestMode(this.handle) != 0;
+    }
+
+    // Destroys the app with all its passes and resources.
+    destroy(): void {
+        Donut_DestroyApp(this.handle);
     }
 
     setWindowTitle(title: string): void {
@@ -382,6 +716,76 @@ export class App {
     // Non-zero while the window has the keyboard focus.
     isWindowFocused(): boolean {
         return Donut_IsWindowFocused(this.handle) != 0;
+    }
+
+    // Passes are owned by the app; later passes draw on top and get input first.
+    addPass(): Pass {
+        return new Pass(Donut_AddPass(this.handle));
+    }
+
+    // Seconds per frame, averaged; 0 until measured.
+    getAverageFrameTime(): number {
+        return Donut_GetAverageFrameTime(this.handle);
+    }
+
+    getWindowWidth(): int {
+        return Donut_GetWindowWidth(this.handle);
+    }
+
+    getWindowHeight(): int {
+        return Donut_GetWindowHeight(this.handle);
+    }
+
+    // Destroys resources the GPU has finished with; after Donut_WaitForIdle.
+    runGarbageCollection(): void {
+        Donut_RunGarbageCollection(this.handle);
+    }
+
+    // The swap chain's back buffers (valid until they're resized: recreate what refers to them in the
+    // back buffer resizing callback), the one the current frame renders into, and their format
+    // (SRGBA8_UNORM with D3D, SBGRA8_UNORM with Vulkan).
+    getBackBufferCount(): int {
+        return Donut_GetBackBufferCount(this.handle);
+    }
+
+    getBackBuffer(index: int): TextureHandle {
+        return Donut_GetBackBuffer(this.handle, index);
+    }
+
+    getCurrentBackBufferIndex(): int {
+        return Donut_GetCurrentBackBufferIndex(this.handle);
+    }
+
+    getBackBufferFormat(): Format {
+        return Donut_GetBackBufferFormat(this.handle);
+    }
+
+    getSwapChainColorSpace(): SwapChainColorSpace {
+        return Donut_GetSwapChainColorSpace(this.handle);
+    }
+
+    // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
+    // make another API's device on the same GPU. 0 if the API doesn't give it.
+    getAdapterLuid(dst: Ref<int>): int {
+        return Donut_GetAdapterLuid(this.handle, dst);
+    }
+
+    // Asks for another color space of the back buffers, from the next frame on (as a resize: back
+    // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
+    setSwapChainColorSpace(colorSpace: SwapChainColorSpace): boolean {
+        return Donut_SetSwapChainColorSpace(this.handle, colorSpace) != 0;
+    }
+
+    // Changes the back buffers' format (RGBA8_UNORM, SRGBA8_UNORM, R10G10B10A2_UNORM or RGBA16_FLOAT; 8-bit
+    // ones BGRA on Vulkan) at once, as a resize; not within a frame. 0 where the swap chain can't have it.
+    setSwapChainFormat(format: Format): boolean {
+        return Donut_SetSwapChainFormat(this.handle, format) != 0;
+    }
+
+    // True if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
+    // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
+    isDisplayHdr(): boolean {
+        return Donut_IsDisplayHdr(this.handle) != 0;
     }
 
     // Resources are owned by the app until released or the app is destroyed; null on failure.
@@ -444,157 +848,6 @@ export class App {
         return Donut_CreateMeshletPipeline(this.handle, frame.handle, amplificationShader, meshShader, pixelShader);
     }
 
-    // A pipeline keeps its own reference to its shaders, so they can be released once it exists.
-    releaseResource(resource: ResourceHandle): void {
-        Donut_ReleaseResource(this.handle, resource);
-    }
-
-    // Typed buffer of elementCount R32_UINT values. writable != 0: a UAV the GPU writes to;
-    // otherwise shader-readable only, filled with Donut_WriteBuffer.
-    createUIntBuffer(elementCount: int, writable: int, debugName: string): BufferHandle {
-        return Donut_CreateUIntBuffer(this.handle, elementCount, writable, debugName);
-    }
-
-    // CPU-readable buffer to copy GPU results into.
-    createReadbackBuffer(byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateReadbackBuffer(this.handle, byteSize, debugName);
-    }
-
-    // Copies byteSize bytes of a readback buffer to dst once the GPU is done with it (see
-    // Donut_WaitForIdle). Pass `Ref(array[0])` of a `let` int[] / f32[] array. Returns 0 on failure.
-    readBuffer(readbackBuffer: BufferHandle, dst: Opaque, byteSize: int): boolean {
-        return Donut_ReadBuffer(this.handle, readbackBuffer, dst, byteSize) != 0;
-    }
-
-    // Copies a level of a texture to dst (Ref of a `let` array element; byteSize bytes at most): its
-    // rows (of 4 x 4 blocks for block-compressed formats) one after the other, without padding.
-    // Submits its own command list and waits for it: call it while no other one is open (not in a
-    // render callback). Not for textures the texture cache loaded (Donut_LoadTexture: they stay
-    // shader resources, and can't be copied from). Returns the bytes copied, 0 on failure.
-    readTextureLevel(texture: TextureHandle, mipLevel: int, dst: Opaque, byteSize: int): int {
-        return Donut_ReadTextureLevel(this.handle, texture, mipLevel, dst, byteSize);
-    }
-
-    // For cbuffers; bind 256-byte-aligned slices of it with Donut_BindConstantBuffer.
-    createConstantBuffer(byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateConstantBuffer(this.handle, byteSize, debugName);
-    }
-
-    // For cbuffers rewritten with Donut_WriteBuffer before each use (up to 16 times per frame); bind
-    // it with Donut_BindEntireConstantBuffer and Donut_LayoutVolatileConstantBuffer.
-    createVolatileConstantBuffer(byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateVolatileConstantBuffer(this.handle, byteSize, debugName);
-    }
-
-    // StructuredBuffer of count elements of stride bytes, filled with Donut_WriteBuffer.
-    createStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
-        return Donut_CreateStructuredBuffer(this.handle, stride, count, debugName);
-    }
-
-    // Same, that shaders can also write (RWStructuredBuffer).
-    createRWStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
-        return Donut_CreateRWStructuredBuffer(this.handle, stride, count, debugName);
-    }
-
-    // RGBA8_UNORM texture that compute shaders write (RWTexture2D<float4>) and pixel shaders read;
-    // NVRHI tracks its state.
-    createUAVTexture(width: int, height: int, debugName: string): TextureHandle {
-        return Donut_CreateUAVTexture(this.handle, width, height, debugName);
-    }
-
-    // Render target that shaders can also read (resting at ShaderResource). A depth format (D32)
-    // makes a depth buffer, cleared to 1 by default, read by shaders as Texture2D<float>.
-    createRenderTargetTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateRenderTargetTexture(this.handle, width, height, format, debugName);
-    }
-
-    // Texture of width x height with mipLevels levels (block-compressed formats too) for shaders to
-    // read, its levels written with Donut_WriteTextureLevel; resting at ShaderResource.
-    createTextureWithLevels(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateTextureWithLevels(this.handle, width, height, mipLevels, format, debugName);
-    }
-
-    // Render target that shaders also read and write as a UAV (RWTexture2D<...>), resting at
-    // UnorderedAccess.
-    createRenderTargetUAVTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateRenderTargetUAVTexture(this.handle, width, height, format, debugName);
-    }
-
-    // Same, with mipLevels levels (draw into one with Donut_CreateFramebufferForMip, read another with
-    // Donut_BindTextureSRVMip), typeless: copies of other formats of its family land (RGBA8_UNORM data
-    // into SRGBA8_UNORM).
-    createMipmappedRenderTarget(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateMipmappedRenderTarget(this.handle, width, height, mipLevels, format, debugName);
-    }
-
-    // Same, typeless: framebuffers can see it in other formats of its family
-    // (Donut_CreateFramebufferWithColorFormat), e.g. an SRGBA8_UNORM texture as RGBA8_UNORM (stored
-    // without sRGB encoding) or RGBA8_UINT (logic operations, which D3D12 has on UINT targets only);
-    // shaders read it in `format`.
-    createTypelessRenderTargetTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateTypelessRenderTargetTexture(this.handle, width, height, format, debugName);
-    }
-
-    // Depth buffer (a depth format) whose clears to clearDepth are fast (e.g. 0 for reversed depth),
-    // read by shaders as Texture2D<float>; resting at ShaderResource.
-    createDepthTexture(width: int, height: int, format: Format, clearDepth: number, debugName: string): TextureHandle {
-        return Donut_CreateDepthTexture(this.handle, width, height, format, clearDepth, debugName);
-    }
-
-    // Textures that compute shaders on the compute queue use too (they rest at NonPixelShaderResource):
-    // a render target that shaders read, and a texture that compute shaders write
-    // (RWTexture2D<float4>) and shaders read.
-    createComputeReadableRenderTarget(width: int, height: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateComputeReadableRenderTarget(this.handle, width, height, format, debugName);
-    }
-
-    createComputeTexture(width: int, height: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateComputeTexture(this.handle, width, height, format, debugName);
-    }
-
-    // Texture in `format` that shaders write and read as a UAV (RWTexture2D<...>), resting at
-    // UnorderedAccess; clear it with Donut_ClearTextureUInt / Donut_ClearTextureFloat.
-    createUAVTextureWithFormat(width: int, height: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateUAVTextureWithFormat(this.handle, width, height, format, debugName);
-    }
-
-    // Same, an array of arraySize slices (RWTexture2DArray<...>; Texture2DArray when read: the bind
-    // functions bind all slices).
-    createUAVTextureArray(width: int, height: int, arraySize: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateUAVTextureArray(this.handle, width, height, arraySize, format, debugName);
-    }
-
-    // One color target and an optional depth target; draw into it with Donut_BeginDrawToFramebuffer.
-    createFramebuffer(colorTexture: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
-        return Donut_CreateFramebuffer(this.handle, colorTexture, depthTexture);
-    }
-
-    // Same, the color target seen in colorFormat (a format of its family, for a typeless texture:
-    // Donut_CreateTypelessRenderTargetTexture).
-    createFramebufferWithColorFormat(colorTexture: TextureHandle, colorFormat: Format, depthTexture: TextureHandle | null): FramebufferHandle {
-        return Donut_CreateFramebufferWithColorFormat(this.handle, colorTexture, colorFormat, depthTexture);
-    }
-
-    // A depth target alone (e.g. a shadow map).
-    createDepthFramebuffer(depthTexture: TextureHandle): FramebufferHandle {
-        return Donut_CreateDepthFramebuffer(this.handle, depthTexture);
-    }
-
-    // Same, with two color targets (SV_Target0 and SV_Target1).
-    createFramebufferWithTwoTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
-        return Donut_CreateFramebufferWithTwoTargets(this.handle, colorTexture0, colorTexture1, depthTexture);
-    }
-
-    // Same, with three color targets (SV_Target0 to SV_Target2).
-    createFramebufferWithThreeTargets(colorTexture0: TextureHandle, colorTexture1: TextureHandle, colorTexture2: TextureHandle, depthTexture: TextureHandle | null): FramebufferHandle {
-        return Donut_CreateFramebufferWithThreeTargets(this.handle, colorTexture0, colorTexture1, colorTexture2, depthTexture);
-    }
-
-    // One level of a color target, to draw into while sampling another (Donut_BindTextureSRVMip).
-    createFramebufferForMip(colorTexture: TextureHandle, mipLevel: int): FramebufferHandle {
-        return Donut_CreateFramebufferForMip(this.handle, colorTexture, mipLevel);
-    }
-
     // True if shaders' printf output reaches Donut_UpdateShaderPrintfOutput: Vulkan apps created
     // with AppOptions.ShaderPrintf where the validation layer is installed (not D3D).
     hasShaderPrintf(): boolean {
@@ -611,80 +864,6 @@ export class App {
     // the shader's formatted output); valid until the next Donut_UpdateShaderPrintfOutput.
     getShaderPrintfLine(index: int): string {
         return Donut_GetShaderPrintfLine(this.handle, index);
-    }
-
-    // True if textures can be written by the CPU without a copy on the GPU: Vulkan with
-    // VK_EXT_host_image_copy, D3D12.
-    hasHostImageCopy(): boolean {
-        return Donut_HasHostImageCopy(this.handle) != 0;
-    }
-
-    // A DDS file's texture (path relative to the executable's directory, all its levels; sRGB != 0
-    // views RGBA8 data as sRGB) written by the CPU, with no staging buffer or command list:
-    // Vulkan's VK_EXT_host_image_copy (vkTransitionImageLayoutEXT, vkCopyMemoryToImageEXT into an
-    // optimally tiled device-local image), D3D12's WriteToSubresource (a texture in a CPU-writable
-    // custom heap). It rests as a shader resource. Release it with Donut_ReleaseObject; a null
-    // handle (after logging why) on failure.
-    createHostCopiedTexture(path: string, sRGB: int, debugName: string): HostCopiedTexture {
-        return new HostCopiedTexture(Donut_CreateHostCopiedTexture(this.handle, path, sRGB, debugName));
-    }
-
-    // Tiled textures (requires Donut_HasSparseResidency): a 2D texture whose memory is mapped tile by
-    // tile from heaps; unmapped tiles read as zeros. It rests as a shader resource, and is a copy source
-    // and destination and a render target.
-    createTiledTexture(width: int, height: int, mipLevels: int, format: Format, debugName: string): TextureHandle {
-        return Donut_CreateTiledTexture(this.handle, width, height, mipLevels, format, debugName);
-    }
-
-    // Into dst (Ref of a `let` int array of 4): the tile's width and height in texels, the number of
-    // levels made of whole tiles, the number of levels packed into the mip tail.
-    getTextureTiling(texture: TextureHandle, dst: Ref<int>): void {
-        Donut_GetTextureTiling(this.handle, texture, dst);
-    }
-
-    // The number of tiles the packed levels (the mip tail) take together: 0 if there are none.
-    getTexturePackedMipTileCount(texture: TextureHandle): int {
-        return Donut_GetTexturePackedMipTileCount(this.handle, texture);
-    }
-
-    // Memory to map tiles into: byteSize bytes, a multiple of the 64 KiB tile. Release it once no tile
-    // is mapped to it and the GPU is done with what used it.
-    // Placed textures: textures sharing one heap's memory (D3D12's placed resources, Vulkan's
-    // textures bound to memory), versus committed ones with their own allocations. The bytes a
-    // width x height, one-level texture of `format` takes in a heap, its alignment included: on D3D12
-    // at the 4 KB small resource alignment when the device grants it (a committed texture rounds up to
-    // 64 KB), Vulkan's memory requirements.
-    getPlacedTextureSize(width: int, height: int, format: Format): number {
-        return Donut_GetPlacedTextureSize(this.handle, width, height, format);
-    }
-
-    // A heap of byteSize bytes of device memory for placed textures (D3D12, Vulkan); null on failure.
-    createTextureHeap(byteSize: number, debugName: string): TextureHeapHandle | null {
-        return Donut_CreateTextureHeap(this.handle, byteSize, debugName);
-    }
-
-    // A texture that shaders read placed in a texture heap at byteOffset (a multiple of
-    // Donut_GetPlacedTextureSize's size), its first use recorded into an open command list. Fill it with
-    // Donut_WriteTextureLevel; release it before the heap. Null on failure.
-    createPlacedTexture(commandList: CommandList, textureHeap: TextureHeapHandle, byteOffset: number, width: int, height: int, format: Format, debugName: string): TextureHandle | null {
-        return Donut_CreatePlacedTexture(this.handle, commandList.handle, textureHeap, byteOffset, width, height, format, debugName);
-    }
-
-    createTileHeap(byteSize: number, debugName: string): HeapHandle {
-        return Donut_CreateTileHeap(this.handle, byteSize, debugName);
-    }
-
-    // On the graphics queue, after the work submitted before (on Vulkan the device is idle before and
-    // after: its sparse binding isn't ordered with other work).
-    applyTileMappings(texture: TextureHandle, tileMappings: TileMappings): void {
-        Donut_ApplyTileMappings(this.handle, texture, tileMappings.handle);
-    }
-
-    // The first level of a DDS file (path relative to the executable's directory) in a staging
-    // texture: memory on the CPU's side the GPU copies from. A null handle (after logging why) on
-    // failure.
-    loadStagingTexture(path: string): StagingTexture {
-        return new StagingTexture(Donut_LoadStagingTexture(this.handle, path));
     }
 
     // Triangle list for a framebuffer's layout, NVRHI's default render state: depth test (less) and
@@ -713,138 +892,256 @@ export class App {
         return Donut_CreateMeshletPipelineFromDescForFrame(this.handle, graphicsPipelineDesc.handle, frame.handle);
     }
 
-    // Vertex / index buffers uploaded once by an open command list (data copied during the call).
-    createStaticVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateStaticVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
-    }
-
-    // A vertex buffer to write (Donut_WriteBuffer) as often as needed, e.g. per frame.
-    createDynamicVertexBuffer(byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateDynamicVertexBuffer(this.handle, byteSize, debugName);
-    }
-
-    // A static buffer of byteSize bytes of data for shaders to read: a StructuredBuffer of
-    // structStride-byte elements if structStride > 0, else a ByteAddressBuffer. Null on failure.
-    createStaticShaderBuffer(commandList: CommandList, data: Opaque, byteSize: int, structStride: int, debugName: string): BufferHandle {
-        return Donut_CreateStaticShaderBuffer(this.handle, commandList.handle, data, byteSize, structStride, debugName);
-    }
-
-    createStaticIndexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateStaticIndexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
-    }
-
-    // A static vertex buffer (or index buffer if isIndexBuffer != 0) that shaders also read as a
-    // ByteAddressBuffer and acceleration structure builds take as input (Donut_AddTriangleBlasGeometry):
-    // one copy of a mesh for rasterization and ray tracing.
-    createStaticGeometryBuffer(commandList: CommandList, data: Opaque, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
-        return Donut_CreateStaticGeometryBuffer(this.handle, commandList.handle, data, byteSize, isIndexBuffer, debugName);
-    }
-
-    // A static vertex buffer that shaders can also read as a ByteAddressBuffer.
-    createStaticRawVertexBuffer(commandList: CommandList, data: Opaque, byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateStaticRawVertexBuffer(this.handle, commandList.handle, data, byteSize, debugName);
-    }
-
-    // The arguments of `count` indexed indirect draws (20 bytes each: index count, instance count,
-    // first index, vertex offset, first instance), filled with Donut_WriteBuffer, that shaders can
-    // also write as a RWByteAddressBuffer.
-    createDrawIndexedIndirectBuffer(count: int, debugName: string): BufferHandle {
-        return Donut_CreateDrawIndexedIndirectBuffer(this.handle, count, debugName);
-    }
-
-    // The first primitive of a glTF file's first mesh (path relative to the executable's
-    // directory), as the Vulkan-Samples framework loads it: float3 position, float3 normal and
-    // float2 texture coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms
-    // ignored. Uploaded by an open command list. A null handle (after logging why) on failure.
-    loadGltfMesh(commandList: CommandList, path: string): GltfMesh {
-        return new GltfMesh(Donut_LoadGltfMesh(this.handle, commandList.handle, path));
-    }
-
-    // Every primitive of a glTF file's meshes (path relative to the executable's directory), in
-    // mesh and primitive order, as the Vulkan-Samples framework's scene loader reads them into
-    // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored),
-    // int indices, and the base color image's URI ("" if none). Kept on the CPU. A null handle
-    // (after logging why) on failure.
-    loadGltfModel(path: string): GltfModel {
-        return new GltfModel(Donut_LoadGltfModel(this.handle, path));
-    }
-
-    // A file read whole (path relative to the executable's directory), for TypeScript to parse: its
-    // size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
-    loadBinaryFile(path: string): BinaryFile {
-        return new BinaryFile(Donut_LoadBinaryFile(this.handle, path));
-    }
-
-    // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file from
-    // fileOffset, uploaded by an open command list. Null (after logging why) on failure.
-    createStaticBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
-        return Donut_CreateStaticBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
-    }
-
-    // Same, as Donut_CreateStaticGeometryBuffer's: also a ByteAddressBuffer for shaders and an acceleration
-    // structure build input (its size rounded up to whole uints, the rest zeros).
-    createStaticGeometryBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
-        return Donut_CreateStaticGeometryBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
-    }
-
-    // An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
-    // texture as DirectXTK's CreateWICTextureFromFile loads it: one level, sRGB when the file says so
-    // (a PNG's sRGB chunk, a JPEG's EXIF color space). Its upload recorded into an open command list.
-    // Windows only; null (after logging why) on failure.
-    loadWicTexture(commandList: CommandList, path: string, debugName: string): TextureHandle | null {
-        return Donut_LoadWicTexture(this.handle, commandList.handle, path, debugName);
-    }
-
-    // Image file, path relative to the executable's directory, uploaded by an open command list.
-    // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
-    loadTexture(commandList: CommandList, path: string, sRGB: int): TextureHandle {
-        return Donut_LoadTexture(this.handle, commandList.handle, path, sRGB);
-    }
-
-    getCommonSampler(which: CommonSampler): SamplerHandle {
-        return Donut_GetCommonSampler(this.handle, which);
-    }
-
-    // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
-    // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
-    createComparisonSampler(): SamplerHandle {
-        return Donut_CreateComparisonSampler(this.handle);
-    }
-
-    // Same, comparing by func (patches/nvrhi-sampler-comparison-func.patch), bilinear between texels and
-    // point between levels: MiniEngine's shadow sampler (GreaterOrEqual for reversed depth).
-    createComparisonSamplerWithFunc(func: ComparisonFunc): SamplerHandle {
-        return Donut_CreateComparisonSamplerWithFunc(this.handle, func);
-    }
-
-    // linearFilter / linearMipFilter non-zero: linear filtering within / between levels (point
-    // otherwise); wrap non-zero: repeating (clamped otherwise).
-    createSampler(linearFilter: int, linearMipFilter: int, wrap: int): SamplerHandle {
-        return Donut_CreateSampler(this.handle, linearFilter, linearMipFilter, wrap);
-    }
-
-    // A sampler by its whole description: linear (non-zero) or point filtering when minifying,
-    // magnifying and between levels; the address mode of all coordinates; a bias added to the level of
-    // detail, the range it's clamped to (maxLod 0: level 0 only), and anisotropic filtering up to
-    // maxAnisotropy samples (1: off; Donut_GetMaxSamplerAnisotropy).
-    createSamplerWithDesc(linearMin: int, linearMag: int, linearMip: int, addressMode: SamplerAddressMode, mipBias: number, minLod: number, maxLod: number, maxAnisotropy: number): SamplerHandle {
-        return Donut_CreateSamplerWithDesc(this.handle, linearMin, linearMag, linearMip, addressMode, mipBias, minLod, maxLod, maxAnisotropy);
-    }
-
-    // A sampler whose coordinates outside [0, 1] read a border color (r, g, b, a): linear (non-zero) or
-    // point filtering when minifying, magnifying and between levels, every level.
-    createBorderSampler(linearMin: int, linearMag: int, linearMip: int, r: number, g: number, b: number, a: number): SamplerHandle {
-        return Donut_CreateBorderSampler(this.handle, linearMin, linearMag, linearMip, r, g, b, a);
-    }
-
-    // The most samples anisotropic filtering can take: Vulkan's maxSamplerAnisotropy with the
-    // samplerAnisotropy feature (1 without), 16 on D3D.
-    getMaxSamplerAnisotropy(): number {
-        return Donut_GetMaxSamplerAnisotropy(this.handle);
-    }
-
     createInputLayout(inputLayoutDesc: InputLayoutDesc, vertexShader: ShaderHandle): InputLayoutHandle {
         return Donut_CreateInputLayout(this.handle, inputLayoutDesc.handle, vertexShader);
+    }
+
+    // Uses the layout of bindingSet.
+    createComputePipeline(computeShader: ShaderHandle, bindingSet: BindingSet): ComputePipelineHandle {
+        return Donut_CreateComputePipeline(this.handle, computeShader, bindingSet.handle);
+    }
+
+    // Same, from a binding layout.
+    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle): ComputePipelineHandle {
+        return Donut_CreateComputePipelineWithLayout(this.handle, computeShader, bindingLayout);
+    }
+
+    // Same, with a second binding layout (e.g. bindless; null for none).
+    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null): ComputePipelineHandle {
+        return Donut_CreateComputePipelineWithLayouts(this.handle, computeShader, bindingLayout, secondBindingLayout);
+    }
+
+    // Variable rate shading. Pixels per shading rate surface texel, as NVRHI reports it, or (the
+    // second one) straight from D3D12, 0 on other APIs.
+    getShadingRateTileSize(): int {
+        return Donut_GetShadingRateTileSize(this.handle);
+    }
+
+    // R8_UINT surface of width x height tiles, written by compute shaders as RWTexture2D<uint>.
+    createShadingRateSurface(width: int, height: int): TextureHandle {
+        return Donut_CreateShadingRateSurface(this.handle, width, height);
+    }
+
+    // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
+    // `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
+    // 0 without variable rate shading.
+    getFragmentShadingRates(dst: Ref<int>): int {
+        return Donut_GetFragmentShadingRates(this.handle, dst);
+    }
+
+    // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
+    // none) whose draws can take their shading rates from shadingRateSurface (null for none).
+    createFramebufferWithShadingRate(colorTexture0: TextureHandle, colorTexture1: TextureHandle | null, depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): FramebufferHandle {
+        return Donut_CreateFramebufferWithShadingRate(this.handle, colorTexture0, colorTexture1, depthTexture, shadingRateSurface);
+    }
+
+    // Drops the cached compiled shaders: passes created after this load them from disk again.
+    clearShaderCache(): void {
+        Donut_ClearShaderCache(this.handle);
+    }
+
+    // Binding set plus matching layout (register space 0) visible to shaderType's stages.
+    createBindingSet(bindingSetDesc: BindingSetDesc, shaderType: ShaderType): BindingSet {
+        return new BindingSet(Donut_CreateBindingSet(this.handle, bindingSetDesc.handle, shaderType));
+    }
+
+    // Binding set for an existing layout.
+    createBindingSetForLayout(bindingSetDesc: BindingSetDesc, bindingLayout: BindingLayoutHandle): BindingSet {
+        return new BindingSet(Donut_CreateBindingSetForLayout(this.handle, bindingSetDesc.handle, bindingLayout));
+    }
+
+    createBindlessLayout(bindlessLayoutDesc: BindlessLayoutDesc): BindingLayoutHandle {
+        return Donut_CreateBindlessLayout(this.handle, bindlessLayoutDesc.handle);
+    }
+
+    // Donut's DescriptorTableManager over a bindless layout; scenes loaded with
+    // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.
+    createDescriptorTableManager(bindlessLayout: BindingLayoutHandle): DescriptorTableManager {
+        return new DescriptorTableManager(Donut_CreateDescriptorTableManager(this.handle, bindlessLayout));
+    }
+
+    // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
+    // each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
+    createDescriptorTable(bindlessLayout: BindingLayoutHandle, capacity: int): DescriptorTableHandle {
+        return Donut_CreateDescriptorTable(this.handle, bindlessLayout, capacity);
+    }
+
+    // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
+    // (also into a table bound by command lists still recording or running: the bindless layouts are
+    // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
+    writeDescriptorTableTexture(descriptorTable: DescriptorTableHandle, slot: int, texture: TextureHandle): int {
+        return Donut_WriteDescriptorTableTexture(this.handle, descriptorTable, slot, texture);
+    }
+
+    // Register space 0, visible to shaderType's stages.
+    createBindingLayout(bindingLayoutDesc: BindingLayoutDesc, shaderType: ShaderType): BindingLayoutHandle {
+        return Donut_CreateBindingLayout(this.handle, bindingLayoutDesc.handle, shaderType);
+    }
+
+    // A binding set from the app's binding cache (the description is freed): created once, reused for
+    // identical descriptions. Valid until Donut_ClearBindingCache.
+    getCachedBindingSet(bindingSetDesc: BindingSetDesc, bindingLayout: BindingLayoutHandle): BindingSet {
+        return new BindingSet(Donut_GetCachedBindingSet(this.handle, bindingSetDesc.handle, bindingLayout));
+    }
+
+    clearBindingCache(): void {
+        Donut_ClearBindingCache(this.handle);
+    }
+
+    // True if descriptors can be pushed into command buffers (Vulkan's VK_KHR_push_descriptor;
+    // not D3D): Donut_CreatePushDescriptorPipeline.
+    hasPushDescriptors(): boolean {
+        return Donut_HasPushDescriptors(this.handle) != 0;
+    }
+
+    // The most descriptors one push can set (maxPushDescriptors); 0 without push descriptors.
+    getMaxPushDescriptors(): int {
+        return Donut_GetMaxPushDescriptors(this.handle);
+    }
+
+    // A graphics pipeline whose descriptors are pushed with each draw (VK_KHR_push_descriptor, raw
+    // Vulkan recorded into NVRHI's command buffer): a vertex and a pixel shader, the vertex input from
+    // inputLayout (attribute i at location i, one vertex buffer), triangle lists, for framebuffers like
+    // framebuffer; cull mode, winding, depth test, write and comparison; no blending. Add its bindings,
+    // then build it. Null without push descriptors; release it with Donut_ReleaseObject.
+    createPushDescriptorPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): PushDescriptorPipeline {
+        return new PushDescriptorPipeline(Donut_CreatePushDescriptorPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
+    }
+
+    // True if descriptor sets can live in buffers (Vulkan's VK_EXT_descriptor_buffer, for apps
+    // created with AppOptions.DescriptorBuffers; not D3D): Donut_CreateDescriptorBufferPipeline.
+    hasDescriptorBuffers(): boolean {
+        return Donut_HasDescriptorBuffers(this.handle) != 0;
+    }
+
+    // How many descriptor buffers with resource descriptors a pass can bind; 0 without them.
+    getMaxResourceDescriptorBufferBindings(): int {
+        return Donut_GetMaxResourceDescriptorBufferBindings(this.handle);
+    }
+
+    // A buffer of byteSize bytes of descriptors, resource ones and (samplers != 0) sampler ones
+    // (combined image samplers included), written by the CPU. Null without descriptor buffers;
+    // release it with Donut_ReleaseObject.
+    createDescriptorBuffer(byteSize: int, samplers: int): DescriptorBuffer {
+        return new DescriptorBuffer(Donut_CreateDescriptorBuffer(this.handle, byteSize, samplers));
+    }
+
+    // A graphics pipeline whose descriptor sets live in descriptor buffers (raw Vulkan recorded into
+    // NVRHI's command buffer), its states as Donut_CreatePushDescriptorPipeline's. Add its sets, then
+    // build it. Null without descriptor buffers; release it with Donut_ReleaseObject.
+    createDescriptorBufferPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): DescriptorBufferPipeline {
+        return new DescriptorBufferPipeline(Donut_CreateDescriptorBufferPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
+    }
+
+    // Async compute: every intervalMicroseconds, a C++ worker thread dispatches groupsX x groupsY
+    // groups of a compute pipeline on the compute queue (needs AppOptions.ComputeQueue) into one of
+    // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
+    // hold exactly those), and hands it to the render thread. A null handle if there's no compute
+    // queue.
+    createAsyncComputeLoop(computePipeline: ComputePipelineHandle, bindingLayout: BindingLayoutHandle, groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoop {
+        return new AsyncComputeLoop(Donut_CreateAsyncComputeLoop(this.handle, computePipeline, bindingLayout, groupsX, groupsY, intervalMicroseconds));
+    }
+
+    // Command lists, for work outside render passes (e.g. in a headless app).
+    createCommandList(): CommandList {
+        return new CommandList(Donut_CreateCommandList(this.handle));
+    }
+
+    // The app holds the command list until the GPU has finished it, so it can be released right after
+    // (its upload and scratch memory, e.g. for texture uploads and acceleration structure builds, goes
+    // with it).
+    executeCommandList(commandList: CommandList): void {
+        Donut_ExecuteCommandList(this.handle, commandList.handle);
+    }
+
+    // A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
+    // run with Donut_ExecuteFrameComputeWork; a null handle if there's no compute queue.
+    createComputeQueueCommandList(): CommandList {
+        return new CommandList(Donut_CreateComputeQueueCommandList(this.handle));
+    }
+
+    // Blocks until the GPU has finished all submitted work.
+    waitForIdle(): void {
+        Donut_WaitForIdle(this.handle);
+    }
+
+    // GPU timer queries: the GPU time between Begin and End, readable once polled.
+    createTimerQuery(): TimerQueryHandle {
+        return Donut_CreateTimerQuery(this.handle);
+    }
+
+    // Before measuring again.
+    resetTimerQuery(timerQuery: TimerQueryHandle): void {
+        Donut_ResetTimerQuery(this.handle, timerQuery);
+    }
+
+    // Non-zero once the GPU has finished the measured commands.
+    pollTimerQuery(timerQuery: TimerQueryHandle): int {
+        return Donut_PollTimerQuery(this.handle, timerQuery);
+    }
+
+    // Seconds; waits for the GPU unless polled first.
+    getTimerQueryTime(timerQuery: TimerQueryHandle): number {
+        return Donut_GetTimerQueryTime(this.handle, timerQuery);
+    }
+
+    // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
+    // textures blitted before.
+    blitTexture(frame: Frame, texture: TextureHandle): void {
+        Donut_BlitTexture(this.handle, frame.handle, texture);
+    }
+
+    // One array slice of a texture, stretched into a rectangle of the framebuffer (pixels).
+    blitTextureSlice(frame: Frame, texture: TextureHandle, arraySlice: int, left: number, top: number, width: number, height: number): void {
+        Donut_BlitTextureSlice(this.handle, frame.handle, texture, arraySlice, left, top, width, height);
+    }
+
+    // Values that decide whether draws happen (D3D12 predication, Vulkan conditional rendering):
+    // count of them, each 0 (skip) or not (draw), all 1 at first, in memory the CPU writes and the
+    // GPU reads when it executes the draws. Requires Donut_HasConditionalRendering. A null handle
+    // on failure.
+    createPredicationBuffer(count: int): PredicationBuffer {
+        return new PredicationBuffer(Donut_CreatePredicationBuffer(this.handle, count));
+    }
+
+    // Binary occlusion queries whose results the GPU resolves into predication values (the CPU's
+    // Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
+    // (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
+    // and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
+    createOcclusionPredication(count: int): OcclusionPredicationHandle | null {
+        return Donut_CreateOcclusionPredication(this.handle, count);
+    }
+
+    // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
+    // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
+    submitFrameCommandList(frame: Frame): void {
+        Donut_SubmitFrameCommandList(this.handle, frame.handle);
+    }
+
+    // Pipeline statistics of mesh shader draws (pixel, amplification and mesh shader invocations),
+    // read back a few frames late without waiting. A null handle when the device can't count mesh
+    // shader work (D3D11, D3D12 without MeshShaderPipelineStatsSupported, Vulkan without
+    // pipelineStatisticsQuery and meshShaderQueries).
+    createMeshPipelineStatistics(): MeshPipelineStatistics {
+        return new MeshPipelineStatistics(Donut_CreateMeshPipelineStatistics(this.handle));
+    }
+
+    // Submits what the frame has recorded so far and goes on recording: work after it (e.g.
+    // Donut_ReadPixelUInts) sees the GPU results.
+    flushFrameCommandList(frame: Frame): void {
+        Donut_FlushFrameCommandList(this.handle, frame.handle);
+    }
+
+    // Async compute: submits what the frame has recorded so far to the graphics queue, then a closed
+    // compute queue command list (Donut_CreateComputeQueueCommandList) that waits for it on the GPU,
+    // and goes on recording work that waits for the compute work.
+    executeFrameComputeWork(frame: Frame, commandList: CommandList): void {
+        Donut_ExecuteFrameComputeWork(this.handle, frame.handle, commandList.handle);
+    }
+
+    // Saves the frame's color as recorded so far (BMP, PNG, JPG or TGA, by extension); non-zero on success.
+    saveFrameToFile(frame: Frame, path: string): boolean {
+        return Donut_SaveFrameToFile(this.handle, frame.handle, path) != 0;
     }
 
     // Input for acceleration structure builds (index or vertex data).
@@ -857,12 +1154,6 @@ export class App {
         return Donut_CreateAccelStructInputRawBuffer(this.handle, byteSize, debugName);
     }
 
-    // A buffer that shaders read and write as a (RW)ByteAddressBuffer (Donut_BindRawBufferSRV / UAV) and
-    // Donut_WriteBuffer / Donut_CopyBuffer fill; it rests at UnorderedAccess.
-    createRawBuffer(byteSize: int, debugName: string): BufferHandle {
-        return Donut_CreateRawBuffer(this.handle, byteSize, debugName);
-    }
-
     // Same, that shaders also read as a StructuredBuffer of count elements of stride bytes.
     createAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
         return Donut_CreateAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
@@ -872,21 +1163,6 @@ export class App {
     // each frame before the BLAS over them is rebuilt.
     createRWAccelStructInputStructuredBuffer(stride: int, count: int, debugName: string): BufferHandle {
         return Donut_CreateRWAccelStructInputStructuredBuffer(this.handle, stride, count, debugName);
-    }
-
-    // RGBA8_UNORM texture of the frame's size that shaders write as RWTexture2D<float4>.
-    createUAVTextureForFrame(frame: Frame, debugName: string): TextureHandle {
-        return Donut_CreateUAVTextureForFrame(this.handle, frame.handle, debugName);
-    }
-
-    // Same, in another format.
-    createUAVTextureForFrameWithFormat(frame: Frame, debugName: string, format: Format): TextureHandle {
-        return Donut_CreateUAVTextureForFrameWithFormat(this.handle, frame.handle, debugName, format);
-    }
-
-    // Same, in the back buffer's format without sRGB, for Donut_CopyTextureToFrame (a bit-for-bit copy).
-    createUAVTextureForFrameCopy(frame: Frame, debugName: string): TextureHandle {
-        return Donut_CreateUAVTextureForFrameCopy(this.handle, frame.handle, debugName);
     }
 
     // Acceleration structures; both record their build into an open command list.
@@ -948,16 +1224,6 @@ export class App {
         return Donut_CreateRayTracingPipelineWithLayouts(this.handle, shaderLibrary, bindingLayout, secondBindingLayout, rayGenEntry, missEntry, hitGroupName, closestHitEntry, anyHitEntry, maxPayloadSize);
     }
 
-    // Binding set plus matching layout (register space 0) visible to shaderType's stages.
-    createBindingSet(bindingSetDesc: BindingSetDesc, shaderType: ShaderType): BindingSet {
-        return new BindingSet(Donut_CreateBindingSet(this.handle, bindingSetDesc.handle, shaderType));
-    }
-
-    // Binding set for an existing layout.
-    createBindingSetForLayout(bindingSetDesc: BindingSetDesc, bindingLayout: BindingLayoutHandle): BindingSet {
-        return new BindingSet(Donut_CreateBindingSetForLayout(this.handle, bindingSetDesc.handle, bindingLayout));
-    }
-
     createRayTracingPipelineFromDesc(pipelineDesc: RtPipelineDesc): RtPipelineHandle {
         return Donut_CreateRayTracingPipelineFromDesc(this.handle, pipelineDesc.handle);
     }
@@ -968,216 +1234,10 @@ export class App {
         return new ShaderTable(Donut_CreateEmptyShaderTable(this.handle, rayTracingPipeline));
     }
 
-    createBindlessLayout(bindlessLayoutDesc: BindlessLayoutDesc): BindingLayoutHandle {
-        return Donut_CreateBindlessLayout(this.handle, bindlessLayoutDesc.handle);
-    }
-
-    // Donut's DescriptorTableManager over a bindless layout; scenes loaded with
-    // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.
-    createDescriptorTableManager(bindlessLayout: BindingLayoutHandle): DescriptorTableManager {
-        return new DescriptorTableManager(Donut_CreateDescriptorTableManager(this.handle, bindlessLayout));
-    }
-
-    // A descriptor table of a bindless layout without a manager: room for `capacity` descriptors in
-    // each of its arrays, written slot by slot with Donut_WriteDescriptorTableTexture.
-    createDescriptorTable(bindlessLayout: BindingLayoutHandle, capacity: int): DescriptorTableHandle {
-        return Donut_CreateDescriptorTable(this.handle, bindlessLayout, capacity);
-    }
-
-    // Writes a texture's descriptor into slot `slot` of a descriptor table's Texture2D array, at once
-    // (also into a table bound by command lists still recording or running: the bindless layouts are
-    // update-after-bind on Vulkan). 0 if the slot is past the table's capacity.
-    writeDescriptorTableTexture(descriptorTable: DescriptorTableHandle, slot: int, texture: TextureHandle): int {
-        return Donut_WriteDescriptorTableTexture(this.handle, descriptorTable, slot, texture);
-    }
-
-    // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
-    // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
-    // (different every run).
-    createRandomEngine(seed: int): RandomEngine {
-        return new RandomEngine(Donut_CreateRandomEngine(this.handle, seed));
-    }
-
-    // Same, seeded with all 32 bits of seedBits (as unsigned; a negative one is no random seed here).
-    createRandomEngineFromBits(seedBits: int): RandomEngine {
-        return new RandomEngine(Donut_CreateRandomEngineFromBits(this.handle, seedBits));
-    }
-
-    // Register space 0, visible to shaderType's stages.
-    createBindingLayout(bindingLayoutDesc: BindingLayoutDesc, shaderType: ShaderType): BindingLayoutHandle {
-        return Donut_CreateBindingLayout(this.handle, bindingLayoutDesc.handle, shaderType);
-    }
-
-    // Uses the layout of bindingSet.
-    createComputePipeline(computeShader: ShaderHandle, bindingSet: BindingSet): ComputePipelineHandle {
-        return Donut_CreateComputePipeline(this.handle, computeShader, bindingSet.handle);
-    }
-
-    // Same, from a binding layout.
-    createComputePipelineWithLayout(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle): ComputePipelineHandle {
-        return Donut_CreateComputePipelineWithLayout(this.handle, computeShader, bindingLayout);
-    }
-
-    // Same, with a second binding layout (e.g. bindless; null for none).
-    createComputePipelineWithLayouts(computeShader: ShaderHandle, bindingLayout: BindingLayoutHandle, secondBindingLayout: BindingLayoutHandle | null): ComputePipelineHandle {
-        return Donut_CreateComputePipelineWithLayouts(this.handle, computeShader, bindingLayout, secondBindingLayout);
-    }
-
-    // A binding set from the app's binding cache (the description is freed): created once, reused for
-    // identical descriptions. Valid until Donut_ClearBindingCache.
-    getCachedBindingSet(bindingSetDesc: BindingSetDesc, bindingLayout: BindingLayoutHandle): BindingSet {
-        return new BindingSet(Donut_GetCachedBindingSet(this.handle, bindingSetDesc.handle, bindingLayout));
-    }
-
-    // Async compute: every intervalMicroseconds, a C++ worker thread dispatches groupsX x groupsY
-    // groups of a compute pipeline on the compute queue (needs AppOptions.ComputeQueue) into one of
-    // its textures (RWTexture2D at u0, the run index as a uint push constant at b0; the layout must
-    // hold exactly those), and hands it to the render thread. A null handle if there's no compute
-    // queue.
-    createAsyncComputeLoop(computePipeline: ComputePipelineHandle, bindingLayout: BindingLayoutHandle, groupsX: int, groupsY: int, intervalMicroseconds: int): AsyncComputeLoop {
-        return new AsyncComputeLoop(Donut_CreateAsyncComputeLoop(this.handle, computePipeline, bindingLayout, groupsX, groupsY, intervalMicroseconds));
-    }
-
-    // Command lists, for work outside render passes (e.g. in a headless app).
-    createCommandList(): CommandList {
-        return new CommandList(Donut_CreateCommandList(this.handle));
-    }
-
-    // The app holds the command list until the GPU has finished it, so it can be released right after
-    // (its upload and scratch memory, e.g. for texture uploads and acceleration structure builds, goes
-    // with it).
-    executeCommandList(commandList: CommandList): void {
-        Donut_ExecuteCommandList(this.handle, commandList.handle);
-    }
-
-    // A command list for the compute queue (needs AppOptions.ComputeQueue), recorded each frame and
-    // run with Donut_ExecuteFrameComputeWork; a null handle if there's no compute queue.
-    createComputeQueueCommandList(): CommandList {
-        return new CommandList(Donut_CreateComputeQueueCommandList(this.handle));
-    }
-
-    // Blocks until the GPU has finished all submitted work.
-    waitForIdle(): void {
-        Donut_WaitForIdle(this.handle);
-    }
-
-    // GPU timer queries: the GPU time between Begin and End, readable once polled.
-    createTimerQuery(): TimerQueryHandle {
-        return Donut_CreateTimerQuery(this.handle);
-    }
-
-    // Before measuring again.
-    resetTimerQuery(timerQuery: TimerQueryHandle): void {
-        Donut_ResetTimerQuery(this.handle, timerQuery);
-    }
-
-    // Non-zero once the GPU has finished the measured commands.
-    pollTimerQuery(timerQuery: TimerQueryHandle): int {
-        return Donut_PollTimerQuery(this.handle, timerQuery);
-    }
-
-    // Seconds; waits for the GPU unless polled first.
-    getTimerQueryTime(timerQuery: TimerQueryHandle): number {
-        return Donut_GetTimerQueryTime(this.handle, timerQuery);
-    }
-
-    // Passes are owned by the app; later passes draw on top and get input first.
-    addPass(): Pass {
-        return new Pass(Donut_AddPass(this.handle));
-    }
-
-    // Donut's ImGui renderer as a pass drawn after the ones added before (on top) and seeing input
-    // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
-    // it). A null handle if the renderer can't be initialized.
-    @immortalizes("buildUI")
-    addImGuiPass(buildUI: VoidCallback): ImGuiPass {
-        retainedVoidCallbacks.push(buildUI);
-
-        return new ImGuiPass(Donut_AddImGuiPass(this.handle, buildUI));
-    }
-
-    // C++ objects (scenes, cameras, ...) are owned by the app until released or the app is destroyed.
-    releaseObject(object: ObjectHandle): void {
-        Donut_ReleaseObject(this.handle, object);
-    }
-
-    // glTF or .scene.json, path relative to the executable's directory or absolute; loaded on the
-    // app's thread pool, textures uploaded. A null handle (after logging why) on failure.
-    loadScene(path: string): Scene {
-        return new Scene(Donut_LoadScene(this.handle, path));
-    }
-
-    // numConstantBufferVersions bounds how many views it can render per frame.
-    createForwardShadingPass(numConstantBufferVersions: int): ForwardShadingPass {
-        return new ForwardShadingPass(Donut_CreateForwardShadingPass(this.handle, numConstantBufferVersions));
-    }
-
-    // Cube map render target, resolution x resolution faces: SRGBA8 color, D32 depth.
-    createCubemapTarget(resolution: int): CubemapTarget {
-        return new CubemapTarget(Donut_CreateCubemapTarget(this.handle, resolution));
-    }
-
-    // Same as Donut_RenderCubemapFace, on the app's worker threads (it runs C++ only); each
-    // concurrent task needs its own command list from Donut_CreateDeferredCommandList. Wait with
-    // Donut_WaitForTasks.
-    renderCubemapFaceAsync(cubemapTarget: CubemapTarget, face: int, commandList: CommandList, scene: Scene, forwardShadingPass: ForwardShadingPass): void {
-        Donut_RenderCubemapFaceAsync(this.handle, cubemapTarget.handle, face, commandList.handle, scene.handle, forwardShadingPass.handle);
-    }
-
-    waitForTasks(): void {
-        Donut_WaitForTasks(this.handle);
-    }
-
-    // For recording on another thread and executing later.
-    createDeferredCommandList(): CommandList {
-        return new CommandList(Donut_CreateDeferredCommandList(this.handle));
-    }
-
-    // Indexed draws described up front, to record into command lists on worker threads (where tslang
-    // code mustn't run) or to replay as a whole (as a D3D12 bundle): one pipeline (or one per draw),
-    // framebuffer (its whole viewport), vertex buffer (slot 0) and R32_UINT index buffer; binding sets
-    // every draw uses, then per draw an optional binding set of its own and its index range.
-    createDrawBatch(pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, vertexBuffer: BufferHandle, indexBuffer: BufferHandle): DrawBatch {
-        return new DrawBatch(Donut_CreateDrawBatch(this.handle, pipeline, framebuffer, vertexBuffer, indexBuffer));
-    }
-
-    // Same as Donut_RecordDrawBatch, as a task on the app's thread pool: wait with
-    // Donut_WaitForTasks before executing the command list (Donut_CreateDeferredCommandList; one
-    // per concurrent task).
-    recordDrawBatchAsync(drawBatch: DrawBatch, commandList: CommandList, first: int, step: int): void {
-        Donut_RecordDrawBatchAsync(this.handle, drawBatch.handle, commandList.handle, first, step);
-    }
-
-    // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
-    createFirstPersonCamera(): Camera {
-        return new Camera(Donut_CreateFirstPersonCamera(this.handle));
-    }
-
-    // Donut's third person (orbit) camera: dragging with the left button orbits the target, the wheel
-    // zooms, WASD / arrows move the target. The Donut_Camera* functions below work for both kinds.
-    createThirdPersonCamera(): Camera {
-        return new Camera(Donut_CreateThirdPersonCamera(this.handle));
-    }
-
     // One BLAS per mesh of a loaded scene and a TLAS over its instances, builds recorded into an
     // open command list.
     buildSceneAccelStructs(commandList: CommandList, scene: Scene): SceneAccelStructs {
         return new SceneAccelStructs(Donut_BuildSceneAccelStructs(this.handle, commandList.handle, scene.handle));
-    }
-
-    // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
-    // scene's geometry and material buffers index into it.
-    loadSceneWithDescriptorTable(path: string, descriptorTableManager: DescriptorTableManager): Scene {
-        return new Scene(Donut_LoadSceneWithDescriptorTable(this.handle, path, descriptorTableManager.handle));
-    }
-
-    // Same, leaving the scene's meshes in CPU memory, unuploaded, for core/rtxcr.cpp's Donut_RtxcrCreateScene to edit.
-    loadSceneWithDescriptorTableDeferred(path: string, descriptorTableManager: DescriptorTableManager): Scene {
-        return new Scene(Donut_LoadSceneWithDescriptorTableDeferred(this.handle, path, descriptorTableManager.handle));
-    }
-
-    bindGeometryMaterialTexture(bindingSetDesc: BindingSetDesc, slot: int, scene: Scene, geometryIndex: int, which: MaterialTexture, fallback: FallbackTexture): void {
-        Donut_BindGeometryMaterialTexture(this.handle, bindingSetDesc.handle, slot, scene.handle, geometryIndex, which, fallback);
     }
 
     // Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
@@ -1193,40 +1253,10 @@ export class App {
         return new SceneAccelStructs(Donut_CreateAnimatedSceneAccelStructs(this.handle, commandList.handle, scene.handle));
     }
 
-    // Valid only inside a render callback. Updates the scene graph and GPU buffers (transforms,
-    // skinning) after animations.
-    refreshScene(frame: Frame, scene: Scene): void {
-        Donut_RefreshScene(this.handle, frame.handle, scene.handle);
-    }
-
     // Valid only inside a render callback, after Donut_RefreshScene: rebuilds the skinned BLASes,
     // compacts finished static ones and builds the TLAS (instance IDs = instance indices).
     updateSceneAccelStructs(frame: Frame, sceneAccelStructs: SceneAccelStructs, scene: Scene): void {
         Donut_UpdateSceneAccelStructs(this.handle, frame.handle, sceneAccelStructs.handle, scene.handle);
-    }
-
-    // A texture file (relative to the executable's directory) loaded and uploaded (mipmaps
-    // generated if it has none), registered in a descriptor table for bindless access. It submits
-    // its own command list: call it while no other one is open. A null handle (after logging why)
-    // on failure.
-    loadBindlessTexture(descriptorTableManager: DescriptorTableManager, path: string, sRGB: int): LoadedTexture {
-        return new LoadedTexture(Donut_LoadBindlessTexture(this.handle, descriptorTableManager.handle, path, sRGB));
-    }
-
-    // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
-    // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
-    // a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
-    createDynamicMesh(descriptorTableManager: DescriptorTableManager, maxVertices: int, maxIndices: int, name: string): DynamicMeshHandle {
-        return Donut_CreateDynamicMesh(this.handle, descriptorTableManager.handle, maxVertices, maxIndices, name);
-    }
-
-    attachDynamicMesh(scene: Scene, dynamicMesh: DynamicMeshHandle): void {
-        Donut_AttachDynamicMesh(this.handle, scene.handle, dynamicMesh);
-    }
-
-    // A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
-    setDynamicMeshTexture(dynamicMesh: DynamicMeshHandle, loadedTexture: LoadedTexture): void {
-        Donut_SetDynamicMeshTexture(this.handle, dynamicMesh, loadedTexture.handle);
     }
 
     // A BLAS for every scene mesh without one (not dynamic meshes), into an open command list;
@@ -1251,93 +1281,8 @@ export class App {
         return new SceneAccelStructs(Donut_CreateTopLevelASWithFlags(this.handle, maxInstances, buildFlags));
     }
 
-    // Scenes built in code. Material with a diffuse texture (relative to the executable's
-    // directory, sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
-    // specular-glossiness model. A null handle (after logging why) if the texture can't be loaded.
-    createTexturedMaterial(commandList: CommandList, name: string, diffuseTexturePath: string, specularGloss: int): Material {
-        return new Material(Donut_CreateTexturedMaterial(this.handle, commandList.handle, name, diffuseTexturePath, specularGloss));
-    }
-
-    // One geometry, identity instance transform, uploads recorded into an open command list. Per
-    // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
-    // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
-    createMesh(commandList: CommandList, name: string, material: Material, positions: Ref<f32>, texCoords: Ref<f32>, normals: Ref<int>, tangents: Ref<int>, vertexCount: int, indices: Ref<int>, indexCount: int): MeshHandle {
-        return Donut_CreateMesh(this.handle, commandList.handle, name, material.handle, positions, texCoords, normals, tangents, vertexCount, indices, indexCount);
-    }
-
-    createSceneGraph(): SceneGraph {
-        return new SceneGraph(Donut_CreateSceneGraph(this.handle));
-    }
-
-    // Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
-    // null. Returns the node, valid as long as the scene graph.
-    addMeshNode(sceneGraph: SceneGraph, parentNode: Node | null, mesh: MeshHandle, name: string): Node {
-        return new Node(Donut_AddMeshNode(this.handle, sceneGraph.handle, parentNode ? (parentNode as Node).handle : null, mesh, name));
-    }
-
-    // After adding or changing nodes.
-    refreshSceneGraph(sceneGraph: SceneGraph): void {
-        Donut_RefreshSceneGraph(this.handle, sceneGraph.handle);
-    }
-
-    // Deferred shading. G-buffer of width x height pixels plus an RGBA16_FLOAT texture for the lit
-    // result; create new ones when the frame size changes. reverseDepth != 0 clears depth to 0, for
-    // reverse-Z projections.
-    createGBufferTargets(width: int, height: int, reverseDepth: int): GBufferTargets {
-        return new GBufferTargets(Donut_CreateGBufferTargets(this.handle, width, height, reverseDepth));
-    }
-
-    createGBufferFillPass(): GBufferFillPass {
-        return new GBufferFillPass(Donut_CreateGBufferFillPass(this.handle));
-    }
-
-    createDeferredLightingPass(): DeferredLightingPass {
-        return new DeferredLightingPass(Donut_CreateDeferredLightingPass(this.handle));
-    }
-
-    createPlanarView(): View {
-        return new View(Donut_CreatePlanarView(this.handle));
-    }
-
-    // Forward shading with TAA. Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8
-    // depth (cleared for reverse Z) to render into, motion vectors, and the TAA resolved color and
-    // feedback; create new ones when the frame size changes.
-    createTemporalTargets(width: int, height: int): TemporalTargets {
-        return new TemporalTargets(Donut_CreateTemporalTargets(this.handle, width, height));
-    }
-
-    // TAA over the targets (Catmull-Rom filter, stencil mask 0x01), for views like `view`; create a
-    // new one with new targets.
-    createTemporalAntiAliasingPass(view: View, temporalTargets: TemporalTargets): TemporalAntiAliasingPass {
-        return new TemporalAntiAliasingPass(Donut_CreateTemporalAntiAliasingPass(this.handle, view.handle, temporalTargets.handle));
-    }
-
-    // Variable rate shading. Pixels per shading rate surface texel, as NVRHI reports it, or (the
-    // second one) straight from D3D12, 0 on other APIs.
-    getShadingRateTileSize(): int {
-        return Donut_GetShadingRateTileSize(this.handle);
-    }
-
     getD3D12ShadingRateTileSize(): int {
         return Donut_GetD3D12ShadingRateTileSize(this.handle);
-    }
-
-    // R8_UINT surface of width x height tiles, written by compute shaders as RWTexture2D<uint>.
-    createShadingRateSurface(width: int, height: int): TextureHandle {
-        return Donut_CreateShadingRateSurface(this.handle, width, height);
-    }
-
-    // The fragment sizes (shading rates) the device has, as width, height pairs into dst (Ref of a
-    // `let` int array of 32), largest first (Vulkan's order; D3D12's tier rates); returns their count,
-    // 0 without variable rate shading.
-    getFragmentShadingRates(dst: Ref<int>): int {
-        return Donut_GetFragmentShadingRates(this.handle, dst);
-    }
-
-    // Framebuffer of one or two color targets (colorTexture1 null for one) and a depth buffer (null for
-    // none) whose draws can take their shading rates from shadingRateSurface (null for none).
-    createFramebufferWithShadingRate(colorTexture0: TextureHandle, colorTexture1: TextureHandle | null, depthTexture: TextureHandle | null, shadingRateSurface: TextureHandle | null): FramebufferHandle {
-        return Donut_CreateFramebufferWithShadingRate(this.handle, colorTexture0, colorTexture1, depthTexture, shadingRateSurface);
     }
 
     // D3D12 work graphs, through D3D12 directly. They need the Agility SDK runtime: the executable
@@ -1414,94 +1359,156 @@ export class App {
         return Donut_AddD3D12GenericProgram(this.handle, genericProgram, pixelShader, pixelExport, programName);
     }
 
-    // Stretches a texture over the whole framebuffer. Call Donut_ClearBindingCache after releasing
-    // textures blitted before.
-    blitTexture(frame: Frame, texture: TextureHandle): void {
-        Donut_BlitTexture(this.handle, frame.handle, texture);
+    // The first primitive of a glTF file's first mesh (path relative to the executable's
+    // directory), as the Vulkan-Samples framework loads it: float3 position, float3 normal and
+    // float2 texture coordinates interleaved (32 bytes), R32_UINT indices, the nodes' transforms
+    // ignored. Uploaded by an open command list. A null handle (after logging why) on failure.
+    loadGltfMesh(commandList: CommandList, path: string): GltfMesh {
+        return new GltfMesh(Donut_LoadGltfMesh(this.handle, commandList.handle, path));
     }
 
-    clearBindingCache(): void {
-        Donut_ClearBindingCache(this.handle);
+    // Every primitive of a glTF file's meshes (path relative to the executable's directory), in
+    // mesh and primitive order, as the Vulkan-Samples framework's scene loader reads them into
+    // submeshes: vertices as Donut_LoadGltfMesh's (in mesh space, the nodes' transforms ignored),
+    // int indices, and the base color image's URI ("" if none). Kept on the CPU. A null handle
+    // (after logging why) on failure.
+    loadGltfModel(path: string): GltfModel {
+        return new GltfModel(Donut_LoadGltfModel(this.handle, path));
     }
 
-    // One array slice of a texture, stretched into a rectangle of the framebuffer (pixels).
-    blitTextureSlice(frame: Frame, texture: TextureHandle, arraySlice: int, left: number, top: number, width: number, height: number): void {
-        Donut_BlitTextureSlice(this.handle, frame.handle, texture, arraySlice, left, top, width, height);
+    // A file read whole (path relative to the executable's directory), for TypeScript to parse: its
+    // size, and bytes [offset, offset + count) into dst, an int (0..255) each (0 past the end).
+    loadBinaryFile(path: string): BinaryFile {
+        return new BinaryFile(Donut_LoadBinaryFile(this.handle, path));
     }
 
-    // Values that decide whether draws happen (D3D12 predication, Vulkan conditional rendering):
-    // count of them, each 0 (skip) or not (draw), all 1 at first, in memory the CPU writes and the
-    // GPU reads when it executes the draws. Requires Donut_HasConditionalRendering. A null handle
+    // A static vertex buffer (or index buffer if isIndexBuffer != 0) of byteSize bytes of the file from
+    // fileOffset, uploaded by an open command list. Null (after logging why) on failure.
+    createStaticBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
+        return Donut_CreateStaticBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
+    }
+
+    // Same, as Donut_CreateStaticGeometryBuffer's: also a ByteAddressBuffer for shaders and an acceleration
+    // structure build input (its size rounded up to whole uints, the rest zeros).
+    createStaticGeometryBufferFromBinaryFile(commandList: CommandList, binaryFile: BinaryFile, fileOffset: int, byteSize: int, isIndexBuffer: boolean, debugName: string): BufferHandle {
+        return Donut_CreateStaticGeometryBufferFromBinaryFile(this.handle, commandList.handle, binaryFile.handle, fileOffset, byteSize, isIndexBuffer, debugName);
+    }
+
+    // An image file (path relative to the executable's directory) decoded with WIC into an RGBA8
+    // texture as DirectXTK's CreateWICTextureFromFile loads it: one level, sRGB when the file says so
+    // (a PNG's sRGB chunk, a JPEG's EXIF color space). Its upload recorded into an open command list.
+    // Windows only; null (after logging why) on failure.
+    loadWicTexture(commandList: CommandList, path: string, debugName: string): TextureHandle | null {
+        return Donut_LoadWicTexture(this.handle, commandList.handle, path, debugName);
+    }
+
+    // Image file, path relative to the executable's directory, uploaded by an open command list.
+    // sRGB != 0 treats the data as sRGB. Null (after logging why) on failure.
+    loadTexture(commandList: CommandList, path: string, sRGB: int): TextureHandle {
+        return Donut_LoadTexture(this.handle, commandList.handle, path, sRGB);
+    }
+
+    // A JSON file whose root is an object (owned by the app; a null handle if unreadable), read by
+    // path ("a/0/b"): whether there is a value, an array's or object's size (-1 if neither), a
+    // number, bool or string (defaultValue where missing), and component `component` of a 3- or
+    // 4-vector (count) as Donut's json::Read reads it (NaN where missing).
+    loadJsonDocument(path: string): JsonDocument {
+        return new JsonDocument(Donut_LoadJsonDocument(this.handle, path));
+    }
+
+    // glTF or .scene.json, path relative to the executable's directory or absolute; loaded on the
+    // app's thread pool, textures uploaded. A null handle (after logging why) on failure.
+    loadScene(path: string): Scene {
+        return new Scene(Donut_LoadScene(this.handle, path));
+    }
+
+    // Donut's first person camera: WASD / arrows move, dragging with the left button looks around.
+    createFirstPersonCamera(): Camera {
+        return new Camera(Donut_CreateFirstPersonCamera(this.handle));
+    }
+
+    // Donut's third person (orbit) camera: dragging with the left button orbits the target, the wheel
+    // zooms, WASD / arrows move the target. The Donut_Camera* functions below work for both kinds.
+    createThirdPersonCamera(): Camera {
+        return new Camera(Donut_CreateThirdPersonCamera(this.handle));
+    }
+
+    // Like Donut_LoadScene, registering the scene's buffers and textures in a descriptor table; the
+    // scene's geometry and material buffers index into it.
+    loadSceneWithDescriptorTable(path: string, descriptorTableManager: DescriptorTableManager): Scene {
+        return new Scene(Donut_LoadSceneWithDescriptorTable(this.handle, path, descriptorTableManager.handle));
+    }
+
+    // Same, leaving the scene's meshes in CPU memory, unuploaded, for core/rtxcr.cpp's Donut_RtxcrCreateScene to edit.
+    loadSceneWithDescriptorTableDeferred(path: string, descriptorTableManager: DescriptorTableManager): Scene {
+        return new Scene(Donut_LoadSceneWithDescriptorTableDeferred(this.handle, path, descriptorTableManager.handle));
+    }
+
+    bindGeometryMaterialTexture(bindingSetDesc: BindingSetDesc, slot: int, scene: Scene, geometryIndex: int, which: MaterialTexture, fallback: FallbackTexture): void {
+        Donut_BindGeometryMaterialTexture(this.handle, bindingSetDesc.handle, slot, scene.handle, geometryIndex, which, fallback);
+    }
+
+    // Valid only inside a render callback. Updates the scene graph and GPU buffers (transforms,
+    // skinning) after animations.
+    refreshScene(frame: Frame, scene: Scene): void {
+        Donut_RefreshScene(this.handle, frame.handle, scene.handle);
+    }
+
+    // A texture file (relative to the executable's directory) loaded and uploaded (mipmaps
+    // generated if it has none), registered in a descriptor table for bindless access. It submits
+    // its own command list: call it while no other one is open. A null handle (after logging why)
     // on failure.
-    createPredicationBuffer(count: int): PredicationBuffer {
-        return new PredicationBuffer(Donut_CreatePredicationBuffer(this.handle, count));
+    loadBindlessTexture(descriptorTableManager: DescriptorTableManager, path: string, sRGB: int): LoadedTexture {
+        return new LoadedTexture(Donut_LoadBindlessTexture(this.handle, descriptorTableManager.handle, path, sRGB));
     }
 
-    // Binary occlusion queries whose results the GPU resolves into predication values (the CPU's
-    // Donut_SetPredicationValue's are the predication buffer's): count queries, every result 0
-    // (occluded) at first. D3D12's occlusion query heap and predication, Vulkan's occlusion query pool
-    // and conditional rendering (requires Donut_HasConditionalRendering). Null otherwise.
-    createOcclusionPredication(count: int): OcclusionPredicationHandle | null {
-        return Donut_CreateOcclusionPredication(this.handle, count);
+    // Dynamic meshes: one alpha-blended geometry whose vertices (positions, texture coordinates) and
+    // indices are replaced every frame, with room for maxVertices / maxIndices, buffers registered in
+    // a descriptor table. Attach to a loaded scene before creating binding sets of its buffers.
+    createDynamicMesh(descriptorTableManager: DescriptorTableManager, maxVertices: int, maxIndices: int, name: string): DynamicMeshHandle {
+        return Donut_CreateDynamicMesh(this.handle, descriptorTableManager.handle, maxVertices, maxIndices, name);
     }
 
-    // Executes what the frame's command list holds so far, and reopens it for the rest of the frame
-    // (e.g. so that copies out of a tiled texture run before Donut_ApplyTileMappings remaps it).
-    submitFrameCommandList(frame: Frame): void {
-        Donut_SubmitFrameCommandList(this.handle, frame.handle);
+    attachDynamicMesh(scene: Scene, dynamicMesh: DynamicMeshHandle): void {
+        Donut_AttachDynamicMesh(this.handle, scene.handle, dynamicMesh);
     }
 
-    // Pipeline statistics of mesh shader draws (pixel, amplification and mesh shader invocations),
-    // read back a few frames late without waiting. A null handle when the device can't count mesh
-    // shader work (D3D11, D3D12 without MeshShaderPipelineStatsSupported, Vulkan without
-    // pipelineStatisticsQuery and meshShaderQueries).
-    createMeshPipelineStatistics(): MeshPipelineStatistics {
-        return new MeshPipelineStatistics(Donut_CreateMeshPipelineStatistics(this.handle));
+    // A Donut_LoadBindlessTexture texture; the scene picks it up at the next Donut_RefreshScene.
+    setDynamicMeshTexture(dynamicMesh: DynamicMeshHandle, loadedTexture: LoadedTexture): void {
+        Donut_SetDynamicMeshTexture(this.handle, dynamicMesh, loadedTexture.handle);
     }
 
-    // Submits what the frame has recorded so far and goes on recording: work after it (e.g.
-    // Donut_ReadPixelUInts) sees the GPU results.
-    flushFrameCommandList(frame: Frame): void {
-        Donut_FlushFrameCommandList(this.handle, frame.handle);
+    // Scenes built in code. Material with a diffuse texture (relative to the executable's
+    // directory, sRGB), uploads recorded into an open command list; specularGloss != 0 selects the
+    // specular-glossiness model. A null handle (after logging why) if the texture can't be loaded.
+    createTexturedMaterial(commandList: CommandList, name: string, diffuseTexturePath: string, specularGloss: int): Material {
+        return new Material(Donut_CreateTexturedMaterial(this.handle, commandList.handle, name, diffuseTexturePath, specularGloss));
     }
 
-    // Async compute: submits what the frame has recorded so far to the graphics queue, then a closed
-    // compute queue command list (Donut_CreateComputeQueueCommandList) that waits for it on the GPU,
-    // and goes on recording work that waits for the compute work.
-    executeFrameComputeWork(frame: Frame, commandList: CommandList): void {
-        Donut_ExecuteFrameComputeWork(this.handle, frame.handle, commandList.handle);
+    // One geometry, identity instance transform, uploads recorded into an open command list. Per
+    // vertex: position (3 x f32), texture coordinates (2 x f32), normal and tangent (int each,
+    // packed as by vectorToSnorm8); then indexCount int indices. Arrays: Ref(arr[0]) of `let` arrays.
+    createMesh(commandList: CommandList, name: string, material: Material, positions: Ref<f32>, texCoords: Ref<f32>, normals: Ref<int>, tangents: Ref<int>, vertexCount: int, indices: Ref<int>, indexCount: int): MeshHandle {
+        return Donut_CreateMesh(this.handle, commandList.handle, name, material.handle, positions, texCoords, normals, tangents, vertexCount, indices, indexCount);
     }
 
-    // Saves the frame's color as recorded so far (BMP, PNG, JPG or TGA, by extension); non-zero on success.
-    saveFrameToFile(frame: Frame, path: string): boolean {
-        return Donut_SaveFrameToFile(this.handle, frame.handle, path) != 0;
+    createSceneGraph(): SceneGraph {
+        return new SceneGraph(Donut_CreateSceneGraph(this.handle));
     }
 
-    // Seconds per frame, averaged; 0 until measured.
-    getAverageFrameTime(): number {
-        return Donut_GetAverageFrameTime(this.handle);
+    // Adds a node holding an instance of mesh under parentNode, or as the root if parentNode is
+    // null. Returns the node, valid as long as the scene graph.
+    addMeshNode(sceneGraph: SceneGraph, parentNode: Node | null, mesh: MeshHandle, name: string): Node {
+        return new Node(Donut_AddMeshNode(this.handle, sceneGraph.handle, parentNode ? (parentNode as Node).handle : null, mesh, name));
     }
 
-    getWindowWidth(): int {
-        return Donut_GetWindowWidth(this.handle);
+    // After adding or changing nodes.
+    refreshSceneGraph(sceneGraph: SceneGraph): void {
+        Donut_RefreshSceneGraph(this.handle, sceneGraph.handle);
     }
 
-    getWindowHeight(): int {
-        return Donut_GetWindowHeight(this.handle);
-    }
-
-    // Drops the cached compiled shaders: passes created after this load them from disk again.
-    clearShaderCache(): void {
-        Donut_ClearShaderCache(this.handle);
-    }
-
-    // Destroys resources the GPU has finished with; after Donut_WaitForIdle.
-    runGarbageCollection(): void {
-        Donut_RunGarbageCollection(this.handle);
-    }
-
-    queryFormatSupport(format: int): int {
-        return Donut_QueryFormatSupport(this.handle, format);
+    createPlanarView(): View {
+        return new View(Donut_CreatePlanarView(this.handle));
     }
 
     // Scene loading on a thread, as donut::app::ApplicationBase does it asynchronously.
@@ -1514,17 +1521,78 @@ export class App {
         return new StringList(Donut_FindScenes(this.handle, directory));
     }
 
-    // A JSON file whose root is an object (owned by the app; a null handle if unreadable), read by
-    // path ("a/0/b"): whether there is a value, an array's or object's size (-1 if neither), a
-    // number, bool or string (defaultValue where missing), and component `component` of a 3- or
-    // 4-vector (count) as Donut's json::Read reads it (NaN where missing).
-    loadJsonDocument(path: string): JsonDocument {
-        return new JsonDocument(Donut_LoadJsonDocument(this.handle, path));
-    }
-
     // Views.
     createStereoView(): View {
         return new View(Donut_CreateStereoView(this.handle));
+    }
+
+    // numConstantBufferVersions bounds how many views it can render per frame.
+    createForwardShadingPass(numConstantBufferVersions: int): ForwardShadingPass {
+        return new ForwardShadingPass(Donut_CreateForwardShadingPass(this.handle, numConstantBufferVersions));
+    }
+
+    // Cube map render target, resolution x resolution faces: SRGBA8 color, D32 depth.
+    createCubemapTarget(resolution: int): CubemapTarget {
+        return new CubemapTarget(Donut_CreateCubemapTarget(this.handle, resolution));
+    }
+
+    // Same as Donut_RenderCubemapFace, on the app's worker threads (it runs C++ only); each
+    // concurrent task needs its own command list from Donut_CreateDeferredCommandList. Wait with
+    // Donut_WaitForTasks.
+    renderCubemapFaceAsync(cubemapTarget: CubemapTarget, face: int, commandList: CommandList, scene: Scene, forwardShadingPass: ForwardShadingPass): void {
+        Donut_RenderCubemapFaceAsync(this.handle, cubemapTarget.handle, face, commandList.handle, scene.handle, forwardShadingPass.handle);
+    }
+
+    waitForTasks(): void {
+        Donut_WaitForTasks(this.handle);
+    }
+
+    // For recording on another thread and executing later.
+    createDeferredCommandList(): CommandList {
+        return new CommandList(Donut_CreateDeferredCommandList(this.handle));
+    }
+
+    // Indexed draws described up front, to record into command lists on worker threads (where tslang
+    // code mustn't run) or to replay as a whole (as a D3D12 bundle): one pipeline (or one per draw),
+    // framebuffer (its whole viewport), vertex buffer (slot 0) and R32_UINT index buffer; binding sets
+    // every draw uses, then per draw an optional binding set of its own and its index range.
+    createDrawBatch(pipeline: GraphicsPipelineHandle, framebuffer: FramebufferHandle, vertexBuffer: BufferHandle, indexBuffer: BufferHandle): DrawBatch {
+        return new DrawBatch(Donut_CreateDrawBatch(this.handle, pipeline, framebuffer, vertexBuffer, indexBuffer));
+    }
+
+    // Same as Donut_RecordDrawBatch, as a task on the app's thread pool: wait with
+    // Donut_WaitForTasks before executing the command list (Donut_CreateDeferredCommandList; one
+    // per concurrent task).
+    recordDrawBatchAsync(drawBatch: DrawBatch, commandList: CommandList, first: int, step: int): void {
+        Donut_RecordDrawBatchAsync(this.handle, drawBatch.handle, commandList.handle, first, step);
+    }
+
+    // Deferred shading. G-buffer of width x height pixels plus an RGBA16_FLOAT texture for the lit
+    // result; create new ones when the frame size changes. reverseDepth != 0 clears depth to 0, for
+    // reverse-Z projections.
+    createGBufferTargets(width: int, height: int, reverseDepth: int): GBufferTargets {
+        return new GBufferTargets(Donut_CreateGBufferTargets(this.handle, width, height, reverseDepth));
+    }
+
+    createGBufferFillPass(): GBufferFillPass {
+        return new GBufferFillPass(Donut_CreateGBufferFillPass(this.handle));
+    }
+
+    createDeferredLightingPass(): DeferredLightingPass {
+        return new DeferredLightingPass(Donut_CreateDeferredLightingPass(this.handle));
+    }
+
+    // Forward shading with TAA. Targets of width x height pixels: RGBA16_FLOAT HDR color and D24S8
+    // depth (cleared for reverse Z) to render into, motion vectors, and the TAA resolved color and
+    // feedback; create new ones when the frame size changes.
+    createTemporalTargets(width: int, height: int): TemporalTargets {
+        return new TemporalTargets(Donut_CreateTemporalTargets(this.handle, width, height));
+    }
+
+    // TAA over the targets (Catmull-Rom filter, stencil mask 0x01), for views like `view`; create a
+    // new one with new targets.
+    createTemporalAntiAliasingPass(view: View, temporalTargets: TemporalTargets): TemporalAntiAliasingPass {
+        return new TemporalAntiAliasingPass(Donut_CreateTemporalAntiAliasingPass(this.handle, view.handle, temporalTargets.handle));
     }
 
     // Render targets of width x height (multisampled with sampleCount > 1): the G-buffer with motion
@@ -1532,96 +1600,6 @@ export class App {
     // ambient occlusion. Create new ones when the size or sample count changes.
     createSceneRenderTargets(width: int, height: int, sampleCount: int): SceneRenderTargets {
         return new SceneRenderTargets(Donut_CreateSceneRenderTargets(this.handle, width, height, sampleCount));
-    }
-
-    // Multisampling.
-    // The sample counts that a color target in colorFormat and a depth buffer in depthFormat can both
-    // have, as bits (bit n for n samples: 0x1 | 0x2 | 0x4 ...): on Vulkan the device's
-    // framebufferColorSampleCounts & framebufferDepthSampleCounts, on D3D the formats' quality levels.
-    getSupportedSampleCounts(colorFormat: Format, depthFormat: Format): int {
-        return Donut_GetSupportedSampleCounts(this.handle, colorFormat, depthFormat);
-    }
-
-    // True if render passes resolve multisampled targets as they end (Vulkan's dynamic rendering;
-    // Donut_CreateResolveFramebuffer). NVRHI runs D3D without render passes: use Donut_ResolveTexture.
-    hasRenderPassResolve(): boolean {
-        return Donut_HasRenderPassResolve(this.handle) != 0;
-    }
-
-    // The ResolveModes render passes can resolve depth by, as bits 1 << mode (Vulkan's
-    // supportedDepthResolveModes); 0 without render pass resolves.
-    getDepthResolveModes(): int {
-        return Donut_GetDepthResolveModes(this.handle);
-    }
-
-    // Render target (color format) or depth buffer (depth format, cleared to clearDepth) of width x
-    // height with sampleCount samples (Texture2DMS when more than 1) that shaders can read and that can
-    // be resolved; resting at ShaderResource. Null on failure.
-    createMultisampledTexture(width: int, height: int, format: Format, sampleCount: int, clearDepth: number, debugName: string): TextureHandle {
-        return Donut_CreateMultisampledTexture(this.handle, width, height, format, sampleCount, clearDepth, debugName);
-    }
-
-    // Framebuffer drawing into colorTexture and depthTexture (null for none) whose render passes, as
-    // they end, resolve color into colorResolveTexture and depth into depthResolveTexture by
-    // depthResolveMode, where those aren't null. Needs Donut_HasRenderPassResolve; NVRHI ends a render
-    // pass at every barrier, so a pass may resolve more than once (with the same result).
-    createResolveFramebuffer(colorTexture: TextureHandle | null, colorResolveTexture: TextureHandle | null, depthTexture: TextureHandle | null, depthResolveTexture: TextureHandle | null, depthResolveMode: ResolveMode): FramebufferHandle {
-        return Donut_CreateResolveFramebuffer(this.handle, colorTexture, colorResolveTexture, depthTexture, depthResolveTexture, depthResolveMode);
-    }
-
-    // The swap chain's back buffers (valid until they're resized: recreate what refers to them in the
-    // back buffer resizing callback), the one the current frame renders into, and their format
-    // (SRGBA8_UNORM with D3D, SBGRA8_UNORM with Vulkan).
-    getBackBufferCount(): int {
-        return Donut_GetBackBufferCount(this.handle);
-    }
-
-    getBackBuffer(index: int): TextureHandle {
-        return Donut_GetBackBuffer(this.handle, index);
-    }
-
-    getCurrentBackBufferIndex(): int {
-        return Donut_GetCurrentBackBufferIndex(this.handle);
-    }
-
-    getBackBufferFormat(): Format {
-        return Donut_GetBackBufferFormat(this.handle);
-    }
-
-    getSwapChainColorSpace(): SwapChainColorSpace {
-        return Donut_GetSwapChainColorSpace(this.handle);
-    }
-
-    // A texture another D3D11 device writes and this one's shaders read (e.g. Media Foundation's video
-    // frames: Donut_TransferVideoFrame): a render target shared through an NT handle (on D3D12 with
-    // simultaneous access), resting at ShaderResource. D3D12 and D3D11 only (Windows): null with other
-    // APIs, and (after logging why) on failure.
-    createSharedTexture(width: int, height: int, format: Format, debugName: string): SharedTexture {
-        return new SharedTexture(Donut_CreateSharedTexture(this.handle, width, height, format, debugName));
-    }
-
-    // The LUID of the device's adapter into dst (Ref of a `let` int array of 2: low, high part), e.g. to
-    // make another API's device on the same GPU. 0 if the API doesn't give it.
-    getAdapterLuid(dst: Ref<int>): int {
-        return Donut_GetAdapterLuid(this.handle, dst);
-    }
-
-    // Asks for another color space of the back buffers, from the next frame on (as a resize: back
-    // buffer resizing callbacks run). 0 (nothing changes) if the swap chain can't present it.
-    setSwapChainColorSpace(colorSpace: SwapChainColorSpace): boolean {
-        return Donut_SetSwapChainColorSpace(this.handle, colorSpace) != 0;
-    }
-
-    // Changes the back buffers' format (RGBA8_UNORM, SRGBA8_UNORM, R10G10B10A2_UNORM or RGBA16_FLOAT; 8-bit
-    // ones BGRA on Vulkan) at once, as a resize; not within a frame. 0 where the swap chain can't have it.
-    setSwapChainFormat(format: Format): boolean {
-        return Donut_SetSwapChainFormat(this.handle, format) != 0;
-    }
-
-    // True if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
-    // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
-    isDisplayHdr(): boolean {
-        return Donut_IsDisplayHdr(this.handle) != 0;
     }
 
     // Shadows.
@@ -1709,30 +1687,6 @@ export class App {
         return Donut_CreateBloomPass(this.handle, framebuffer, view.handle);
     }
 
-    // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); a null handle when built
-    // without DONUT_WITH_DLSS or the device can't create it.
-    createDlss(): Dlss {
-        return new Dlss(Donut_CreateDlss(this.handle));
-    }
-
-    // DLSS 5, DLSS 3D-Guided Neural Rendering (loads nvngx_dlssnr.dll), over dlss's NGX instance; null
-    // unless built with DONUT_WITH_DLSS_NR, on Vulkan, where DLSS-NR is available.
-    createDlssNeuralRendering(dlss: Dlss): DlssNeuralRendering {
-        return new DlssNeuralRendering(Donut_CreateDlssNeuralRendering(this.handle, dlss.handle));
-    }
-
-    // DLSS's render size for an outputWidth x outputHeight image at a quality (0 performance, 1 balanced, 2 quality, 3 ultra
-    // performance, 4 ultra quality, 5 DLAA), as NGX recommends it: width | height << 16, or 0 without DLSS.
-    getDlssOptimalRenderSize(dlss: Dlss, outputWidth: int, outputHeight: int, quality: int): int {
-        return Donut_GetDlssOptimalRenderSize(this.handle, dlss.handle, outputWidth, outputHeight, quality);
-    }
-
-    // DLSS Ray Reconstruction (loads nvngx_dlssd.dll), over dlss's NGX instance; null unless built with DONUT_WITH_DLSS, on
-    // Vulkan or D3D12, where DLSS-RR is available.
-    createDlssRayReconstruction(dlss: Dlss): DlssRayReconstruction {
-        return new DlssRayReconstruction(Donut_CreateDlssRayReconstruction(this.handle, dlss.handle));
-    }
-
     // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
     createPixelReadbackPass(texture: TextureHandle): PixelReadbackPass {
         return new PixelReadbackPass(Donut_CreatePixelReadbackPass(this.handle, texture));
@@ -1760,6 +1714,52 @@ export class App {
     // An environment cube map (size x size, mipLevels mips) with depth, and its cube map view.
     createLightProbeCapture(size: int, mipLevels: int): LightProbeCapture {
         return new LightProbeCapture(Donut_CreateLightProbeCapture(this.handle, size, mipLevels));
+    }
+
+    // NVIDIA DLSS (loads nvngx_dlss.dll from the executable's directory); a null handle when built
+    // without DONUT_WITH_DLSS or the device can't create it.
+    createDlss(): Dlss {
+        return new Dlss(Donut_CreateDlss(this.handle));
+    }
+
+    // DLSS 5, DLSS 3D-Guided Neural Rendering (loads nvngx_dlssnr.dll), over dlss's NGX instance; null
+    // unless built with DONUT_WITH_DLSS_NR, on Vulkan, where DLSS-NR is available.
+    createDlssNeuralRendering(dlss: Dlss): DlssNeuralRendering {
+        return new DlssNeuralRendering(Donut_CreateDlssNeuralRendering(this.handle, dlss.handle));
+    }
+
+    // DLSS's render size for an outputWidth x outputHeight image at a quality (0 performance, 1 balanced, 2 quality, 3 ultra
+    // performance, 4 ultra quality, 5 DLAA), as NGX recommends it: width | height << 16, or 0 without DLSS.
+    getDlssOptimalRenderSize(dlss: Dlss, outputWidth: int, outputHeight: int, quality: int): int {
+        return Donut_GetDlssOptimalRenderSize(this.handle, dlss.handle, outputWidth, outputHeight, quality);
+    }
+
+    // DLSS Ray Reconstruction (loads nvngx_dlssd.dll), over dlss's NGX instance; null unless built with DONUT_WITH_DLSS, on
+    // Vulkan or D3D12, where DLSS-RR is available.
+    createDlssRayReconstruction(dlss: Dlss): DlssRayReconstruction {
+        return new DlssRayReconstruction(Donut_CreateDlssRayReconstruction(this.handle, dlss.handle));
+    }
+
+    // Donut's ImGui renderer as a pass drawn after the ones added before (on top) and seeing input
+    // before them; buildUI builds the UI every frame with the Donut_ImGui* functions (only valid in
+    // it). A null handle if the renderer can't be initialized.
+    @immortalizes("buildUI")
+    addImGuiPass(buildUI: VoidCallback): ImGuiPass {
+        retainedVoidCallbacks.push(buildUI);
+
+        return new ImGuiPass(Donut_AddImGuiPass(this.handle, buildUI));
+    }
+
+    // A C++ std::default_random_engine (std::mt19937 with MSVC's library), for data that samples make
+    // with one: the same seed gives the same numbers; a negative seed takes one from std::random_device
+    // (different every run).
+    createRandomEngine(seed: int): RandomEngine {
+        return new RandomEngine(Donut_CreateRandomEngine(this.handle, seed));
+    }
+
+    // Same, seeded with all 32 bits of seedBits (as unsigned; a negative one is no random seed here).
+    createRandomEngineFromBits(seedBits: int): RandomEngine {
+        return new RandomEngine(Donut_CreateRandomEngineFromBits(this.handle, seedBits));
     }
 
     // releaseResource for each of the handles, skipping the null ones (the resources a pass
@@ -1866,72 +1866,6 @@ export class Frame {
         return !this.handle;
     }
 
-    // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
-    // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
-    updateDynamicMesh(dynamicMesh: DynamicMeshHandle, positions: Ref<f32>, texCoords: Ref<f32>, vertexCount: int, indices: Ref<int>, indexCount: int): void {
-        Donut_UpdateDynamicMesh(this.handle, dynamicMesh, positions, texCoords, vertexCount, indices, indexCount);
-    }
-
-    // Valid only inside a render callback.
-    buildTopLevelAS(sceneAccelStructs: SceneAccelStructs): void {
-        Donut_BuildTopLevelAS(this.handle, sceneAccelStructs.handle);
-    }
-
-    // Valid only inside a render callback: refits the TLAS in place to the instances added since the
-    // last build (new transforms, same instance count) instead of building it anew. Needs an AllowUpdate
-    // TLAS; builds it instead the first time or when the instance count changed. 1 if it refitted.
-    updateTopLevelAS(sceneAccelStructs: SceneAccelStructs): int {
-        return Donut_UpdateTopLevelAS(this.handle, sceneAccelStructs.handle);
-    }
-
-    // These four are valid only inside a render callback.
-    clearGBuffer(gbufferTargets: GBufferTargets): void {
-        Donut_ClearGBuffer(this.handle, gbufferTargets.handle);
-    }
-
-    // Draws the mesh instance of a Donut_AddMeshNode node into the G-buffer, back faces culled.
-    renderMeshNodeToGBuffer(gbufferFillPass: GBufferFillPass, view: View, gbufferTargets: GBufferTargets, meshNode: Node): void {
-        Donut_RenderMeshNodeToGBuffer(this.handle, gbufferFillPass.handle, view.handle, gbufferTargets.handle, meshNode.handle);
-    }
-
-    // Draws the opaque meshes of a loaded scene into the G-buffer.
-    renderSceneToGBuffer(gbufferFillPass: GBufferFillPass, view: View, gbufferTargets: GBufferTargets, scene: Scene): void {
-        Donut_RenderSceneToGBuffer(this.handle, gbufferFillPass.handle, view.handle, gbufferTargets.handle, scene.handle);
-    }
-
-    // Lights the G-buffer with the scene graph's lights plus a top / bottom ambient term, into the
-    // targets' shaded color texture.
-    renderDeferredLighting(deferredLightingPass: DeferredLightingPass, view: View, gbufferTargets: GBufferTargets, sceneGraph: SceneGraph, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void {
-        Donut_RenderDeferredLighting(this.handle, deferredLightingPass.handle, view.handle, gbufferTargets.handle, sceneGraph.handle, topR, topG, topB, bottomR, bottomG, bottomB);
-    }
-
-    // Valid only inside a render callback: the transparent meshes of a loaded scene, forward-shaded
-    // over the targets' shaded color, depth-tested against the G-buffer depth.
-    renderSceneTransparentOverGBuffer(forwardShadingPass: ForwardShadingPass, view: View, gbufferTargets: GBufferTargets, scene: Scene, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void {
-        Donut_RenderSceneTransparentOverGBuffer(this.handle, forwardShadingPass.handle, view.handle, gbufferTargets.handle, scene.handle, topR, topG, topB, bottomR, bottomG, bottomB);
-    }
-
-    // These four are valid only inside a render callback.
-    // Depth to 0 (reverse Z), HDR color to black.
-    clearTemporalTargets(temporalTargets: TemporalTargets): void {
-        Donut_ClearTemporalTargets(this.handle, temporalTargets.handle);
-    }
-
-    // A loaded scene, opaque then transparent meshes, with a Donut_CreateForwardShadingPass pass, lit
-    // by the scene graph's lights plus a top / bottom ambient term.
-    renderSceneForward(forwardShadingPass: ForwardShadingPass, view: View, temporalTargets: TemporalTargets, scene: Scene, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void {
-        Donut_RenderSceneForward(this.handle, forwardShadingPass.handle, view.handle, temporalTargets.handle, scene.handle, topR, topG, topB, bottomR, bottomG, bottomB);
-    }
-
-    renderMotionVectors(temporalAntiAliasingPass: TemporalAntiAliasingPass, view: View, previousView: View): void {
-        Donut_RenderMotionVectors(this.handle, temporalAntiAliasingPass.handle, view.handle, previousView.handle);
-    }
-
-    // HDR color into the resolved color; feedbackIsValid 0 when there's no history yet.
-    temporalResolve(temporalAntiAliasingPass: TemporalAntiAliasingPass, view: View, feedbackIsValid: int): void {
-        Donut_TemporalResolve(this.handle, temporalAntiAliasingPass.handle, view.handle, feedbackIsValid);
-    }
-
     // The draw state's shading rate (after Donut_BeginDraw*): the per-draw rate, combined with the
     // primitives' by primitiveCombiner, then with the framebuffer's shading rate surface by
     // imageCombiner (Passthrough keeps the rate so far, Override takes the new one).
@@ -1943,22 +1877,6 @@ export class Frame {
 
     drawSetVariableRateShading(enabled: boolean, shadingRate: VariableShadingRate, primitiveCombiner: ShadingRateCombiner, imageCombiner: ShadingRateCombiner): void {
         Donut_DrawSetVariableRateShading(this.handle, enabled, shadingRate, primitiveCombiner, imageCombiner);
-    }
-
-    // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
-    // inside a render callback, Begin and End around the draws.
-    beginD3D12ShadingRateImage(shadingRateSurface: TextureHandle): void {
-        Donut_BeginD3D12ShadingRateImage(this.handle, shadingRateSurface);
-    }
-
-    endD3D12ShadingRateImage(shadingRateSurface: TextureHandle): void {
-        Donut_EndD3D12ShadingRateImage(this.handle, shadingRateSurface);
-    }
-
-    // Draws vertexCount vertices of the draw described (Donut_BeginDraw: pipeline, vertex buffers,
-    // viewport) with the program in place of the pipeline (SetProgram).
-    drawD3D12GenericProgram(genericProgram: D3D12GenericProgramHandle, vertexCount: int): void {
-        Donut_DrawD3D12GenericProgram(this.handle, genericProgram, vertexCount);
     }
 
     // Valid only inside a render callback.
@@ -1974,22 +1892,6 @@ export class Frame {
     // Launches groupsX amplification-shader groups of a meshlet pipeline, over the whole framebuffer.
     dispatchMesh(meshletPipeline: MeshletPipelineHandle, groupsX: int): void {
         Donut_DispatchMesh(this.handle, meshletPipeline, groupsX);
-    }
-
-    // Traces width x height rays with a shader table, with bindingSet as its global bindings.
-    dispatchRays(shaderTable: ShaderTable, bindingSet: BindingSet, width: int, height: int): void {
-        Donut_DispatchRays(this.handle, shaderTable.handle, bindingSet.handle, width, height);
-    }
-
-    // Same, with a descriptor table bound after the binding set.
-    dispatchRaysWithDescriptorTable(shaderTable: ShaderTable, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
-        Donut_DispatchRaysWithDescriptorTable(this.handle, shaderTable.handle, bindingSet.handle, descriptorTable, width, height);
-    }
-
-    // Same, with two binding sets before the descriptor table (a pipeline of two ordinary binding layouts
-    // and a bindless one).
-    dispatchRaysWithBindingSets(shaderTable: ShaderTable, bindingSet: BindingSet, secondBindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
-        Donut_DispatchRaysWithBindingSets(this.handle, shaderTable.handle, bindingSet.handle, secondBindingSet.handle, descriptorTable, width, height);
     }
 
     // The frame's open command list, for the command list functions (e.g. Donut_WriteBuffer). Don't
@@ -2183,6 +2085,104 @@ export class Frame {
     getHeight(): int {
         return Donut_GetFrameHeight(this.handle);
     }
+
+    // Valid only inside a render callback.
+    buildTopLevelAS(sceneAccelStructs: SceneAccelStructs): void {
+        Donut_BuildTopLevelAS(this.handle, sceneAccelStructs.handle);
+    }
+
+    // Valid only inside a render callback: refits the TLAS in place to the instances added since the
+    // last build (new transforms, same instance count) instead of building it anew. Needs an AllowUpdate
+    // TLAS; builds it instead the first time or when the instance count changed. 1 if it refitted.
+    updateTopLevelAS(sceneAccelStructs: SceneAccelStructs): int {
+        return Donut_UpdateTopLevelAS(this.handle, sceneAccelStructs.handle);
+    }
+
+    // Traces width x height rays with a shader table, with bindingSet as its global bindings.
+    dispatchRays(shaderTable: ShaderTable, bindingSet: BindingSet, width: int, height: int): void {
+        Donut_DispatchRays(this.handle, shaderTable.handle, bindingSet.handle, width, height);
+    }
+
+    // Same, with a descriptor table bound after the binding set.
+    dispatchRaysWithDescriptorTable(shaderTable: ShaderTable, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
+        Donut_DispatchRaysWithDescriptorTable(this.handle, shaderTable.handle, bindingSet.handle, descriptorTable, width, height);
+    }
+
+    // Same, with two binding sets before the descriptor table (a pipeline of two ordinary binding layouts
+    // and a bindless one).
+    dispatchRaysWithBindingSets(shaderTable: ShaderTable, bindingSet: BindingSet, secondBindingSet: BindingSet, descriptorTable: DescriptorTableHandle, width: int, height: int): void {
+        Donut_DispatchRaysWithBindingSets(this.handle, shaderTable.handle, bindingSet.handle, secondBindingSet.handle, descriptorTable, width, height);
+    }
+
+    // The same through D3D12 directly (D3D12 only), instead of the two functions above; valid only
+    // inside a render callback, Begin and End around the draws.
+    beginD3D12ShadingRateImage(shadingRateSurface: TextureHandle): void {
+        Donut_BeginD3D12ShadingRateImage(this.handle, shadingRateSurface);
+    }
+
+    endD3D12ShadingRateImage(shadingRateSurface: TextureHandle): void {
+        Donut_EndD3D12ShadingRateImage(this.handle, shadingRateSurface);
+    }
+
+    // Draws vertexCount vertices of the draw described (Donut_BeginDraw: pipeline, vertex buffers,
+    // viewport) with the program in place of the pipeline (SetProgram).
+    drawD3D12GenericProgram(genericProgram: D3D12GenericProgramHandle, vertexCount: int): void {
+        Donut_DrawD3D12GenericProgram(this.handle, genericProgram, vertexCount);
+    }
+
+    // Valid only inside a render callback: positions (3 x f32 per vertex), texCoords (2 x f32), int
+    // indices, as Ref of `let` array elements; rebuilds the mesh's BLAS.
+    updateDynamicMesh(dynamicMesh: DynamicMeshHandle, positions: Ref<f32>, texCoords: Ref<f32>, vertexCount: int, indices: Ref<int>, indexCount: int): void {
+        Donut_UpdateDynamicMesh(this.handle, dynamicMesh, positions, texCoords, vertexCount, indices, indexCount);
+    }
+
+    // These four are valid only inside a render callback.
+    clearGBuffer(gbufferTargets: GBufferTargets): void {
+        Donut_ClearGBuffer(this.handle, gbufferTargets.handle);
+    }
+
+    // Draws the mesh instance of a Donut_AddMeshNode node into the G-buffer, back faces culled.
+    renderMeshNodeToGBuffer(gbufferFillPass: GBufferFillPass, view: View, gbufferTargets: GBufferTargets, meshNode: Node): void {
+        Donut_RenderMeshNodeToGBuffer(this.handle, gbufferFillPass.handle, view.handle, gbufferTargets.handle, meshNode.handle);
+    }
+
+    // Draws the opaque meshes of a loaded scene into the G-buffer.
+    renderSceneToGBuffer(gbufferFillPass: GBufferFillPass, view: View, gbufferTargets: GBufferTargets, scene: Scene): void {
+        Donut_RenderSceneToGBuffer(this.handle, gbufferFillPass.handle, view.handle, gbufferTargets.handle, scene.handle);
+    }
+
+    // Lights the G-buffer with the scene graph's lights plus a top / bottom ambient term, into the
+    // targets' shaded color texture.
+    renderDeferredLighting(deferredLightingPass: DeferredLightingPass, view: View, gbufferTargets: GBufferTargets, sceneGraph: SceneGraph, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void {
+        Donut_RenderDeferredLighting(this.handle, deferredLightingPass.handle, view.handle, gbufferTargets.handle, sceneGraph.handle, topR, topG, topB, bottomR, bottomG, bottomB);
+    }
+
+    // Valid only inside a render callback: the transparent meshes of a loaded scene, forward-shaded
+    // over the targets' shaded color, depth-tested against the G-buffer depth.
+    renderSceneTransparentOverGBuffer(forwardShadingPass: ForwardShadingPass, view: View, gbufferTargets: GBufferTargets, scene: Scene, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void {
+        Donut_RenderSceneTransparentOverGBuffer(this.handle, forwardShadingPass.handle, view.handle, gbufferTargets.handle, scene.handle, topR, topG, topB, bottomR, bottomG, bottomB);
+    }
+
+    // These four are valid only inside a render callback.
+    // Depth to 0 (reverse Z), HDR color to black.
+    clearTemporalTargets(temporalTargets: TemporalTargets): void {
+        Donut_ClearTemporalTargets(this.handle, temporalTargets.handle);
+    }
+
+    // A loaded scene, opaque then transparent meshes, with a Donut_CreateForwardShadingPass pass, lit
+    // by the scene graph's lights plus a top / bottom ambient term.
+    renderSceneForward(forwardShadingPass: ForwardShadingPass, view: View, temporalTargets: TemporalTargets, scene: Scene, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number): void {
+        Donut_RenderSceneForward(this.handle, forwardShadingPass.handle, view.handle, temporalTargets.handle, scene.handle, topR, topG, topB, bottomR, bottomG, bottomB);
+    }
+
+    renderMotionVectors(temporalAntiAliasingPass: TemporalAntiAliasingPass, view: View, previousView: View): void {
+        Donut_RenderMotionVectors(this.handle, temporalAntiAliasingPass.handle, view.handle, previousView.handle);
+    }
+
+    // HDR color into the resolved color; feedbackIsValid 0 when there's no history yet.
+    temporalResolve(temporalAntiAliasingPass: TemporalAntiAliasingPass, view: View, feedbackIsValid: int): void {
+        Donut_TemporalResolve(this.handle, temporalAntiAliasingPass.handle, view.handle, feedbackIsValid);
+    }
 }
 
 @value
@@ -2196,6 +2196,18 @@ export class CommandList {
     // True if the function that returned it failed.
     isNull(): boolean {
         return !this.handle;
+    }
+
+    // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed formats)
+    // rowPitch bytes apart, copied during the call, into an open command list.
+    writeTextureLevel(texture: TextureHandle, mipLevel: int, data: Opaque, rowPitch: int): void {
+        Donut_WriteTextureLevel(this.handle, texture, mipLevel, data, rowPitch);
+    }
+
+    // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
+    // that): marks it as written by shaders, so that its next use waits for the writes.
+    setBufferWrittenByShaders(buffer: BufferHandle): void {
+        Donut_SetBufferWrittenByShaders(this.handle, buffer);
     }
 
     // The state a buffer must be in next (ResourceState bits), the barrier placed by
@@ -2215,12 +2227,6 @@ export class CommandList {
         Donut_UavBarrier(this.handle, texture);
     }
 
-    // Uploads a level of a texture from data, its rows (of 4 x 4 blocks for block-compressed formats)
-    // rowPitch bytes apart, copied during the call, into an open command list.
-    writeTextureLevel(texture: TextureHandle, mipLevel: int, data: Opaque, rowPitch: int): void {
-        Donut_WriteTextureLevel(this.handle, texture, mipLevel, data, rowPitch);
-    }
-
     // Copies width x height texels at (srcX, srcY) of a staging texture to (dstX, dstY) of level dstMip.
     copyStagingTextureRegion(dstTexture: TextureHandle, dstMip: int, dstX: int, dstY: int, stagingTexture: StagingTexture, srcX: int, srcY: int, width: int, height: int): void {
         Donut_CopyStagingTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, stagingTexture.handle, srcX, srcY, width, height);
@@ -2229,17 +2235,6 @@ export class CommandList {
     // Same, between levels of textures (the same texture's other levels too).
     copyTextureRegion(dstTexture: TextureHandle, dstMip: int, dstX: int, dstY: int, srcTexture: TextureHandle, srcMip: int, srcX: int, srcY: int, width: int, height: int): void {
         Donut_CopyTextureRegion(this.handle, dstTexture, dstMip, dstX, dstY, srcTexture, srcMip, srcX, srcY, width, height);
-    }
-
-    // Before a dispatch whose shaders write a buffer through its device address (NVRHI can't see
-    // that): marks it as written by shaders, so that its next use waits for the writes.
-    setBufferWrittenByShaders(buffer: BufferHandle): void {
-        Donut_SetBufferWrittenByShaders(this.handle, buffer);
-    }
-
-    // Builds such an array again, in place, from its inputs' current contents, into an open command list.
-    buildOpacityMicromap(opacityMicromap: OpacityMicromapHandle): void {
-        Donut_BuildOpacityMicromap(this.handle, opacityMicromap);
     }
 
     open(): void {
@@ -2320,6 +2315,20 @@ export class CommandList {
         Donut_EndTimerQuery(this.handle, timerQuery);
     }
 
+    // Resolves a multisampled texture's mip 0 / slice 0 into a single-sample one.
+    resolveTexture(dstTexture: TextureHandle, srcTexture: TextureHandle): void {
+        Donut_ResolveTexture(this.handle, dstTexture, srcTexture);
+    }
+
+    clearTextureUInt(texture: TextureHandle, value: int): void {
+        Donut_ClearTextureUInt(this.handle, texture, value);
+    }
+
+    // Builds such an array again, in place, from its inputs' current contents, into an open command list.
+    buildOpacityMicromap(opacityMicromap: OpacityMicromapHandle): void {
+        Donut_BuildOpacityMicromap(this.handle, opacityMicromap);
+    }
+
     // Launches the graph with one empty entry record, bindingSet and byteSize bytes of push constants
     // from data as its root arguments, set through computePipeline (one with the same root signature;
     // don't dispatch with it after the graph in the same command list). initializeBackingMemory
@@ -2336,15 +2345,6 @@ export class CommandList {
 
     clearSceneRenderTargets(sceneRenderTargets: SceneRenderTargets): void {
         Donut_ClearSceneRenderTargets(this.handle, sceneRenderTargets.handle);
-    }
-
-    // Resolves a multisampled texture's mip 0 / slice 0 into a single-sample one.
-    resolveTexture(dstTexture: TextureHandle, srcTexture: TextureHandle): void {
-        Donut_ResolveTexture(this.handle, dstTexture, srcTexture);
-    }
-
-    clearTextureUInt(texture: TextureHandle, value: int): void {
-        Donut_ClearTextureUInt(this.handle, texture, value);
     }
 
     clearShadowMap(shadowMap: ShadowMap): void {
@@ -2426,6 +2426,34 @@ export class CommandList {
         Donut_RenderBloom(this.handle, bloomPass, framebuffer, view.handle, sourceTexture, sigma, alpha);
     }
 
+    capturePixel(pixelReadbackPass: PixelReadbackPass, x: int, y: int): void {
+        Donut_CapturePixel(this.handle, pixelReadbackPass.handle, x, y);
+    }
+
+    dispatchMipMapGen(mipMapGenPass: MipMapGenPassHandle): void {
+        Donut_DispatchMipMapGen(this.handle, mipMapGenPass);
+    }
+
+    clearLightProbeCapture(lightProbeCapture: LightProbeCapture): void {
+        Donut_ClearLightProbeCapture(this.handle, lightProbeCapture.handle);
+    }
+
+    generateLightProbeCaptureMips(lightProbeProcessingPass: LightProbeProcessingPass, lightProbeCapture: LightProbeCapture): void {
+        Donut_GenerateLightProbeCaptureMips(this.handle, lightProbeProcessingPass.handle, lightProbeCapture.handle);
+    }
+
+    renderLightProbeDiffuse(lightProbeProcessingPass: LightProbeProcessingPass, lightProbeCapture: LightProbeCapture, lightProbeSet: LightProbeSet, index: int): void {
+        Donut_RenderLightProbeDiffuse(this.handle, lightProbeProcessingPass.handle, lightProbeCapture.handle, lightProbeSet.handle, index);
+    }
+
+    renderLightProbeSpecular(lightProbeProcessingPass: LightProbeProcessingPass, lightProbeCapture: LightProbeCapture, lightProbeSet: LightProbeSet, index: int, roughness: number, mipLevel: int): void {
+        Donut_RenderLightProbeSpecular(this.handle, lightProbeProcessingPass.handle, lightProbeCapture.handle, lightProbeSet.handle, index, roughness, mipLevel);
+    }
+
+    renderEnvironmentBrdf(lightProbeProcessingPass: LightProbeProcessingPass): void {
+        Donut_RenderEnvironmentBrdf(this.handle, lightProbeProcessingPass.handle);
+    }
+
     // HDR color into resolved color (instead of TAA), with the tone mapping pass's exposure. Planar views only.
     evaluateDlss(dlss: Dlss, view: View, sceneRenderTargets: SceneRenderTargets, toneMappingPass: ToneMappingPass): void {
         Donut_EvaluateDlss(this.handle, dlss.handle, view.handle, sceneRenderTargets.handle, toneMappingPass.handle);
@@ -2455,34 +2483,6 @@ export class CommandList {
     // motion vectors, the view's worldToView and unjittered viewToClip matrices (16 floats, row-major) and the jitter. reset: no history.
     evaluateDlssRayReconstruction(dlssRayReconstruction: DlssRayReconstruction, color: TextureHandle, output: TextureHandle, depth: TextureHandle, motionVectors: TextureHandle, diffuseAlbedo: TextureHandle, specularAlbedo: TextureHandle, normalRoughness: TextureHandle, specularMotionVectors: TextureHandle, worldToView: Ref<f32>, viewToClip: Ref<f32>, jitterX: number, jitterY: number, reset: int): void {
         Donut_EvaluateDlssRayReconstruction(this.handle, dlssRayReconstruction.handle, color, output, depth, motionVectors, diffuseAlbedo, specularAlbedo, normalRoughness, specularMotionVectors, worldToView, viewToClip, jitterX, jitterY, reset);
-    }
-
-    capturePixel(pixelReadbackPass: PixelReadbackPass, x: int, y: int): void {
-        Donut_CapturePixel(this.handle, pixelReadbackPass.handle, x, y);
-    }
-
-    dispatchMipMapGen(mipMapGenPass: MipMapGenPassHandle): void {
-        Donut_DispatchMipMapGen(this.handle, mipMapGenPass);
-    }
-
-    clearLightProbeCapture(lightProbeCapture: LightProbeCapture): void {
-        Donut_ClearLightProbeCapture(this.handle, lightProbeCapture.handle);
-    }
-
-    generateLightProbeCaptureMips(lightProbeProcessingPass: LightProbeProcessingPass, lightProbeCapture: LightProbeCapture): void {
-        Donut_GenerateLightProbeCaptureMips(this.handle, lightProbeProcessingPass.handle, lightProbeCapture.handle);
-    }
-
-    renderLightProbeDiffuse(lightProbeProcessingPass: LightProbeProcessingPass, lightProbeCapture: LightProbeCapture, lightProbeSet: LightProbeSet, index: int): void {
-        Donut_RenderLightProbeDiffuse(this.handle, lightProbeProcessingPass.handle, lightProbeCapture.handle, lightProbeSet.handle, index);
-    }
-
-    renderLightProbeSpecular(lightProbeProcessingPass: LightProbeProcessingPass, lightProbeCapture: LightProbeCapture, lightProbeSet: LightProbeSet, index: int, roughness: number, mipLevel: int): void {
-        Donut_RenderLightProbeSpecular(this.handle, lightProbeProcessingPass.handle, lightProbeCapture.handle, lightProbeSet.handle, index, roughness, mipLevel);
-    }
-
-    renderEnvironmentBrdf(lightProbeProcessingPass: LightProbeProcessingPass): void {
-        Donut_RenderEnvironmentBrdf(this.handle, lightProbeProcessingPass.handle);
     }
 }
 
@@ -2732,14 +2732,6 @@ export class BindingLayoutDesc {
         Donut_LayoutTextureUAV(this.handle, slot);
     }
 
-    layoutAccelStruct(slot: int): void {
-        Donut_LayoutAccelStruct(this.handle, slot);
-    }
-
-    layoutPartitionedAccelStruct(slot: int): void {
-        Donut_LayoutPartitionedAccelStruct(this.handle, slot);
-    }
-
     layoutTextureSRV(slot: int): void {
         Donut_LayoutTextureSRV(this.handle, slot);
     }
@@ -2817,6 +2809,14 @@ export class BindingLayoutDesc {
     // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
     layoutPushConstants(slot: int, byteSize: int): void {
         Donut_LayoutPushConstants(this.handle, slot, byteSize);
+    }
+
+    layoutAccelStruct(slot: int): void {
+        Donut_LayoutAccelStruct(this.handle, slot);
+    }
+
+    layoutPartitionedAccelStruct(slot: int): void {
+        Donut_LayoutPartitionedAccelStruct(this.handle, slot);
     }
 }
 
@@ -3518,10 +3518,6 @@ export class Light {
         return !this.handle;
     }
 
-    imGuiEditor(): boolean {
-        return Donut_ImGuiLightEditor(this.handle);
-    }
-
     fillConstants(dst: Opaque): void {
         Donut_FillLightConstants(this.handle, dst);
     }
@@ -3547,6 +3543,10 @@ export class Light {
     setShadowMap(shadowMap: ShadowMap | null): void {
         Donut_SetLightShadowMap(this.handle, shadowMap ? (shadowMap as ShadowMap).handle : null);
     }
+
+    imGuiEditor(): boolean {
+        return Donut_ImGuiLightEditor(this.handle);
+    }
 }
 
 @value
@@ -3560,11 +3560,6 @@ export class Material {
     // True if the function that returned it failed.
     isNull(): boolean {
         return !this.handle;
-    }
-
-    // Donut's material / light editor widgets, for a scene material / light; true if it changed.
-    imGuiEditor(allowDomainChanges: boolean): boolean {
-        return Donut_ImGuiMaterialEditor(this.handle, allowDomainChanges);
     }
 
     getID(): int {
@@ -3582,6 +3577,11 @@ export class Material {
 
     setDirty(dirty: boolean): void {
         Donut_SetMaterialDirty(this.handle, dirty);
+    }
+
+    // Donut's material / light editor widgets, for a scene material / light; true if it changed.
+    imGuiEditor(allowDomainChanges: boolean): boolean {
+        return Donut_ImGuiMaterialEditor(this.handle, allowDomainChanges);
     }
 }
 
@@ -3812,6 +3812,11 @@ export class View {
         return !this.handle;
     }
 
+    // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
+    setVariableRateShading(enabled: boolean): void {
+        Donut_SetViewVariableRateShading(this.handle, enabled);
+    }
+
     // Matrices: Ref(arr[0]) of `let` f32[16] arrays, row-major, row-vector convention (as the math
     // functions in the examples build them); viewport of width x height pixels.
     setPlanarView(viewMatrix: Ref<f32>, projMatrix: Ref<f32>, width: int, height: int): void {
@@ -3825,11 +3830,6 @@ export class View {
     // Viewport, matrices and derived state, e.g. to keep the previous frame's view.
     copyPlanarView(srcView: View): void {
         Donut_CopyPlanarView(this.handle, srcView.handle);
-    }
-
-    // enabled != 0: the view's draws use the framebuffer's shading rate surface alone; 0: full rate.
-    setVariableRateShading(enabled: boolean): void {
-        Donut_SetViewVariableRateShading(this.handle, enabled);
     }
 
     // Donut_SetPlanarView with a sub-pixel projection jitter, in pixels.
@@ -4866,6 +4866,15 @@ export class BinaryFile {
         return !this.handle;
     }
 
+    // The usage counts of an opacity micromap array by a geometry's triangles
+    // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
+    // (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
+    // (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
+    // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
+    countOpacityMicromapUsage(indexOffset: int, indexCount: int, indexFormat: Format, descOffset: int, descCount: int, dst: Ref<int>, maxEntries: int): int {
+        return Donut_CountOpacityMicromapUsage(this.handle, indexOffset, indexCount, indexFormat, descOffset, descCount, dst, maxEntries);
+    }
+
     getSize(): int {
         return Donut_GetBinaryFileSize(this.handle);
     }
@@ -4896,15 +4905,6 @@ export class BinaryFile {
     // open command list.
     writeTextureLevelFromBinaryFile(commandList: CommandList, texture: TextureHandle, mipLevel: int, fileOffset: int, rowPitch: int): void {
         Donut_WriteTextureLevelFromBinaryFile(this.handle, commandList.handle, texture, mipLevel, fileOffset, rowPitch);
-    }
-
-    // The usage counts of an opacity micromap array by a geometry's triangles
-    // (Donut_SetTriangleBlasGeometryOpacityMicromap) from the file's data: indexCount OMM indices
-    // (indexFormat R16_UINT or R32_UINT) at indexOffset, indexing descCount per-OMM descs at descOffset
-    // (as Donut_CreateOpacityMicromap takes them). Writes up to maxEntries entries of three ints (count,
-    // subdivision level, format) into dst (Ref of a `let` int array); returns how many there are.
-    countOpacityMicromapUsage(indexOffset: int, indexCount: int, indexFormat: Format, descOffset: int, descCount: int, dst: Ref<int>, maxEntries: int): int {
-        return Donut_CountOpacityMicromapUsage(this.handle, indexOffset, indexCount, indexFormat, descOffset, descCount, dst, maxEntries);
     }
 }
 
@@ -5273,12 +5273,6 @@ export class Program {
         Donut_SleepMilliseconds(milliseconds);
     }
 
-    // Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
-    // (path as given: absolute, or relative to the current directory). 1 on success.
-    static writeBinaryFile(path: string, data: Opaque, byteSize: int): int {
-        return Donut_WriteBinaryFile(path, data, byteSize);
-    }
-
     // The system's open (open != 0) or save file dialog; filters as "BMP files|*.bmp|All files|*.*".
     // The chosen path, or "" if cancelled; valid until the next call.
     static fileDialog(open: boolean, filters: string): string {
@@ -5288,6 +5282,12 @@ export class Program {
     // The directory of the executable (of donut_interop.dll under the JIT), '/'-separated.
     static getExecutableDirectory(): string {
         return Donut_GetExecutableDirectory();
+    }
+
+    // Writes byteSize bytes of data (Ref of a `let` array element, or a Donut data pointer) to a file
+    // (path as given: absolute, or relative to the current directory). 1 on success.
+    static writeBinaryFile(path: string, data: Opaque, byteSize: int): int {
+        return Donut_WriteBinaryFile(path, data, byteSize);
     }
 }
 

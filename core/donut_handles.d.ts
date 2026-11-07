@@ -1,6 +1,7 @@
 // Handle types: one class per kind of C++ object the interop functions (donut_interop.d.ts) take
-// or return. Declared, never defined: a handle is the C++ object's pointer, and its class only
-// gives it a type of its own, so tslang and tsc reject one kind of handle where another is
+// or return; the optional modules' files (core/interop/<module>.d.ts) declare their objects' with
+// their functions. Declared, never defined: a handle is the C++ object's pointer, and its class
+// only gives it a type of its own, so tslang and tsc reject one kind of handle where another is
 // expected. The private brand member, named differently in each class, is what makes two classes
 // incompatible; it's an index (a pointer-sized integer) because tslang can't compile a void member here.
 //
@@ -10,7 +11,7 @@
 // header and frees it a second time.
 //
 // tools/check_interop_types.py maps each C++ type to its class (HANDLES there) and checks every
-// declaration in donut_interop.d.ts against its C++ definition.
+// declaration donut_interop.d.ts references against its C++ definition.
 //
 // Handles to nvrhi resources extend ResourceHandle (Donut_ReleaseResource takes any of them);
 // handles to objects App::OwnObject keeps extend ObjectHandle (Donut_ReleaseObject).
@@ -95,20 +96,9 @@
 @cpp declare class JsonDocumentHandle extends ObjectHandle { private readonly __jsonDocument: index; }
 @cpp declare class ImGuiPassHandle { private readonly __imguiPass: index; }
 @cpp declare class ImGuiFontHandle { private readonly __imguiFont: index; }
-@cpp declare class VideoPlayerHandle { private readonly __videoPlayer: index; }
-@cpp declare class SdkMeshHandle { private readonly __sdkMesh: index; }
-@cpp declare class MeshletModelHandle { private readonly __meshletModel: index; }
-@cpp declare class ObjModelHandle { private readonly __objModel: index; }
-@cpp declare class PbrtSceneHandle { private readonly __pbrtScene: index; }
-@cpp declare class RtxcrSceneHandle { private readonly __rtxcrScene: index; }
-@cpp declare class RtxcrNrdHandle { private readonly __rtxcrNrd: index; }
-@cpp declare class RtxmgDemoHandle { private readonly __rtxmgDemo: index; }
-@cpp declare class RtxptRendererHandle { private readonly __rtxptRenderer: index; }
 @cpp declare class GltfModelHandle extends ObjectHandle { private readonly __gltfModel: index; }
 @cpp declare class GltfMeshHandle extends ObjectHandle { private readonly __gltfMesh: index; }
 @cpp declare class BinaryFileHandle extends ObjectHandle { private readonly __binaryFile: index; }
-@cpp declare class TranscodedTextureHandle { private readonly __transcodedTexture: index; }
-@cpp declare class FbcTextureHandle { private readonly __fbcTexture: index; }
 @cpp declare class AsyncComputeLoopHandle extends ObjectHandle { private readonly __asyncComputeLoop: index; }
 @cpp declare class TileMappingsHandle { private readonly __tileMappings: index; }
 @cpp declare class TextureHeapHandle extends ObjectHandle { private readonly __textureHeap: index; }
@@ -121,10 +111,6 @@
 @cpp declare class PushDescriptorPipelineHandle extends ObjectHandle { private readonly __pushDescriptorPipeline: index; }
 @cpp declare class DescriptorBufferHandle extends ObjectHandle { private readonly __descriptorBuffer: index; }
 @cpp declare class DescriptorBufferPipelineHandle extends ObjectHandle { private readonly __descriptorBufferPipeline: index; }
-@cpp declare class PagedImageSetHandle extends ObjectHandle { private readonly __pagedImageSet: index; }
-@cpp declare class OmmBakerHandle extends ObjectHandle { private readonly __ommBaker: index; }
-@cpp declare class PtlasHandle extends ObjectHandle { private readonly __ptlas: index; }
-@cpp declare class ClasHandle extends ObjectHandle { private readonly __clas: index; }
 @cpp declare class OcclusionPredicationHandle extends ObjectHandle { private readonly __occlusionPredication: index; }
 @cpp declare class PredicationBufferHandle extends ObjectHandle { private readonly __predicationBuffer: index; }
 @cpp declare class MeshPipelineStatisticsHandle extends ObjectHandle { private readonly __meshPipelineStatistics: index; }
