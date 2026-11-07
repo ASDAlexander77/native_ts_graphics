@@ -74,6 +74,10 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # NVIDIA's Vulkan driver frees, with a ray tracing pipeline's callbacks, a block it didn't allocate
 # through them (raytracing_ao_nri after a few resizes), whose "header" the allocator read: it aborted.
 # Patched to allocate, copy and free, and to keep the blocks it handed out, ignoring others.
+# Its Vulkan backend needs Vulkan 1.3's dynamic rendering, synchronization2 and extended dynamic state, which
+# Vulkan 1.1 drivers (Samsung Galaxy S21's Mali-G78) lack: patched to take Vulkan 1.1 with the 1.2 features as
+# extensions, render passes, vkCmdPipelineBarrier/vkQueueSubmit and static viewport counts and vertex strides
+# (VertexStreamDesc::stride) instead; NRI_VK_LEGACY=1 runs a newer GPU that way (the S21's extensions only).
 # Its window is always shown: patched with SampleBase::m_HiddenWindow, which -test sets (headless runs).
 # The patch step resets both checkouts first, so the patches always apply to clean files.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
@@ -131,6 +135,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-vk-ray-tracing-invocation-reorder.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-vulkan-1.1.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

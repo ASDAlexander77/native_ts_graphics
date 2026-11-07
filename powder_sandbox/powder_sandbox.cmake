@@ -11,6 +11,8 @@ donut_compile_shaders(
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/powder_sandbox/shaders/powder_sandbox.hlsl
     DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/dxil
     SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/powder_sandbox/spirv
+    # SPIR-V 1.4: Vulkan 1.1 drivers (Samsung Galaxy S21's Mali-G78) take nothing newer
+    VULKAN_VERSION 1.1spirv1.4
 )
 # Its media (the levels) is copied to the binaries' media/powder_sandbox/, with the shared media.
 add_custom_command(TARGET copy_media POST_BUILD
@@ -124,5 +126,5 @@ add_tslang_android_release(powder_sandbox_nri
     RES powder_sandbox/android/res
     ICON @mipmap/ic_launcher
     CATEGORY game
-    VULKAN_VERSION 0x403000
+    VULKAN_VERSION 0x401000
     TARGET_SDK 36)

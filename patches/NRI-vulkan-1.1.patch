@@ -1,0 +1,1261 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e4da6b8..82746d1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1028,7 +1028,7 @@ if(NRI_ENABLE_SHADERMAKE)
+         list(APPEND SHADERMAKE_COMMANDS COMMAND ${SHADERMAKE_PATH} -p DXIL --compiler "${SHADERMAKE_DXC_PATH}" ${SHADERMAKE_GENERAL_ARGS})
+     endif()
+     if(NRI_ENABLE_VK_SUPPORT)
+-        list(APPEND SHADERMAKE_COMMANDS COMMAND ${SHADERMAKE_PATH} -p SPIRV --compiler "${SHADERMAKE_DXC_VK_PATH}" ${SHADERMAKE_GENERAL_ARGS})
++        list(APPEND SHADERMAKE_COMMANDS COMMAND ${SHADERMAKE_PATH} -p SPIRV --compiler "${SHADERMAKE_DXC_VK_PATH}" --vulkanVersion 1.1spirv1.4 ${SHADERMAKE_GENERAL_ARGS}) # Vulkan 1.1 drivers (Mali-G78)
+     endif()
+     list(APPEND SHADERMAKE_COMMANDS "") # fix for "The system cannot find the batch label specified - VCEnd"
+ 
+diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
+index 8badb81..8e5da6b 100644
+--- a/Include/NRIDescs.h
++++ b/Include/NRIDescs.h
+@@ -1108,6 +1108,7 @@ NriStruct(VertexAttributeDesc) {
+ NriStruct(VertexStreamDesc) {
+     uint16_t bindingSlot;
+     Nri(VertexStreamStepRate) stepRate;
++    uint32_t stride; // VK without "extendedDynamicState" (Vulkan 1.1 drivers): the stride, fixed at pipeline creation (ignored otherwise: "VertexBufferDesc::stride")
+ };
+ 
+ NriStruct(VertexInputDesc) {
+diff --git a/Source/Shared/ImguiInterface.hpp b/Source/Shared/ImguiInterface.hpp
+index 726d5eb..d046660 100644
+--- a/Source/Shared/ImguiInterface.hpp
++++ b/Source/Shared/ImguiInterface.hpp
+@@ -177,58 +177,79 @@ const uint8_t g_Imgui_fs_dxil[] = {
+ #if NRI_ENABLE_VK_SUPPORT
+ 
+ const uint8_t g_Imgui_vs_spirv[] = {
+-    3,2,35,7,0,6,1,0,0,0,14,0,64,0,0,0,0,0,0,0,17,0,2,0,1,0,0,0,11,0,6,0,1,0,0,0,71,76,83,76,46,115,116,100,46,52,53,48,0,0,0,0,14,0,
+-    3,0,0,0,0,0,1,0,0,0,15,0,12,0,0,0,0,0,2,0,0,0,109,97,105,110,0,0,0,0,3,0,0,0,4,0,0,0,5,0,0,0,6,0,0,0,7,0,0,0,8,0,0,0,9,0,0,0,3,0,
+-    3,0,5,0,0,0,138,2,0,0,5,0,11,0,10,0,0,0,116,121,112,101,46,80,117,115,104,67,111,110,115,116,97,110,116,46,73,109,103,117,105,67,
+-    111,110,115,116,97,110,116,115,0,0,0,0,6,0,7,0,10,0,0,0,0,0,0,0,105,110,118,68,105,115,112,108,97,121,87,105,100,116,104,0,6,0,8,
+-    0,10,0,0,0,1,0,0,0,105,110,118,68,105,115,112,108,97,121,72,101,105,103,104,116,0,0,0,0,6,0,6,0,10,0,0,0,2,0,0,0,104,100,114,83,99,
+-    97,108,101,0,0,0,0,6,0,5,0,10,0,0,0,3,0,0,0,103,97,109,109,97,0,0,0,5,0,6,0,9,0,0,0,103,95,80,117,115,104,67,111,110,115,116,97,110,
+-    116,115,0,5,0,7,0,3,0,0,0,105,110,46,118,97,114,46,80,79,83,73,84,73,79,78,48,0,0,0,0,5,0,7,0,4,0,0,0,105,110,46,118,97,114,46,84,
+-    69,88,67,79,79,82,68,48,0,0,0,0,5,0,6,0,5,0,0,0,105,110,46,118,97,114,46,67,79,76,79,82,48,0,0,0,5,0,7,0,7,0,0,0,111,117,116,46,118,
+-    97,114,46,84,69,88,67,79,79,82,68,48,0,0,0,5,0,6,0,8,0,0,0,111,117,116,46,118,97,114,46,67,79,76,79,82,48,0,0,5,0,4,0,2,0,0,0,109,
+-    97,105,110,0,0,0,0,71,0,4,0,6,0,0,0,11,0,0,0,0,0,0,0,71,0,4,0,3,0,0,0,30,0,0,0,0,0,0,0,71,0,4,0,4,0,0,0,30,0,0,0,1,0,0,0,71,0,4,0,
+-    5,0,0,0,30,0,0,0,2,0,0,0,71,0,4,0,7,0,0,0,30,0,0,0,0,0,0,0,71,0,4,0,8,0,0,0,30,0,0,0,1,0,0,0,72,0,5,0,10,0,0,0,0,0,0,0,35,0,0,0,0,
+-    0,0,0,72,0,5,0,10,0,0,0,1,0,0,0,35,0,0,0,4,0,0,0,72,0,5,0,10,0,0,0,2,0,0,0,35,0,0,0,8,0,0,0,72,0,5,0,10,0,0,0,3,0,0,0,35,0,0,0,12,
+-    0,0,0,71,0,3,0,10,0,0,0,2,0,0,0,21,0,4,0,11,0,0,0,32,0,0,0,1,0,0,0,43,0,4,0,11,0,0,0,12,0,0,0,0,0,0,0,43,0,4,0,11,0,0,0,13,0,0,0,
+-    1,0,0,0,22,0,3,0,14,0,0,0,32,0,0,0,43,0,4,0,14,0,0,0,15,0,0,0,0,0,0,64,43,0,4,0,14,0,0,0,16,0,0,0,0,0,0,192,23,0,4,0,17,0,0,0,14,
+-    0,0,0,2,0,0,0,44,0,5,0,17,0,0,0,18,0,0,0,15,0,0,0,16,0,0,0,43,0,4,0,14,0,0,0,19,0,0,0,0,0,128,191,43,0,4,0,14,0,0,0,20,0,0,0,0,0,
+-    128,63,44,0,5,0,17,0,0,0,21,0,0,0,19,0,0,0,20,0,0,0,43,0,4,0,11,0,0,0,22,0,0,0,2,0,0,0,43,0,4,0,14,0,0,0,23,0,0,0,0,0,0,0,23,0,4,
+-    0,24,0,0,0,14,0,0,0,3,0,0,0,44,0,6,0,24,0,0,0,25,0,0,0,23,0,0,0,23,0,0,0,23,0,0,0,44,0,6,0,24,0,0,0,26,0,0,0,20,0,0,0,20,0,0,0,20,
+-    0,0,0,43,0,4,0,11,0,0,0,27,0,0,0,3,0,0,0,30,0,6,0,10,0,0,0,14,0,0,0,14,0,0,0,14,0,0,0,14,0,0,0,32,0,4,0,28,0,0,0,9,0,0,0,10,0,0,0,
+-    32,0,4,0,29,0,0,0,1,0,0,0,17,0,0,0,23,0,4,0,30,0,0,0,14,0,0,0,4,0,0,0,32,0,4,0,31,0,0,0,1,0,0,0,30,0,0,0,32,0,4,0,32,0,0,0,3,0,0,
+-    0,30,0,0,0,32,0,4,0,33,0,0,0,3,0,0,0,17,0,0,0,19,0,2,0,34,0,0,0,33,0,3,0,35,0,0,0,34,0,0,0,32,0,4,0,36,0,0,0,9,0,0,0,14,0,0,0,59,
+-    0,4,0,28,0,0,0,9,0,0,0,9,0,0,0,59,0,4,0,29,0,0,0,3,0,0,0,1,0,0,0,59,0,4,0,29,0,0,0,4,0,0,0,1,0,0,0,59,0,4,0,31,0,0,0,5,0,0,0,1,0,
+-    0,0,59,0,4,0,32,0,0,0,6,0,0,0,3,0,0,0,59,0,4,0,33,0,0,0,7,0,0,0,3,0,0,0,59,0,4,0,32,0,0,0,8,0,0,0,3,0,0,0,46,0,3,0,30,0,0,0,37,0,
+-    0,0,54,0,5,0,34,0,0,0,2,0,0,0,0,0,0,0,35,0,0,0,248,0,2,0,38,0,0,0,61,0,4,0,17,0,0,0,39,0,0,0,3,0,0,0,61,0,4,0,17,0,0,0,40,0,0,0,4,
+-    0,0,0,61,0,4,0,30,0,0,0,41,0,0,0,5,0,0,0,65,0,5,0,36,0,0,0,42,0,0,0,9,0,0,0,12,0,0,0,61,0,4,0,14,0,0,0,43,0,0,0,42,0,0,0,65,0,5,0,
+-    36,0,0,0,44,0,0,0,9,0,0,0,13,0,0,0,61,0,4,0,14,0,0,0,45,0,0,0,44,0,0,0,80,0,5,0,17,0,0,0,46,0,0,0,43,0,0,0,45,0,0,0,133,0,5,0,17,
+-    0,0,0,47,0,0,0,39,0,0,0,46,0,0,0,133,0,5,0,17,0,0,0,48,0,0,0,47,0,0,0,18,0,0,0,129,0,5,0,17,0,0,0,49,0,0,0,48,0,0,0,21,0,0,0,79,0,
+-    8,0,24,0,0,0,50,0,0,0,41,0,0,0,41,0,0,0,0,0,0,0,1,0,0,0,2,0,0,0,12,0,8,0,24,0,0,0,51,0,0,0,1,0,0,0,43,0,0,0,50,0,0,0,25,0,0,0,26,
+-    0,0,0,65,0,5,0,36,0,0,0,52,0,0,0,9,0,0,0,27,0,0,0,61,0,4,0,14,0,0,0,53,0,0,0,52,0,0,0,80,0,6,0,24,0,0,0,54,0,0,0,53,0,0,0,53,0,0,
+-    0,53,0,0,0,12,0,7,0,24,0,0,0,55,0,0,0,1,0,0,0,26,0,0,0,51,0,0,0,54,0,0,0,65,0,5,0,36,0,0,0,56,0,0,0,9,0,0,0,22,0,0,0,61,0,4,0,14,
+-    0,0,0,57,0,0,0,56,0,0,0,79,0,8,0,24,0,0,0,58,0,0,0,55,0,0,0,37,0,0,0,0,0,0,0,1,0,0,0,2,0,0,0,142,0,5,0,24,0,0,0,59,0,0,0,58,0,0,0,
+-    57,0,0,0,79,0,9,0,30,0,0,0,60,0,0,0,41,0,0,0,59,0,0,0,4,0,0,0,5,0,0,0,6,0,0,0,3,0,0,0,81,0,5,0,14,0,0,0,61,0,0,0,49,0,0,0,0,0,0,0,
+-    81,0,5,0,14,0,0,0,62,0,0,0,49,0,0,0,1,0,0,0,80,0,7,0,30,0,0,0,63,0,0,0,61,0,0,0,62,0,0,0,23,0,0,0,20,0,0,0,62,0,3,0,6,0,0,0,63,0,
+-    0,0,62,0,3,0,7,0,0,0,40,0,0,0,62,0,3,0,8,0,0,0,60,0,0,0,253,0,1,0,56,0,1,0,
++    3,2,35,7,0,4,1,0,0,0,14,0,64,0,0,0,0,0,0,0,17,0,2,0,1,0,0,0,11,0,6,0,1,0,0,0,71,76,83,76,
++    46,115,116,100,46,52,53,48,0,0,0,0,14,0,3,0,0,0,0,0,1,0,0,0,15,0,12,0,0,0,0,0,2,0,0,0,109,97,
++    105,110,0,0,0,0,3,0,0,0,4,0,0,0,5,0,0,0,6,0,0,0,7,0,0,0,8,0,0,0,9,0,0,0,3,0,3,0,5,0,0,0,
++    138,2,0,0,5,0,11,0,10,0,0,0,116,121,112,101,46,80,117,115,104,67,111,110,115,116,97,110,116,46,73,
++    109,103,117,105,67,111,110,115,116,97,110,116,115,0,0,0,0,6,0,7,0,10,0,0,0,0,0,0,0,105,110,118,68,
++    105,115,112,108,97,121,87,105,100,116,104,0,6,0,8,0,10,0,0,0,1,0,0,0,105,110,118,68,105,115,112,108,
++    97,121,72,101,105,103,104,116,0,0,0,0,6,0,6,0,10,0,0,0,2,0,0,0,104,100,114,83,99,97,108,101,0,0,
++    0,0,6,0,5,0,10,0,0,0,3,0,0,0,103,97,109,109,97,0,0,0,5,0,6,0,9,0,0,0,103,95,80,117,115,104,67,
++    111,110,115,116,97,110,116,115,0,5,0,7,0,3,0,0,0,105,110,46,118,97,114,46,80,79,83,73,84,73,79,78,
++    48,0,0,0,0,5,0,7,0,4,0,0,0,105,110,46,118,97,114,46,84,69,88,67,79,79,82,68,48,0,0,0,0,5,0,6,0,
++    5,0,0,0,105,110,46,118,97,114,46,67,79,76,79,82,48,0,0,0,5,0,7,0,7,0,0,0,111,117,116,46,118,97,
++    114,46,84,69,88,67,79,79,82,68,48,0,0,0,5,0,6,0,8,0,0,0,111,117,116,46,118,97,114,46,67,79,76,79,
++    82,48,0,0,5,0,4,0,2,0,0,0,109,97,105,110,0,0,0,0,71,0,4,0,6,0,0,0,11,0,0,0,0,0,0,0,71,0,4,0,
++    3,0,0,0,30,0,0,0,0,0,0,0,71,0,4,0,4,0,0,0,30,0,0,0,1,0,0,0,71,0,4,0,5,0,0,0,30,0,0,0,2,0,
++    0,0,71,0,4,0,7,0,0,0,30,0,0,0,0,0,0,0,71,0,4,0,8,0,0,0,30,0,0,0,1,0,0,0,72,0,5,0,10,0,0,0,
++    0,0,0,0,35,0,0,0,0,0,0,0,72,0,5,0,10,0,0,0,1,0,0,0,35,0,0,0,4,0,0,0,72,0,5,0,10,0,0,0,2,0,
++    0,0,35,0,0,0,8,0,0,0,72,0,5,0,10,0,0,0,3,0,0,0,35,0,0,0,12,0,0,0,71,0,3,0,10,0,0,0,2,0,0,
++    0,21,0,4,0,11,0,0,0,32,0,0,0,1,0,0,0,43,0,4,0,11,0,0,0,12,0,0,0,0,0,0,0,43,0,4,0,11,0,0,0,
++    13,0,0,0,1,0,0,0,22,0,3,0,14,0,0,0,32,0,0,0,43,0,4,0,14,0,0,0,15,0,0,0,0,0,0,64,43,0,4,0,
++    14,0,0,0,16,0,0,0,0,0,0,192,23,0,4,0,17,0,0,0,14,0,0,0,2,0,0,0,44,0,5,0,17,0,0,0,18,0,0,0,
++    15,0,0,0,16,0,0,0,43,0,4,0,14,0,0,0,19,0,0,0,0,0,128,191,43,0,4,0,14,0,0,0,20,0,0,0,0,0,128,
++    63,44,0,5,0,17,0,0,0,21,0,0,0,19,0,0,0,20,0,0,0,43,0,4,0,11,0,0,0,22,0,0,0,2,0,0,0,43,0,4,
++    0,14,0,0,0,23,0,0,0,0,0,0,0,23,0,4,0,24,0,0,0,14,0,0,0,3,0,0,0,44,0,6,0,24,0,0,0,25,0,0,0,
++    23,0,0,0,23,0,0,0,23,0,0,0,44,0,6,0,24,0,0,0,26,0,0,0,20,0,0,0,20,0,0,0,20,0,0,0,43,0,4,0,
++    11,0,0,0,27,0,0,0,3,0,0,0,30,0,6,0,10,0,0,0,14,0,0,0,14,0,0,0,14,0,0,0,14,0,0,0,32,0,4,0,
++    28,0,0,0,9,0,0,0,10,0,0,0,32,0,4,0,29,0,0,0,1,0,0,0,17,0,0,0,23,0,4,0,30,0,0,0,14,0,0,0,4,
++    0,0,0,32,0,4,0,31,0,0,0,1,0,0,0,30,0,0,0,32,0,4,0,32,0,0,0,3,0,0,0,30,0,0,0,32,0,4,0,33,0,
++    0,0,3,0,0,0,17,0,0,0,19,0,2,0,34,0,0,0,33,0,3,0,35,0,0,0,34,0,0,0,32,0,4,0,36,0,0,0,9,0,0,
++    0,14,0,0,0,59,0,4,0,28,0,0,0,9,0,0,0,9,0,0,0,59,0,4,0,29,0,0,0,3,0,0,0,1,0,0,0,59,0,4,0,
++    29,0,0,0,4,0,0,0,1,0,0,0,59,0,4,0,31,0,0,0,5,0,0,0,1,0,0,0,59,0,4,0,32,0,0,0,6,0,0,0,3,0,
++    0,0,59,0,4,0,33,0,0,0,7,0,0,0,3,0,0,0,59,0,4,0,32,0,0,0,8,0,0,0,3,0,0,0,46,0,3,0,30,0,0,0,
++    37,0,0,0,54,0,5,0,34,0,0,0,2,0,0,0,0,0,0,0,35,0,0,0,248,0,2,0,38,0,0,0,61,0,4,0,17,0,0,0,
++    39,0,0,0,3,0,0,0,61,0,4,0,17,0,0,0,40,0,0,0,4,0,0,0,61,0,4,0,30,0,0,0,41,0,0,0,5,0,0,0,65,
++    0,5,0,36,0,0,0,42,0,0,0,9,0,0,0,12,0,0,0,61,0,4,0,14,0,0,0,43,0,0,0,42,0,0,0,65,0,5,0,36,0,
++    0,0,44,0,0,0,9,0,0,0,13,0,0,0,61,0,4,0,14,0,0,0,45,0,0,0,44,0,0,0,80,0,5,0,17,0,0,0,46,0,0,
++    0,43,0,0,0,45,0,0,0,133,0,5,0,17,0,0,0,47,0,0,0,39,0,0,0,46,0,0,0,133,0,5,0,17,0,0,0,48,0,0,
++    0,47,0,0,0,18,0,0,0,129,0,5,0,17,0,0,0,49,0,0,0,48,0,0,0,21,0,0,0,79,0,8,0,24,0,0,0,50,0,0,
++    0,41,0,0,0,41,0,0,0,0,0,0,0,1,0,0,0,2,0,0,0,12,0,8,0,24,0,0,0,51,0,0,0,1,0,0,0,43,0,0,0,
++    50,0,0,0,25,0,0,0,26,0,0,0,65,0,5,0,36,0,0,0,52,0,0,0,9,0,0,0,27,0,0,0,61,0,4,0,14,0,0,0,
++    53,0,0,0,52,0,0,0,80,0,6,0,24,0,0,0,54,0,0,0,53,0,0,0,53,0,0,0,53,0,0,0,12,0,7,0,24,0,0,0,
++    55,0,0,0,1,0,0,0,26,0,0,0,51,0,0,0,54,0,0,0,65,0,5,0,36,0,0,0,56,0,0,0,9,0,0,0,22,0,0,0,61,
++    0,4,0,14,0,0,0,57,0,0,0,56,0,0,0,79,0,8,0,24,0,0,0,58,0,0,0,55,0,0,0,37,0,0,0,0,0,0,0,1,0,
++    0,0,2,0,0,0,142,0,5,0,24,0,0,0,59,0,0,0,58,0,0,0,57,0,0,0,79,0,9,0,30,0,0,0,60,0,0,0,41,0,
++    0,0,59,0,0,0,4,0,0,0,5,0,0,0,6,0,0,0,3,0,0,0,81,0,5,0,14,0,0,0,61,0,0,0,49,0,0,0,0,0,0,0,
++    81,0,5,0,14,0,0,0,62,0,0,0,49,0,0,0,1,0,0,0,80,0,7,0,30,0,0,0,63,0,0,0,61,0,0,0,62,0,0,0,
++    23,0,0,0,20,0,0,0,62,0,3,0,6,0,0,0,63,0,0,0,62,0,3,0,7,0,0,0,40,0,0,0,62,0,3,0,8,0,0,0,60,
++    0,0,0,253,0,1,0,56,0,1,0,
+ };
+ 
+ const uint8_t g_Imgui_fs_spirv[] = {
+-    3,2,35,7,0,6,1,0,0,0,14,0,28,0,0,0,0,0,0,0,17,0,2,0,1,0,0,0,14,0,3,0,0,0,0,0,1,0,0,0,15,0,10,0,4,0,0,0,1,0,0,0,109,97,105,110,0,0,
+-    0,0,2,0,0,0,3,0,0,0,4,0,0,0,5,0,0,0,6,0,0,0,16,0,3,0,1,0,0,0,7,0,0,0,3,0,3,0,5,0,0,0,138,2,0,0,5,0,6,0,7,0,0,0,116,121,112,101,46,
+-    115,97,109,112,108,101,114,0,0,0,0,5,0,6,0,5,0,0,0,103,76,105,110,101,97,114,67,108,97,109,112,0,0,0,0,5,0,6,0,8,0,0,0,116,121,112,
+-    101,46,50,100,46,105,109,97,103,101,0,0,0,5,0,3,0,6,0,0,0,116,101,120,0,5,0,7,0,2,0,0,0,105,110,46,118,97,114,46,84,69,88,67,79,79,
+-    82,68,48,0,0,0,0,5,0,6,0,3,0,0,0,105,110,46,118,97,114,46,67,79,76,79,82,48,0,0,0,5,0,7,0,4,0,0,0,111,117,116,46,118,97,114,46,83,
+-    86,95,84,97,114,103,101,116,48,0,0,5,0,4,0,1,0,0,0,109,97,105,110,0,0,0,0,5,0,7,0,9,0,0,0,116,121,112,101,46,115,97,109,112,108,101,
+-    100,46,105,109,97,103,101,0,0,71,0,4,0,2,0,0,0,30,0,0,0,0,0,0,0,71,0,4,0,3,0,0,0,30,0,0,0,1,0,0,0,71,0,4,0,4,0,0,0,30,0,0,0,0,0,0,
+-    0,71,0,4,0,5,0,0,0,34,0,0,0,0,0,0,0,71,0,4,0,5,0,0,0,33,0,0,0,1,0,0,0,71,0,4,0,6,0,0,0,34,0,0,0,1,0,0,0,71,0,4,0,6,0,0,0,33,0,0,0,
+-    0,0,0,0,26,0,2,0,7,0,0,0,32,0,4,0,10,0,0,0,0,0,0,0,7,0,0,0,22,0,3,0,11,0,0,0,32,0,0,0,25,0,9,0,8,0,0,0,11,0,0,0,1,0,0,0,2,0,0,0,0,
+-    0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,32,0,4,0,12,0,0,0,0,0,0,0,8,0,0,0,23,0,4,0,13,0,0,0,11,0,0,0,4,0,0,0,32,0,4,0,14,0,0,0,1,0,0,0,13,0,
+-    0,0,23,0,4,0,15,0,0,0,11,0,0,0,2,0,0,0,32,0,4,0,16,0,0,0,1,0,0,0,15,0,0,0,32,0,4,0,17,0,0,0,3,0,0,0,13,0,0,0,19,0,2,0,18,0,0,0,33,
+-    0,3,0,19,0,0,0,18,0,0,0,27,0,3,0,9,0,0,0,8,0,0,0,59,0,4,0,10,0,0,0,5,0,0,0,0,0,0,0,59,0,4,0,12,0,0,0,6,0,0,0,0,0,0,0,59,0,4,0,16,
+-    0,0,0,2,0,0,0,1,0,0,0,59,0,4,0,14,0,0,0,3,0,0,0,1,0,0,0,59,0,4,0,17,0,0,0,4,0,0,0,3,0,0,0,54,0,5,0,18,0,0,0,1,0,0,0,0,0,0,0,19,0,
+-    0,0,248,0,2,0,20,0,0,0,61,0,4,0,15,0,0,0,21,0,0,0,2,0,0,0,61,0,4,0,13,0,0,0,22,0,0,0,3,0,0,0,61,0,4,0,8,0,0,0,23,0,0,0,6,0,0,0,61,
+-    0,4,0,7,0,0,0,24,0,0,0,5,0,0,0,86,0,5,0,9,0,0,0,25,0,0,0,23,0,0,0,24,0,0,0,87,0,6,0,13,0,0,0,26,0,0,0,25,0,0,0,21,0,0,0,0,0,0,0,133,
+-    0,5,0,13,0,0,0,27,0,0,0,22,0,0,0,26,0,0,0,62,0,3,0,4,0,0,0,27,0,0,0,253,0,1,0,56,0,1,0,
++    3,2,35,7,0,4,1,0,0,0,14,0,28,0,0,0,0,0,0,0,17,0,2,0,1,0,0,0,14,0,3,0,0,0,0,0,1,0,0,0,15,0,
++    10,0,4,0,0,0,1,0,0,0,109,97,105,110,0,0,0,0,2,0,0,0,3,0,0,0,4,0,0,0,5,0,0,0,6,0,0,0,16,0,3,
++    0,1,0,0,0,7,0,0,0,3,0,3,0,5,0,0,0,138,2,0,0,5,0,6,0,7,0,0,0,116,121,112,101,46,115,97,109,112,
++    108,101,114,0,0,0,0,5,0,6,0,5,0,0,0,103,76,105,110,101,97,114,67,108,97,109,112,0,0,0,0,5,0,6,0,
++    8,0,0,0,116,121,112,101,46,50,100,46,105,109,97,103,101,0,0,0,5,0,3,0,6,0,0,0,116,101,120,0,5,0,
++    7,0,2,0,0,0,105,110,46,118,97,114,46,84,69,88,67,79,79,82,68,48,0,0,0,0,5,0,6,0,3,0,0,0,105,110,
++    46,118,97,114,46,67,79,76,79,82,48,0,0,0,5,0,7,0,4,0,0,0,111,117,116,46,118,97,114,46,83,86,95,84,
++    97,114,103,101,116,48,0,0,5,0,4,0,1,0,0,0,109,97,105,110,0,0,0,0,5,0,7,0,9,0,0,0,116,121,112,
++    101,46,115,97,109,112,108,101,100,46,105,109,97,103,101,0,0,71,0,4,0,2,0,0,0,30,0,0,0,0,0,0,0,71,
++    0,4,0,3,0,0,0,30,0,0,0,1,0,0,0,71,0,4,0,4,0,0,0,30,0,0,0,0,0,0,0,71,0,4,0,5,0,0,0,34,0,0,
++    0,0,0,0,0,71,0,4,0,5,0,0,0,33,0,0,0,1,0,0,0,71,0,4,0,6,0,0,0,34,0,0,0,1,0,0,0,71,0,4,0,6,
++    0,0,0,33,0,0,0,0,0,0,0,26,0,2,0,7,0,0,0,32,0,4,0,10,0,0,0,0,0,0,0,7,0,0,0,22,0,3,0,11,0,0,
++    0,32,0,0,0,25,0,9,0,8,0,0,0,11,0,0,0,1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,32,
++    0,4,0,12,0,0,0,0,0,0,0,8,0,0,0,23,0,4,0,13,0,0,0,11,0,0,0,4,0,0,0,32,0,4,0,14,0,0,0,1,0,0,
++    0,13,0,0,0,23,0,4,0,15,0,0,0,11,0,0,0,2,0,0,0,32,0,4,0,16,0,0,0,1,0,0,0,15,0,0,0,32,0,4,0,
++    17,0,0,0,3,0,0,0,13,0,0,0,19,0,2,0,18,0,0,0,33,0,3,0,19,0,0,0,18,0,0,0,27,0,3,0,9,0,0,0,8,
++    0,0,0,59,0,4,0,10,0,0,0,5,0,0,0,0,0,0,0,59,0,4,0,12,0,0,0,6,0,0,0,0,0,0,0,59,0,4,0,16,0,0,
++    0,2,0,0,0,1,0,0,0,59,0,4,0,14,0,0,0,3,0,0,0,1,0,0,0,59,0,4,0,17,0,0,0,4,0,0,0,3,0,0,0,54,
++    0,5,0,18,0,0,0,1,0,0,0,0,0,0,0,19,0,0,0,248,0,2,0,20,0,0,0,61,0,4,0,15,0,0,0,21,0,0,0,2,0,
++    0,0,61,0,4,0,13,0,0,0,22,0,0,0,3,0,0,0,61,0,4,0,8,0,0,0,23,0,0,0,6,0,0,0,61,0,4,0,7,0,0,0,
++    24,0,0,0,5,0,0,0,86,0,5,0,9,0,0,0,25,0,0,0,23,0,0,0,24,0,0,0,87,0,6,0,13,0,0,0,26,0,0,0,25,
++    0,0,0,21,0,0,0,0,0,0,0,133,0,5,0,13,0,0,0,27,0,0,0,22,0,0,0,26,0,0,0,62,0,3,0,4,0,0,0,27,0,
++    0,0,253,0,1,0,56,0,1,0,
+ };
+ 
+ #endif
+@@ -703,6 +724,7 @@ void ImguiImpl::CmdDraw(CommandBuffer& commandBuffer, const DrawImguiDesc& drawI
+ 
+         VertexStreamDesc stream = {};
+         stream.bindingSlot = 0;
++        stream.stride = sizeof(ImDrawVert);
+ 
+         VertexInputDesc vertexInput = {};
+         vertexInput.attributes = vertexAttributeDesc;
+diff --git a/Source/VK/CommandBufferVK.hpp b/Source/VK/CommandBufferVK.hpp
+index a386923..bab0651 100644
+--- a/Source/VK/CommandBufferVK.hpp
++++ b/Source/VK/CommandBufferVK.hpp
+@@ -80,7 +80,10 @@ NRI_INLINE void CommandBufferVK::SetViewports(const Viewport* viewports, uint32_
+     }
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdSetViewportWithCount(m_Handle, viewportNum, vkViewports);
++    if (m_Device.m_IsSupported.extendedDynamicState)
++        vk.CmdSetViewportWithCount(m_Handle, viewportNum, vkViewports);
++    else
++        vk.CmdSetViewport(m_Handle, 0, viewportNum, vkViewports); // the pipelines have 1
+ }
+ 
+ NRI_INLINE void CommandBufferVK::SetScissors(const Rect* rects, uint32_t rectNum) {
+@@ -95,7 +98,10 @@ NRI_INLINE void CommandBufferVK::SetScissors(const Rect* rects, uint32_t rectNum
+     }
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdSetScissorWithCount(m_Handle, rectNum, vkRects);
++    if (m_Device.m_IsSupported.extendedDynamicState)
++        vk.CmdSetScissorWithCount(m_Handle, rectNum, vkRects);
++    else
++        vk.CmdSetScissor(m_Handle, 0, rectNum, vkRects);
+ }
+ 
+ NRI_INLINE void CommandBufferVK::SetDepthBounds(float boundsMin, float boundsMax) {
+@@ -305,6 +311,53 @@ NRI_INLINE void CommandBufferVK::BeginRendering(const AttachmentsDesc& attachmen
+     if (!hasAttachment)
+         m_RenderLayerNum = 1;
+ 
++    m_ViewMask = attachmentsDesc.viewMask;
++
++    // No "dynamicRendering": a render pass loading and storing the attachments in their layouts, and a framebuffer
++    if (!m_Device.m_IsSupported.dynamicRendering) {
++        RenderPassKeyVK renderPassKey = {};
++        FramebufferKeyVK framebufferKey = {};
++        renderPassKey.colorNum = attachmentsDesc.colorNum;
++        renderPassKey.viewMask = attachmentsDesc.viewMask;
++        renderPassKey.samples = VK_SAMPLE_COUNT_1_BIT;
++
++        for (uint32_t i = 0; i < attachmentsDesc.colorNum && i < (uint32_t)renderPassKey.colorFormats.size(); i++) {
++            const DescriptorVK& descriptor = *(DescriptorVK*)attachmentsDesc.colors[i];
++            const DescriptorTexDesc& desc = descriptor.GetTexDesc();
++
++            renderPassKey.colorFormats[i] = descriptor.GetFormat();
++            renderPassKey.colorLayouts[i] = desc.layout;
++            renderPassKey.samples = (VkSampleCountFlagBits)std::max(desc.texture->GetDesc().sampleNum, (Sample_t)1);
++            framebufferKey.views[framebufferKey.viewNum++] = descriptor.GetImageView();
++        }
++
++        if (attachmentsDesc.depthStencil) {
++            const DescriptorVK& descriptor = *(DescriptorVK*)attachmentsDesc.depthStencil;
++            const DescriptorTexDesc& desc = descriptor.GetTexDesc();
++
++            renderPassKey.depthStencilFormat = descriptor.GetFormat();
++            renderPassKey.depthStencilLayout = desc.layout;
++            renderPassKey.hasStencil = hasStencil ? 1 : 0;
++            renderPassKey.samples = (VkSampleCountFlagBits)std::max(desc.texture->GetDesc().sampleNum, (Sample_t)1);
++            framebufferKey.views[framebufferKey.viewNum++] = descriptor.GetImageView();
++        }
++
++        framebufferKey.renderPass = m_Device.GetRenderPass(renderPassKey);
++        framebufferKey.width = m_RenderWidth;
++        framebufferKey.height = m_RenderHeight;
++        framebufferKey.layerNum = attachmentsDesc.viewMask ? 1 : m_RenderLayerNum;
++
++        VkRenderPassBeginInfo beginInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
++        beginInfo.renderPass = framebufferKey.renderPass;
++        beginInfo.framebuffer = m_Device.GetFramebuffer(framebufferKey);
++        beginInfo.renderArea = {{0, 0}, {m_RenderWidth, m_RenderHeight}};
++
++        const auto& vk = m_Device.GetDispatchTable();
++        vk.CmdBeginRenderPass(m_Handle, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
++
++        return;
++    }
++
+     VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+     renderingInfo.flags = 0;
+     renderingInfo.renderArea = {{0, 0}, {m_RenderWidth, m_RenderHeight}};
+@@ -320,13 +373,14 @@ NRI_INLINE void CommandBufferVK::BeginRendering(const AttachmentsDesc& attachmen
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+     vk.CmdBeginRendering(m_Handle, &renderingInfo);
+-
+-    m_ViewMask = attachmentsDesc.viewMask;
+ }
+ 
+ NRI_INLINE void CommandBufferVK::EndRendering() {
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdEndRendering(m_Handle);
++    if (m_Device.m_IsSupported.dynamicRendering)
++        vk.CmdEndRendering(m_Handle);
++    else
++        vk.CmdEndRenderPass(m_Handle);
+ 
+     m_DepthStencil = nullptr;
+ }
+@@ -364,7 +418,10 @@ NRI_INLINE void CommandBufferVK::SetVertexBuffers(uint32_t baseSlot, const Verte
+     }
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdBindVertexBuffers2(m_Handle, baseSlot, vertexBufferNum, handles, offsets, sizes, strides);
++    if (m_Device.m_IsSupported.extendedDynamicState)
++        vk.CmdBindVertexBuffers2(m_Handle, baseSlot, vertexBufferNum, handles, offsets, sizes, strides);
++    else
++        vk.CmdBindVertexBuffers(m_Handle, baseSlot, vertexBufferNum, handles, offsets); // strides from the pipeline (VertexStreamDesc::stride)
+ }
+ 
+ NRI_INLINE void CommandBufferVK::SetIndexBuffer(const Buffer& buffer, uint64_t offset, IndexType indexType) {
+@@ -565,7 +622,12 @@ NRI_INLINE void CommandBufferVK::CopyBuffer(Buffer& dstBuffer, uint64_t dstOffse
+     info.pRegions = &region;
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdCopyBuffer2(m_Handle, &info);
++    if (m_Device.m_IsSupported.copyCommands2)
++        vk.CmdCopyBuffer2(m_Handle, &info);
++    else {
++        VkBufferCopy region1 = {region.srcOffset, region.dstOffset, region.size};
++        vk.CmdCopyBuffer(m_Handle, info.srcBuffer, info.dstBuffer, 1, &region1);
++    }
+ }
+ 
+ NRI_INLINE void CommandBufferVK::CopyTexture(Texture& dstTexture, const TextureRegionDesc* dstRegion, const Texture& srcTexture, const TextureRegionDesc* srcRegion) {
+@@ -641,7 +703,15 @@ NRI_INLINE void CommandBufferVK::CopyTexture(Texture& dstTexture, const TextureR
+     info.pRegions = regions;
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdCopyImage2(m_Handle, &info);
++    if (m_Device.m_IsSupported.copyCommands2)
++        vk.CmdCopyImage2(m_Handle, &info);
++    else {
++        Scratch<VkImageCopy> regions1 = AllocateScratch(m_Device, VkImageCopy, regionNum);
++        for (uint32_t i = 0; i < regionNum; i++)
++            regions1[i] = {regions[i].srcSubresource, regions[i].srcOffset, regions[i].dstSubresource, regions[i].dstOffset, regions[i].extent};
++
++        vk.CmdCopyImage(m_Handle, info.srcImage, info.srcImageLayout, info.dstImage, info.dstImageLayout, regionNum, regions1);
++    }
+ }
+ 
+ NRI_INLINE void CommandBufferVK::ResolveTexture(Texture& dstTexture, const TextureRegionDesc* dstRegion, const Texture& srcTexture, const TextureRegionDesc* srcRegion) {
+@@ -717,7 +787,15 @@ NRI_INLINE void CommandBufferVK::ResolveTexture(Texture& dstTexture, const Textu
+     info.pRegions = regions;
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdResolveImage2(m_Handle, &info);
++    if (m_Device.m_IsSupported.copyCommands2)
++        vk.CmdResolveImage2(m_Handle, &info);
++    else {
++        Scratch<VkImageResolve> regions1 = AllocateScratch(m_Device, VkImageResolve, regionNum);
++        for (uint32_t i = 0; i < regionNum; i++)
++            regions1[i] = {regions[i].srcSubresource, regions[i].srcOffset, regions[i].dstSubresource, regions[i].dstOffset, regions[i].extent};
++
++        vk.CmdResolveImage(m_Handle, info.srcImage, info.srcImageLayout, info.dstImage, info.dstImageLayout, regionNum, regions1);
++    }
+ }
+ 
+ NRI_INLINE void CommandBufferVK::UploadBufferToTexture(Texture& dstTexture, const TextureRegionDesc& dstRegion, const Buffer& srcBuffer, const TextureDataLayoutDesc& srcDataLayout) {
+@@ -764,7 +842,12 @@ NRI_INLINE void CommandBufferVK::UploadBufferToTexture(Texture& dstTexture, cons
+     info.pRegions = &region;
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdCopyBufferToImage2(m_Handle, &info);
++    if (m_Device.m_IsSupported.copyCommands2)
++        vk.CmdCopyBufferToImage2(m_Handle, &info);
++    else {
++        VkBufferImageCopy region1 = {region.bufferOffset, region.bufferRowLength, region.bufferImageHeight, region.imageSubresource, region.imageOffset, region.imageExtent};
++        vk.CmdCopyBufferToImage(m_Handle, info.srcBuffer, info.dstImage, info.dstImageLayout, 1, &region1);
++    }
+ }
+ 
+ NRI_INLINE void CommandBufferVK::ReadbackTextureToBuffer(Buffer& dstBuffer, const TextureDataLayoutDesc& dstDataLayout, const Texture& srcTexture, const TextureRegionDesc& srcRegion) {
+@@ -811,7 +894,12 @@ NRI_INLINE void CommandBufferVK::ReadbackTextureToBuffer(Buffer& dstBuffer, cons
+     info.pRegions = &region;
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdCopyImageToBuffer2(m_Handle, &info);
++    if (m_Device.m_IsSupported.copyCommands2)
++        vk.CmdCopyImageToBuffer2(m_Handle, &info);
++    else {
++        VkBufferImageCopy region1 = {region.bufferOffset, region.bufferRowLength, region.bufferImageHeight, region.imageSubresource, region.imageOffset, region.imageExtent};
++        vk.CmdCopyImageToBuffer(m_Handle, info.srcImage, info.srcImageLayout, info.dstBuffer, 1, &region1);
++    }
+ }
+ 
+ NRI_INLINE void CommandBufferVK::ZeroBuffer(Buffer& buffer, uint64_t offset, uint64_t size) {
+@@ -897,6 +985,57 @@ static inline VkAccessFlags2 GetAccessFlags(AccessBits accessBits) {
+     return flags;
+ }
+ 
++// Without "synchronization2": "VkPipelineStageFlags2" as Vulkan 1.0's stages (the 2-only ones folded into the stages covering them)
++static inline VkPipelineStageFlags GetPipelineStageFlags1(VkPipelineStageFlags2 stages, VkPipelineStageFlags none) {
++    VkPipelineStageFlags flags = (VkPipelineStageFlags)(stages & 0xFFFFFFFFull);
++
++    if (stages & (VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT))
++        flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
++    if (stages & (VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT))
++        flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
++    if (stages & VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT)
++        flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT | VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT;
++
++    return flags ? flags : none;
++}
++
++static inline VkAccessFlags GetAccessFlags1(VkAccessFlags2 access) {
++    return (VkAccessFlags)(access & 0xFFFFFFFFull); // the 2-only bits are for features a Vulkan 1.1 device lacks
++}
++
++static void PipelineBarrier1(const DispatchTable& vk, VkCommandBuffer commandBuffer, const VkDependencyInfo& dependencyInfo, VkMemoryBarrier* memoryBarriers,
++    VkBufferMemoryBarrier* bufferBarriers, VkImageMemoryBarrier* imageBarriers) {
++    VkPipelineStageFlags2 srcStages = 0;
++    VkPipelineStageFlags2 dstStages = 0;
++
++    for (uint32_t i = 0; i < dependencyInfo.memoryBarrierCount; i++) {
++        const VkMemoryBarrier2& in = dependencyInfo.pMemoryBarriers[i];
++        memoryBarriers[i] = {VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, GetAccessFlags1(in.srcAccessMask), GetAccessFlags1(in.dstAccessMask)};
++        srcStages |= in.srcStageMask;
++        dstStages |= in.dstStageMask;
++    }
++
++    for (uint32_t i = 0; i < dependencyInfo.bufferMemoryBarrierCount; i++) {
++        const VkBufferMemoryBarrier2& in = dependencyInfo.pBufferMemoryBarriers[i];
++        bufferBarriers[i] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER, nullptr, GetAccessFlags1(in.srcAccessMask), GetAccessFlags1(in.dstAccessMask),
++            in.srcQueueFamilyIndex, in.dstQueueFamilyIndex, in.buffer, in.offset, in.size};
++        srcStages |= in.srcStageMask;
++        dstStages |= in.dstStageMask;
++    }
++
++    for (uint32_t i = 0; i < dependencyInfo.imageMemoryBarrierCount; i++) {
++        const VkImageMemoryBarrier2& in = dependencyInfo.pImageMemoryBarriers[i];
++        imageBarriers[i] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, GetAccessFlags1(in.srcAccessMask), GetAccessFlags1(in.dstAccessMask),
++            in.oldLayout, in.newLayout, in.srcQueueFamilyIndex, in.dstQueueFamilyIndex, in.image, in.subresourceRange};
++        srcStages |= in.srcStageMask;
++        dstStages |= in.dstStageMask;
++    }
++
++    // One pair of stage masks for them all: the union
++    vk.CmdPipelineBarrier(commandBuffer, GetPipelineStageFlags1(srcStages, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT), GetPipelineStageFlags1(dstStages, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT), 0,
++        dependencyInfo.memoryBarrierCount, memoryBarriers, dependencyInfo.bufferMemoryBarrierCount, bufferBarriers, dependencyInfo.imageMemoryBarrierCount, imageBarriers);
++}
++
+ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+     // Global
+     Scratch<VkMemoryBarrier2> memoryBarriers = AllocateScratch(m_Device, VkMemoryBarrier2, barrierDesc.globalNum);
+@@ -972,7 +1111,14 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+     dependencyInfo.pImageMemoryBarriers = textureBarriers;
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+-    vk.CmdPipelineBarrier2(m_Handle, &dependencyInfo);
++    if (m_Device.m_IsSupported.synchronization2)
++        vk.CmdPipelineBarrier2(m_Handle, &dependencyInfo);
++    else {
++        Scratch<VkMemoryBarrier> memoryBarriers1 = AllocateScratch(m_Device, VkMemoryBarrier, barrierDesc.globalNum);
++        Scratch<VkBufferMemoryBarrier> bufferBarriers1 = AllocateScratch(m_Device, VkBufferMemoryBarrier, barrierDesc.bufferNum);
++        Scratch<VkImageMemoryBarrier> textureBarriers1 = AllocateScratch(m_Device, VkImageMemoryBarrier, barrierDesc.textureNum);
++        PipelineBarrier1(vk, m_Handle, dependencyInfo, memoryBarriers1, bufferBarriers1, textureBarriers1);
++    }
+ }
+ 
+ NRI_INLINE void CommandBufferVK::BeginQuery(QueryPool& queryPool, uint32_t offset) {
+@@ -988,7 +1134,10 @@ NRI_INLINE void CommandBufferVK::EndQuery(QueryPool& queryPool, uint32_t offset)
+     if (queryPoolVK.GetType() == VK_QUERY_TYPE_TIMESTAMP) {
+         // TODO: https://registry.khronos.org/vulkan/specs/latest/man/html/vkCmdWriteTimestamp.html
+         // https://docs.vulkan.org/samples/latest/samples/api/timestamp_queries/README.html
+-        vk.CmdWriteTimestamp2(m_Handle, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPoolVK.GetHandle(), offset);
++        if (m_Device.m_IsSupported.synchronization2)
++            vk.CmdWriteTimestamp2(m_Handle, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPoolVK.GetHandle(), offset);
++        else
++            vk.CmdWriteTimestamp(m_Handle, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queryPoolVK.GetHandle(), offset);
+     } else
+         vk.CmdEndQuery(m_Handle, queryPoolVK.GetHandle(), offset);
+ }
+diff --git a/Source/VK/DescriptorVK.h b/Source/VK/DescriptorVK.h
+index f6a5d3f..f6f40e1 100644
+--- a/Source/VK/DescriptorVK.h
++++ b/Source/VK/DescriptorVK.h
+@@ -51,6 +51,10 @@ struct DescriptorVK final : public DebugNameBase {
+         return m_ImageView;
+     }
+ 
++    inline VkFormat GetFormat() const {
++        return m_ViewFormat;
++    }
++
+     inline const VkSampler& GetSampler() const {
+         return m_Sampler;
+     }
+@@ -146,6 +150,7 @@ private:
+     };
+ 
+     DescriptorTypeVK m_Type = DescriptorTypeVK::NONE;
++    VkFormat m_ViewFormat = VK_FORMAT_UNDEFINED; // an image view's
+ };
+ 
+ } // namespace nri
+\ No newline at end of file
+diff --git a/Source/VK/DescriptorVK.hpp b/Source/VK/DescriptorVK.hpp
+index bc95818..2c6a5d6 100644
+--- a/Source/VK/DescriptorVK.hpp
++++ b/Source/VK/DescriptorVK.hpp
+@@ -52,8 +52,11 @@ DescriptorVK::~DescriptorVK() {
+                 vk.DestroyBufferView(m_Device, m_BufferView, m_Device.GetVkAllocationCallbacks());
+             break;
+         case DescriptorTypeVK::IMAGE_VIEW:
+-            if (m_ImageView)
++            if (m_ImageView) {
++                if (!m_Device.m_IsSupported.dynamicRendering)
++                    m_Device.ForgetImageView(m_ImageView); // its framebuffers
+                 vk.DestroyImageView(m_Device, m_ImageView, m_Device.GetVkAllocationCallbacks());
++            }
+             break;
+         case DescriptorTypeVK::SAMPLER:
+             if (m_Sampler)
+@@ -88,6 +91,7 @@ Result DescriptorVK::CreateTextureView(const T& textureViewDesc) {
+     createInfo.image = texture.GetHandle();
+ 
+     const auto& vk = m_Device.GetDispatchTable();
++    m_ViewFormat = createInfo.format;
+     VkResult vkResult = vk.CreateImageView(m_Device, &createInfo, m_Device.GetVkAllocationCallbacks(), &m_ImageView);
+     RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkCreateImageView");
+ 
+@@ -139,6 +143,7 @@ Result DescriptorVK::CreateTextureView(const Texture3DViewDesc& textureViewDesc)
+     createInfo.image = texture.GetHandle();
+ 
+     const auto& vk = m_Device.GetDispatchTable();
++    m_ViewFormat = createInfo.format;
+     VkResult vkResult = vk.CreateImageView(m_Device, &createInfo, m_Device.GetVkAllocationCallbacks(), &m_ImageView);
+     RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkCreateImageView");
+ 
+diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
+index 2edce9c..24e66bd 100644
+--- a/Source/VK/DeviceVK.h
++++ b/Source/VK/DeviceVK.h
+@@ -22,6 +22,35 @@ struct IsSupported {
+     uint32_t pipelineRobustness     : 1;
+     uint32_t swapChainMaintenance1  : 1;
+     uint32_t fifoLatestReady        : 1;
++    // Vulkan 1.3 features NRI can do without (Vulkan 1.1 + 1.2 extensions, as on Mali-G78's 1.1 driver): when
++    // missing, render passes stand in for dynamic rendering, "vkCmdPipelineBarrier" and "vkQueueSubmit" for
++    // "synchronization2", static viewport counts and vertex strides for "extendedDynamicState"
++    uint32_t dynamicRendering       : 1;
++    uint32_t synchronization2       : 1;
++    uint32_t extendedDynamicState   : 1;
++    uint32_t copyCommands2          : 1;
++};
++
++// A render pass standing in for dynamic rendering (no "dynamicRendering"): attachments' formats, samples and layouts
++struct RenderPassKeyVK {
++    std::array<VkFormat, 8> colorFormats;
++    std::array<VkImageLayout, 8> colorLayouts;
++    VkFormat depthStencilFormat;
++    VkImageLayout depthStencilLayout;
++    VkSampleCountFlagBits samples;
++    uint32_t colorNum;
++    uint32_t viewMask;
++    uint32_t hasStencil;
++};
++
++// A framebuffer for such a render pass: the pass, the attachments' views and the render area
++struct FramebufferKeyVK {
++    VkRenderPass renderPass;
++    std::array<VkImageView, 9> views;
++    uint32_t viewNum;
++    uint32_t width;
++    uint32_t height;
++    uint32_t layerNum;
+ };
+ 
+ static_assert(sizeof(IsSupported) == sizeof(uint32_t), "4 bytes expected");
+@@ -141,6 +170,9 @@ struct DeviceVK final : public DeviceBase {
+     Result BindAccelerationStructureMemory(const BindAccelerationStructureMemoryDesc* bindAccelerationStructureMemoryDescs, uint32_t bindAccelerationStructureMemoryDescNum);
+     Result BindMicromapMemory(const BindMicromapMemoryDesc* bindMicromapMemoryDescs, uint32_t bindMicromapMemoryDescNum);
+     FormatSupportBits GetFormatSupport(Format format) const;
++    VkRenderPass GetRenderPass(const RenderPassKeyVK& key);
++    VkFramebuffer GetFramebuffer(const FramebufferKeyVK& key);
++    void ForgetImageView(VkImageView view);
+ 
+ private:
+     VkResult CreateVma();
+@@ -177,8 +209,11 @@ private:
+     VmaAllocator_T* m_Vma = nullptr;
+     uint32_t m_NumActiveFamilyIndices = 0;
+     uint32_t m_MinorVersion = 0;
++    Vector<std::pair<RenderPassKeyVK, VkRenderPass>> m_RenderPasses;
++    Vector<std::pair<FramebufferKeyVK, VkFramebuffer>> m_Framebuffers;
+     bool m_OwnsNativeObjects = true;
+     bool m_IsMemoryZeroInitializationEnabled = false;
++    bool m_IsLegacyForced = false; // "NRI_VK_LEGACY" set: a newer device run as Vulkan 1.1 without the 1.3 features above, for testing
+ 
+     Lock m_Lock;
+ };
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index 33f6bf1..5e2f4a8 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -245,6 +245,41 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
+     Vector<VkExtensionProperties> supportedExts(extensionNum, GetStdAllocator());
+     m_VK.EnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extensionNum, supportedExts.data());
+ 
++    // "NRI_VK_LEGACY": only the device extensions Samsung Galaxy S21's Mali-G78 driver (r38, Vulkan 1.1.213) has
++    if (m_IsLegacyForced) {
++        static const char* legacyExts[] = {
++            "VK_ANDROID_external_memory_android_hardware_buffer", "VK_ARM_rasterization_order_attachment_access", "VK_EXT_4444_formats",
++            "VK_EXT_astc_decode_mode", "VK_EXT_calibrated_timestamps", "VK_EXT_custom_border_color", "VK_EXT_descriptor_indexing",
++            "VK_EXT_external_memory_dma_buf", "VK_EXT_fragment_density_map", "VK_EXT_fragment_density_map2", "VK_EXT_global_priority",
++            "VK_EXT_global_priority_query", "VK_EXT_hdr_metadata", "VK_EXT_host_query_reset", "VK_EXT_image_compression_control",
++            "VK_EXT_image_drm_format_modifier", "VK_EXT_image_robustness", "VK_EXT_index_type_uint8", "VK_EXT_inline_uniform_block",
++            "VK_EXT_line_rasterization", "VK_EXT_load_store_op_none", "VK_EXT_pipeline_creation_cache_control", "VK_EXT_pipeline_creation_feedback",
++            "VK_EXT_primitives_generated_query", "VK_EXT_primitive_topology_list_restart", "VK_EXT_provoking_vertex", "VK_EXT_queue_family_foreign",
++            "VK_EXT_rgba10x6_formats", "VK_EXT_scalar_block_layout", "VK_EXT_separate_stencil_usage", "VK_EXT_shader_demote_to_helper_invocation",
++            "VK_EXT_shader_subgroup_ballot", "VK_EXT_shader_subgroup_vote", "VK_EXT_subgroup_size_control", "VK_EXT_swapchain_maintenance1",
++            "VK_EXT_texel_buffer_alignment", "VK_EXT_texture_compression_astc_hdr", "VK_EXT_tooling_info", "VK_EXT_transform_feedback",
++            "VK_GOOGLE_display_timing", "VK_KHR_16bit_storage", "VK_KHR_8bit_storage", "VK_KHR_bind_memory2", "VK_KHR_buffer_device_address",
++            "VK_KHR_create_renderpass2", "VK_KHR_dedicated_allocation", "VK_KHR_depth_stencil_resolve", "VK_KHR_descriptor_update_template",
++            "VK_KHR_device_group", "VK_KHR_driver_properties", "VK_KHR_external_fence", "VK_KHR_external_fence_fd", "VK_KHR_external_memory",
++            "VK_KHR_external_memory_fd", "VK_KHR_external_semaphore", "VK_KHR_external_semaphore_fd", "VK_KHR_get_memory_requirements2",
++            "VK_KHR_imageless_framebuffer", "VK_KHR_image_format_list", "VK_KHR_incremental_present", "VK_KHR_maintenance1", "VK_KHR_maintenance2",
++            "VK_KHR_maintenance3", "VK_KHR_multiview", "VK_KHR_relaxed_block_layout", "VK_KHR_sampler_mirror_clamp_to_edge",
++            "VK_KHR_sampler_ycbcr_conversion", "VK_KHR_separate_depth_stencil_layouts", "VK_KHR_shader_draw_parameters", "VK_KHR_shader_float16_int8",
++            "VK_KHR_shader_float_controls", "VK_KHR_shader_non_semantic_info", "VK_KHR_shader_subgroup_extended_types",
++            "VK_KHR_shared_presentable_image", "VK_KHR_spirv_1_4", "VK_KHR_storage_buffer_storage_class", "VK_KHR_swapchain",
++            "VK_KHR_timeline_semaphore", "VK_KHR_uniform_buffer_standard_layout", "VK_KHR_variable_pointers", "VK_KHR_vulkan_memory_model",
++        };
++
++        for (size_t i = 0; i < supportedExts.size(); i++) {
++            bool found = false;
++            for (const char* ext : legacyExts)
++                found = found || !strcmp(ext, supportedExts[i].extensionName);
++
++            if (!found)
++                supportedExts.erase(supportedExts.begin() + i--);
++        }
++    }
++
+     if constexpr (VERBOSE) {
+         REPORT_INFO(this, "Supported device extensions:");
+         for (const VkExtensionProperties& props : supportedExts)
+@@ -255,6 +290,29 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
+     APPEND_EXT(true, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+ #endif
+ 
++    // Vulkan 1.2's features, on a 1.1 device
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_SPIRV_1_4_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
++    APPEND_EXT(m_MinorVersion < 2, VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
++
+     APPEND_EXT(m_MinorVersion < 3, VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME);
+     APPEND_EXT(m_MinorVersion < 3, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+     APPEND_EXT(m_MinorVersion < 3, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+@@ -319,7 +377,9 @@ DeviceVK::DeviceVK(const CallbackInterface& callbacks, const AllocationCallbacks
+           Vector<QueueVK*>(GetStdAllocator()),
+           Vector<QueueVK*>(GetStdAllocator()),
+           Vector<QueueVK*>(GetStdAllocator()),
+-      } {
++      }
++    , m_RenderPasses(GetStdAllocator())
++    , m_Framebuffers(GetStdAllocator()) {
+     m_AllocationCallbacks.pUserData = (void*)&GetAllocationCallbacks();
+     m_AllocationCallbacks.pfnAllocation = vkAllocateHostMemory;
+     m_AllocationCallbacks.pfnReallocation = vkReallocateHostMemory;
+@@ -344,6 +404,12 @@ DeviceVK::~DeviceVK() {
+         destroyCallback(m_Instance, m_Messenger, m_AllocationCallbackPtr);
+     }
+ 
++    for (auto& framebuffer : m_Framebuffers)
++        m_VK.DestroyFramebuffer(m_Device, framebuffer.second, m_AllocationCallbackPtr);
++
++    for (auto& renderPass : m_RenderPasses)
++        m_VK.DestroyRenderPass(m_Device, renderPass.second, m_AllocationCallbackPtr);
++
+     if (m_OwnsNativeObjects) {
+         if (m_Device)
+             m_VK.DestroyDevice(m_Device, m_AllocationCallbackPtr);
+@@ -430,11 +496,11 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+                 uint32_t majorVersion = VK_API_VERSION_MAJOR(props.properties.apiVersion);
+                 m_MinorVersion = VK_API_VERSION_MINOR(props.properties.apiVersion);
+ 
+-                bool isSupported = (majorVersion * 10 + m_MinorVersion) >= 12;
++                bool isSupported = (majorVersion * 10 + m_MinorVersion) >= 11; // 1.1 with the 1.2 features as extensions is enough
+                 if (desc.adapterDesc) {
+                     Uid_t uid = ConstructUid(idProps.deviceLUID, idProps.deviceUUID, idProps.deviceLUIDValid);
+                     if (CompareUid(uid, desc.adapterDesc->uid)) {
+-                        RETURN_ON_FAILURE(this, isSupported, Result::UNSUPPORTED, "Can't create a device: the specified physical device does not support Vulkan 1.2+!");
++                        RETURN_ON_FAILURE(this, isSupported, Result::UNSUPPORTED, "Can't create a device: the specified physical device does not support Vulkan 1.1+!");
+                         break;
+                     }
+                 } else if (isSupported)
+@@ -448,6 +514,14 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+ 
+             m_PhysicalDevice = deviceGroups[i].physicalDevices[0];
+         }
++
++        // "NRI_VK_LEGACY": run a newer device as Vulkan 1.1 without the 1.3 features NRI can do without (testing the paths
++        // a Vulkan 1.1 phone takes, as Mali-G78's driver, on a desktop GPU)
++        const char* legacy = getenv("NRI_VK_LEGACY");
++        if (legacy && legacy[0] && legacy[0] != '0') {
++            m_IsLegacyForced = true;
++            m_MinorVersion = std::min(m_MinorVersion, 1u);
++        }
+     }
+ 
+     // Queue family indices
+@@ -539,10 +613,40 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+     void** tail = &features.pNext;
+ 
+     VkPhysicalDeviceVulkan11Features features11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+-    APPEND_STRUCT(features11);
+-
+     VkPhysicalDeviceVulkan12Features features12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+-    APPEND_STRUCT(features12);
++    if (m_MinorVersion >= 2) {
++        APPEND_STRUCT(features11);
++        APPEND_STRUCT(features12);
++    }
++
++    // Vulkan 1.1: its own structs for the 1.1 features, the 1.2 ones from extensions
++    VkPhysicalDevice16BitStorageFeatures storage16BitFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
++    VkPhysicalDeviceMultiviewFeatures multiviewFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
++    VkPhysicalDeviceVariablePointersFeatures variablePointersFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES};
++    VkPhysicalDeviceShaderDrawParametersFeatures shaderDrawParametersFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
++    if (m_MinorVersion < 2) {
++        APPEND_STRUCT(storage16BitFeatures);
++        APPEND_STRUCT(multiviewFeatures);
++        APPEND_STRUCT(variablePointersFeatures);
++        APPEND_STRUCT(shaderDrawParametersFeatures);
++    }
++
++    VkPhysicalDevice8BitStorageFeaturesKHR _8BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES_KHR};
++    if (m_MinorVersion < 2 && IsExtensionSupported(VK_KHR_8BIT_STORAGE_EXTENSION_NAME, desiredDeviceExts)) {
++        APPEND_STRUCT(_8BitStorageFeatures);
++    }
++
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, BufferDeviceAddress, BUFFER_DEVICE_ADDRESS);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, SeparateDepthStencilLayouts, SEPARATE_DEPTH_STENCIL_LAYOUTS);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, ShaderAtomicInt64, SHADER_ATOMIC_INT64);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, ShaderFloat16Int8, SHADER_FLOAT16_INT8);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, ShaderSubgroupExtendedTypes, SHADER_SUBGROUP_EXTENDED_TYPES);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, TimelineSemaphore, TIMELINE_SEMAPHORE);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, UniformBufferStandardLayout, UNIFORM_BUFFER_STANDARD_LAYOUT);
++    APPEND_FEATURES(m_MinorVersion < 2, KHR, VulkanMemoryModel, VULKAN_MEMORY_MODEL);
++    APPEND_FEATURES(m_MinorVersion < 2, EXT, DescriptorIndexing, DESCRIPTOR_INDEXING);
++    APPEND_FEATURES(m_MinorVersion < 2, EXT, HostQueryReset, HOST_QUERY_RESET);
++    APPEND_FEATURES(m_MinorVersion < 2, EXT, ScalarBlockLayout, SCALAR_BLOCK_LAYOUT);
+ 
+     VkPhysicalDeviceVulkan13Features features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+     if (m_MinorVersion >= 3) {
+@@ -603,6 +707,33 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+ 
+     m_VK.GetPhysicalDeviceFeatures2(m_PhysicalDevice, &features);
+ 
++    if (m_MinorVersion < 2) {
++        features11.storageBuffer16BitAccess = storage16BitFeatures.storageBuffer16BitAccess;
++        features11.uniformAndStorageBuffer16BitAccess = storage16BitFeatures.uniformAndStorageBuffer16BitAccess;
++        features11.storagePushConstant16 = storage16BitFeatures.storagePushConstant16;
++        features11.storageInputOutput16 = storage16BitFeatures.storageInputOutput16;
++        features11.multiview = multiviewFeatures.multiview;
++        features11.variablePointersStorageBuffer = variablePointersFeatures.variablePointersStorageBuffer;
++        features11.variablePointers = variablePointersFeatures.variablePointers;
++        features11.shaderDrawParameters = shaderDrawParametersFeatures.shaderDrawParameters;
++
++        features12.storageBuffer8BitAccess = _8BitStorageFeatures.storageBuffer8BitAccess;
++        features12.bufferDeviceAddress = BufferDeviceAddressFeatures.bufferDeviceAddress;
++        features12.separateDepthStencilLayouts = SeparateDepthStencilLayoutsFeatures.separateDepthStencilLayouts;
++        features12.shaderBufferInt64Atomics = ShaderAtomicInt64Features.shaderBufferInt64Atomics;
++        features12.shaderSharedInt64Atomics = ShaderAtomicInt64Features.shaderSharedInt64Atomics;
++        features12.shaderFloat16 = ShaderFloat16Int8Features.shaderFloat16;
++        features12.shaderInt8 = ShaderFloat16Int8Features.shaderInt8;
++        features12.timelineSemaphore = TimelineSemaphoreFeatures.timelineSemaphore;
++        features12.descriptorIndexing = IsExtensionSupported(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, desiredDeviceExts);
++        features12.hostQueryReset = HostQueryResetFeatures.hostQueryReset;
++        features12.scalarBlockLayout = ScalarBlockLayoutFeatures.scalarBlockLayout;
++        features12.drawIndirectCount = IsExtensionSupported(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, desiredDeviceExts);
++        features12.samplerFilterMinmax = IsExtensionSupported(VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME, desiredDeviceExts);
++        features12.shaderOutputViewportIndex = IsExtensionSupported(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME, desiredDeviceExts);
++        features12.shaderOutputLayer = features12.shaderOutputViewportIndex;
++    }
++
+     if (m_MinorVersion < 3) {
+         features13.dynamicRendering = DynamicRenderingFeatures.dynamicRendering;
+         features13.synchronization2 = Synchronization2Features.synchronization2;
+@@ -625,6 +756,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+     if (m_MinorVersion > 2)
+         ExtendedDynamicStateFeatures.extendedDynamicState = true;
+ 
++    // Without these NRI takes Vulkan 1.0's ways (render passes, "vkCmdPipelineBarrier"...)
++    m_IsSupported.dynamicRendering = features13.dynamicRendering;
++    m_IsSupported.synchronization2 = features13.synchronization2;
++    m_IsSupported.extendedDynamicState = ExtendedDynamicStateFeatures.extendedDynamicState;
++    m_IsSupported.copyCommands2 = m_MinorVersion >= 3 || IsExtensionSupported(VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME, desiredDeviceExts);
++
+     m_IsSupported.maintenance4 = features13.maintenance4;
+     m_IsSupported.maintenance5 = features14.maintenance5;
+     m_IsSupported.maintenance6 = features14.maintenance6;
+@@ -644,9 +781,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+     m_IsMemoryZeroInitializationEnabled = desc.enableMemoryZeroInitialization && ZeroInitializeDeviceMemoryFeatures.zeroInitializeDeviceMemory;
+ 
+     // Check hard requirements
+-    RETURN_ON_FAILURE(this, ExtendedDynamicStateFeatures.extendedDynamicState != 0, Result::UNSUPPORTED, "'extendedDynamicState' is not supported by the device");
+-    RETURN_ON_FAILURE(this, features13.dynamicRendering, Result::UNSUPPORTED, "'dynamicRendering' is not supported by the device");
+-    RETURN_ON_FAILURE(this, features13.synchronization2, Result::UNSUPPORTED, "'synchronization2' is not supported by the device");
++    RETURN_ON_FAILURE(this, features12.timelineSemaphore, Result::UNSUPPORTED, "'timelineSemaphore' is not supported by the device");
++    if (!m_IsSupported.dynamicRendering || !m_IsSupported.synchronization2 || !m_IsSupported.extendedDynamicState)
++        REPORT_INFO(this, "Vulkan 1.0 paths: dynamicRendering=%u synchronization2=%u extendedDynamicState=%u copyCommands2=%u", m_IsSupported.dynamicRendering, m_IsSupported.synchronization2, m_IsSupported.extendedDynamicState, m_IsSupported.copyCommands2);
+ 
+     { // Create device
+         if (isWrapper)
+@@ -757,10 +894,21 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         tail = &props.pNext;
+ 
+         VkPhysicalDeviceVulkan11Properties props11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+-        APPEND_STRUCT(props11);
+-
+         VkPhysicalDeviceVulkan12Properties props12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+-        APPEND_STRUCT(props12);
++        if (m_MinorVersion >= 2) {
++            APPEND_STRUCT(props11);
++            APPEND_STRUCT(props12);
++        }
++
++        // Vulkan 1.1: its own structs, the 1.2 properties from extensions
++        VkPhysicalDeviceSubgroupProperties subgroupProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
++        VkPhysicalDeviceMultiviewProperties multiviewProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES};
++        if (m_MinorVersion < 2) {
++            APPEND_STRUCT(subgroupProps);
++            APPEND_STRUCT(multiviewProps);
++        }
++
++        APPEND_PROPS(m_MinorVersion < 2, EXT, DescriptorIndexing, DESCRIPTOR_INDEXING);
+ 
+         VkPhysicalDeviceVulkan13Properties props13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES};
+         if (m_MinorVersion >= 3) {
+@@ -792,6 +940,26 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+ 
+         m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &props);
+ 
++        if (m_MinorVersion < 2) {
++            props11.subgroupSize = subgroupProps.subgroupSize;
++            props11.subgroupSupportedStages = subgroupProps.supportedStages;
++            props11.subgroupSupportedOperations = subgroupProps.supportedOperations;
++            props11.subgroupQuadOperationsInAllStages = subgroupProps.quadOperationsInAllStages;
++            props11.maxMultiviewViewCount = multiviewProps.maxMultiviewViewCount;
++
++            props12.maxPerStageDescriptorUpdateAfterBindSamplers = DescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindSamplers;
++            props12.maxPerStageDescriptorUpdateAfterBindUniformBuffers = DescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindUniformBuffers;
++            props12.maxPerStageDescriptorUpdateAfterBindStorageBuffers = DescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindStorageBuffers;
++            props12.maxPerStageDescriptorUpdateAfterBindSampledImages = DescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindSampledImages;
++            props12.maxPerStageDescriptorUpdateAfterBindStorageImages = DescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindStorageImages;
++            props12.maxPerStageUpdateAfterBindResources = DescriptorIndexingProps.maxPerStageUpdateAfterBindResources;
++            props12.maxDescriptorSetUpdateAfterBindSamplers = DescriptorIndexingProps.maxDescriptorSetUpdateAfterBindSamplers;
++            props12.maxDescriptorSetUpdateAfterBindUniformBuffers = DescriptorIndexingProps.maxDescriptorSetUpdateAfterBindUniformBuffers;
++            props12.maxDescriptorSetUpdateAfterBindStorageBuffers = DescriptorIndexingProps.maxDescriptorSetUpdateAfterBindStorageBuffers;
++            props12.maxDescriptorSetUpdateAfterBindSampledImages = DescriptorIndexingProps.maxDescriptorSetUpdateAfterBindSampledImages;
++            props12.maxDescriptorSetUpdateAfterBindStorageImages = DescriptorIndexingProps.maxDescriptorSetUpdateAfterBindStorageImages;
++        }
++
+         if (m_MinorVersion < 3) {
+             props13.maxBufferSize = Maintenance4Props.maxBufferSize;
+             props13.minSubgroupSize = SubgroupSizeControlProps.minSubgroupSize;
+@@ -1680,7 +1848,8 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
+     GET_DEVICE_CORE_FUNC(MapMemory);
+     GET_DEVICE_CORE_FUNC(FlushMappedMemoryRanges);
+     GET_DEVICE_CORE_FUNC(QueueWaitIdle);
+-    GET_DEVICE_CORE_FUNC(QueueSubmit2);
++    GET_DEVICE_CORE_FUNC(QueueSubmit);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(QueueSubmit2);
+     GET_DEVICE_CORE_FUNC(GetSemaphoreCounterValue);
+     GET_DEVICE_CORE_FUNC(WaitSemaphores);
+     GET_DEVICE_CORE_FUNC(ResetCommandPool);
+@@ -1695,15 +1864,15 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
+     GET_DEVICE_CORE_FUNC(ResetQueryPool);
+     GET_DEVICE_CORE_FUNC(GetBufferDeviceAddress);
+     GET_DEVICE_CORE_FUNC(BeginCommandBuffer);
+-    GET_DEVICE_CORE_FUNC(CmdSetViewportWithCount);
+-    GET_DEVICE_CORE_FUNC(CmdSetScissorWithCount);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdSetViewportWithCount);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdSetScissorWithCount);
+     GET_DEVICE_CORE_FUNC(CmdSetDepthBounds);
+     GET_DEVICE_CORE_FUNC(CmdSetStencilReference);
+     GET_DEVICE_CORE_FUNC(CmdSetBlendConstants);
+     GET_DEVICE_CORE_FUNC(CmdSetDepthBias);
+     GET_DEVICE_CORE_FUNC(CmdClearAttachments);
+     GET_DEVICE_CORE_FUNC(CmdClearColorImage);
+-    GET_DEVICE_CORE_FUNC(CmdBindVertexBuffers2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdBindVertexBuffers2);
+     GET_DEVICE_CORE_FUNC(CmdBindIndexBuffer);
+     GET_DEVICE_CORE_FUNC(CmdBindPipeline);
+     GET_DEVICE_CORE_FUNC(CmdBindDescriptorSets);
+@@ -1713,25 +1882,47 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
+     GET_DEVICE_CORE_FUNC(CmdDraw);
+     GET_DEVICE_CORE_FUNC(CmdDrawIndexed);
+     GET_DEVICE_CORE_FUNC(CmdDrawIndirect);
+-    GET_DEVICE_CORE_FUNC(CmdDrawIndirectCount);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdDrawIndirectCount);
+     GET_DEVICE_CORE_FUNC(CmdDrawIndexedIndirect);
+-    GET_DEVICE_CORE_FUNC(CmdDrawIndexedIndirectCount);
+-    GET_DEVICE_CORE_FUNC(CmdCopyBuffer2);
+-    GET_DEVICE_CORE_FUNC(CmdCopyImage2);
+-    GET_DEVICE_CORE_FUNC(CmdResolveImage2);
+-    GET_DEVICE_CORE_FUNC(CmdCopyBufferToImage2);
+-    GET_DEVICE_CORE_FUNC(CmdCopyImageToBuffer2);
+-    GET_DEVICE_CORE_FUNC(CmdPipelineBarrier2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdDrawIndexedIndirectCount);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyBuffer2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyImage2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdResolveImage2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyBufferToImage2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyImageToBuffer2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdPipelineBarrier2);
+     GET_DEVICE_CORE_FUNC(CmdBeginQuery);
+     GET_DEVICE_CORE_FUNC(CmdEndQuery);
+-    GET_DEVICE_CORE_FUNC(CmdWriteTimestamp2);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdWriteTimestamp2);
+     GET_DEVICE_CORE_FUNC(CmdCopyQueryPoolResults);
+     GET_DEVICE_CORE_FUNC(CmdResetQueryPool);
+     GET_DEVICE_CORE_FUNC(CmdFillBuffer);
+-    GET_DEVICE_CORE_FUNC(CmdBeginRendering);
+-    GET_DEVICE_CORE_FUNC(CmdEndRendering);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdBeginRendering);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdEndRendering);
+     GET_DEVICE_CORE_FUNC(EndCommandBuffer);
+ 
++    // Vulkan 1.0's ways, without the 1.3 features (all but "CreateRenderPass2" are 1.0 core)
++    GET_DEVICE_CORE_FUNC(CmdPipelineBarrier);
++    GET_DEVICE_CORE_FUNC(CmdWriteTimestamp);
++    GET_DEVICE_CORE_FUNC(CmdCopyBuffer);
++    GET_DEVICE_CORE_FUNC(CmdCopyImage);
++    GET_DEVICE_CORE_FUNC(CmdResolveImage);
++    GET_DEVICE_CORE_FUNC(CmdCopyBufferToImage);
++    GET_DEVICE_CORE_FUNC(CmdCopyImageToBuffer);
++    GET_DEVICE_CORE_FUNC(CmdSetViewport);
++    GET_DEVICE_CORE_FUNC(CmdSetScissor);
++    GET_DEVICE_CORE_FUNC(CmdBindVertexBuffers);
++    GET_DEVICE_CORE_FUNC(DestroyRenderPass);
++    GET_DEVICE_CORE_FUNC(CreateFramebuffer);
++    GET_DEVICE_CORE_FUNC(CmdBeginRenderPass);
++    GET_DEVICE_CORE_FUNC(CmdEndRenderPass);
++    GET_DEVICE_OPTIONAL_CORE_FUNC(CreateRenderPass2);
++
++    // What a missing 1.3 feature needs
++    RETURN_ON_FAILURE(this, m_IsSupported.dynamicRendering ? (m_VK.CmdBeginRendering != nullptr) : (m_VK.CreateRenderPass2 != nullptr), Result::UNSUPPORTED, "Neither 'dynamicRendering' nor 'VK_KHR_create_renderpass2'");
++    RETURN_ON_FAILURE(this, !m_IsSupported.synchronization2 || (m_VK.CmdPipelineBarrier2 && m_VK.QueueSubmit2 && m_VK.CmdWriteTimestamp2), Result::UNSUPPORTED, "'synchronization2' functions missing");
++    RETURN_ON_FAILURE(this, !m_IsSupported.extendedDynamicState || (m_VK.CmdSetViewportWithCount && m_VK.CmdBindVertexBuffers2), Result::UNSUPPORTED, "'extendedDynamicState' functions missing");
++
+     // Root descriptors only (VK_KHR_push_descriptor, core in 1.4): Android's emulator has none
+     GET_DEVICE_OPTIONAL_CORE_FUNC(CmdPushDescriptorSet);
+     GET_DEVICE_OPTIONAL_CORE_FUNC(GetDeviceBufferMemoryRequirements);
+@@ -2168,9 +2359,15 @@ NRI_INLINE FormatSupportBits DeviceVK::GetFormatSupport(Format format) const {
+     VkFormat vkFormat = GetVkFormat(format);
+ 
+     VkFormatProperties3 props3 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3};
+-    VkFormatProperties2 props2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, &props3};
++    VkFormatProperties2 props2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, m_MinorVersion >= 3 ? &props3 : nullptr};
+     m_VK.GetPhysicalDeviceFormatProperties2(m_PhysicalDevice, vkFormat, &props2);
+ 
++    // Vulkan 1.1/1.2 (no "VK_KHR_format_feature_flags2"): the 32-bit flags, whose bits are the same
++    if (m_MinorVersion < 3) {
++        props3.optimalTilingFeatures = props2.formatProperties.optimalTilingFeatures;
++        props3.bufferFeatures = props2.formatProperties.bufferFeatures;
++    }
++
+     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT, FormatSupportBits::TEXTURE);
+     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT, FormatSupportBits::STORAGE_TEXTURE);
+     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT, FormatSupportBits::COLOR_ATTACHMENT);
+@@ -2253,3 +2450,124 @@ NRI_INLINE Result DeviceVK::QueryVideoMemoryInfo(MemoryLocation memoryLocation,
+ 
+     return Result::SUCCESS;
+ }
++
++VkRenderPass DeviceVK::GetRenderPass(const RenderPassKeyVK& key) {
++    ExclusiveScope lock(m_Lock);
++
++    for (const auto& entry : m_RenderPasses) {
++        if (!memcmp(&entry.first, &key, sizeof(key)))
++            return entry.second;
++    }
++
++    // Loaded and stored in place (dynamic rendering's "LOAD"/"STORE"), in the layouts the attachments are in already
++    std::array<VkAttachmentDescription2, 9> attachments = {};
++    std::array<VkAttachmentReference2, 8> colorRefs = {};
++    VkAttachmentReference2 depthStencilRef = {VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
++    uint32_t attachmentNum = 0;
++
++    for (uint32_t i = 0; i < key.colorNum; i++) {
++        VkAttachmentDescription2& attachment = attachments[attachmentNum];
++        attachment = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
++        attachment.format = key.colorFormats[i];
++        attachment.samples = key.samples;
++        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
++        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
++        attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++        attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
++        attachment.initialLayout = key.colorLayouts[i];
++        attachment.finalLayout = key.colorLayouts[i];
++
++        colorRefs[i] = {VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
++        colorRefs[i].attachment = attachmentNum++;
++        colorRefs[i].layout = key.colorLayouts[i];
++        colorRefs[i].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
++    }
++
++    bool hasDepthStencil = key.depthStencilFormat != VK_FORMAT_UNDEFINED;
++    if (hasDepthStencil) {
++        VkAttachmentDescription2& attachment = attachments[attachmentNum];
++        attachment = {VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
++        attachment.format = key.depthStencilFormat;
++        attachment.samples = key.samples;
++        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
++        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
++        attachment.stencilLoadOp = key.hasStencil ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++        attachment.stencilStoreOp = key.hasStencil ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
++        attachment.initialLayout = key.depthStencilLayout;
++        attachment.finalLayout = key.depthStencilLayout;
++
++        depthStencilRef.attachment = attachmentNum++;
++        depthStencilRef.layout = key.depthStencilLayout;
++        depthStencilRef.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | (key.hasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
++    }
++
++    VkSubpassDescription2 subpass = {VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
++    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
++    subpass.viewMask = key.viewMask;
++    subpass.colorAttachmentCount = key.colorNum;
++    subpass.pColorAttachments = colorRefs.data();
++    subpass.pDepthStencilAttachment = hasDepthStencil ? &depthStencilRef : nullptr;
++
++    VkRenderPassCreateInfo2 info = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
++    info.attachmentCount = attachmentNum;
++    info.pAttachments = attachments.data();
++    info.subpassCount = 1;
++    info.pSubpasses = &subpass;
++
++    VkRenderPass renderPass = VK_NULL_HANDLE;
++    VkResult vkResult = m_VK.CreateRenderPass2(m_Device, &info, m_AllocationCallbackPtr, &renderPass);
++    if (vkResult != VK_SUCCESS) {
++        REPORT_ERROR(this, "vkCreateRenderPass2 returned %d", (int32_t)vkResult);
++        return VK_NULL_HANDLE;
++    }
++
++    m_RenderPasses.push_back({key, renderPass});
++
++    return renderPass;
++}
++
++VkFramebuffer DeviceVK::GetFramebuffer(const FramebufferKeyVK& key) {
++    ExclusiveScope lock(m_Lock);
++
++    for (const auto& entry : m_Framebuffers) {
++        if (!memcmp(&entry.first, &key, sizeof(key)))
++            return entry.second;
++    }
++
++    VkFramebufferCreateInfo info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
++    info.renderPass = key.renderPass;
++    info.attachmentCount = key.viewNum;
++    info.pAttachments = key.views.data();
++    info.width = key.width;
++    info.height = key.height;
++    info.layers = key.layerNum;
++
++    VkFramebuffer framebuffer = VK_NULL_HANDLE;
++    VkResult vkResult = m_VK.CreateFramebuffer(m_Device, &info, m_AllocationCallbackPtr, &framebuffer);
++    if (vkResult != VK_SUCCESS) {
++        REPORT_ERROR(this, "vkCreateFramebuffer returned %d", (int32_t)vkResult);
++        return VK_NULL_HANDLE;
++    }
++
++    m_Framebuffers.push_back({key, framebuffer});
++
++    return framebuffer;
++}
++
++void DeviceVK::ForgetImageView(VkImageView view) {
++    ExclusiveScope lock(m_Lock);
++
++    // A framebuffer goes with its views (an app keeps them alive while it renders with them)
++    for (size_t i = 0; i < m_Framebuffers.size(); i++) {
++        const FramebufferKeyVK& key = m_Framebuffers[i].first;
++
++        bool found = false;
++        for (uint32_t j = 0; j < key.viewNum && !found; j++)
++            found = key.views[j] == view;
++
++        if (found) {
++            m_VK.DestroyFramebuffer(m_Device, m_Framebuffers[i].second, m_AllocationCallbackPtr);
++            m_Framebuffers.erase(m_Framebuffers.begin() + i--);
++        }
++    }
++}
+diff --git a/Source/VK/DispatchTable.h b/Source/VK/DispatchTable.h
+index fe638d0..b1c4590 100644
+--- a/Source/VK/DispatchTable.h
++++ b/Source/VK/DispatchTable.h
+@@ -151,6 +151,24 @@ struct DispatchTable {
+     VK_FUNC(CmdBeginRendering);                           // - | +
+     VK_FUNC(CmdEndRendering);                             // - | +
+     VK_FUNC(CmdPushDescriptorSet);                        // - | +
++
++    // Vulkan 1.0 stand-ins for "synchronization2", "copy_commands2", "extended_dynamic_state" and "dynamic_rendering"
++    VK_FUNC(QueueSubmit);                                 // - | + may return "VK_ERROR_DEVICE_LOST"
++    VK_FUNC(CmdPipelineBarrier);                          // - | +
++    VK_FUNC(CmdWriteTimestamp);                           // - | +
++    VK_FUNC(CmdCopyBuffer);                               // - | +
++    VK_FUNC(CmdCopyImage);                                // - | +
++    VK_FUNC(CmdResolveImage);                             // - | +
++    VK_FUNC(CmdCopyBufferToImage);                        // - | +
++    VK_FUNC(CmdCopyImageToBuffer);                        // - | +
++    VK_FUNC(CmdSetViewport);                              // - | +
++    VK_FUNC(CmdSetScissor);                               // - | +
++    VK_FUNC(CmdBindVertexBuffers);                        // - | +
++    VK_FUNC(CreateRenderPass2);                           // + | +
++    VK_FUNC(DestroyRenderPass);                           // - | +
++    VK_FUNC(CreateFramebuffer);                           // + | +
++    VK_FUNC(CmdBeginRenderPass);                          // - | +
++    VK_FUNC(CmdEndRenderPass);                            // - | +
+     VK_FUNC(EndCommandBuffer);                            // - | +
+                                                           // VK_KHR_maintenance4
+     VK_FUNC(GetDeviceBufferMemoryRequirements);           // + | +
+diff --git a/Source/VK/PipelineVK.hpp b/Source/VK/PipelineVK.hpp
+index 9af2f81..0d04399 100644
+--- a/Source/VK/PipelineVK.hpp
++++ b/Source/VK/PipelineVK.hpp
+@@ -89,6 +89,7 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+             VkVertexInputBindingDescription& vertexBindingDesc = vertexBindingDescs[i];
+             vertexBindingDesc = {};
+             vertexBindingDesc.binding = stream.bindingSlot;
++            vertexBindingDesc.stride = stream.stride; // dynamic ("CmdSetVertexBuffers") with "extendedDynamicState"
+             vertexBindingDesc.inputRate = stream.stepRate == VertexStreamStepRate::PER_VERTEX ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
+         }
+     }
+@@ -163,6 +164,10 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+     m_DepthBias = r.depthBias;
+ 
+     VkPipelineViewportStateCreateInfo viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
++    if (!m_Device.m_IsSupported.extendedDynamicState) {
++        viewportState.viewportCount = 1; // "VK_DYNAMIC_STATE_VIEWPORT": a static count (Mali-G78 has no "multiViewport")
++        viewportState.scissorCount = 1;
++    }
+ 
+     // Depth-stencil
+     const DepthAttachmentDesc& da = graphicsPipelineDesc.outputMerger.depth;
+@@ -238,10 +243,15 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+     // Dynamic state
+     uint32_t dynamicStateNum = 0;
+     std::array<VkDynamicState, 16> dynamicStates;
+-    dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT;
+-    dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT;
+-    if (vi)
+-        dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
++    if (m_Device.m_IsSupported.extendedDynamicState) {
++        dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT;
++        dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT;
++        if (vi)
++            dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
++    } else {
++        dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_VIEWPORT;
++        dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_SCISSOR;
++    }
+     if (rasterizationState.depthBiasEnable)
+         dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_DEPTH_BIAS;
+     if (depthStencilState.depthBoundsTestEnable)
+@@ -266,9 +276,29 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+ 
+     const PipelineLayoutVK& pipelineLayoutVK = *(const PipelineLayoutVK*)graphicsPipelineDesc.pipelineLayout;
+ 
++    // No "dynamicRendering": a render pass of the same formats instead (layouts and load/store operations don't matter)
++    VkRenderPass renderPass = VK_NULL_HANDLE;
++    if (!m_Device.m_IsSupported.dynamicRendering) {
++        RenderPassKeyVK renderPassKey = {};
++        renderPassKey.colorNum = std::min(om.colorNum, (uint32_t)renderPassKey.colorFormats.size());
++        for (uint32_t i = 0; i < renderPassKey.colorNum; i++) {
++            renderPassKey.colorFormats[i] = colorFormats[i];
++            renderPassKey.colorLayouts[i] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++        }
++        renderPassKey.depthStencilFormat = GetVkFormat(om.depthStencilFormat);
++        renderPassKey.depthStencilLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
++        renderPassKey.hasStencil = depthStencilFormatProps.isStencil ? 1 : 0;
++        renderPassKey.samples = multisampleState.rasterizationSamples;
++        renderPassKey.viewMask = om.viewMask;
++
++        renderPass = m_Device.GetRenderPass(renderPassKey);
++        if (!renderPass)
++            return Result::FAILURE;
++    }
++
+     VkGraphicsPipelineCreateInfo info = {
+         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+-        &pipelineRenderingCreateInfo,
++        renderPass ? nullptr : &pipelineRenderingCreateInfo,
+         flags,
+         graphicsPipelineDesc.shaderNum,
+         stages,
+@@ -282,15 +312,19 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+         &colorBlendState,
+         &dynamicState,
+         pipelineLayoutVK,
+-        VK_NULL_HANDLE,
++        renderPass,
+         0,
+         VK_NULL_HANDLE,
+         -1,
+     };
+ 
+     VkPipelineRobustnessCreateInfoEXT robustnessInfo = {VK_STRUCTURE_TYPE_PIPELINE_ROBUSTNESS_CREATE_INFO_EXT};
+-    if (FillPipelineRobustness(m_Device, graphicsPipelineDesc.robustness, robustnessInfo))
+-        pipelineRenderingCreateInfo.pNext = &robustnessInfo;
++    if (FillPipelineRobustness(m_Device, graphicsPipelineDesc.robustness, robustnessInfo)) {
++        if (renderPass)
++            info.pNext = &robustnessInfo;
++        else
++            pipelineRenderingCreateInfo.pNext = &robustnessInfo;
++    }
+ 
+     const auto& vk = m_Device.GetDispatchTable();
+     VkResult vkResult = vk.CreateGraphicsPipelines(m_Device, VK_NULL_HANDLE, 1, &info, m_Device.GetVkAllocationCallbacks(), &m_Handle);
+diff --git a/Source/VK/QueueVK.hpp b/Source/VK/QueueVK.hpp
+index 6013535..f365ca3 100644
+--- a/Source/VK/QueueVK.hpp
++++ b/Source/VK/QueueVK.hpp
+@@ -84,6 +84,56 @@ NRI_INLINE Result QueueVK::Submit(const QueueSubmitDesc& queueSubmitDesc) {
+     }
+ 
+     const auto& vk = m_Device.GetDispatchTable();
++    if (!m_Device.m_IsSupported.synchronization2) {
++        // "vkQueueSubmit" with the timeline values in "VkTimelineSemaphoreSubmitInfo" (binary semaphores ignore theirs)
++        Scratch<VkSemaphore> semaphores = AllocateScratch(m_Device, VkSemaphore, queueSubmitDesc.waitFenceNum + queueSubmitDesc.signalFenceNum);
++        Scratch<uint64_t> values = AllocateScratch(m_Device, uint64_t, queueSubmitDesc.waitFenceNum + queueSubmitDesc.signalFenceNum);
++        Scratch<VkPipelineStageFlags> waitStages = AllocateScratch(m_Device, VkPipelineStageFlags, queueSubmitDesc.waitFenceNum);
++        Scratch<VkCommandBuffer> handles = AllocateScratch(m_Device, VkCommandBuffer, queueSubmitDesc.commandBufferNum);
++
++        for (uint32_t i = 0; i < queueSubmitDesc.waitFenceNum; i++) {
++            semaphores[i] = waitSemaphores[i].semaphore;
++            values[i] = waitSemaphores[i].value;
++
++            // The 2-only stages fold into the ones covering them: copies are transfers, the rest waits for all
++            VkPipelineStageFlags2 stages = waitSemaphores[i].stageMask;
++            VkPipelineStageFlags stages1 = (VkPipelineStageFlags)(stages & 0xFFFFFFFFull);
++            if (stages & (VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT))
++                stages1 |= VK_PIPELINE_STAGE_TRANSFER_BIT;
++            if (stages >> 32)
++                stages1 |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
++            waitStages[i] = stages1 ? stages1 : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
++        }
++
++        for (uint32_t i = 0; i < queueSubmitDesc.signalFenceNum; i++) {
++            semaphores[queueSubmitDesc.waitFenceNum + i] = signalSemaphores[i].semaphore;
++            values[queueSubmitDesc.waitFenceNum + i] = signalSemaphores[i].value;
++        }
++
++        for (uint32_t i = 0; i < queueSubmitDesc.commandBufferNum; i++)
++            handles[i] = commandBuffers[i].commandBuffer;
++
++        VkTimelineSemaphoreSubmitInfo timelineInfo = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
++        timelineInfo.waitSemaphoreValueCount = queueSubmitDesc.waitFenceNum;
++        timelineInfo.pWaitSemaphoreValues = values;
++        timelineInfo.signalSemaphoreValueCount = queueSubmitDesc.signalFenceNum;
++        timelineInfo.pSignalSemaphoreValues = values + queueSubmitDesc.waitFenceNum;
++
++        VkSubmitInfo submitInfo1 = {VK_STRUCTURE_TYPE_SUBMIT_INFO, &timelineInfo};
++        submitInfo1.waitSemaphoreCount = queueSubmitDesc.waitFenceNum;
++        submitInfo1.pWaitSemaphores = semaphores;
++        submitInfo1.pWaitDstStageMask = waitStages;
++        submitInfo1.commandBufferCount = queueSubmitDesc.commandBufferNum;
++        submitInfo1.pCommandBuffers = handles;
++        submitInfo1.signalSemaphoreCount = queueSubmitDesc.signalFenceNum;
++        submitInfo1.pSignalSemaphores = semaphores + queueSubmitDesc.waitFenceNum;
++
++        VkResult vkResult = vk.QueueSubmit(m_Handle, 1, &submitInfo1, VK_NULL_HANDLE);
++        RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "QueueSubmit");
++
++        return Result::SUCCESS;
++    }
++
+     VkResult vkResult = vk.QueueSubmit2(m_Handle, 1, &submitInfo, VK_NULL_HANDLE);
+     RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "QueueSubmit2");
+ 
