@@ -375,6 +375,18 @@ the demo's only denoiser, are not ported, nor its UI and camera controls (the ca
 `-p`). This software contains source code provided by NVIDIA
 Corporation.
 
+| Path traced, 4096 samples accumulated | Primary rays (`-mode primary`), the base color |
+| --- | --- |
+| ![rtxmg_demo: the kitchen set's subdivision surfaces, tessellated into clusters and path traced](docs/screenshots/rtxmg_demo.jpg) | ![rtxmg_demo: the kitchen set's base colors from primary rays](docs/screenshots/rtxmg_demo_primary.jpg) |
+
+The kitchen set at 1280x720, DirectX 12 with native DXR clusters, a Release build (the few white specks are the
+fireflies the demo doesn't clamp either):
+
+```
+build-release-rtxmg/bin/rtxmg_demo.exe -dx12 -test -frames 4096 -testOutput rtxmg_demo.png -width 1280 -height 720 --media E:/Gits/RTXMG/assets --scene subdivision/amy_kitchenset.scene.json
+build-release-rtxmg/bin/rtxmg_demo.exe -dx12 -test -frames 64 -mode primary -testOutput rtxmg_demo_primary.png -width 1280 -height 720 --media E:/Gits/RTXMG/assets --scene subdivision/amy_kitchenset.scene.json
+```
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
