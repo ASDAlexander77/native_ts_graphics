@@ -12017,8 +12017,9 @@ extern "C"
     // the passes' back buffer resizing and resized callbacks (as Donut_SetSwapChainFormat), so call it
     // outside a frame's render callbacks (e.g. from an animate callback, which runs before them).
     // With a window, the window's client area is set (glfwSetWindowSize: a hidden window stays hidden)
-    // and the device manager resizes the swap chain at the start of its next frame. Returns 0 for a
-    // size of 0 or less, or without a window.
+    // and the device manager resizes the swap chain at the start of its next frame. The passes get the
+    // swap chain's sample count, as a window resize gives them. Returns 0 (nothing resized) for a size
+    // of 0 or less, or without offscreen back buffers or a window.
     DONUT_API int Donut_ResizeBackBuffers(App* app, int width, int height)
     {
         if (width <= 0 || height <= 0)
@@ -12042,7 +12043,7 @@ extern "C"
             params.backBufferWidth = uint32_t(width);
             params.backBufferHeight = uint32_t(height);
             for (donut::app::IRenderPass* pass : DeviceManagerAccess::RenderPasses(deviceManager))
-                pass->BackBufferResized(params.backBufferWidth, params.backBufferHeight, 1);
+                pass->BackBufferResized(params.backBufferWidth, params.backBufferHeight, params.swapChainSampleCount);
             return 1;
         }
         GLFWwindow* window = deviceManager->GetWindow();

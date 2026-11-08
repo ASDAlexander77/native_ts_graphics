@@ -802,7 +802,9 @@ export class App {
     // Resizes the back buffers to width x height as a window resize would (testing an example's resize path):
     // in test mode at once, between the passes' back buffer resizing and resized callbacks (call it outside the
     // render callbacks, e.g. from an animate callback); with a window, its client area (a hidden window stays
-    // hidden), the swap chain following at the start of the next frame. 0 for a size of 0 or less.
+    // hidden), the swap chain following at the start of the next frame; the passes' resized callbacks get the
+    // swap chain's sample count. 0 (nothing resized) for a size of 0 or less, or with neither offscreen back
+    // buffers nor a window to resize.
     resizeBackBuffers(width: int, height: int): int {
         return Donut_ResizeBackBuffers(this.handle, width, height);
     }
