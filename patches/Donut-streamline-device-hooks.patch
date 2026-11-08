@@ -1,7 +1,7 @@
 diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager.h
 --- a/include/donut/app/DeviceManager.h
 +++ b/include/donut/app/DeviceManager.h
-@@ -234,6 +234,13 @@ namespace donut::app
+@@ -234,6 +234,18 @@ namespace donut::app
          D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;
  #endif
  
@@ -10,11 +10,26 @@ diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager
 +        // interposer's, loaded at run time). Same parameters as the D3D functions.
 +        std::function<HRESULT(IUnknown* adapter, D3D_FEATURE_LEVEL minimumFeatureLevel, REFIID riid, void** device)> d3d12CreateDevice;
 +        std::function<HRESULT(UINT flags, REFIID riid, void** factory)> createDxgiFactory2;
++        // D3D12 only: asked at the start of every frame; returning true has the swap chain made again (e.g. as
++        // Streamline's DLSS-G needs when it's turned on or off). swapChainRecreation is called with true once
++        // the GPU is idle and the old swap chain is released, with false once the new one and its buffers exist.
++        std::function<bool()> swapChainRecreationRequested;
++        std::function<void(bool released)> swapChainRecreation;
 +#endif
 +
  #if DONUT_WITH_VULKAN
          std::vector<std::string> requiredVulkanDeviceExtensions;
          std::vector<std::string> optionalVulkanDeviceExtensions;
+diff --git a/include/donut/app/DeviceManager_DX12.h b/include/donut/app/DeviceManager_DX12.h
+--- a/include/donut/app/DeviceManager_DX12.h
++++ b/include/donut/app/DeviceManager_DX12.h
+@@ -106,4 +106,5 @@ protected:
+     void Shutdown() override;
+     bool CreateRenderTargets();
+     void ReleaseRenderTargets();
++    void RecreateSwapChain();
+ };
+\ No newline at end of file
 diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX12.cpp
 --- a/src/app/dx12/DeviceManager_DX12.cpp
 +++ b/src/app/dx12/DeviceManager_DX12.cpp
@@ -47,3 +62,64 @@ diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX
  
      if (FAILED(hr))
      {
+@@ -591,9 +596,60 @@ bool DeviceManager_DX12::BeginFrame()
+ 
+     WaitForSingleObject(m_FrameFenceEvents[bufferIndex], INFINITE);
+ 
++    if (m_DeviceParams.swapChainRecreationRequested && m_DeviceParams.swapChainRecreationRequested())
++        RecreateSwapChain();
++
+     return true;
+ }
+ 
++// The swap chain made again with the same description (DeviceCreationParameters::swapChainRecreationRequested).
++void DeviceManager_DX12::RecreateSwapChain()
++{
++    // The window's size may have changed since the description was made.
++    DXGI_SWAP_CHAIN_DESC1 currentDesc;
++    if (SUCCEEDED(m_SwapChain->GetDesc1(&currentDesc)))
++    {
++        m_SwapChainDesc.Width = currentDesc.Width;
++        m_SwapChainDesc.Height = currentDesc.Height;
++        m_DeviceParams.backBufferWidth = currentDesc.Width;
++        m_DeviceParams.backBufferHeight = currentDesc.Height;
++    }
++
++    BackBufferResizing();
++
++    // Idle GPU (ReleaseRenderTargets waits), then no reference to the old swap chain left.
++    m_SwapChain->SetFullscreenState(false, nullptr);
++    ReleaseRenderTargets();
++    m_SwapChain = nullptr;
++
++    if (m_DeviceParams.swapChainRecreation)
++        m_DeviceParams.swapChainRecreation(true);
++
++    RefCountPtr<IDXGISwapChain1> swapChain1;
++    HRESULT hr = m_DxgiFactory2->CreateSwapChainForHwnd(m_GraphicsQueue, m_hWnd, &m_SwapChainDesc, &m_FullScreenDesc, nullptr, &swapChain1);
++    if (FAILED(hr))
++        donut::log::fatal("CreateSwapChainForHwnd failed (0x%08x)", hr);
++    hr = swapChain1->QueryInterface(IID_PPV_ARGS(&m_SwapChain));
++    if (FAILED(hr))
++        donut::log::fatal("IDXGISwapChain3 not supported (0x%08x)", hr);
++
++    // As the first swap chain: no Alt+Enter from DXGI (GLFW handles full screen).
++    hr = m_DxgiFactory2->MakeWindowAssociation(m_hWnd, DXGI_MWA_NO_ALT_ENTER);
++    if (FAILED(hr))
++        donut::log::warning("MakeWindowAssociation failed (0x%08x)", hr);
++
++    if (!ApplyDxgiColorSpace(m_SwapChain, m_DeviceParams.swapChainColorSpace, true))
++        m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace = SwapChainColorSpace::SRGB;
++
++    if (!CreateRenderTargets())
++        donut::log::fatal("CreateRenderTargets failed");
++
++    BackBufferResized();
++
++    if (m_DeviceParams.swapChainRecreation)
++        m_DeviceParams.swapChainRecreation(false);
++}
++
+ nvrhi::ITexture* DeviceManager_DX12::GetCurrentBackBuffer()
+ {
+     return m_RhiSwapChainBuffers[m_SwapChain->GetCurrentBackBufferIndex()];

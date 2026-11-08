@@ -334,6 +334,12 @@ export class App {
         return Donut_GetCommonSampler(this.handle, which);
     }
 
+    // Donut's full-screen vertex shader (CommonRenderPasses'): a triangle strip of 4 vertices over the viewport,
+    // SV_Position and float2 UV (0, 0 top left) out. The app keeps it (don't release it).
+    getFullscreenVertexShader(): ShaderHandle {
+        return Donut_GetFullscreenVertexShader(this.handle);
+    }
+
     // Makes the common samplers again with a mip level bias (e.g. log2(render / display width) - 1 when
     // upscaling). Passes made afterwards use them, those made before keep the old ones.
     setCommonSamplersMipBias(mipBias: number): void {
@@ -3257,6 +3263,13 @@ export class ImGuiPass {
     // that takes that framebuffer's texture to the back buffer).
     setFramebuffer(framebuffer: FramebufferHandle | null): void {
         Donut_SetImGuiPassFramebuffer(this.handle, framebuffer);
+    }
+
+    // Same, the UI drawn as a layer to put over the frame later: framebuffer cleared to 0 gets the UI's color
+    // premultiplied by its alpha and its coverage in alpha (Final = UI.rgb + (1 - UI.a) x frame, as Streamline's
+    // DLSS-G wants its UI color and alpha); null: the back buffer again, with Donut's blending.
+    setLayerFramebuffer(framebuffer: FramebufferHandle | null): void {
+        Donut_SetImGuiPassLayerFramebuffer(this.handle, framebuffer);
     }
 
     // A TrueType font (path relative to the executable's directory) at a size in pixels; call right

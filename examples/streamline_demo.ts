@@ -11,7 +11,8 @@ import { radiansF32 } from "../core/matrix";
 // with a dancing robot, cascaded shadow maps, a G-buffer, then ray traced lighting (the sample's ray
 // generation library, compiled in place from STREAMLINE_SAMPLE_DIR) or deferred lighting with SSAO, the
 // procedural sky, bloom, DLSS-SR, TAA or none (then optionally DLSS Ray Reconstruction), tone mapping with
-// auto exposure, and optionally DeepDVC. Streamline's frame token,
+// auto exposure, and optionally DeepDVC; DLSS Frame Generation at present, with the UI drawn into a layer
+// of its own (its color and alpha), put over the frame and tagged for it. Streamline's frame token,
 // Reflex and PCL markers come from the device manager's frame callbacks (core/streamline.cpp).
 namespace StreamlineDemo {
     // Test mode: the frames rendered: the last one is the sample's frame 120 (its reference frames', at
@@ -108,6 +109,15 @@ namespace StreamlineDemo {
             return `${demo.jitteredFrames} frames jittered under DLSS-RR`;
         }
         return "";
+    }
+
+    // -test with -dlssg: DLSS-G acts on presented frames only, and a headless run has no swap chain: the demo
+    // found it supported, said so and skipped it (the frame is checked as usual).
+    function checkDlssG(demo: StreamlineDemo, multiplier: int) {
+        if (multiplier == 0) {
+            return "";
+        }
+        return demo.dlssgHeadlessSkipped ? "" : `DLSS-G: -dlssg ${multiplier} not handled headless`;
     }
 
     const WINDOW_TITLE = "Donut Example: Streamline";
@@ -250,6 +260,31 @@ namespace StreamlineDemo {
         public enableDeepDvc = false;
         public deepDvcIntensity = 0.5;
         public deepDvcSaturationBoost = 0.75;
+        // DLSS Frame Generation: on (1) or off (0), frames presented per frame rendered (2..4).
+        public dlssgMode: int = 0;
+        public dlssgMultiplier: int = 2;
+        // Reflex's mode and frame rate cap (DLSS-G needs Reflex on: it turns it on).
+        public reflexMode: int = 0;
+        public reflexFpsCap: int = 0;
+        // The overlay: Streamline_DlssGState's last answer (-1: none), Reflex's latency (-1: none).
+        public dlssgState: int = -1;
+        public reflexLatencyMs = -1.0;
+    }
+
+    // The DLSS-G status bits' names (sl::DLSSGStatus), for the overlay.
+    function dlssgStatusText(status: int) {
+        if (status == 0) {
+            return "ok";
+        }
+        let text = "";
+        const names = ["resolution too low", "Reflex not detected", "HDR format not supported", "common constants invalid",
+            "GetCurrentBackBufferIndex not called"];
+        for (let i = 0; i < names.length; i++) {
+            if ((status & (1 << i)) != 0) {
+                text = text == "" ? names[i] : `${text}, ${names[i]}`;
+            }
+        }
+        return text == "" ? `status ${status}` : text;
     }
 
     // --- Render targets --------------------------------------------------------------------------------
@@ -285,6 +320,8 @@ namespace StreamlineDemo {
         public ldrFramebuffer: FramebufferFactoryHandle;
         public aaResolvedFramebuffer: FramebufferFactoryHandle;
         public preUIFramebuffer: FramebufferFactoryHandle;
+        // DLSS-G's UI layer: the ImGui pass draws into uiColorAlpha through it.
+        public uiFramebuffer: FramebufferHandle;
 
         public renderWidth: int;
         public renderHeight: int;
@@ -329,6 +366,7 @@ namespace StreamlineDemo {
             this.ldrFramebuffer = app.createFramebufferFactory(this.ldrColor, null);
             this.aaResolvedFramebuffer = app.createFramebufferFactory(this.aaResolvedColor, null);
             this.preUIFramebuffer = app.createFramebufferFactory(this.preUIColor, null);
+            this.uiFramebuffer = app.createFramebuffer(this.uiColorAlpha, null);
         }
 
         // The sample's RenderTargets::Clear: the G-buffer, then its own color targets, to 0.
@@ -348,6 +386,7 @@ namespace StreamlineDemo {
             app.releaseObject(this.ldrFramebuffer);
             app.releaseObject(this.aaResolvedFramebuffer);
             app.releaseObject(this.preUIFramebuffer);
+            app.releaseResource(this.uiFramebuffer);
             const textures = [this.hdrColor, this.specHitDistance, this.ambientOcclusion, this.aaResolvedColor, this.temporalFeedback1,
                 this.temporalFeedback2, this.ldrColor, this.colorspaceCorrectionColor, this.preUIColor, this.uiColorAlpha, this.uiAlpha,
                 this.gbufferDiffuseRR, this.gbufferSpecularRR, this.gbufferNormalsRR, this.gbufferEmissiveRR];
@@ -388,6 +427,25 @@ namespace StreamlineDemo {
         public dlssSupported: boolean;
         public dlssRRSupported: boolean;
         public deepDvcSupported: boolean;
+        // DLSS-G supported; -test with -dlssg: it was skipped (no swap chain to present).
+        public dlssgSupported: boolean;
+        public dlssgHeadlessSkipped: boolean;
+        // DLSS-G in use: supported, with a swap chain (not headless).
+        public dlssgEnabled: boolean;
+        // The ImGui pass (none without the UI), and whether it draws into the UI layer, for which render targets.
+        public imguiPass: ImGuiPass | null;
+        private uiLayerOn: boolean;
+        private uiLayerGeneration: int;
+        // Counts the render targets made (updateRenderTargets).
+        private renderTargetsGeneration: int;
+        // The UI layer's composite over the back buffer (also writing uiAlpha): the sample's pixel shader, its
+        // binding layout, pipeline, binding set and a framebuffer a back buffer, made for renderTargetsGeneration.
+        private compositeShader: ShaderHandle | null;
+        private compositeLayout: BindingLayoutHandle | null;
+        private compositePipeline: GraphicsPipelineHandle | null;
+        private compositeBindingSet: BindingSet;
+        private compositeFramebuffers: FramebufferHandle[];
+        private compositeGeneration: int;
         // DeepDVC evaluated since it was last turned off.
         private deepDvcOn: boolean;
         public testDlssModeSwitch: boolean;
@@ -464,6 +522,19 @@ namespace StreamlineDemo {
             this.dlssSupported = false;
             this.dlssRRSupported = false;
             this.deepDvcSupported = false;
+            this.dlssgSupported = false;
+            this.dlssgHeadlessSkipped = false;
+            this.dlssgEnabled = false;
+            this.imguiPass = null;
+            this.uiLayerOn = false;
+            this.uiLayerGeneration = 0;
+            this.renderTargetsGeneration = 0;
+            this.compositeShader = null;
+            this.compositeLayout = null;
+            this.compositePipeline = null;
+            this.compositeBindingSet = new BindingSet(null);
+            this.compositeFramebuffers = [];
+            this.compositeGeneration = -1;
             this.deepDvcOn = false;
             this.testDlssModeSwitch = false;
             this.testAAUnderRR = false;
@@ -795,11 +866,13 @@ namespace StreamlineDemo {
                 }
                 // Cached binding sets (blits, passes) still reference the old targets.
                 this.app.clearBindingCache();
+                this.releaseCompositeTargets();
                 current.release(this.app);
             }
             const targets = new RenderTargets(this.app, renderWidth, renderHeight, width, height, this.app.getBackBufferFormat());
             this.renderTargets = targets;
             this.renderTargetsChanged = true;
+            this.renderTargetsGeneration++;
 
             if (this.rayTracingSupported) {
                 const desc = BindingSetDesc.create();
@@ -920,6 +993,122 @@ namespace StreamlineDemo {
             this.dlssRREvaluations++;
         }
 
+        // DLSS-G for the frame (with a swap chain): its options, the overlay's state, Reflex on while it's on.
+        updateDlssG() {
+            const ui = this.ui;
+            if (!this.dlssgEnabled) {
+                return;
+            }
+            if (ui.dlssgMode != 0 && ui.reflexMode < 1) {
+                ui.reflexMode = 1;
+                Streamline_SetReflex(ui.reflexMode, ui.reflexFpsCap);
+                console.log("DLSS-G: Reflex low latency on (DLSS-G needs it)");
+            }
+            Streamline_SetDlssG(ui.dlssgMode, ui.dlssgMultiplier - 1);
+            ui.dlssgState = Streamline_DlssGState();
+            ui.reflexLatencyMs = Streamline_ReflexLatencyMs();
+        }
+
+        // The ImGui pass draws into the UI layer (uiColorAlpha) while DLSS-G is on, into the back buffer
+        // otherwise; pointed at the layer again when the render targets are made again.
+        updateUiLayer(targets: RenderTargets) {
+            const pass = this.imguiPass;
+            if (!pass) {
+                return;
+            }
+            const layerOn = this.dlssgEnabled && this.ui.dlssgMode != 0;
+            if (layerOn == this.uiLayerOn && (!layerOn || this.uiLayerGeneration == this.renderTargetsGeneration)) {
+                return;
+            }
+            (pass as ImGuiPass).setLayerFramebuffer(layerOn ? targets.uiFramebuffer : null);
+            this.uiLayerOn = layerOn;
+            this.uiLayerGeneration = this.renderTargetsGeneration;
+        }
+
+        // The pass after the ImGui one, the frame's last: with DLSS-G on, the UI layer put over the back buffer
+        // (with its alpha into uiAlpha) and DLSS-G's inputs tagged as they'll be at present.
+        initUiComposite() {
+            const app = this.app;
+            this.compositeShader = app.createShader("ImguiOverride/composite_ui_alpha.hlsl", "main", ShaderType.Pixel);
+            if (!this.compositeShader) {
+                console.log("Cannot load ImguiOverride/composite_ui_alpha.hlsl (built with STREAMLINE_SAMPLE_DIR?)");
+            }
+            // The shader's own Vulkan bindings: t0 at 0, s0 at 128.
+            const layoutDesc = BindingLayoutDesc.create();
+            layoutDesc.setVulkanOffsets(0, 128, 256, 384);
+            layoutDesc.layoutTextureSRV(0);
+            layoutDesc.layoutSampler(0);
+            this.compositeLayout = app.createBindingLayout(layoutDesc, ShaderType.Pixel);
+            const pass = app.addPass();
+            pass.setRenderCallback(this.onUiComposite);
+            pass.setBackBufferResizingCallback(this.onBackBufferResizing);
+        }
+
+        // The composite's framebuffers (they hold the back buffers, which a swap chain made again or resized needs
+        // released) and binding set (it holds uiColorAlpha).
+        releaseCompositeTargets() {
+            for (let i = 0; i < this.compositeFramebuffers.length; i++) {
+                this.app.releaseResource(this.compositeFramebuffers[i]);
+            }
+            this.compositeFramebuffers = [];
+            if (!this.compositeBindingSet.isNull()) {
+                this.app.releaseResource(this.compositeBindingSet.handle);
+                this.compositeBindingSet = new BindingSet(null);
+            }
+            this.compositeGeneration = -1;
+        }
+
+        onBackBufferResizing() {
+            this.releaseCompositeTargets();
+        }
+
+        // The UI layer over the back buffer: premultiplied (One, InvSrcAlpha), its alpha into uiAlpha too.
+        compositeUi(commandList: CommandList, targets: RenderTargets) {
+            const app = this.app;
+            if (!this.compositeShader || !this.compositeLayout) {
+                return;
+            }
+            if (this.compositeGeneration != this.renderTargetsGeneration) {
+                this.releaseCompositeTargets();
+                const count = app.getBackBufferCount();
+                for (let i = 0; i < count; i++) {
+                    this.compositeFramebuffers.push(app.createFramebufferWithTwoTargets(app.getBackBuffer(i), targets.uiAlpha, null));
+                }
+                const desc = BindingSetDesc.create();
+                desc.bindTextureSRV(0, targets.uiColorAlpha);
+                desc.bindSampler(0, app.getCommonSampler(CommonSampler.LinearClamp));
+                this.compositeBindingSet = app.createBindingSetForLayout(desc, this.compositeLayout as BindingLayoutHandle);
+                this.compositeGeneration = this.renderTargetsGeneration;
+            }
+            const framebuffer = this.compositeFramebuffers[app.getCurrentBackBufferIndex()];
+            if (!this.compositePipeline) {
+                const pipelineDesc = GraphicsPipelineDesc.create(app.getFullscreenVertexShader(), this.compositeShader as ShaderHandle);
+                pipelineDesc.addBindingLayout(this.compositeLayout as BindingLayoutHandle);
+                pipelineDesc.setPrimitiveType(PrimitiveType.TriangleStrip);
+                pipelineDesc.setRasterState(CullMode.None, FillMode.Solid, 0);
+                pipelineDesc.setDepthState(0, 0, ComparisonFunc.Always);
+                // uiAlpha is cleared to 0 every frame: the same blending leaves the UI's alpha in it.
+                pipelineDesc.setBlendState(true, BlendFactor.One, BlendFactor.InvSrcAlpha, BlendOp.Add, BlendFactor.One,
+                    BlendFactor.InvSrcAlpha, BlendOp.Add);
+                this.compositePipeline = app.createGraphicsPipelineFromDesc(pipelineDesc, framebuffer);
+            }
+            commandList.draw(this.compositePipeline as GraphicsPipelineHandle, framebuffer, this.compositeBindingSet, 4);
+        }
+
+        onUiComposite(frameHandle: FrameHandle) {
+            const targets = this.renderTargets;
+            if (!this.dlssgEnabled || this.ui.dlssgMode == 0 || !targets) {
+                return;
+            }
+            const frame = new Frame(frameHandle);
+            const commandList = frame.getCommandList();
+            const t = targets as RenderTargets;
+            if (this.uiLayerOn) {
+                this.compositeUi(commandList, t);
+            }
+            Streamline_TagUi(commandList.handle, t.uiColorAlpha, t.uiAlpha, frame.getWidth(), frame.getHeight());
+        }
+
         // Streamline's constants for the frame (set every frame Streamline runs, whatever its features do) and
         // its common tags: motion vectors, depth, the color before the UI.
         setStreamlineConstants(commandList: CommandList, targets: RenderTargets) {
@@ -941,7 +1130,8 @@ namespace StreamlineDemo {
             Streamline_TagCommon(commandList.handle, targets.motionVectors, targets.depth, targets.preUIColor);
         }
 
-        // The sample's RenderScene, without its NIS and DLSS-G features (yet).
+        // The sample's RenderScene, without its NIS feature (DLSS-G's UI layer and present-time tags are in the
+        // pass after the UI: onUiComposite).
         renderScene(frame: Frame) {
             const app = this.app;
             const ui = this.ui;
@@ -957,6 +1147,8 @@ namespace StreamlineDemo {
             if (this.testDlssModeSwitch && app.getFrameIndex() == DLSS_SWITCH_FRAME) {
                 ui.dlssMode = DlssMode.MaxPerformance;
             }
+
+            this.updateDlssG();
 
             // DLSS-RR replaces anti-aliasing: whatever the AA combo (or -aa) asks for, it's NONE while RR is
             // on, so DLSS-SR is never evaluated (updateDlss frees it) and the view isn't jittered.
@@ -981,6 +1173,7 @@ namespace StreamlineDemo {
             app.refreshScene(frame, this.scene);
 
             const targets = this.updateRenderTargets(renderWidth, renderHeight, width, height);
+            this.updateUiLayer(targets);
             let needNewPasses = this.renderTargetsChanged;
             if (lodBias != this.previousLodBias) {
                 needNewPasses = true;
@@ -1217,14 +1410,48 @@ namespace StreamlineDemo {
     class UserInterface {
         private ui: UIData;
         private rayTracingSupported: boolean;
+        // DLSS-G in use (StreamlineDemo.dlssgEnabled): its controls and overlay; the app, for the frame time.
+        public dlssgEnabled: boolean;
+        private app: App;
+        public imguiPass: ImGuiPass;
 
-        constructor(ui: UIData, rayTracingSupported: boolean) {
+        constructor(ui: UIData, rayTracingSupported: boolean, app: App) {
             this.ui = ui;
             this.rayTracingSupported = rayTracingSupported;
+            this.dlssgEnabled = false;
+            this.app = app;
+            this.imguiPass = new ImGuiPass(null);
         }
 
         init(app: App) {
-            return !app.addImGuiPass(this.buildUI).isNull();
+            this.imguiPass = app.addImGuiPass(this.buildUI);
+            return !this.imguiPass.isNull();
+        }
+
+        // DLSS-G's controls and the overlay: frames presented per frame rendered, its status, the frame rates,
+        // Reflex's latency.
+        buildDlssG() {
+            const ui = this.ui;
+            ImGui.separator();
+            ui.dlssgMode = ImGui.checkbox("DLSS Frame Generation", ui.dlssgMode != 0) ? 1 : 0;
+            const state = ui.dlssgState;
+            // The most frames it can generate (+ 1: the multiplier), at least 2x.
+            const maxMultiplier = state >= 0 && ((state >> 16) & 0xff) + 1 > 2 ? ((state >> 16) & 0xff) + 1 : 2;
+            if (ui.dlssgMode != 0) {
+                const chosen = ImGui.combo("Multiplier", ui.dlssgMultiplier - 2, maxMultiplier >= 4 ? "2x|3x|4x" : maxMultiplier == 3 ? "2x|3x" : "2x");
+                ui.dlssgMultiplier = chosen + 2 > maxMultiplier ? maxMultiplier : chosen + 2;
+            }
+            const frameTime = this.app.getAverageFrameTime();
+            const renderedFps = frameTime > 0.0 ? 1.0 / frameTime : 0.0;
+            if (state >= 0) {
+                const presented = (state >> 8) & 0xff;
+                ImGui.text(`Presented frames per frame rendered: ${presented}x`);
+                ImGui.text(`DLSS-G status: ${dlssgStatusText(state & 0xff)}`);
+                ImGui.text(`Frame rate: ${Math.round(renderedFps)} rendered, ${Math.round(renderedFps * (presented > 0 ? presented : 1))} presented`);
+            } else {
+                ImGui.text(`DLSS-G: off (frame rate ${Math.round(renderedFps)})`);
+            }
+            ImGui.text(ui.reflexLatencyMs >= 0.0 ? `Reflex latency: ${Math.round(ui.reflexLatencyMs * 10.0) / 10.0} ms` : "Reflex latency: no report");
         }
 
         buildUI() {
@@ -1258,6 +1485,9 @@ namespace StreamlineDemo {
             if (ui.enableDeepDvc) {
                 ui.deepDvcIntensity = ImGui.sliderFloat("DeepDVC Intensity", ui.deepDvcIntensity, 0.0, 1.0);
                 ui.deepDvcSaturationBoost = ImGui.sliderFloat("DeepDVC Saturation Boost", ui.deepDvcSaturationBoost, 0.0, 1.0);
+            }
+            if (this.dlssgEnabled) {
+                this.buildDlssG();
             }
             ImGui.separator();
             ui.enableShadows = ImGui.checkbox("Shadows", ui.enableShadows);
@@ -1302,6 +1532,9 @@ namespace StreamlineDemo {
         // -dlssRR <mode>: DLSS Ray Reconstruction in the sample's -DLSSRR_mode numbering (DlssMode); -1: not
         // given.
         dlssRR: int = -1;
+        // -dlssg <2..4>: DLSS Frame Generation at that multiplier (frames presented per frame rendered; it forces
+        // Reflex on, as the sample does); 0: not given.
+        dlssg: int = 0;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1336,6 +1569,8 @@ namespace StreamlineDemo {
                     this.deepDvc = true;
                 } else if (arg == "-dlssRR" && i + 1 < this.argc) {
                     this.dlssRR = parseInt(this[i + 1]);
+                } else if (arg == "-dlssg" && i + 1 < this.argc) {
+                    this.dlssg = parseInt(this[i + 1]);
                 }
             }
         }
@@ -1440,9 +1675,36 @@ namespace StreamlineDemo {
         if (uiData.antiAliasingMode == AntiAliasingMode.DLSS && !demo.dlssSupported) {
             console.log("DLSS: not supported here, anti-aliasing off");
         }
+        uiData.reflexMode = args.reflex;
+        uiData.reflexFpsCap = args.reflexFpsCap;
+        // DLSS Frame Generation (Reflex on with it, as the sample's -DLSSG_mode). It acts at present: headless
+        // (-test) there's no swap chain, so it's only checked, its API called with it off, and skipped.
+        demo.dlssgSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.DLSS_G) != 0;
+        if (args.dlssg != 0 && (args.dlssg < 2 || args.dlssg > 4)) {
+            console.log(`-dlssg ${args.dlssg}: not a multiplier (2..4), ignored`);
+        } else if (args.dlssg != 0 && !demo.dlssgSupported) {
+            console.log(`DLSS-G: not supported here (${Streamline_FeatureStatusText(StreamlineFeature.DLSS_G)}), off`);
+        } else if (args.dlssg != 0) {
+            uiData.dlssgMultiplier = args.dlssg;
+            if (uiData.reflexMode < 1) {
+                uiData.reflexMode = 1;
+                console.log("DLSS-G: Reflex low latency on (DLSS-G needs it)");
+            }
+            if (args.test) {
+                console.log("DLSS-G: needs a presented swapchain, skipped");
+                Streamline_SetDlssG(0, args.dlssg - 1);
+                const state = Streamline_DlssGState();
+                console.log(state < 0 ? "DLSS-G state: none (not loaded while off)"
+                    : `DLSS-G state: ${dlssgStatusText(state & 0xff)}, presented ${(state >> 8) & 0xff}, up to ${((state >> 16) & 0xff) + 1}x`);
+                demo.dlssgHeadlessSkipped = true;
+            } else {
+                uiData.dlssgMode = 1;
+            }
+        }
+        demo.dlssgEnabled = demo.dlssgSupported && !args.test;
         // Reflex's options (its sleep runs every frame, Reflex supported).
         if (Streamline_IsFeatureSupported(app.handle, StreamlineFeature.Reflex) != 0) {
-            Streamline_SetReflex(args.reflex, args.reflexFpsCap);
+            Streamline_SetReflex(uiData.reflexMode, uiData.reflexFpsCap);
         }
         if (!demo.init(scenePath, args.api)) {
             Streamline_Shutdown();
@@ -1451,9 +1713,18 @@ namespace StreamlineDemo {
         }
 
         // Not under -test: the sample's reference frames are the color before the UI.
-        const gui = new UserInterface(uiData, app.isFeatureSupported(Feature.RayTracingPipeline));
-        if (!args.noUI && !args.test && !gui.init(app)) {
-            console.log("Cannot initialize the user interface");
+        const gui = new UserInterface(uiData, app.isFeatureSupported(Feature.RayTracingPipeline), app);
+        gui.dlssgEnabled = demo.dlssgEnabled;
+        if (!args.noUI && !args.test) {
+            if (gui.init(app)) {
+                demo.imguiPass = gui.imguiPass;
+            } else {
+                console.log("Cannot initialize the user interface");
+            }
+        }
+        // After the UI's pass: DLSS-G's UI composite and present-time tags.
+        if (demo.dlssgEnabled) {
+            demo.initUiComposite();
         }
         const input = new InputPass(app.handle);
         app.run();
@@ -1479,10 +1750,13 @@ namespace StreamlineDemo {
                     : app.finishTest(`${supportedCount} features report supported without Streamline`);
             } else if (missing != "") {
                 result = unsupported(true, `not supported here: ${missing}`);
+            } else if (args.dlssg != 0 && !demo.dlssgSupported) {
+                result = unsupported(true, `DLSS-G: not supported here (${Streamline_FeatureStatusText(StreamlineFeature.DLSS_G)})`);
             } else {
                 const dlssFailure = checkDlss(demo, uiData, args.testDlssModeSwitch);
                 const rrFailure = dlssFailure != "" ? dlssFailure : checkDlssRR(demo, uiData);
-                result = app.finishTest(rrFailure != "" ? rrFailure : checkDeepDvc(demo, uiData));
+                const dvcFailure = rrFailure != "" ? rrFailure : checkDeepDvc(demo, uiData);
+                result = app.finishTest(dvcFailure != "" ? dvcFailure : checkDlssG(demo, args.dlssg));
             }
         }
 

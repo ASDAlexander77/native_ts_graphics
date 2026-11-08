@@ -243,6 +243,9 @@ enum CommonSampler {
 // that): marks it as written by shaders, so that its next use waits for the writes.
 @nodrops declare function Donut_SetBufferWrittenByShaders(commandList: CommandListHandle, buffer: BufferHandle): void;
 @nodrops declare function Donut_GetCommonSampler(app: AppHandle, which: CommonSampler): SamplerHandle;
+// Donut's full-screen vertex shader (CommonRenderPasses'): a triangle strip of 4 vertices over the viewport,
+// SV_Position and float2 UV (0, 0 top left) out. The app keeps it (don't release it).
+@nodrops declare function Donut_GetFullscreenVertexShader(app: AppHandle): ShaderHandle;
 // Makes the common samplers again with a mip level bias (e.g. log2(render / display width) - 1 when
 // upscaling). Passes made afterwards use them, those made before keep the old ones.
 @nodrops declare function Donut_SetCommonSamplersMipBias(app: AppHandle, mipBias: number): void;

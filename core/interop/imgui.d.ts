@@ -10,6 +10,10 @@
 // buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
 // that takes that framebuffer's texture to the back buffer).
 @nodrops declare function Donut_SetImGuiPassFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
+// Same, the UI drawn as a layer to put over the frame later: framebuffer cleared to 0 gets the UI's color
+// premultiplied by its alpha and its coverage in alpha (Final = UI.rgb + (1 - UI.a) x frame, as Streamline's
+// DLSS-G wants its UI color and alpha); null: the back buffer again, with Donut's blending.
+@nodrops declare function Donut_SetImGuiPassLayerFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
 @nodrops declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
 // autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
 @nodrops declare function Donut_ImGuiBegin(title: string, autoResize: boolean): void;

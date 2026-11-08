@@ -80,3 +80,23 @@ enum StreamlineFeature {
 @nodrops declare function Streamline_DeepDvcOff(): void;
 // Drops the resource tags: before releasing tagged resources (Streamline holds them until then).
 @nodrops declare function Streamline_ClearTags(): void;
+
+// --- DLSS Frame Generation. It generates frames at present (the proxy swap chain's Present on D3D12, the
+// interposer's vkQueuePresentKHR on Vulkan): a headless app (test mode) has none, so it never acts there.
+
+// DLSS-G's mode (0 off, 1 on) and the frames it generates per frame rendered (multiplier - 1), every frame;
+// DLSS-G supported. Its resources are kept while it's off for a moment: while the mouse is over the UI (ImGui
+// takes it) the mode is off, as in the sample. Turned off, they're freed. On D3D12 turning it on or off makes
+// the swap chain again at the next frame's start, DLSS-G loaded only while it's on.
+@nodrops declare function Streamline_SetDlssG(mode: int, framesToGenerate: int): void;
+// DLSS-G's state: its status (sl::DLSSGStatus bits: 0 ok, 1 resolution too low, 2 Reflex not detected, 4 HDR
+// format not supported, 8 common constants invalid, 16 GetCurrentBackBufferIndex not called) | the frames
+// actually presented per frame rendered << 8 | the most frames it can generate << 16; -1 without DLSS-G (not
+// supported, or on D3D12 not loaded: off).
+@nodrops declare function Streamline_DlssGState(): int;
+// DLSS-G's inputs at present, on the frame's last command list (after the UI): the UI's premultiplied color and
+// alpha and its alpha (either may be null; DLSS-G takes the alpha if both), the back buffer's extent, and again
+// Streamline_TagCommon's motion vectors, depth and color without the UI, each tagged in the state it rests in
+// at present (on D3D12 one not resting in COMMON is copied now).
+@nodrops declare function Streamline_TagUi(cmd: CommandListHandle, uiColorAlpha: TextureHandle | null, uiAlpha: TextureHandle | null,
+    backbufferW: int, backbufferH: int): void;

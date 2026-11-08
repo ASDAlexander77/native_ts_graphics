@@ -330,6 +330,18 @@ namespace
             ImGui_Renderer::Render(m_Framebuffer ? m_Framebuffer.Get() : framebuffer);
         }
 
+        // Draws into framebuffer as a layer (Donut_SetImGuiPassLayerFramebuffer): the alpha accumulates the UI's
+        // coverage (One, InvSrcAlpha) instead of Donut's (InvSrcAlpha, Zero); the color's blending stays, which
+        // over a target cleared to 0 leaves it premultiplied. The pipeline is made again for the new target.
+        void SetLayerFramebuffer(nvrhi::IFramebuffer* framebuffer)
+        {
+            m_Framebuffer = framebuffer;
+            nvrhi::BlendState::RenderTarget& blend = imgui_nvrhi->basePSODesc.renderState.blendState.targets[0];
+            blend.setSrcBlendAlpha(framebuffer ? nvrhi::BlendFactor::One : nvrhi::BlendFactor::InvSrcAlpha)
+                .setDestBlendAlpha(framebuffer ? nvrhi::BlendFactor::InvSrcAlpha : nvrhi::BlendFactor::Zero);
+            imgui_nvrhi->pso = nullptr;
+        }
+
         // For the Donut_ImGui* functions; the base class keeps these protected.
         using ImGui_Renderer::BeginFullScreenWindow;
         using ImGui_Renderer::DrawScreenCenteredText;
@@ -5866,6 +5878,12 @@ extern "C"
         }
     }
 
+    // CommonRenderPasses' full-screen vertex shader (see resources.d.ts).
+    DONUT_API nvrhi::IShader* Donut_GetFullscreenVertexShader(App* app)
+    {
+        return app->Own(app->commonPasses()->m_FullscreenVS);
+    }
+
     // Makes the common samplers (point clamp, linear clamp and wrap, anisotropic wrap) again with a mip
     // level bias, e.g. for rendering below the display size and upscaling. The passes made afterwards use
     // them; those made before keep the old ones.
@@ -7628,6 +7646,12 @@ extern "C"
     DONUT_API void Donut_SetImGuiPassFramebuffer(TsImGuiPass* imguiPass, nvrhi::IFramebuffer* framebuffer)
     {
         imguiPass->m_Framebuffer = framebuffer;
+    }
+
+    // Same, as a layer: the UI's premultiplied color and coverage, to composite later (see imgui.d.ts).
+    DONUT_API void Donut_SetImGuiPassLayerFramebuffer(TsImGuiPass* imguiPass, nvrhi::IFramebuffer* framebuffer)
+    {
+        imguiPass->SetLayerFramebuffer(framebuffer);
     }
 
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),

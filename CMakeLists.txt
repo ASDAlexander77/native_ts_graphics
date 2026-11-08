@@ -187,7 +187,9 @@ set(DONUT_PATCHES
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-executable-directory-override.patch"
     # DeviceCreationParameters::d3d12CreateDevice and createDxgiFactory2: D3D12's device and DXGI factory made by
     # the application's functions when set, as core/streamline.cpp has Streamline's interposer make them (it is
-    # loaded at run time from bin/streamline/, so its exports can't be linked in place of d3d12.lib and dxgi.lib).
+    # loaded at run time from bin/streamline/, so its exports can't be linked in place of d3d12.lib and dxgi.lib);
+    # and swapChainRecreationRequested / swapChainRecreation: D3D12's swap chain made again at a frame's start when
+    # asked, as DLSS-G needs when it's turned on or off (loaded only while it's on).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-streamline-device-hooks.patch"
 )
 
@@ -5560,6 +5562,9 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
         --scene ${STREAMLINE_DEMO_SCENE} -deepdvc -testOutput streamline_demo_deepdvc_dx12.png)
     add_tslang_example_test(streamline_demo SUFFIX deepdvc NO_DEBUG APIS vk ARGS -width 1920 -height 1080
         --scene ${STREAMLINE_DEMO_SCENE} -deepdvc -testOutput streamline_demo_deepdvc_vk.png)
+    # DLSS Frame Generation at 2x (Reflex forced on, as the sample does): it acts on presented frames only, so
+    # headless (no swap chain) the demo checks it's supported, logs that it's skipped and renders as usual.
+    add_tslang_example_test(streamline_demo SUFFIX dlssg ARGS -width 1280 -height 720 -dlssg 2)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
