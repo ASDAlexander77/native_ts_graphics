@@ -387,6 +387,40 @@ build-release-rtxmg/bin/rtxmg_demo.exe -dx12 -test -frames 4096 -testOutput rtxm
 build-release-rtxmg/bin/rtxmg_demo.exe -dx12 -test -frames 64 -mode primary -testOutput rtxmg_demo_primary.png -width 1280 -height 720 --media E:/Gits/RTXMG/assets --scene subdivision/amy_kitchenset.scene.json
 ```
 
+`streamline_demo` is a port of NVIDIA's [Streamline Sample](https://github.com/NVIDIA-RTX/Streamline_Sample)
+(2.12.0): the Sponza-plus scene with the ray traced (or deferred) lighting frame and the Streamline features DLSS
+Super Resolution, DLSS Ray Reconstruction, DeepDVC, Reflex (with PC Latency) and DLSS Frame Generation, on D3D12
+and Vulkan. The sample is under the NVIDIA RTX SDKs License, so (as with RTXCR and RTXPT) nothing of it is copied:
+`-DSTREAMLINE_SAMPLE_DIR=<checkout>` makes its ray-gen HLSL compile in place (`shaders/streamline_demo.cfg`) and
+its scene load from there. The Streamline SDK 2.12.0 (MIT) release zip (~232 MB) is fetched at configure time by
+the `streamline` / `release-streamline` presets (`WITH_STREAMLINE`); its plugins and the NGX DLLs are copied to
+`bin/streamline` and never committed. It needs an RTX GPU; a feature the GPU or driver lacks is reported and
+disabled:
+
+```
+cmake --preset streamline -DSTREAMLINE_SAMPLE_DIR=E:/Gits/Streamline_Sample
+cmake --build --preset streamline --target streamline_demo
+build-streamline/bin/streamline_demo.exe -dx12 -dlss 3 -reflex 1 --scene E:/Gits/Streamline_Sample/media/sponza-plus.scene.json
+```
+
+Switches: `-noRT` (deferred lighting), `-aa none|taa`, `-pauseAnimation`, `-dlss <mode>` (DLSS-SR, the sample's
+`-DLSS_mode` numbers), `-dlssRR <mode>` (DLSS-RR; anti-aliasing stays off under it), `-deepdvc`, `-reflex 0..2`
+and `-reflexFpsCap <n>`, `-dlssg 2..4` (frame generation multiplier; it forces Reflex on), `-slDisable` (no
+Streamline: every feature reports unsupported), `-slLog` (Streamline's log) and `-width`/`-height` (1920x1080
+default); the UI has the same controls. Latewarp is not in the public Streamline 2.12.0 (no `sl.latewarp.dll` or
+`sl_latewarp.h`), so it is not included (`-latewarp` fails Streamline's init); NIS is not included either.
+
+The frames match the original sample's (patched locally to dump its frames, same checkout) on both APIs: ray
+traced, deferred and TAA within 0.27% of pixels over 8/255, DLSS-SR 0.25% (D3D12) / 0.62% (Vulkan), DLSS-RR
+0.28% / 0.42%, DeepDVC 0.23% / 0.29%. `-test` (`streamline_demo.*` in CTest) checks the features' state (and the
+reference frames above, saved as `streamline_demo_<mode>_<api>.png`) in a hidden window; the presented frames of
+DLSS Frame Generation can't be seen there, so it is checked by hand in a visible window (Vulkan: 2x, status ok,
+Reflex about 7 ms). On Vulkan the Khronos validation layer's handle wrapping is turned off for Streamline's
+devices (`VK_LAYER_UNIQUE_HANDLES=false`: Reflex talks to the driver around the loader), and Donut re-creates the
+window surface after the device so that DLSS-G finds the window. Known: under `-debug` the DeepDVC and DLSS-G
+plugins leave a few NGX buffers alive at `vkDestroyDevice`, as in the sample. This software contains source code
+provided by NVIDIA Corporation.
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
@@ -885,6 +919,7 @@ renders only while its window has focus.
 - [NVIDIA DXR Tutorials](https://github.com/NVIDIAGameWorks/DxrTutorials)
 - [NVIDIA RTX Path Tracing](https://github.com/NVIDIA-RTX/RTXPT) and its [NVIDIA Real-time Denoisers (NRD)](https://github.com/NVIDIA-RTX/NRD), both under the NVIDIA RTX SDKs License
 - [NVIDIA RTX Character Rendering](https://github.com/NVIDIA-RTX/RTXCR) and [NVIDIA RTX Mega Geometry](https://github.com/NVIDIA-RTX/RTXMG), under the NVIDIA RTX SDKs License
+- [NVIDIA Streamline Sample](https://github.com/NVIDIA-RTX/Streamline_Sample) (NVIDIA RTX SDKs License) and the [Streamline SDK](https://github.com/NVIDIA-RTX/Streamline) (MIT)
 - [tslang, the TypeScript native compiler](https://github.com/ASDAlexander77/TypeScriptCompiler)
 
 Each port keeps the original sample's algorithm and look; see the comment above its
