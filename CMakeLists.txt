@@ -422,6 +422,10 @@ set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with i
 # Tracing (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets, configured once by its own
 # CMake (which downloads the DXC its run-time shader compiler uses, External/dxc).
 set(RTXPT_DIR "" CACHE PATH "RTXPT checkout (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets")
+# rtxdi_minimal (see the end of this file) builds only with RTXDI_DIR: a checkout of NVIDIA's RTXDI
+# (github.com/NVIDIA-RTX/RTXDI, v3.0.0) with its assets. Not together with RTXPT_DIR: RTXPT carries its own
+# (older) copy of the RTXDI library, and both would define the same Rtxdi symbols in the one JIT module.
+set(RTXDI_DIR "" CACHE PATH "RTXDI checkout (github.com/NVIDIA-RTX/RTXDI) with its assets")
 # rtxmg_demo (see the end of this file) builds only with RTXMG_DIR: a checkout of NVIDIA's RTX Mega
 # Geometry (github.com/NVIDIA-RTX/RTXMG) with its submodules (osd_lite, the assets).
 set(RTXMG_DIR "" CACHE PATH "RTXMG checkout (github.com/NVIDIA-RTX/RTXMG) with its submodules and assets")
@@ -812,6 +816,17 @@ if (OMM_SDK_LIBRARIES)
 endif()
 if (RTXPT_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxpt.cpp)
+endif()
+if (RTXDI_DIR)
+    if (RTXPT_DIR)
+        message(FATAL_ERROR "RTXDI_DIR and RTXPT_DIR cannot both be set: RTXPT bundles its own RTXDI library, which would clash with RTXDI_DIR's (configure one example family per build directory)")
+    endif()
+    # core/rtxdi.cpp (the glue to the sample's host) is added once it exists.
+    set(RTXDI_GLUE_SOURCES "")
+    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/core/rtxdi.cpp")
+        set(RTXDI_GLUE_SOURCES core/rtxdi.cpp)
+    endif()
+    list(APPEND JIT_MODULE_SOURCES ${RTXDI_GLUE_SOURCES})
 endif()
 if (RTXMG_DIR)
     # core/rtxmg.cpp includes RTXMG's library and demo headers (C++23) and the demo's HiZ prepass, built in place.
@@ -5455,6 +5470,47 @@ if (RTXPT_DIR)
             -overrideAutoexposureOff -stopAnimations -realtimeAA 3 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
         add_tslang_example_test(rtxpt SUFFIX dlss5 ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
             -captureWarmup 64 -overrideToReferenceMode -dlss5 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
+    endif()
+endif()
+
+# Port of NVIDIA's RTXDI Minimal Sample (github.com/NVIDIA-RTX/RTXDI, Samples/MinimalSample): ReSTIR DI
+# direct lighting from emissive triangles, the sample's two compute shaders on Donut's G-buffer.
+# Under the NVIDIA RTX SDKs License like RTXPT, so nothing of it is copied here: with RTXDI_DIR set to a
+# checkout, the RTXDI runtime library (importance sampling context, ReSTIR DI/GI/PT, ReGIR: rtxdi_runtime)
+# builds from it and the sample's shaders compile in place.
+if (RTXDI_DIR)
+    # The library's own CMake builds a static library from an explicit list and, with it, compile tests of
+    # the resampling headers (and expects the checkout's own Donut): the sources are compiled here instead.
+    file(GLOB RTXDI_RUNTIME_SOURCES "${RTXDI_DIR}/Libraries/Rtxdi/Source/*.cpp")
+    add_library(rtxdi_runtime STATIC ${RTXDI_RUNTIME_SOURCES})
+    set_target_properties(rtxdi_runtime PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(rtxdi_runtime PUBLIC ${RTXDI_DIR}/Libraries/Rtxdi/Include)
+
+    # The sample's shaders at bin/shaders/rtxdi_minimal/<dxil|spirv>. They are in the checkout's
+    # Samples/MinimalSample/Shaders (--sourceDir) and include its ../Types.h-style headers relative to the
+    # file (--relaxedInclude). donut_compile_shaders passes the SPIR-V define and the Vulkan register
+    # offsets the shaders' bindings rely on, as the checkout's own compileshaders.cmake does.
+    donut_compile_shaders(
+        TARGET rtxdi_minimal_shaders
+        PROJECT_NAME "RTXDI"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxdi_minimal.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxdi_minimal.cfg
+        INCLUDES ${RTXDI_DIR}/Libraries/Rtxdi/Include
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxdi_minimal/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxdi_minimal/spirv
+        SHADER_MODEL 6_5
+        SHADERMAKE_OPTIONS "--sourceDir ${RTXDI_DIR}/Samples/MinimalSample/Shaders --relaxedInclude ../Types.h"
+    )
+
+    # The sample's code finds its Assets folder next to the executable: a link to RTXDI_DIR/Assets there.
+    if (NOT EXISTS "${CMAKE_BINARY_DIR}/Assets")
+        if (WIN32)
+            file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/Assets" RTXDI_ASSETS_LINK)
+            file(TO_NATIVE_PATH "${RTXDI_DIR}/Assets" RTXDI_ASSETS_TARGET)
+            execute_process(COMMAND cmd /c mklink /J "${RTXDI_ASSETS_LINK}" "${RTXDI_ASSETS_TARGET}" OUTPUT_QUIET)
+        else()
+            file(CREATE_LINK "${RTXDI_DIR}/Assets" "${CMAKE_BINARY_DIR}/Assets" SYMBOLIC)
+        endif()
     endif()
 endif()
 

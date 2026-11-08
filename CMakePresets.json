@@ -162,6 +162,26 @@
       }
     },
     {
+      "name": "default-rtxdi",
+      "displayName": "Default with RTXDI (Ninja)",
+      "description": "Debug with the rtxdi_minimal example (RTXDI_DIR: a checkout of github.com/NVIDIA-RTX/RTXDI with its assets). Override the path with -DRTXDI_DIR=<path>.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-rtxdi",
+      "cacheVariables": {
+        "RTXDI_DIR": "E:/Gits/RTXDI"
+      }
+    },
+    {
+      "name": "release-rtxdi",
+      "displayName": "Release with RTXDI (Ninja)",
+      "description": "Release with the rtxdi_minimal example (RTXDI_DIR: a checkout of github.com/NVIDIA-RTX/RTXDI with its assets). Override the path with -DRTXDI_DIR=<path>.",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-release-rtxdi",
+      "cacheVariables": {
+        "RTXDI_DIR": "E:/Gits/RTXDI"
+      }
+    },
+    {
       "name": "default-rtxmg",
       "displayName": "Default with RTXMG (Ninja)",
       "description": "Debug with the rtxmp demo (RTXMG_DIR: a checkout of github.com/NVIDIA-RTX/RTXMG with submodules and assets, configured once by its own CMake). Override the path with -DRTXMG_DIR=<path>.",
@@ -277,6 +297,14 @@
     {
       "name": "release-rtxpt",
       "configurePreset": "release-rtxpt"
+    },
+    {
+      "name": "default-rtxdi",
+      "configurePreset": "default-rtxdi"
+    },
+    {
+      "name": "release-rtxdi",
+      "configurePreset": "release-rtxdi"
     },
     {
       "name": "android-x86_64",
