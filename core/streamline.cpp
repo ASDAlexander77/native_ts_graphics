@@ -839,6 +839,19 @@ extern "C"
         commandList->clearState();
     }
 
+    // DeepDVC's mode off (its plugin has no explicit resource free; see streamline.d.ts).
+    DONUT_API void Streamline_DeepDvcOff()
+    {
+        if (!g_Streamline.initialized)
+            return;
+        FeatureFunctions();
+        if (!g_Streamline.slDeepDVCSetOptions)
+            return;
+        sl::DeepDVCOptions options{};
+        options.mode = sl::DeepDVCMode::eOff;
+        Check(g_Streamline.slDeepDVCSetOptions(kViewport, options), "slDeepDVCSetOptions (off)");
+    }
+
     // Drops every tag: before the tagged resources are released (Streamline holds them until then).
     DONUT_API void Streamline_ClearTags()
     {

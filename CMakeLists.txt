@@ -5547,6 +5547,10 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
         # 1920x1080).
         add_tslang_example_test(streamline_demo SUFFIX dlssrr APIS ${api} ARGS -width 1920 -height 1080
             --scene ${STREAMLINE_DEMO_SCENE} -dlssRR 3 -testOutput streamline_demo_dlssrr_${api}.png)
+        # The same asked for TAA from the start and DLSS-SR at frame 60 (as the UI could): anti-aliasing stays
+        # none under RR (no jitter, DLSS-SR never evaluated).
+        add_tslang_example_test(streamline_demo SUFFIX dlssrr_aa APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlssRR 3 -aa taa -testAAUnderRR)
     endforeach()
     # DeepDVC on the color before the UI (the reference's -DeepDVC_on: intensity 0.5, saturation boost 0.75):
     # its frame more saturated than any plain one. On Vulkan without -debug: the DeepDVC plugin leaves its

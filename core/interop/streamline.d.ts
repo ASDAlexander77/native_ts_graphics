@@ -76,5 +76,7 @@ enum StreamlineFeature {
 // size), on the command list, whose state is cleared after. intensity and saturationBoost in [0, 1].
 @nodrops declare function Streamline_EvaluateDeepDvc(cmd: CommandListHandle, color: TextureHandle, intensity: number,
     saturationBoost: number): void;
+// DeepDVC turned off: its mode set to off (its plugin has no explicit resource free).
+@nodrops declare function Streamline_DeepDvcOff(): void;
 // Drops the resource tags: before releasing tagged resources (Streamline holds them until then).
 @nodrops declare function Streamline_ClearTags(): void;

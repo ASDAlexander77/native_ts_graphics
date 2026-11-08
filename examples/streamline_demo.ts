@@ -100,6 +100,13 @@ namespace StreamlineDemo {
         if (demo.renderSizeChanges != 0) {
             return `The render size changed ${demo.renderSizeChanges} times, not 0`;
         }
+        // Anti-aliasing stays NONE under RR, whatever was asked for (-aa taa, -testAAUnderRR's DLSS-SR).
+        if (demo.dlssEvaluations != 0) {
+            return `DLSS-SR upscaled ${demo.dlssEvaluations} frames under DLSS-RR`;
+        }
+        if (demo.jitteredFrames != 0) {
+            return `${demo.jitteredFrames} frames jittered under DLSS-RR`;
+        }
         return "";
     }
 
@@ -212,7 +219,8 @@ namespace StreamlineDemo {
         DLAA = 6
     }
 
-    // -testDlssModeSwitch: the frame DLSS switches to MaxPerformance at.
+    // -testDlssModeSwitch: the frame DLSS switches to MaxPerformance at; -testAAUnderRR: the frame DLSS-SR
+    // (MaxQuality) is asked for under DLSS-RR, as the UI's AA combo would.
     const DLSS_SWITCH_FRAME = 60;
 
     // --- UI state -----------------------------------------------------------------------------------
@@ -380,7 +388,12 @@ namespace StreamlineDemo {
         public dlssSupported: boolean;
         public dlssRRSupported: boolean;
         public deepDvcSupported: boolean;
+        // DeepDVC evaluated since it was last turned off.
+        private deepDvcOn: boolean;
         public testDlssModeSwitch: boolean;
+        public testAAUnderRR: boolean;
+        // -test's DLSS-RR check: the frames rendered with a jittered view.
+        public jitteredFrames: int;
         // The DLSS mode and display size the render size was last asked for (Off: DLSS not in use), that
         // render size, and the mip level bias the passes were made with.
         private dlssLastMode: int;
@@ -451,7 +464,10 @@ namespace StreamlineDemo {
             this.dlssSupported = false;
             this.dlssRRSupported = false;
             this.deepDvcSupported = false;
+            this.deepDvcOn = false;
             this.testDlssModeSwitch = false;
+            this.testAAUnderRR = false;
+            this.jitteredFrames = 0;
             this.dlssLastMode = DlssMode.Off;
             this.dlssLastDisplayWidth = 0;
             this.dlssLastDisplayHeight = 0;
@@ -689,6 +705,7 @@ namespace StreamlineDemo {
             if (this.ui.antiAliasingMode != AntiAliasingMode.NONE && !temporalAntiAliasingPass.isNull()) {
                 temporalAntiAliasingPass.getPixelOffset(Ref(this.vector2[0]));
                 pixelOffsetX = this.vector2[0];
+                this.jitteredFrames++;
                 pixelOffsetY = this.vector2[1];
             }
 
@@ -933,8 +950,20 @@ namespace StreamlineDemo {
             const width = frame.getWidth();
             const height = frame.getHeight();
 
+            if (this.testAAUnderRR && app.getFrameIndex() == DLSS_SWITCH_FRAME) {
+                ui.antiAliasingMode = AntiAliasingMode.DLSS;
+                ui.dlssMode = DlssMode.MaxQuality;
+            }
             if (this.testDlssModeSwitch && app.getFrameIndex() == DLSS_SWITCH_FRAME) {
                 ui.dlssMode = DlssMode.MaxPerformance;
+            }
+
+            // DLSS-RR replaces anti-aliasing: whatever the AA combo (or -aa) asks for, it's NONE while RR is
+            // on, so DLSS-SR is never evaluated (updateDlss frees it) and the view isn't jittered.
+            if (ui.dlssRRMode != DlssMode.Off && this.dlssRRSupported && ui.antiAliasingMode != AntiAliasingMode.NONE) {
+                console.log("DLSS-RR on: anti-aliasing none");
+                ui.antiAliasingMode = AntiAliasingMode.NONE;
+                ui.dlssMode = DlssMode.Off;
             }
 
             // The render size: DLSS's for its mode, else the display size; the mip level bias for it.
@@ -1099,9 +1128,14 @@ namespace StreamlineDemo {
             // DeepDVC on the color before the UI, in place (after tone mapping, as the sample). Turned off, it
             // just isn't evaluated: its plugin has no explicit resource free (slFreeResources: "plugin does
             // not support explicit resource deallocation").
+            // Its mode is set to off once when it's turned off.
             if (ui.enableDeepDvc && this.deepDvcSupported) {
                 Streamline_EvaluateDeepDvc(commandList.handle, targets.preUIColor, ui.deepDvcIntensity, ui.deepDvcSaturationBoost);
                 this.deepDvcEvaluations++;
+                this.deepDvcOn = true;
+            } else if (this.deepDvcOn) {
+                Streamline_DeepDvcOff();
+                this.deepDvcOn = false;
             }
 
             // Into the back buffer as it is (the UI draws over it after).
@@ -1202,8 +1236,16 @@ namespace StreamlineDemo {
             if (this.rayTracingSupported) {
                 ui.rayTracingMode = ImGui.checkbox("Ray Traced Lighting", ui.rayTracingMode != 0) ? 1 : 0;
             }
-            ui.antiAliasingMode = ImGui.combo("AA Mode", ui.antiAliasingMode, "None|TAA|DLSS");
-            if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
+            // DLSS-RR (its mode's index as DLSS's): anti-aliasing is none while it's on, its combo hidden.
+            const rrIndex = ui.dlssRRMode == DlssMode.DLAA ? 5 : ui.dlssRRMode;
+            const rrChosen = ImGui.combo("DLSS-RR Mode", rrIndex, "Off|Max Performance|Balanced|Max Quality|Ultra Performance|DLAA");
+            ui.dlssRRMode = rrChosen == 5 ? DlssMode.DLAA : rrChosen;
+            if (ui.dlssRRMode != DlssMode.Off) {
+                ImGui.text("AA Mode: none (DLSS-RR)");
+            } else {
+                ui.antiAliasingMode = ImGui.combo("AA Mode", ui.antiAliasingMode, "None|TAA|DLSS");
+            }
+            if (ui.dlssRRMode == DlssMode.Off && ui.antiAliasingMode == AntiAliasingMode.DLSS) {
                 // DLSS turned on starts Balanced, as the sample's; UltraQuality isn't offered.
                 if (ui.dlssMode == DlssMode.Off) {
                     ui.dlssMode = DlssMode.Balanced;
@@ -1249,6 +1291,8 @@ namespace StreamlineDemo {
         dlss: int = -1;
         // -testDlssModeSwitch: under -test, DLSS switches to MaxPerformance at frame DLSS_SWITCH_FRAME.
         testDlssModeSwitch: boolean = false;
+        // -testAAUnderRR: under -test, DLSS-SR is asked for at frame DLSS_SWITCH_FRAME (with -dlssRR).
+        testAAUnderRR: boolean = false;
         // -reflex <0..2>: Reflex off, low latency, low latency with boost; -reflexFpsCap <n>: a frame rate
         // cap (0: none).
         reflex: int = 0;
@@ -1282,6 +1326,8 @@ namespace StreamlineDemo {
                     this.dlss = parseInt(this[i + 1]);
                 } else if (arg == "-testDlssModeSwitch") {
                     this.testDlssModeSwitch = true;
+                } else if (arg == "-testAAUnderRR") {
+                    this.testAAUnderRR = true;
                 } else if (arg == "-reflex" && i + 1 < this.argc) {
                     this.reflex = parseInt(this[i + 1]);
                 } else if (arg == "-reflexFpsCap" && i + 1 < this.argc) {
@@ -1390,6 +1436,7 @@ namespace StreamlineDemo {
             console.log("DeepDVC: not supported here, off");
         }
         demo.testDlssModeSwitch = args.test && args.testDlssModeSwitch;
+        demo.testAAUnderRR = args.test && args.testAAUnderRR;
         if (uiData.antiAliasingMode == AntiAliasingMode.DLSS && !demo.dlssSupported) {
             console.log("DLSS: not supported here, anti-aliasing off");
         }
