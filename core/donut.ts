@@ -5342,7 +5342,9 @@ export class CommandLine {
 
     // The examples' test options: -test renders frameCount frames, frameSeconds each, without a
     // window (Program.setTestMode, for the app created next); -testOutput <file> names an image
-    // file for the last one (Donut_FinishTest). Non-zero if -test is given.
+    // file for the last one (Donut_FinishTest). Non-zero if -test is given. -hiddenWindow <frames>
+    // (without -test): the app created next has its window and swap chain, but the window is never
+    // shown and Donut_RunApp returns after that many frames.
     static parseTestArgs(argc: int, argv: Ref<string>, frameCount: int, frameSeconds: number): int {
         return Donut_ParseTestArgs(argc, argv, frameCount, frameSeconds);
     }

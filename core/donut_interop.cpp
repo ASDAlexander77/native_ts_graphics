@@ -704,6 +704,32 @@ namespace
     double g_TestFrameSeconds = 1.0 / 60.0;
     // The image file -testOutput names (Donut_ParseTestArgs), empty if none.
     std::string g_TestOutput;
+    // -hiddenWindow <frames> (Donut_ParseTestArgs): the app created next has its window, swap chain and
+    // message loop as usual, but the window is never shown, and the loop ends after that many presented
+    // frames; 0 for a visible window. The windowed path checked without a window on the desktop.
+    int g_HiddenWindowFrames = 0;
+
+    // A hidden window's app: frames rendered although the window never has the focus, and the window
+    // closed after g_HiddenWindowFrames of them.
+    class HiddenWindowPass : public donut::app::IRenderPass
+    {
+    public:
+        HiddenWindowPass(DeviceManager* deviceManager, int frames)
+            : IRenderPass(deviceManager)
+            , m_FramesLeft(frames)
+        { }
+
+        bool ShouldRenderUnfocused() override { return true; }
+
+        void Render(nvrhi::IFramebuffer*) override
+        {
+            if (--m_FramesLeft <= 0)
+                glfwSetWindowShouldClose(GetDeviceManager()->GetWindow(), GLFW_TRUE);
+        }
+
+    private:
+        int m_FramesLeft;
+    };
 
     // The device manager's render passes and frame index: protected members, reached through
     // pointers to members named from a derived class (as DeviceManagerVKAccess below).
@@ -2918,6 +2944,8 @@ extern "C"
 #endif
 
         const bool testMode = g_TestFrameCount > 0;
+        const bool hiddenWindow = !testMode && g_HiddenWindowFrames > 0;
+        params.startHidden = hiddenWindow;
         if (testMode ? !deviceManager->CreateHeadlessDevice(params) : !deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
             donut::log::error("cannot initialize the graphics device");
@@ -2943,6 +2971,13 @@ extern "C"
         App* app = MakeApp(std::move(deviceManager), api);
         if ((options & AppOption_Streamline) != 0)
             donut_interop::StreamlineAppCreated(*app->deviceManager);
+        if (hiddenWindow)
+        {
+            donut::log::info("Hidden window: %d frames", g_HiddenWindowFrames);
+            auto hiddenPass = std::make_unique<HiddenWindowPass>(app->deviceManager.get(), g_HiddenWindowFrames);
+            app->deviceManager->AddRenderPassToBack(hiddenPass.get());
+            app->otherPasses.push_back(std::move(hiddenPass));
+        }
         if (testMode)
         {
             // The swap chain's: its format (BGRA on Vulkan, as Donut's device manager makes it)
@@ -3633,7 +3668,9 @@ extern "C"
 
     // The examples' test options in main's argv: -test renders frameCount frames, frameSeconds each,
     // without a window (Donut_SetTestMode, for the app created next); -testOutput <file> names an
-    // image file for the last one (Donut_FinishTest). Non-zero if -test is given.
+    // image file for the last one (Donut_FinishTest). Non-zero if -test is given. -hiddenWindow <frames>
+    // (without -test): the windowed app, its window never shown, ends after that many frames
+    // (Donut_HiddenWindowFrames); also makes stdout unbuffered.
     DONUT_API int Donut_ParseTestArgs(int argc, const char* const* argv, int frameCount, double frameSeconds)
     {
         bool test = false;
@@ -3643,10 +3680,20 @@ extern "C"
                 test = true;
             else if (strcmp(argv[i], "-testOutput") == 0 && i + 1 < argc)
                 g_TestOutput = argv[++i];
+            else if (strcmp(argv[i], "-hiddenWindow") == 0 && i + 1 < argc)
+                g_HiddenWindowFrames = std::max(atoi(argv[++i]), 0);
         }
+        if (!test && g_HiddenWindowFrames > 0)
+            setvbuf(stdout, nullptr, _IONBF, 0);
         if (test)
             Donut_SetTestMode(frameCount, frameSeconds);
         return test ? 1 : 0;
+    }
+
+    // The frames a -hiddenWindow run renders (Donut_ParseTestArgs), 0 if it isn't one (or under -test).
+    DONUT_API int Donut_HiddenWindowFrames()
+    {
+        return g_TestFrameCount > 0 ? 0 : g_HiddenWindowFrames;
     }
 
     // Non-zero for an app created in test mode.

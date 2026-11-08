@@ -456,6 +456,11 @@ namespace StreamlineDemo {
         public dlssgClampedMultiplier: int;
         // DLSS-G in use: supported, with a swap chain (not headless).
         public dlssgEnabled: boolean;
+        // With a swap chain: the frames DLSS-G was on for, of those the frames its state was ok, and those it
+        // reported presenting the multiplier asked for (-hiddenWindow with -dlssg reports them).
+        public dlssgOnFrames: int;
+        public dlssgOkFrames: int;
+        public dlssgFullFrames: int;
         // The ImGui pass (none without the UI), and whether it draws into the UI layer, for which render targets.
         public imguiPass: ImGuiPass | null;
         private uiLayerOn: boolean;
@@ -551,6 +556,9 @@ namespace StreamlineDemo {
             this.dlssgState = -1;
             this.dlssgClampedMultiplier = 0;
             this.dlssgEnabled = false;
+            this.dlssgOnFrames = 0;
+            this.dlssgOkFrames = 0;
+            this.dlssgFullFrames = 0;
             this.imguiPass = null;
             this.uiLayerOn = false;
             this.uiLayerGeneration = 0;
@@ -1033,6 +1041,15 @@ namespace StreamlineDemo {
             Streamline_SetDlssG(ui.dlssgMode, ui.dlssgMultiplier - 1);
             ui.dlssgState = Streamline_DlssGState();
             ui.reflexLatencyMs = Streamline_ReflexLatencyMs();
+            if (ui.dlssgMode != 0) {
+                this.dlssgOnFrames++;
+                if (ui.dlssgState >= 0 && (ui.dlssgState & 0xff) == 0) {
+                    this.dlssgOkFrames++;
+                }
+                if (ui.dlssgState >= 0 && ((ui.dlssgState >> 8) & 0xff) == ui.dlssgMultiplier) {
+                    this.dlssgFullFrames++;
+                }
+            }
         }
 
         // The ImGui pass draws into the UI layer (uiColorAlpha) while DLSS-G is on, into the back buffer
@@ -1766,6 +1783,25 @@ namespace StreamlineDemo {
         console.log(latency >= 0.0 ? `Reflex latency: ${latency} ms` : "Reflex latency: no report");
 
         let result = 0;
+        // -hiddenWindow <frames> with -dlssg: DLSS-G was on, its state ok, for at least half the frames on the
+        // hidden window's swap chain, or the run fails (exit 1); unsupported: skipped (77). The frames it reported
+        // presenting the multiplier are logged only: a hidden window's frames never reach the display (DXGI's
+        // frame statistics count none), and DLSS-G then presents no generated frame (1x), on either API.
+        const hiddenFrames = Donut_HiddenWindowFrames();
+        if (hiddenFrames > 0 && args.dlssg != 0) {
+            const state = Streamline_DlssGState();
+            console.log(`DLSS-G: on ${demo.dlssgOnFrames} of ${hiddenFrames} frames, ok ${demo.dlssgOkFrames}, presented ${uiData.dlssgMultiplier}x in ${demo.dlssgFullFrames}`
+                + (state < 0 ? " (no state)" : ` (last state: ${dlssgStatusText(state & 0xff)}, presented ${(state >> 8) & 0xff}x)`));
+            if (!demo.dlssgEnabled) {
+                console.log("Hidden window SKIPPED: DLSS-G not supported here");
+                result = 77;
+            } else if (demo.dlssgOnFrames < hiddenFrames / 2 || demo.dlssgOkFrames < hiddenFrames / 2) {
+                console.log(`Hidden window FAILED: DLSS-G on ${demo.dlssgOnFrames}, ok ${demo.dlssgOkFrames} of ${hiddenFrames} frames`);
+                result = 1;
+            } else {
+                console.log("Hidden window PASSED");
+            }
+        }
         if (args.test) {
             const frameFailure = checkFrame(app, uiData.rayTracingMode != 0,
                 uiData.antiAliasingMode == AntiAliasingMode.DLSS || uiData.dlssRRMode != DlssMode.Off, uiData.enableDeepDvc);

@@ -220,8 +220,12 @@ declare function Donut_RunApp(app: AppHandle): void;
 @nodrops declare function Donut_SaveBackBufferToFile(app: AppHandle, path: string): int;
 // The examples' test options: -test renders frameCount frames, frameSeconds each, without a window
 // (Donut_SetTestMode, for the app created next); -testOutput <file> names an image file for the last
-// one (Donut_FinishTest). Non-zero if -test is given.
+// one (Donut_FinishTest). Non-zero if -test is given. -hiddenWindow <frames> (without -test): the app
+// created next has its window and swap chain, but the window is never shown and Donut_RunApp returns
+// after that many frames.
 @nodrops declare function Donut_ParseTestArgs(argc: int, argv: Ref<string>, frameCount: int, frameSeconds: number): int;
+// The frames a -hiddenWindow run renders, 0 if it isn't one (or under -test).
+@nodrops declare function Donut_HiddenWindowFrames(): int;
 // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
 // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
 // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.

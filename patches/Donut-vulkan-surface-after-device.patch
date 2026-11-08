@@ -1,0 +1,32 @@
+diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager.h
+--- a/include/donut/app/DeviceManager.h
++++ b/include/donut/app/DeviceManager.h
+@@ -264,6 +264,10 @@ namespace donut::app
+         // The elements of this structure will be populated before 'deviceCreateInfoCallback' is called,
+         // thereby allowing applications to determine if certain features may be enabled on the device.
+         void* physicalDeviceFeatures2Extensions = nullptr;
++
++        // Make the window's surface again once the device exists, before the swap chain (e.g. for Streamline's
++        // interposer, whose surface-creation hooks only reach its plugins once there is a device).
++        bool recreateWindowSurfaceAfterDevice = false;
+ #endif
+     };
+ 
+diff --git a/src/app/vulkan/DeviceManager_VK.cpp b/src/app/vulkan/DeviceManager_VK.cpp
+--- a/src/app/vulkan/DeviceManager_VK.cpp
++++ b/src/app/vulkan/DeviceManager_VK.cpp
+@@ -1272,6 +1272,14 @@ bool DeviceManager_VK::CreateDevice()
+     CHECK(findQueueFamilies(m_VulkanPhysicalDevice))
+     CHECK(createDevice())
+ 
++    if (m_DeviceParams.recreateWindowSurfaceAfterDevice && m_WindowSurface)
++    {
++        // Same window, same physical device: its support checked above still holds.
++        m_VulkanInstance.destroySurfaceKHR(m_WindowSurface);
++        m_WindowSurface = nullptr;
++        CHECK(createWindowSurface())
++    }
++
+     auto vecInstanceExt = stringSetToVector(enabledExtensions.instance);
+     auto vecLayers = stringSetToVector(enabledExtensions.layers);
+     auto vecDeviceExt = stringSetToVector(enabledExtensions.device);

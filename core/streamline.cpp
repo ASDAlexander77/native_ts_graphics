@@ -36,6 +36,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
@@ -128,6 +129,9 @@ namespace
         PFunD3D12CreateDevice* d3d12CreateDevice = nullptr;
         PFunCreateDXGIFactory2* createDxgiFactory2 = nullptr;
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
+        // Window surfaces GLFW made for the device being created (GlfwGetInstanceProcAddr): the first is before
+        // the device, the second (recreateWindowSurfaceAfterDevice) after it.
+        int windowSurfaces = 0;
 
         // Streamline_FeatureStatusText's: by feature, what Streamline_IsFeatureSupported found last.
         std::map<uint32_t, std::string> status;
@@ -138,9 +142,6 @@ namespace
         sl::FrameToken* frame = nullptr;
         // Whether a resource is tagged (then Streamline_ClearTags has tags to drop).
         bool tagged = false;
-        // No Reflex sleep: on a headless Vulkan device (no swap chain) under the validation layer, where it
-        // crashes (InstallFrameCallbacks).
-        bool skipReflexSleep = false;
 
         // DLSS-G: on (Streamline_SetDlssG's mode not off), loaded (on D3D12 from the swap chain made with it on),
         // the swap chain to make again at the next frame's start (D3D12).
@@ -195,6 +196,24 @@ namespace
         if (!function)
             donut::log::error("Streamline: sl.interposer.dll doesn't export %s", name);
         return function != nullptr;
+    }
+
+    // GLFW's vkGetInstanceProcAddr (glfwInitVulkanLoader), for the window's surface: the interposer's, but for
+    // vkCreateWin32SurfaceKHR, which the interposer exports with its hook (sl_hooks.h's
+    // eVulkan_CreateWin32SurfaceKHR) while its vkGetInstanceProcAddr returns the Vulkan loader's. DLSS-G learns the window a swap chain presents to from the surface made
+    // through that hook; without it vkCreateSwapchainKHR logs "Could not find a window corresponding to this
+    // application". The hook reaches the plugins only once there's a device, so the first surface (before the
+    // device: Donut picks the physical device by it) is the loader's, and the one Donut makes again after the
+    // device (DeviceCreationParameters::recreateWindowSurfaceAfterDevice) the interposer's; else its hook logs
+    // "D3D or VK API hook is activated without device being created".
+    PFN_vkVoidFunction VKAPI_CALL GlfwGetInstanceProcAddr(VkInstance instance, const char* name)
+    {
+        if (name && strcmp(name, "vkCreateWin32SurfaceKHR") == 0 && g_Streamline.windowSurfaces++ > 0)
+        {
+            if (FARPROC hooked = GetProcAddress(g_Streamline.interposer, name))
+                return reinterpret_cast<PFN_vkVoidFunction>(hooked);
+        }
+        return g_Streamline.vkGetInstanceProcAddr(instance, name);
     }
 
     // Logs a failed Streamline call (as a warning: see LogMessage).
@@ -264,7 +283,7 @@ namespace
             g_Streamline.frame = nullptr;
             return -1;
         }
-        if (g_Streamline.slReflexSleep && !g_Streamline.skipReflexSleep)
+        if (g_Streamline.slReflexSleep)
             Check(g_Streamline.slReflexSleep(*g_Streamline.frame), "slReflexSleep");
         return static_cast<int>(static_cast<uint32_t>(*g_Streamline.frame));
     }
@@ -279,15 +298,6 @@ namespace
     // manager's frame callbacks (Donut_RunApp calls them in test mode too, where nothing presents).
     void InstallFrameCallbacks(donut::app::DeviceManager& deviceManager)
     {
-        // Observed: on Vulkan, a headless device (test mode, no swap chain) under the validation layer crashes in
-        // Reflex's sleep; with the layer and a swap chain (the Streamline Sample's own run) it doesn't. Only that
-        // combination skips it (a windowed Vulkan -debug run still sleeps). DLSS-G, which needs Reflex, never acts
-        // there either: it runs at present, and a headless device presents nothing.
-        g_Streamline.skipReflexSleep = g_Streamline.api == nvrhi::GraphicsAPI::VULKAN
-            && deviceManager.GetDeviceParams().headlessDevice
-            && deviceManager.IsVulkanLayerEnabled("VK_LAYER_KHRONOS_validation");
-        if (g_Streamline.skipReflexSleep)
-            donut::log::info("Reflex: no sleep on a headless Vulkan device under the validation layer (it crashes there)");
         auto& callbacks = deviceManager.m_callbacks;
         callbacks.beforeFrame = [](donut::app::DeviceManager&, uint32_t frameIndex) { BeginFrame(&frameIndex); };
         callbacks.beforeAnimate = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::eSimulationStart); };
@@ -538,9 +548,30 @@ namespace
         else if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             params.vulkanLibraryName = g_Streamline.interposerPath;
-            // GLFW's surface (a window's device) through the same loader; before glfwInit, which the window's
-            // creation calls.
-            glfwInitVulkanLoader(g_Streamline.vkGetInstanceProcAddr);
+            // Under the validation layer (-debug, or VK_INSTANCE_LAYERS naming it): its handle wrapping off.
+            // SDK 2.12's sl.reflex sleeps through NvLowLatencyVk.dll (VK_NV_low_latency over NVAPI), which reaches
+            // the driver beside the loader and its layers, with Vulkan handles the layer has replaced by its own
+            // ids: the driver faults on them (an access violation in nvoglv64.dll under slReflexSleep, windowed
+            // or headless). Handle wrapping off, the layer hands the driver's handles through and still validates.
+            // (The Streamline Sample doesn't crash with the layer because it loads the plugins NVIDIA's OTA
+            // downloaded, 2.14's sl.reflex, which sleeps through VK_NV_low_latency2 in the layer chain; the demo
+            // keeps bin/streamline's 2.12 plugins.) The layer reads it from the environment when it loads; a
+            // value already set is the user's.
+            const char* layers = getenv("VK_INSTANCE_LAYERS");
+            const bool validationLayer = params.enableDebugRuntime
+                || (layers && strstr(layers, "VK_LAYER_KHRONOS_validation"));
+            if (validationLayer && !getenv("VK_LAYER_UNIQUE_HANDLES"))
+            {
+                _putenv_s("VK_LAYER_UNIQUE_HANDLES", "false");
+                donut::log::info("Streamline: the validation layer's handle wrapping off (Reflex's NvLowLatencyVk needs the driver's handles)");
+            }
+            // GLFW's surface (a window's device) through the same loader, its surface functions the interposer's
+            // hooked exports (GlfwGetInstanceProcAddr); before glfwInit, which the window's creation calls.
+            glfwInitVulkanLoader(&GlfwGetInstanceProcAddr);
+            g_Streamline.windowSurfaces = 0;
+            // And made again once the device exists: before it, the interposer's surface hook doesn't reach the
+            // plugins ("D3D or VK API hook is activated without device being created"), so DLSS-G never sees it.
+            params.recreateWindowSurfaceAfterDevice = true;
             // Those of the plugins' (DLSS-G's) the interposer's vkCreateDevice doesn't add itself.
             for (const char* extension : { "VK_NVX_binary_import", "VK_NVX_image_view_handle",
                 "VK_KHR_buffer_device_address", "VK_KHR_push_descriptor" })

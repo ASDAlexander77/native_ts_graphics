@@ -191,6 +191,13 @@ set(DONUT_PATCHES
     # and swapChainRecreationRequested / swapChainRecreation: D3D12's swap chain made again at a frame's start when
     # asked, as DLSS-G needs when it's turned on or off (loaded only while it's on).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-streamline-device-hooks.patch"
+    # DeviceCreationParameters::startHidden: the window never shown nor focused, its swap chain still presented
+    # to (-hiddenWindow <frames>, Donut_ParseTestArgs: the windowed path run without a visible window).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-hidden-window.patch"
+    # DeviceCreationParameters::recreateWindowSurfaceAfterDevice (Vulkan): the window's surface made again once the
+    # device exists, as Streamline's interposer passes surface creation to its plugins (DLSS-G learns the window
+    # a swap chain presents to there) only once it has a device (core/streamline.cpp).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-vulkan-surface-after-device.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -5524,10 +5531,9 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
     # check the frame first (media/sponza-plus.scene.json: its second robot is behind the camera).
     add_tslang_example_test(streamline_demo ARGS -width 1280 -height 720)
     add_tslang_example_test(streamline_demo SUFFIX sl_disabled ARGS -width 1280 -height 720 -slDisable)
-    # Reflex low latency with DLSS. On Vulkan without -debug: a headless device under the validation layer
-    # crashes in Reflex's sleep (core/streamline.cpp skips it there, so -debug wouldn't exercise it).
-    add_tslang_example_test(streamline_demo SUFFIX reflex APIS dx12 ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
-    add_tslang_example_test(streamline_demo SUFFIX reflex NO_DEBUG APIS vk ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
+    # Reflex low latency with DLSS. On Vulkan under the validation layer its sleep (NvLowLatencyVk) crashed in the
+    # driver unless the layer's handle wrapping is off, which core/streamline.cpp sees to.
+    add_tslang_example_test(streamline_demo SUFFIX reflex ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
     # The sample's frame 120 at its size, in its scene, one test per lighting / anti-aliasing mode of its
     # reference frames (ray traced, deferred, TAA), each saving its frame (bin/streamline_demo_<mode>_<api>.png)
     # for comparing with the sample's.
@@ -5567,6 +5573,27 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
     add_tslang_example_test(streamline_demo SUFFIX dlssg ARGS -width 1280 -height 720 -dlssg 2)
     # 3x: the multiplier survives the UI's clamp by DLSS-G's state, also without one (D3D12 while it's off).
     add_tslang_example_test(streamline_demo SUFFIX dlssg3 ARGS -width 1280 -height 720 -dlssg 3)
+    # The windowed path without a visible window (-hiddenWindow <frames>: the window never shown, the run ends
+    # after that many frames): DLSS-G at 2x on a swap chain, on and its state ok for most frames, and on Vulkan
+    # the window found for its swap chain (the surface made through the interposer's hook after the device).
+    # Without -debug on Vulkan: DLSS-G's own pacer (nv.sl.dlss_g.cmdCtx.pacer) submits its fake swap chain
+    # buffer in the wrong layout, which the validation layer reports (the Streamline Sample's run too).
+    # A hidden window's frames never reach the display, and DLSS-G then presents no generated frame: the frames
+    # it reported at 2x are logged, not checked (the visible run is the user's).
+    foreach(api dx12 vk)
+        set(hidden_debug_arg -debug)
+        if (api STREQUAL "vk")
+            set(hidden_debug_arg)
+        endif()
+        add_test(NAME streamline_demo.hidden_dlssg.${api}
+            COMMAND streamline_demo -${api} ${hidden_debug_arg} -width 1280 -height 720 -dlssg 2 -hiddenWindow 120
+            WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+        set_tests_properties(streamline_demo.hidden_dlssg.${api} PROPERTIES
+            FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION|layerPrefix='Validation'|Hidden window FAILED|Could not find a window|without device being created"
+            SKIP_RETURN_CODE 77
+            LABELS ${api}
+            TIMEOUT 300)
+    endforeach()
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
