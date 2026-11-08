@@ -117,7 +117,13 @@ namespace StreamlineDemo {
         if (multiplier == 0) {
             return "";
         }
-        return demo.dlssgHeadlessSkipped ? "" : `DLSS-G: -dlssg ${multiplier} not handled headless`;
+        if (!demo.dlssgHeadlessSkipped) {
+            return `DLSS-G: -dlssg ${multiplier} not handled headless`;
+        }
+        // The multiplier as the UI clamps it by the state the run got (none on D3D12 while DLSS-G is off): the
+        // one asked for, unless DLSS-G reported it can't.
+        return demo.dlssgClampedMultiplier == multiplier || demo.dlssgClampedMultiplier == dlssgMaxMultiplier(demo.dlssgState)
+            && demo.dlssgState >= 0 ? "" : `DLSS-G: -dlssg ${multiplier} clamped to ${demo.dlssgClampedMultiplier}x (state ${demo.dlssgState})`;
     }
 
     const WINDOW_TITLE = "Donut Example: Streamline";
@@ -269,6 +275,21 @@ namespace StreamlineDemo {
         // The overlay: Streamline_DlssGState's last answer (-1: none), Reflex's latency (-1: none).
         public dlssgState: int = -1;
         public reflexLatencyMs = -1.0;
+    }
+
+    // The largest multiplier DLSS-G takes by its state (Streamline_DlssGState: the most frames it can generate
+    // + 1, at least 2x; 4x at most, as the UI offers), and the multiplier asked for, clamped to it. Without a
+    // state (on D3D12 DLSS-G isn't loaded while it's off) nothing is known: up to 4x.
+    function dlssgMaxMultiplier(state: int) {
+        if (state < 0) {
+            return 4;
+        }
+        const max = ((state >> 16) & 0xff) + 1;
+        return max > 2 ? (max < 4 ? max : 4) : 2;
+    }
+    function dlssgClampMultiplier(multiplier: int, state: int) {
+        const max = dlssgMaxMultiplier(state);
+        return multiplier > max ? max : multiplier;
     }
 
     // The DLSS-G status bits' names (sl::DLSSGStatus), for the overlay.
@@ -430,6 +451,9 @@ namespace StreamlineDemo {
         // DLSS-G supported; -test with -dlssg: it was skipped (no swap chain to present).
         public dlssgSupported: boolean;
         public dlssgHeadlessSkipped: boolean;
+        // -test with -dlssg: the state it got and the multiplier clamped by it (dlssgClampMultiplier).
+        public dlssgState: int;
+        public dlssgClampedMultiplier: int;
         // DLSS-G in use: supported, with a swap chain (not headless).
         public dlssgEnabled: boolean;
         // The ImGui pass (none without the UI), and whether it draws into the UI layer, for which render targets.
@@ -524,6 +548,8 @@ namespace StreamlineDemo {
             this.deepDvcSupported = false;
             this.dlssgSupported = false;
             this.dlssgHeadlessSkipped = false;
+            this.dlssgState = -1;
+            this.dlssgClampedMultiplier = 0;
             this.dlssgEnabled = false;
             this.imguiPass = null;
             this.uiLayerOn = false;
@@ -1097,16 +1123,20 @@ namespace StreamlineDemo {
 
         onUiComposite(frameHandle: FrameHandle) {
             const targets = this.renderTargets;
-            if (!this.dlssgEnabled || this.ui.dlssgMode == 0 || !targets) {
+            if (!this.dlssgEnabled || !targets) {
                 return;
             }
             const frame = new Frame(frameHandle);
             const commandList = frame.getCommandList();
             const t = targets as RenderTargets;
+            // The UI drew into the layer this frame (also on the frame DLSS-G is turned off: updateUiLayer
+            // points it back at the back buffer from the next one).
             if (this.uiLayerOn) {
                 this.compositeUi(commandList, t);
             }
-            Streamline_TagUi(commandList.handle, t.uiColorAlpha, t.uiAlpha, frame.getWidth(), frame.getHeight());
+            if (this.ui.dlssgMode != 0) {
+                Streamline_TagUi(commandList.handle, t.uiColorAlpha, t.uiAlpha, frame.getWidth(), frame.getHeight());
+            }
         }
 
         // Streamline's constants for the frame (set every frame Streamline runs, whatever its features do) and
@@ -1436,10 +1466,10 @@ namespace StreamlineDemo {
             ui.dlssgMode = ImGui.checkbox("DLSS Frame Generation", ui.dlssgMode != 0) ? 1 : 0;
             const state = ui.dlssgState;
             // The most frames it can generate (+ 1: the multiplier), at least 2x.
-            const maxMultiplier = state >= 0 && ((state >> 16) & 0xff) + 1 > 2 ? ((state >> 16) & 0xff) + 1 : 2;
+            const maxMultiplier = dlssgMaxMultiplier(state);
             if (ui.dlssgMode != 0) {
                 const chosen = ImGui.combo("Multiplier", ui.dlssgMultiplier - 2, maxMultiplier >= 4 ? "2x|3x|4x" : maxMultiplier == 3 ? "2x|3x" : "2x");
-                ui.dlssgMultiplier = chosen + 2 > maxMultiplier ? maxMultiplier : chosen + 2;
+                ui.dlssgMultiplier = dlssgClampMultiplier(chosen + 2, state);
             }
             const frameTime = this.app.getAverageFrameTime();
             const renderedFps = frameTime > 0.0 ? 1.0 / frameTime : 0.0;
@@ -1697,6 +1727,8 @@ namespace StreamlineDemo {
                 console.log(state < 0 ? "DLSS-G state: none (not loaded while off)"
                     : `DLSS-G state: ${dlssgStatusText(state & 0xff)}, presented ${(state >> 8) & 0xff}, up to ${((state >> 16) & 0xff) + 1}x`);
                 demo.dlssgHeadlessSkipped = true;
+                demo.dlssgState = state;
+                demo.dlssgClampedMultiplier = dlssgClampMultiplier(args.dlssg, state);
             } else {
                 uiData.dlssgMode = 1;
             }

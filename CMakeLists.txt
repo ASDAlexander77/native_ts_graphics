@@ -5565,6 +5565,8 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
     # DLSS Frame Generation at 2x (Reflex forced on, as the sample does): it acts on presented frames only, so
     # headless (no swap chain) the demo checks it's supported, logs that it's skipped and renders as usual.
     add_tslang_example_test(streamline_demo SUFFIX dlssg ARGS -width 1280 -height 720 -dlssg 2)
+    # 3x: the multiplier survives the UI's clamp by DLSS-G's state, also without one (D3D12 while it's off).
+    add_tslang_example_test(streamline_demo SUFFIX dlssg3 ARGS -width 1280 -height 720 -dlssg 3)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

@@ -143,11 +143,14 @@ namespace
         bool skipReflexSleep = false;
 
         // DLSS-G: on (Streamline_SetDlssG's mode not off), loaded (on D3D12 from the swap chain made with it on),
-        // the swap chain to make again at the next frame's start (D3D12), the options last set.
+        // the swap chain to make again at the next frame's start (D3D12).
         bool dlssgWanted = false;
         bool dlssgLoaded = false;
         bool dlssgRecreateSwapChain = false;
-        sl::DLSSGOptions dlssgOptions{};
+        // The most frames it can generate, from its last state (0: no state yet), and whether asking for more
+        // was logged.
+        uint32_t dlssgMaxFramesToGenerate = 0;
+        bool dlssgClampLogged = false;
         // Streamline_TagCommon's textures, which Streamline_TagUi tags again for DLSS-G at present.
         nvrhi::TextureHandle presentMotionVectors;
         nvrhi::TextureHandle presentDepth;
@@ -991,11 +994,19 @@ extern "C"
         sl::DLSSGOptions options{};
         options.mode = static_cast<sl::DLSSGMode>(mode);
         options.numFramesToGenerate = static_cast<uint32_t>(framesToGenerate > 1 ? framesToGenerate : 1);
+        // No more than its last state allows (else every slDLSSGSetOptions fails, e.g. 3x on a GPU generating 1).
+        const uint32_t maxFrames = g_Streamline.dlssgMaxFramesToGenerate;
+        if (maxFrames > 0 && options.numFramesToGenerate > maxFrames)
+        {
+            if (!g_Streamline.dlssgClampLogged)
+                donut::log::info("DLSS-G: %u frames generated asked for, %u at most here", options.numFramesToGenerate, maxFrames);
+            g_Streamline.dlssgClampLogged = true;
+            options.numFramesToGenerate = maxFrames;
+        }
         options.flags = sl::DLSSGFlags::eRetainResourcesWhenOff;
         if (ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse)
             options.mode = sl::DLSSGMode::eOff;
-        if (Check(g_Streamline.slDLSSGSetOptions(kViewport, options), "slDLSSGSetOptions"))
-            g_Streamline.dlssgOptions = options;
+        Check(g_Streamline.slDLSSGSetOptions(kViewport, options), "slDLSSGSetOptions");
         // Vulkan (no new swap chain): its resources freed as it's turned off.
         if (turnedOff && g_Streamline.api == nvrhi::GraphicsAPI::VULKAN)
             g_Streamline.slFreeResources(sl::kFeatureDLSS_G, kViewport);
@@ -1011,8 +1022,11 @@ extern "C"
         if (!g_Streamline.slDLSSGGetState)
             return -1;
         sl::DLSSGState state{};
-        if (!Check(g_Streamline.slDLSSGGetState(kViewport, state, &g_Streamline.dlssgOptions), "slDLSSGGetState"))
+        // No options: the plain per-frame query (they're only for the VRAM estimate).
+        if (!Check(g_Streamline.slDLSSGGetState(kViewport, state, nullptr), "slDLSSGGetState"))
             return -1;
+        if (state.numFramesToGenerateMax > 0)
+            g_Streamline.dlssgMaxFramesToGenerate = state.numFramesToGenerateMax;
         return int(static_cast<uint32_t>(state.status) & 0xff) | int(state.numFramesActuallyPresented & 0xff) << 8
             | int(state.numFramesToGenerateMax & 0xff) << 16;
     }
