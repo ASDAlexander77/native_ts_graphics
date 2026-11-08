@@ -5543,6 +5543,10 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
             --scene ${STREAMLINE_DEMO_SCENE} -dlss 3 -testOutput streamline_demo_dlss_${api}.png)
         add_tslang_example_test(streamline_demo SUFFIX dlss_switch APIS ${api} ARGS -width 1920 -height 1080
             --scene ${STREAMLINE_DEMO_SCENE} -dlss 3 -testDlssModeSwitch)
+        # DLSS Ray Reconstruction MaxQuality (the reference's -DLSSRR_mode 3, anti-aliasing none: 1280x720 to
+        # 1920x1080).
+        add_tslang_example_test(streamline_demo SUFFIX dlssrr APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlssRR 3 -testOutput streamline_demo_dlssrr_${api}.png)
     endforeach()
 endif()
 

@@ -16,7 +16,7 @@
 // Per frame: the app's device manager gets frame callbacks (g_StreamlineAppCreated) that take the frame's
 // token and run Reflex's sleep before it and set PCL markers around its animation, rendering and present;
 // the demo then sets the camera's constants, tags its motion vectors, depth and color without the UI, and
-// has DLSS-SR upscale (slSetTagForFrame and slEvaluateFeature: frame-based tagging). Textures go to
+// has DLSS-SR or DLSS-RR upscale (slSetTagForFrame and slEvaluateFeature: frame-based tagging). Textures go to
 // Streamline in a state NVRHI has committed (COMMON on D3D12, GENERAL on Vulkan), which its own barriers
 // return them to.
 
@@ -47,6 +47,7 @@
 #include <sl_helpers.h>
 #include <sl_security.h>
 #include <sl_dlss.h>
+#include <sl_dlss_d.h>
 #include <sl_pcl.h>
 #include <sl_reflex.h>
 
@@ -103,6 +104,8 @@ namespace
         // The plugins' functions (slGetFeatureFunction, once the device exists: FeatureFunctions).
         SL_FUN_DECL(slDLSSGetOptimalSettings);
         SL_FUN_DECL(slDLSSSetOptions);
+        SL_FUN_DECL(slDLSSDGetOptimalSettings);
+        SL_FUN_DECL(slDLSSDSetOptions);
         SL_FUN_DECL(slReflexSleep);
         SL_FUN_DECL(slReflexSetOptions);
         SL_FUN_DECL(slReflexGetState);
@@ -196,6 +199,11 @@ namespace
             GetFeatureFunction(sl::kFeatureDLSS, g_Streamline.slDLSSGetOptimalSettings, "slDLSSGetOptimalSettings");
             GetFeatureFunction(sl::kFeatureDLSS, g_Streamline.slDLSSSetOptions, "slDLSSSetOptions");
         }
+        if (g_Streamline.IsSupported(sl::kFeatureDLSS_RR))
+        {
+            GetFeatureFunction(sl::kFeatureDLSS_RR, g_Streamline.slDLSSDGetOptimalSettings, "slDLSSDGetOptimalSettings");
+            GetFeatureFunction(sl::kFeatureDLSS_RR, g_Streamline.slDLSSDSetOptions, "slDLSSDSetOptions");
+        }
         if (g_Streamline.IsSupported(sl::kFeatureReflex))
         {
             GetFeatureFunction(sl::kFeatureReflex, g_Streamline.slReflexSleep, "slReflexSleep");
@@ -260,6 +268,15 @@ namespace
         return result;
     }
 
+    // 16 floats, row-major (row vectors, as Donut's).
+    sl::float4x4 ToSl16(const float* m)
+    {
+        sl::float4x4 result;
+        for (int row = 0; row < 4; row++)
+            result.setRow(row, sl::float4{ m[row * 4], m[row * 4 + 1], m[row * 4 + 2], m[row * 4 + 3] });
+        return result;
+    }
+
     sl::float3 ToSl3(const float* v)
     {
         return sl::float3{ v[0], v[1], v[2] };
@@ -313,12 +330,17 @@ namespace
         uint32_t height;
     };
 
-    constexpr size_t kMaxTags = 4;
+    constexpr size_t kMaxTags = 6;
 
     bool SetTags(nvrhi::ICommandList* commandList, const Tag* tags, size_t count, const char* what)
     {
-        if (!g_Streamline.initialized || !g_Streamline.frame || count > kMaxTags)
+        if (!g_Streamline.initialized || !g_Streamline.frame)
             return false;
+        if (count > kMaxTags)
+        {
+            donut::log::warning("Streamline: %s: %zu tags, at most %zu", what, count, kMaxTags);
+            return false;
+        }
         sl::Resource resources[kMaxTags];
         sl::Extent extents[kMaxTags];
         sl::ResourceTag slTags[kMaxTags];
@@ -342,6 +364,25 @@ namespace
         // HDR color in; the exposure is the demo's (tone mapping comes after DLSS).
         options.colorBuffersHDR = sl::Boolean::eTrue;
         options.useAutoExposure = sl::Boolean::eFalse;
+        return options;
+    }
+
+    // DLSS-RR's options: as DLSS's, with the normals' roughness in their w (packed) and the camera's
+    // world-to-view matrix and its inverse (16 floats each, or none).
+    sl::DLSSDOptions DlssRROptions(int mode, uint32_t outputWidth, uint32_t outputHeight, const float* worldToView,
+        const float* viewToWorld)
+    {
+        sl::DLSSDOptions options{};
+        options.mode = static_cast<sl::DLSSMode>(mode);
+        options.outputWidth = outputWidth;
+        options.outputHeight = outputHeight;
+        options.colorBuffersHDR = sl::Boolean::eTrue;
+        options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
+        if (worldToView && viewToWorld)
+        {
+            options.worldToCameraView = ToSl16(worldToView);
+            options.cameraViewToWorld = ToSl16(viewToWorld);
+        }
         return options;
     }
 
@@ -706,13 +747,73 @@ extern "C"
         commandList->clearState();
     }
 
+    // DLSS-RR's render size for the mode at the display size (see streamline.d.ts).
+    DONUT_API int Streamline_DlssRROptimalRenderSize(int mode, int displayWidth, int displayHeight)
+    {
+        if (!g_Streamline.initialized)
+            return 0;
+        FeatureFunctions();
+        if (!g_Streamline.slDLSSDGetOptimalSettings || !g_Streamline.slDLSSDSetOptions)
+            return 0;
+        const sl::DLSSDOptions options = DlssRROptions(mode, uint32_t(displayWidth), uint32_t(displayHeight), nullptr, nullptr);
+        if (mode == 0)
+        {
+            Check(g_Streamline.slDLSSDSetOptions(kViewport, options), "slDLSSDSetOptions");
+            // Fails if DLSS-RR never ran on the viewport: then there's nothing to free.
+            g_Streamline.slFreeResources(sl::kFeatureDLSS_RR, kViewport);
+            return displayWidth | displayHeight << 16;
+        }
+        sl::DLSSDOptimalSettings settings{};
+        if (!Check(g_Streamline.slDLSSDGetOptimalSettings(options, settings), "slDLSSDGetOptimalSettings")
+            || settings.optimalRenderWidth == 0 || settings.optimalRenderHeight == 0)
+            return 0;
+        return int(settings.optimalRenderWidth) | int(settings.optimalRenderHeight) << 16;
+    }
+
+    // DLSS-RR's denoising and upscaling of input into output with its guides (see streamline.d.ts).
+    DONUT_API void Streamline_EvaluateDlssRR(nvrhi::ICommandList* commandList, int mode, nvrhi::ITexture* input,
+        nvrhi::ITexture* output, nvrhi::ITexture* diffuseAlbedo, nvrhi::ITexture* specularAlbedo, nvrhi::ITexture* normalRoughness,
+        nvrhi::ITexture* specularHitDistance, const float* worldToView, const float* viewToWorld)
+    {
+        if (!g_Streamline.initialized || !g_Streamline.frame || !commandList || !input || !output || !diffuseAlbedo
+            || !specularAlbedo || !normalRoughness || !specularHitDistance || !worldToView || !viewToWorld)
+            return;
+        FeatureFunctions();
+        if (!g_Streamline.slDLSSDSetOptions)
+            return;
+        const nvrhi::TextureDesc& outputDesc = output->getDesc();
+        if (!Check(g_Streamline.slDLSSDSetOptions(kViewport, DlssRROptions(mode, outputDesc.width, outputDesc.height, worldToView,
+            viewToWorld)), "slDLSSDSetOptions"))
+            return;
+        // The input is at the render size; the guides are read over as much of them (they may be larger).
+        const uint32_t renderWidth = input->getDesc().width;
+        const uint32_t renderHeight = input->getDesc().height;
+        const auto lifecycle = sl::ResourceLifecycle::eValidUntilPresent;
+        const Tag tags[] = {
+            { input, sl::kBufferTypeScalingInputColor, lifecycle, renderWidth, renderHeight },
+            { diffuseAlbedo, sl::kBufferTypeAlbedo, lifecycle, renderWidth, renderHeight },
+            { specularAlbedo, sl::kBufferTypeSpecularAlbedo, lifecycle, renderWidth, renderHeight },
+            { normalRoughness, sl::kBufferTypeNormalRoughness, lifecycle, renderWidth, renderHeight },
+            { specularHitDistance, sl::kBufferTypeSpecularHitDistance, lifecycle, renderWidth, renderHeight },
+            { output, sl::kBufferTypeScalingOutputColor, lifecycle, outputDesc.width, outputDesc.height },
+        };
+        if (!SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (DLSS-RR)"))
+            return;
+        const sl::BaseStructure* inputs[] = { &kViewport };
+        Check(g_Streamline.slEvaluateFeature(sl::kFeatureDLSS_RR, *g_Streamline.frame, inputs, 1, NativeCommandList(commandList)),
+            "slEvaluateFeature (DLSS-RR)");
+        // Streamline bound its own pipelines and resources (eDisableCLStateTracking: it doesn't restore them).
+        commandList->clearState();
+    }
+
     // Drops every tag: before the tagged resources are released (Streamline holds them until then).
     DONUT_API void Streamline_ClearTags()
     {
         if (!g_Streamline.initialized || !g_Streamline.frame || !g_Streamline.tagged)
             return;
         const sl::BufferType types[] = { sl::kBufferTypeDepth, sl::kBufferTypeMotionVectors, sl::kBufferTypeHUDLessColor,
-            sl::kBufferTypeScalingInputColor, sl::kBufferTypeScalingOutputColor };
+            sl::kBufferTypeScalingInputColor, sl::kBufferTypeScalingOutputColor, sl::kBufferTypeAlbedo, sl::kBufferTypeSpecularAlbedo,
+            sl::kBufferTypeNormalRoughness, sl::kBufferTypeSpecularHitDistance };
         sl::ResourceTag tags[std::size(types)];
         for (size_t i = 0; i < std::size(types); i++)
             tags[i] = sl::ResourceTag{ nullptr, types[i], sl::ResourceLifecycle::eValidUntilPresent };
@@ -736,6 +837,8 @@ extern "C"
         g_Streamline.featureFunctionsQueried = false;
         g_Streamline.slDLSSGetOptimalSettings = nullptr;
         g_Streamline.slDLSSSetOptions = nullptr;
+        g_Streamline.slDLSSDGetOptimalSettings = nullptr;
+        g_Streamline.slDLSSDSetOptions = nullptr;
         g_Streamline.slReflexSleep = nullptr;
         g_Streamline.slReflexSetOptions = nullptr;
         g_Streamline.slReflexGetState = nullptr;

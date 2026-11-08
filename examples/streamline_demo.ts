@@ -10,7 +10,8 @@ import { radiansF32 } from "../core/matrix";
 // Streamline Sample's (github.com/NVIDIA-RTX/Streamline_Sample, its StreamlineSample::RenderScene): Sponza
 // with a dancing robot, cascaded shadow maps, a G-buffer, then ray traced lighting (the sample's ray
 // generation library, compiled in place from STREAMLINE_SAMPLE_DIR) or deferred lighting with SSAO, the
-// procedural sky, bloom, DLSS-SR, TAA or none, and tone mapping with auto exposure. Streamline's frame token,
+// procedural sky, bloom, DLSS-SR, TAA or none (then optionally DLSS Ray Reconstruction), and tone mapping
+// with auto exposure. Streamline's frame token,
 // Reflex and PCL markers come from the device manager's frame callbacks (core/streamline.cpp).
 namespace StreamlineDemo {
     // Test mode: the frames rendered: the last one is the sample's frame 120 (its reference frames', at
@@ -62,6 +63,26 @@ namespace StreamlineDemo {
         const expectedChanges = modeSwitch ? 1 : 0;
         if (demo.renderSizeChanges != expectedChanges) {
             return `The render size changed ${demo.renderSizeChanges} times, not ${expectedChanges}`;
+        }
+        return "";
+    }
+
+    // -test with -dlssRR: DLSS-RR denoised and upscaled every frame, from a smaller render size (DLAA's is
+    // the display's), made once.
+    function checkDlssRR(demo: StreamlineDemo, ui: UIData) {
+        if (ui.dlssRRMode == DlssMode.Off) {
+            return "";
+        }
+        if (demo.dlssRREvaluations != TEST_FRAMES) {
+            return `DLSS-RR evaluated ${demo.dlssRREvaluations} of ${TEST_FRAMES} frames`;
+        }
+        const targets = demo.renderTargets as RenderTargets;
+        console.log(`DLSS-RR: ${targets.renderWidth}x${targets.renderHeight} to ${targets.displayWidth}x${targets.displayHeight}`);
+        if (ui.dlssRRMode != DlssMode.DLAA && targets.renderWidth >= targets.displayWidth) {
+            return `DLSS-RR renders at ${targets.renderWidth}x${targets.renderHeight}, not below the display size`;
+        }
+        if (demo.renderSizeChanges != 0) {
+            return `The render size changed ${demo.renderSizeChanges} times, not 0`;
         }
         return "";
     }
@@ -199,6 +220,8 @@ namespace StreamlineDemo {
         public enableVsync = false;
         // DlssMode, with antiAliasingMode DLSS.
         public dlssMode: int = DlssMode.Off;
+        // DLSS-RR's DlssMode (Off: not in use); anti-aliasing stays NONE with it, as in the sample.
+        public dlssRRMode: int = DlssMode.Off;
     }
 
     // --- Render targets --------------------------------------------------------------------------------
@@ -329,9 +352,12 @@ namespace StreamlineDemo {
         // -test's DLSS checks: the frames DLSS upscaled, and how many times the render size changed.
         public dlssEvaluations: int;
         public renderSizeChanges: int;
-        // Streamline started, DLSS supported; -testDlssModeSwitch.
+        // -test's DLSS-RR check: the frames DLSS-RR evaluated.
+        public dlssRREvaluations: int;
+        // Streamline started, DLSS and DLSS-RR supported; -testDlssModeSwitch.
         public streamline: boolean;
         public dlssSupported: boolean;
+        public dlssRRSupported: boolean;
         public testDlssModeSwitch: boolean;
         // The DLSS mode and display size the render size was last asked for (Off: DLSS not in use), that
         // render size, and the mip level bias the passes were made with.
@@ -340,6 +366,14 @@ namespace StreamlineDemo {
         private dlssLastDisplayHeight: int;
         private dlssRenderWidth: int;
         private dlssRenderHeight: int;
+        // The same for DLSS-RR.
+        private dlssRRLastMode: int;
+        private dlssRRLastDisplayWidth: int;
+        private dlssRRLastDisplayHeight: int;
+        private dlssRRRenderWidth: int;
+        private dlssRRRenderHeight: int;
+        // DLSS-RR's camera: the inverse of viewMatrix (the world-to-view matrix), 16 floats.
+        private viewToWorldMatrix: f32[];
         private previousLodBias: number;
         // Streamline's camera: position, forward, up, right (3 floats each).
         private cameraVectors: f32[];
@@ -389,14 +423,25 @@ namespace StreamlineDemo {
             this.renderTargets = null;
             this.dlssEvaluations = 0;
             this.renderSizeChanges = 0;
+            this.dlssRREvaluations = 0;
             this.streamline = false;
             this.dlssSupported = false;
+            this.dlssRRSupported = false;
             this.testDlssModeSwitch = false;
             this.dlssLastMode = DlssMode.Off;
             this.dlssLastDisplayWidth = 0;
             this.dlssLastDisplayHeight = 0;
             this.dlssRenderWidth = 0;
             this.dlssRenderHeight = 0;
+            this.dlssRRLastMode = DlssMode.Off;
+            this.dlssRRLastDisplayWidth = 0;
+            this.dlssRRLastDisplayHeight = 0;
+            this.dlssRRRenderWidth = 0;
+            this.dlssRRRenderHeight = 0;
+            this.viewToWorldMatrix = [];
+            for (let i = 0; i < 16; i++) {
+                this.viewToWorldMatrix.push(0.0);
+            }
             this.previousLodBias = 0.0;
             this.cameraVectors = [];
             for (let i = 0; i < 12; i++) {
@@ -772,6 +817,68 @@ namespace StreamlineDemo {
             return Math.fround(Math.fround(Math.log2(Math.fround(this.dlssRenderWidth / width))) - 1.0);
         }
 
+        // With DLSS-RR (its mode not Off): its render size for the mode at the display size, asked again when
+        // either changes (into dlssRRRenderWidth / Height; DLSS-RR failing to answer turns it off), as
+        // updateDlss does. No mip level bias and no jitter with it: anti-aliasing stays NONE, as in the
+        // sample. Turning it off frees its resources. Returns whether DLSS-RR is in use.
+        updateDlssRR(width: int, height: int): boolean {
+            const ui = this.ui;
+            if (ui.dlssRRMode == DlssMode.Off || !this.dlssRRSupported) {
+                ui.dlssRRMode = DlssMode.Off;
+                if (this.dlssRRLastMode != DlssMode.Off) {
+                    this.app.waitForIdle();
+                    Streamline_DlssRROptimalRenderSize(DlssMode.Off, width, height);
+                    this.dlssRRLastMode = DlssMode.Off;
+                }
+                return false;
+            }
+            if (ui.dlssRRMode != this.dlssRRLastMode || width != this.dlssRRLastDisplayWidth || height != this.dlssRRLastDisplayHeight) {
+                // Freed first, as DLSS's (updateDlss).
+                if (this.dlssRRLastMode != DlssMode.Off) {
+                    this.app.waitForIdle();
+                    Streamline_DlssRROptimalRenderSize(DlssMode.Off, width, height);
+                }
+                const size = Streamline_DlssRROptimalRenderSize(ui.dlssRRMode, width, height);
+                if (size == 0) {
+                    console.log(`DLSS-RR has no render size for mode ${ui.dlssRRMode} at ${width}x${height}: DLSS-RR off`);
+                    ui.dlssRRMode = DlssMode.Off;
+                    this.dlssRRLastMode = DlssMode.Off;
+                    return false;
+                }
+                this.dlssRRRenderWidth = size & 0xffff;
+                this.dlssRRRenderHeight = (size >> 16) & 0xffff;
+                this.dlssRRLastMode = ui.dlssRRMode;
+                this.dlssRRLastDisplayWidth = width;
+                this.dlssRRLastDisplayHeight = height;
+            }
+            return true;
+        }
+
+        // DLSS-RR's evaluation into the resolved color (over what the anti-aliasing step put there, as the
+        // sample does), with the camera's matrices. Its albedo and normal guides are the RR render targets,
+        // which are only cleared, never drawn into: the sample's frame, kept for parity.
+        evaluateDlssRR(commandList: CommandList, targets: RenderTargets) {
+            // The world-to-view matrix setupView filled is rigid ([R 0; t 1], row vectors): its inverse is
+            // [R^T 0; -t R^T 1].
+            const m = this.viewMatrix;
+            const inv = this.viewToWorldMatrix;
+            for (let row = 0; row < 3; row++) {
+                for (let column = 0; column < 3; column++) {
+                    inv[column * 4 + row] = m[row * 4 + column];
+                }
+                inv[row * 4 + 3] = 0.0;
+            }
+            for (let column = 0; column < 3; column++) {
+                inv[12 + column] = Math.fround(-Math.fround(Math.fround(m[12] * m[column * 4]) + Math.fround(m[13] * m[column * 4 + 1])
+                    + Math.fround(m[14] * m[column * 4 + 2])));
+            }
+            inv[15] = 1.0;
+            Streamline_EvaluateDlssRR(commandList.handle, this.ui.dlssRRMode, targets.hdrColor, targets.aaResolvedColor,
+                targets.gbufferDiffuseRR, targets.gbufferSpecularRR, targets.gbufferNormalsRR, targets.specHitDistance,
+                Ref(this.viewMatrix[0]), Ref(inv[0]));
+            this.dlssRREvaluations++;
+        }
+
         // Streamline's constants for the frame (set every frame Streamline runs, whatever its features do) and
         // its common tags: motion vectors, depth, the color before the UI.
         setStreamlineConstants(commandList: CommandList, targets: RenderTargets) {
@@ -793,7 +900,7 @@ namespace StreamlineDemo {
             Streamline_TagCommon(commandList.handle, targets.motionVectors, targets.depth, targets.preUIColor);
         }
 
-        // The sample's RenderScene, without its NIS, DeepDVC, DLSS-RR and DLSS-G features (yet).
+        // The sample's RenderScene, without its NIS, DeepDVC and DLSS-G features (yet).
         renderScene(frame: Frame) {
             const app = this.app;
             const ui = this.ui;
@@ -808,8 +915,14 @@ namespace StreamlineDemo {
 
             // The render size: DLSS's for its mode, else the display size; the mip level bias for it.
             const lodBias = this.updateDlss(width, height);
-            const renderWidth = ui.antiAliasingMode == AntiAliasingMode.DLSS ? this.dlssRenderWidth : width;
-            const renderHeight = ui.antiAliasingMode == AntiAliasingMode.DLSS ? this.dlssRenderHeight : height;
+            let renderWidth = ui.antiAliasingMode == AntiAliasingMode.DLSS ? this.dlssRenderWidth : width;
+            let renderHeight = ui.antiAliasingMode == AntiAliasingMode.DLSS ? this.dlssRenderHeight : height;
+            // DLSS-RR's render size instead, when it's on (the sample's order: it overrides DLSS's).
+            const usingDlssRR = this.updateDlssRR(width, height);
+            if (usingDlssRR) {
+                renderWidth = this.dlssRRRenderWidth;
+                renderHeight = this.dlssRRRenderHeight;
+            }
 
             // RefreshSceneGraph, and (into the frame's command list) RefreshBuffers: the robot's skinning.
             app.refreshScene(frame, this.scene);
@@ -940,6 +1053,10 @@ namespace StreamlineDemo {
             } else {
                 app.blitTextureToFramebuffer(commandList, targets.aaResolvedFramebuffer, view, targets.hdrColor);
                 this.previousViewsValid = false;
+            }
+            // DLSS-RR over the resolved color.
+            if (usingDlssRR) {
+                this.evaluateDlssRR(commandList, targets);
             }
 
             // Tone mapping (on the first frame, adapting up at once from the reset exposure), its LDR result
@@ -1099,6 +1216,9 @@ namespace StreamlineDemo {
         // cap (0: none).
         reflex: int = 0;
         reflexFpsCap: int = 0;
+        // -dlssRR <mode>: DLSS Ray Reconstruction in the sample's -DLSSRR_mode numbering (DlssMode); -1: not
+        // given.
+        dlssRR: int = -1;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -1127,6 +1247,8 @@ namespace StreamlineDemo {
                     this.reflex = parseInt(this[i + 1]);
                 } else if (arg == "-reflexFpsCap" && i + 1 < this.argc) {
                     this.reflexFpsCap = parseInt(this[i + 1]);
+                } else if (arg == "-dlssRR" && i + 1 < this.argc) {
+                    this.dlssRR = parseInt(this[i + 1]);
                 }
             }
         }
@@ -1198,11 +1320,26 @@ namespace StreamlineDemo {
             uiData.antiAliasingMode = AntiAliasingMode.DLSS;
             uiData.dlssMode = args.dlss;
         }
+        if (args.dlssRR == DlssMode.UltraQuality || args.dlssRR < -1 || args.dlssRR > DlssMode.DLAA) {
+            console.log(`-dlssRR ${args.dlssRR}: not a DLSS mode (0..4, 6), ignored`);
+        } else if (args.dlssRR > 0) {
+            // Ray Reconstruction replaces DLSS-SR (the sample turns DLSS's mode off under it): anti-aliasing none.
+            if (uiData.antiAliasingMode == AntiAliasingMode.DLSS) {
+                console.log("-dlssRR: DLSS-SR off (Ray Reconstruction upscales instead)");
+                uiData.antiAliasingMode = AntiAliasingMode.NONE;
+                uiData.dlssMode = DlssMode.Off;
+            }
+            uiData.dlssRRMode = args.dlssRR;
+        }
 
         const scenePath = args.scenePath != "" ? args.scenePath : DEFAULT_SCENE;
         const demo = new StreamlineDemo(app, uiData);
         demo.streamline = slInitialized;
         demo.dlssSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.DLSS) != 0;
+        demo.dlssRRSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.DLSS_RR) != 0;
+        if (uiData.dlssRRMode != DlssMode.Off && !demo.dlssRRSupported) {
+            console.log("DLSS-RR: not supported here, off");
+        }
         demo.testDlssModeSwitch = args.test && args.testDlssModeSwitch;
         if (uiData.antiAliasingMode == AntiAliasingMode.DLSS && !demo.dlssSupported) {
             console.log("DLSS: not supported here, anti-aliasing off");
@@ -1231,7 +1368,8 @@ namespace StreamlineDemo {
 
         let result = 0;
         if (args.test) {
-            const frameFailure = checkFrame(app, uiData.rayTracingMode != 0, uiData.antiAliasingMode == AntiAliasingMode.DLSS);
+            const frameFailure = checkFrame(app, uiData.rayTracingMode != 0,
+                uiData.antiAliasingMode == AntiAliasingMode.DLSS || uiData.dlssRRMode != DlssMode.Off);
             if (frameFailure != "") {
                 result = app.finishTest(frameFailure);
             } else if (!args.slDisable && !slInitialized) {
@@ -1246,7 +1384,8 @@ namespace StreamlineDemo {
             } else if (missing != "") {
                 result = unsupported(true, `not supported here: ${missing}`);
             } else {
-                result = app.finishTest(checkDlss(demo, uiData, args.testDlssModeSwitch));
+                const dlssFailure = checkDlss(demo, uiData, args.testDlssModeSwitch);
+                result = app.finishTest(dlssFailure != "" ? dlssFailure : checkDlssRR(demo, uiData));
             }
         }
 

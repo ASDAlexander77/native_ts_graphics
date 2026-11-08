@@ -60,5 +60,17 @@ enum StreamlineFeature {
 // the mode, on the command list, whose state is cleared after (Streamline binds its own).
 @nodrops declare function Streamline_EvaluateDlss(cmd: CommandListHandle, mode: int, input: TextureHandle, output: TextureHandle,
     renderW: int, renderH: int): void;
+// DLSS-RR's render size for the mode (the -DLSSRR_mode numbering, as DLSS's) at the display size: w | h << 16;
+// 0 if DLSS-RR can't. Mode 0 turns DLSS-RR off, frees its resources (wait for the GPU first) and returns the
+// display size.
+@nodrops declare function Streamline_DlssRROptimalRenderSize(mode: int, displayW: int, displayH: int): int;
+// DLSS Ray Reconstruction: denoises and upscales input (HDR color at the render size: its whole size) into
+// output (at the display size) in the mode, on the command list, whose state is cleared after. Its guides,
+// read over the input's size: diffuse and specular albedo, normals with roughness in w, the specular hit
+// distance; the camera's world-to-view matrix and its inverse (16 floats each, row-major). The common tags
+// (motion vectors, depth) and constants are the frame's.
+@nodrops declare function Streamline_EvaluateDlssRR(cmd: CommandListHandle, mode: int, input: TextureHandle, output: TextureHandle,
+    diffuse: TextureHandle, specular: TextureHandle, normalRoughness: TextureHandle, specHitDistance: TextureHandle,
+    worldToView: Ref<f32>, viewToWorld: Ref<f32>): void;
 // Drops the resource tags: before releasing tagged resources (Streamline holds them until then).
 @nodrops declare function Streamline_ClearTags(): void;
