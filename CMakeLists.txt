@@ -890,10 +890,21 @@ endif()
 # required libs
 set(TSLANG_LINK_LIBS "TypeScriptDefaultLib" "TypeScriptAsyncRuntime")
 
-# Boehm is only referenced by the gc default lib; the rc and none builds allocate through the
-# CRT and must not drag a collector in.
+# Boehm is only referenced by the gc default lib; the other models allocate through tslang's heap
+# functions (__tslang_heap_malloc and the rest) and must not drag a collector in.
 if (TSLANG_MEMORY_MODEL STREQUAL "gc")
     list(APPEND TSLANG_LINK_LIBS "gc")
+endif()
+
+# tslang's mimalloc heap (Windows, every model but gc). It must come ahead of TypeScriptAsyncRuntime,
+# whose process-heap definitions of the same heap functions it replaces: the linker takes the first.
+# Executables only (TSLANG_LINK_LIBS is linked by executables alone): a tslang library borrows the
+# program's heap. With RTXMG_DIR, RTXMG's own fetched mimalloc is then never linked: its mi_* calls
+# resolve to this one, so the whole process shares one mimalloc. TSLANG_PROCESS_HEAP keeps the
+# process heap (for page heap / Application Verifier).
+option(TSLANG_PROCESS_HEAP "Allocate TypeScript objects from the Windows process heap instead of mimalloc" OFF)
+if (WIN32 AND NOT TSLANG_MEMORY_MODEL STREQUAL "gc" AND NOT TSLANG_PROCESS_HEAP)
+    list(INSERT TSLANG_LINK_LIBS 1 "TypeScriptMimalloc")
 endif()
 
 if(ANDROID)
