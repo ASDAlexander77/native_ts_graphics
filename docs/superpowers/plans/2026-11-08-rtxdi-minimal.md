@@ -21,6 +21,7 @@
 - APIs: D3D12 and Vulkan. Tests headless only (no visible windows without asking the user).
 - `core/donut.ts` is generated: `python tools/generate_donut_wrappers.py`, never hand-edited.
 - tslang bugs go to `I:\TypeScriptCompiler\TSLANG_ISSUES.md` (Open section) with repro and workaround.
+- Work in a git worktree of branch `rtxdi-minimal` (`superpowers:using-git-worktrees`; memory `worktree-build-setup` for submodules/_deps) — never `git switch` the main checkout `I:\native_ts_graphics`, other sessions share it.
 - Commits on branch `rtxdi-minimal`; messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never stage the unrelated working-tree files (`core/pbrt_scene.ts`, `core/rtxcr_scene.ts`, `core/rtxmg.ts`, `docs/mimalloc.md`).
 
 ## Review Focus
@@ -43,7 +44,7 @@
 **Interfaces:**
 - Produces: CMake `RTXDI_DIR` (PATH, default ""); static target `rtxdi_runtime` (all of `RTXDI_DIR/Libraries/Rtxdi/Source/*.cpp`, PUBLIC include `RTXDI_DIR/Libraries/Rtxdi/Include`); target `rtxdi_minimal_shaders` → `bin/shaders/rtxdi_minimal/{dxil,spirv}/{PrepareLights,Render}_main.*`; CMake var `RTXDI_GLUE_SOURCES = core/rtxdi.cpp` appended to `JIT_MODULE_SOURCES`; a `bin/Assets` junction → `RTXDI_DIR/Assets` (as rtxpt's, guarded by `NOT EXISTS`).
 
-- [ ] **Step 1:** Add the block: guard `if (RTXDI_DIR AND RTXPT_DIR) message(FATAL_ERROR "...")`; `rtxdi_runtime` (or `add_subdirectory(${RTXDI_DIR}/Libraries/Rtxdi ...)` if it configures cleanly — pick one, comment why); `donut_compile_shaders(TARGET rtxdi_minimal_shaders PROJECT_NAME "RTXDI" CONFIG shaders/rtxdi_minimal.cfg INCLUDES ${RTXDI_DIR}/Libraries/Rtxdi/Include ... SHADERMAKE_OPTIONS "--sourceDir ${RTXDI_DIR}/Samples/MinimalSample/Shaders --shaderModel 6_5 --vulkanVersion 1.2 --relaxedInclude ../Types.h" ...)`, with the reference's `-D SPIRV` for SPIR-V and VK register offsets (match `E:\Gits\RTXDI\External\donut\compileshaders.cmake`'s handling of `NVRHI_DEFAULT_VK_REGISTER_OFFSETS`). Donut shader includes are ours. License comment like rtxpt's.
+- [ ] **Step 1:** Add the block: guard `if (RTXDI_DIR AND RTXPT_DIR) message(FATAL_ERROR "...")`; `rtxdi_runtime` (or `add_subdirectory(${RTXDI_DIR}/Libraries/Rtxdi ...)` if it configures cleanly — pick one, comment why); `donut_compile_shaders(TARGET rtxdi_minimal_shaders PROJECT_NAME "RTXDI" CONFIG shaders/rtxdi_minimal.cfg INCLUDES ${RTXDI_DIR}/Libraries/Rtxdi/Include ... SHADER_MODEL 6_5 SHADERMAKE_OPTIONS "--sourceDir ${RTXDI_DIR}/Samples/MinimalSample/Shaders --vulkanVersion 1.2 --relaxedInclude ../Types.h" ...)` (our `compileshaders.cmake` emits `--shaderModel` from `SHADER_MODEL`, default 6_5 — keep it explicit; don't use rtxpt's `-m 6_9`), with the reference's `-D SPIRV` for SPIR-V and VK register offsets (match `E:\Gits\RTXDI\External\donut\compileshaders.cmake`'s handling of `NVRHI_DEFAULT_VK_REGISTER_OFFSETS`). Donut shader includes are ours. License comment like rtxpt's.
 - [ ] **Step 2:** `shaders/rtxdi_minimal.cfg`: `PrepareLights.hlsl -T cs -E main` and `Render.hlsl -T cs -E main`.
 - [ ] **Step 3: Configure + build the pieces**
   Run (vcvars, see memory `worktree-build-setup`): `cmake --preset default-rtxdi` then `cmake --build build-rtxdi --target rtxdi_runtime rtxdi_minimal_shaders`
@@ -57,7 +58,7 @@ Work in `E:\Gits\RTXDI`. Save the patch as `<notes folder>/rtxdi_minimal_referen
 
 - [ ] **Step 1: Local patch to `Samples/MinimalSample/Source/main.cpp`:** args `--width W --height H` (back buffer), `--hidden` (window not shown; use the same hidden-window approach as the Streamline reference), `--sync` (`SetAsynchronousLoadingEnabled(false)`), `--dumpFrame N --dumpPath <file>` (after frame index N's `RenderScene`, read back `HdrColor` RGBA16F → write raw little-endian float32 RGBA, header `int32 width, int32 height`, then exit), `--camera px py pz tx ty tz` (overrides LookAt), `--moveCamera dx dy dz` (camera position += d per frame, target too), `--noResampling`, `--unbiased`. Also log the frame index of the first rendered frame.
 - [ ] **Step 2:** Rebuild `MinimalSample` only (`cmake --build E:/Gits/RTXDI/build --config Release --target MinimalSample`). Expected: exe timestamp updated.
-- [ ] **Step 3: Produce references** at 1280×720, `--sync --hidden`, D3D12 and `--vk`: `default_f60`, `noresampling_f60`, `unbiased_f60`, `moving_f60` (`--moveCamera 0.01 0 0`). Into `E:\Gits\RTXDI\_refdumps\<api>_<case>.bin`. Run each case twice; record ref-vs-ref difference (the noise floor).
+- [ ] **Step 3: Produce references** at 1280×720, `--sync --hidden`, D3D12 and `--vk`: `default_f60`, `noresampling_f60`, `unbiased_f60`, `moving_f60` (`--moveCamera 0.01 0 0`). Into `E:\Gits\RTXDI\_refdumps\<api>_<case>.bin`. Run each case twice; record ref-vs-ref difference (the noise floor). Also run the reference once with `--vk --debug` and record the exact validation message(s) (VUID, text) in the notes folder: Task 3's neighbor-offsets padding is a hypothesis until that message says the cause is the buffer size/range (if it is usage flags or the view, fix that cause instead).
 - [ ] **Step 4:** `<scratchpad>/cmp_hdr.py` (run with `python -I`): loads two dumps, prints max abs diff, mean abs diff, % pixels with any channel diff > 1e-3, and the first-row/col of the worst block. Exit 0 if within given thresholds.
 
 ### Task 3: Native glue — context, resources, constants
@@ -122,7 +123,7 @@ Work in `E:\Gits\RTXDI`. Save the patch as `<notes folder>/rtxdi_minimal_referen
 - [ ] **Step 2: Run** `-dx12 -test`; expected FAIL.
 - [ ] **Step 3:** Implement RenderPass, settings, Args, UI, frame loop, `-dumpFrame`.
 - [ ] **Step 4: Run** `-dx12 -test -debug`, `-vk -test -debug`; expected PASS, zero validation messages.
-- [ ] **Step 5: Resize test** `-test -resizeAt 10 -frames 20` both APIs; expected PASS, no validation messages, no leaks reported at exit (Review Focus 3).
+- [ ] **Step 5: Resize test** `-test -resizeAt 10 -frames 20` both APIs (`-resizeAt` resizes the test's hidden window — `core/args.ts` has no resize support yet, add it there; if a resize cannot stay hidden on either API, stop and ask the user before running it, per the headless-only rule); expected PASS, no validation messages, no leaks reported at exit (Review Focus 3).
 - [ ] **Step 6: Commit** `rtxdi_minimal: fused ReSTIR DI render pass, UI and command line`.
 
 ### Task 6: Match the reference
