@@ -179,9 +179,11 @@ namespace RtxdiMinimal {
         private prevViewValid: boolean = false;
         private viewMatrix: f32[] = [];
         private projMatrix: f32[] = [];
-        // The camera's start (the sample's LookAt or -camera's).
-        private start: number[] = [CAMERA_POSITION_X, CAMERA_POSITION_Y, CAMERA_POSITION_Z,
-            CAMERA_TARGET_X, CAMERA_TARGET_Y, CAMERA_TARGET_Z];
+        // The camera's start (the sample's LookAt or -camera's), in float as the sample's float3s: -moveCamera adds
+        // to them in float.
+        private start: number[] = [Math.fround(CAMERA_POSITION_X), Math.fround(CAMERA_POSITION_Y),
+            Math.fround(CAMERA_POSITION_Z), Math.fround(CAMERA_TARGET_X), Math.fround(CAMERA_TARGET_Y),
+            Math.fround(CAMERA_TARGET_Z)];
         // The ReSTIR DI context and resources couldn't be made: the window closes.
         private failed: boolean = false;
         private resized: boolean = false;
