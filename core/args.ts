@@ -20,6 +20,10 @@ export class Args {
     // -test [-testOutput <file>]: render testFrames frames without a window and check the last one;
     // an example takes the option by passing its testFrames (the frames it needs to settle).
     test: boolean = false;
+    // -resizeAt <frame>: the example resizes the back buffers (App.resizeBackBuffers) before that frame
+    // index, testing its resize path (under -test the offscreen back buffers; a hidden window stays
+    // hidden); -1 if not given. The example picks the new size.
+    resizeAt: int = -1;
 
     // An example takes -test by passing the frames it renders (the frames it needs to settle); the
     // option is not recognized otherwise.
@@ -51,6 +55,9 @@ export class Args {
             } else if (arg == "--scene" && i + 1 < this.argc) {
                 i++;
                 this.scenePath = this[i];
+            } else if (arg == "-resizeAt" && i + 1 < this.argc) {
+                i++;
+                this.resizeAt = parseInt(this[i]);
             }
         }
 

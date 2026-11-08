@@ -15,6 +15,8 @@
 // DLSS-G wants its UI color and alpha); null: the back buffer again, with Donut's blending.
 @nodrops declare function Donut_SetImGuiPassLayerFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
 @nodrops declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
+// The next window's size limits, in pixels.
+@nodrops declare function Donut_ImGuiSetNextWindowSizeConstraints(minWidth: number, minHeight: number, maxWidth: number, maxHeight: number): void;
 // autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
 @nodrops declare function Donut_ImGuiBegin(title: string, autoResize: boolean): void;
 @nodrops declare function Donut_ImGuiEnd(): void;

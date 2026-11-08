@@ -387,6 +387,46 @@ build-release-rtxmg/bin/rtxmg_demo.exe -dx12 -test -frames 4096 -testOutput rtxm
 build-release-rtxmg/bin/rtxmg_demo.exe -dx12 -test -frames 64 -mode primary -testOutput rtxmg_demo_primary.png -width 1280 -height 720 --media E:/Gits/RTXMG/assets --scene subdivision/amy_kitchenset.scene.json
 ```
 
+`rtxdi_minimal` is a port of the Minimal Sample of NVIDIA's [RTXDI](https://github.com/NVIDIA-RTX/RTXDI) SDK (3.0.0;
+D3D12 and Vulkan): the Arcade scene lit only by its emissive triangles, with ReSTIR DI fused into one compute pass
+(primary rays, initial light sampling, spatio-temporal resampling, shading, with ray traced visibility). RTXDI is under
+the NVIDIA RTX SDKs License, so (as with RTXPT) nothing of it is copied here: `-DRTXDI_DIR=<checkout>` (with its assets
+pulled) builds the RTXDI runtime library from the checkout (`rtxdi_runtime`), compiles the sample's shaders in place
+(`shaders/rtxdi_minimal.cfg` names them), `core/rtxdi.cpp` drives the library, `core/rtxdi_minimal.cpp` lays out the
+buffers the sample's shaders read, and `core/rtxdi_di.ts` and `examples/rtxdi_minimal.ts` are the sample's host (the
+light preparation pass, the render pass, the settings window), written in this repository with the sample's values and
+behaviour. The scene loads from the checkout's `Assets` (linked next to `bin/`) before the first frame, where the
+sample loads it asynchronously behind a splash screen. A build directory takes either `RTXDI_DIR` or `RTXPT_DIR`, not
+both (RTXPT bundles its own RTXDI library). The `default-rtxdi` and `release-rtxdi` presets build into `build-rtxdi`
+and `build-release-rtxdi`:
+
+```
+cmake --preset release-rtxdi -DRTXDI_DIR=E:/Gits/RTXDI
+cmake --build build-release-rtxdi --target rtxdi_minimal
+build-release-rtxdi/bin/rtxdi_minimal.exe -dx12
+```
+
+It takes the window's settings on the command line (`-noResampling`, `-unbiased`, `-initialSamples`, `-spatialSamples`,
+`-brdfSamples`, `-brdfCutoff`), `-camera px py pz tx ty tz` for the starting view (the camera stays controllable), and
+`-moveCamera dx dy dz` to move the camera by that much every frame. `-dumpFrame N -dumpPath file` saves frame N's HDR
+color (before the blit) as a float file, and `-test -frames n` renders n frames headless. Compared against
+`MinimalSample.exe` built from the same checkout, locally patched for the comparison (a synchronous scene load, so its
+first frame is frame index 0 as the port's, a frame dump and a window size switch: the stock sample has none of them),
+with the same settings, resolution (1280x720) and API, frame index 60 is bit for bit the reference's on D3D12 and
+Vulkan (default, `-noResampling` and `-unbiased`); with the camera moving the reference differs from itself run to run,
+and the port's difference to it is within that. Both APIs run with no validation messages. The CTest cases are sanity
+checks, not reference compares (the reference dumps aren't in the repository). This software contains source code
+provided by NVIDIA Corporation.
+
+![rtxdi_minimal: the Arcade lit by its emissive triangles through ReSTIR DI](docs/screenshots/rtxdi_minimal.jpg)
+
+The Arcade at 1280x720, frame index 60, D3D12, from a Debug build (`build-rtxdi`). The dump is converted to the JPG by
+clamping the HDR color to [0,1] and sRGB encoding it, as the blit to the sample's 8-bit sRGB swapchain shows it:
+
+```
+build-rtxdi/bin/rtxdi_minimal.exe -dx12 -test -width 1280 -height 720 -dumpFrame 60 -dumpPath rtxdi_minimal_hdr.bin
+```
+
 `streamline_demo` is a port of NVIDIA's [Streamline Sample](https://github.com/NVIDIA-RTX/Streamline_Sample)
 (2.12.0): the Sponza-plus scene with the ray traced (or deferred) lighting frame and the Streamline features DLSS
 Super Resolution, DLSS Ray Reconstruction, DeepDVC, Reflex (with PC Latency) and DLSS Frame Generation, on D3D12
@@ -923,6 +963,7 @@ renders only while its window has focus.
   and [Xbox-ATG-Samples](https://github.com/microsoft/Xbox-ATG-Samples)
 - [NVIDIA DXR Tutorials](https://github.com/NVIDIAGameWorks/DxrTutorials)
 - [NVIDIA RTX Path Tracing](https://github.com/NVIDIA-RTX/RTXPT) and its [NVIDIA Real-time Denoisers (NRD)](https://github.com/NVIDIA-RTX/NRD), both under the NVIDIA RTX SDKs License
+- [NVIDIA RTXDI](https://github.com/NVIDIA-RTX/RTXDI) (its Minimal Sample), under the NVIDIA RTX SDKs License
 - [NVIDIA RTX Character Rendering](https://github.com/NVIDIA-RTX/RTXCR) and [NVIDIA RTX Mega Geometry](https://github.com/NVIDIA-RTX/RTXMG), under the NVIDIA RTX SDKs License
 - [NVIDIA Streamline Sample](https://github.com/NVIDIA-RTX/Streamline_Sample) (NVIDIA RTX SDKs License) and the [Streamline SDK](https://github.com/NVIDIA-RTX/Streamline) (MIT)
 - [tslang, the TypeScript native compiler](https://github.com/ASDAlexander77/TypeScriptCompiler)

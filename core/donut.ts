@@ -799,6 +799,16 @@ export class App {
         return Donut_SetSwapChainFormat(this.handle, format) != 0;
     }
 
+    // Resizes the back buffers to width x height as a window resize would (testing an example's resize path):
+    // in test mode at once, between the passes' back buffer resizing and resized callbacks (call it outside the
+    // render callbacks, e.g. from an animate callback); with a window, its client area (a hidden window stays
+    // hidden), the swap chain following at the start of the next frame; the passes' resized callbacks get the
+    // swap chain's sample count. 0 (nothing resized) for a size of 0 or less, or with neither offscreen back
+    // buffers nor a window to resize.
+    resizeBackBuffers(width: int, height: int): int {
+        return Donut_ResizeBackBuffers(this.handle, width, height);
+    }
+
     // True if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
     // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
     isDisplayHdr(): boolean {
@@ -2339,6 +2349,11 @@ export class CommandList {
         Donut_DispatchWithPushConstants(this.handle, computePipeline, bindingSet.handle, data, byteSize, groupsX, groupsY, groupsZ);
     }
 
+    // Same, with a descriptor table bound after the binding set (Donut_DispatchWithDescriptorTable's).
+    dispatchWithDescriptorTableAndPushConstants(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void {
+        Donut_DispatchWithDescriptorTableAndPushConstants(this.handle, computePipeline, bindingSet.handle, descriptorTable, data, byteSize, groupsX, groupsY, groupsZ);
+    }
+
     // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
     clearDepth(depthTexture: TextureHandle, depth: number): void {
         Donut_ClearDepth(this.handle, depthTexture, depth);
@@ -2932,6 +2947,11 @@ export class BindlessLayoutDesc {
 
     addTextures(space: int): void {
         Donut_BindlessLayoutAddTextures(this.handle, space);
+    }
+
+    // RWTexture2D<float4>[] in register space `space`.
+    addTextureUAVs(space: int): void {
+        Donut_BindlessLayoutAddTextureUAVs(this.handle, space);
     }
 }
 
@@ -5114,6 +5134,11 @@ export class HostCopiedTexture {
 export class ImGui {
     static setNextWindowPos(x: number, y: number): void {
         Donut_ImGuiSetNextWindowPos(x, y);
+    }
+
+    // The next window's size limits, in pixels.
+    static setNextWindowSizeConstraints(minWidth: number, minHeight: number, maxWidth: number, maxHeight: number): void {
+        Donut_ImGuiSetNextWindowSizeConstraints(minWidth, minHeight, maxWidth, maxHeight);
     }
 
     // autoResize != 0: the window fits its contents. Pair with ImGui.end.

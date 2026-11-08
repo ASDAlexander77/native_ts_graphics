@@ -422,6 +422,10 @@ set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with i
 # Tracing (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets, configured once by its own
 # CMake (which downloads the DXC its run-time shader compiler uses, External/dxc).
 set(RTXPT_DIR "" CACHE PATH "RTXPT checkout (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets")
+# rtxdi_minimal (see the end of this file) builds only with RTXDI_DIR: a checkout of NVIDIA's RTXDI
+# (github.com/NVIDIA-RTX/RTXDI, v3.0.0) with its assets. Not together with RTXPT_DIR: RTXPT carries its own
+# (older) copy of the RTXDI library, and both would define the same Rtxdi symbols in the one JIT module.
+set(RTXDI_DIR "" CACHE PATH "RTXDI checkout (github.com/NVIDIA-RTX/RTXDI) with its assets")
 # rtxmg_demo (see the end of this file) builds only with RTXMG_DIR: a checkout of NVIDIA's RTX Mega
 # Geometry (github.com/NVIDIA-RTX/RTXMG) with its submodules (osd_lite, the assets).
 set(RTXMG_DIR "" CACHE PATH "RTXMG checkout (github.com/NVIDIA-RTX/RTXMG) with its submodules and assets")
@@ -812,6 +816,15 @@ if (OMM_SDK_LIBRARIES)
 endif()
 if (RTXPT_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxpt.cpp)
+endif()
+if (RTXDI_DIR)
+    if (RTXPT_DIR)
+        message(FATAL_ERROR "RTXDI_DIR and RTXPT_DIR cannot both be set: RTXPT bundles its own RTXDI library, which would clash with RTXDI_DIR's (configure one example family per build directory)")
+    endif()
+    # The glue to RTXDI (core/rtxdi.cpp) and to the Minimal Sample's shaders (core/rtxdi_minimal.cpp), linked
+    # into rtxdi_minimal, and into donut_interop_shared for the JIT.
+    set(RTXDI_GLUE_SOURCES core/rtxdi.cpp core/rtxdi_minimal.cpp)
+    list(APPEND JIT_MODULE_SOURCES ${RTXDI_GLUE_SOURCES})
 endif()
 if (RTXMG_DIR)
     # core/rtxmg.cpp includes RTXMG's library and demo headers (C++23) and the demo's HiZ prepass, built in place.
@@ -5456,6 +5469,81 @@ if (RTXPT_DIR)
         add_tslang_example_test(rtxpt SUFFIX dlss5 ARGS -width 960 -height 540 -frames 127 -referenceSamplesPerPixel 32
             -captureWarmup 64 -overrideToReferenceMode -dlss5 --scene ${RTXPT_DIR}/Assets/kitchen.scene.json)
     endif()
+endif()
+
+# Port of NVIDIA's RTXDI Minimal Sample (github.com/NVIDIA-RTX/RTXDI, Samples/MinimalSample): ReSTIR DI
+# direct lighting from emissive triangles, the sample's two compute shaders on Donut's G-buffer.
+# Under the NVIDIA RTX SDKs License like RTXPT, so nothing of it is copied here: with RTXDI_DIR set to a
+# checkout, the RTXDI runtime library (importance sampling context, ReSTIR DI/GI/PT, ReGIR: rtxdi_runtime)
+# builds from it and the sample's shaders compile in place.
+if (RTXDI_DIR)
+    # The library's own CMake builds a static library from an explicit list and, with it, compile tests of
+    # the resampling headers (and expects the checkout's own Donut): the sources are compiled here instead.
+    file(GLOB RTXDI_RUNTIME_SOURCES "${RTXDI_DIR}/Libraries/Rtxdi/Source/*.cpp")
+    add_library(rtxdi_runtime STATIC ${RTXDI_RUNTIME_SOURCES})
+    set_target_properties(rtxdi_runtime PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(rtxdi_runtime PUBLIC ${RTXDI_DIR}/Libraries/Rtxdi/Include)
+
+    # The glue includes the library's headers; core/rtxdi_minimal.cpp also the Minimal Sample's
+    # ShaderParameters.h in place (it declares the structures the shaders read), core/rtxdi.cpp doesn't.
+    set_source_files_properties(core/rtxdi.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXDI_DIR}/Libraries/Rtxdi/Include")
+    set_source_files_properties(core/rtxdi_minimal.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXDI_DIR}/Libraries/Rtxdi/Include;${RTXDI_DIR}/Samples/MinimalSample/Shaders")
+    if (TARGET donut_interop_shared)
+        target_link_libraries(donut_interop_shared PRIVATE rtxdi_runtime)
+    endif()
+
+    # The sample's shaders at bin/shaders/rtxdi_minimal/<dxil|spirv>. They are in the checkout's
+    # Samples/MinimalSample/Shaders (--sourceDir) and include its ../Types.h-style headers relative to the
+    # file (--relaxedInclude). donut_compile_shaders passes the SPIR-V define and the Vulkan register
+    # offsets the shaders' bindings rely on, as the checkout's own compileshaders.cmake does.
+    #
+    # The shaders read the neighbor offsets as Buffer<float2>, which DXC gives the SPIR-V image format Rg32f by
+    # default, while the buffer's view is RG8_SNORM (Vulkan: undefined reads, and a validation warning).
+    # -fspv-use-unknown-image-format takes the format from the view instead (SPIR-V only: DXIL has no such
+    # thing). The Vulkan SDK's DXC (1.8) doesn't know it: the SPIR-V is compiled by the DXC that compiles the
+    # DXIL (SHADERMAKE_DXC_PATH, 1.9), which has SPIR-V output too.
+    set(SHADERMAKE_DXC_VK_PATH "${SHADERMAKE_DXC_PATH}")
+    donut_compile_shaders(
+        TARGET rtxdi_minimal_shaders
+        PROJECT_NAME "RTXDI"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxdi_minimal.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxdi_minimal.cfg
+        INCLUDES ${RTXDI_DIR}/Libraries/Rtxdi/Include
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxdi_minimal/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxdi_minimal/spirv
+        SHADER_MODEL 6_5
+        SHADERMAKE_OPTIONS "--sourceDir ${RTXDI_DIR}/Samples/MinimalSample/Shaders --relaxedInclude ../Types.h"
+        SHADERMAKE_OPTIONS_SPIRV "--compilerOptions=-fspv-use-unknown-image-format"
+    )
+    unset(SHADERMAKE_DXC_VK_PATH)
+
+    # The scene loads from ../Assets relative to bin/ (as the sample finds its Assets folder): a link to
+    # RTXDI_DIR/Assets at CMAKE_BINARY_DIR/Assets, one level above the executable.
+    if (NOT EXISTS "${CMAKE_BINARY_DIR}/Assets")
+        if (WIN32)
+            file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/Assets" RTXDI_ASSETS_LINK)
+            file(TO_NATIVE_PATH "${RTXDI_DIR}/Assets" RTXDI_ASSETS_TARGET)
+            execute_process(COMMAND cmd /c mklink /J "${RTXDI_ASSETS_LINK}" "${RTXDI_ASSETS_TARGET}" OUTPUT_QUIET)
+        else()
+            file(CREATE_LINK "${RTXDI_DIR}/Assets" "${CMAKE_BINARY_DIR}/Assets" SYMBOLIC)
+        endif()
+    endif()
+
+    # core/rtxdi_di.ts: what the RTXDI samples share (the context, resources and light preparation, the
+    # render targets); add_tslang_example makes rtxdi_minimal depend on rtxdi_minimal_shaders.
+    add_tslang_example(rtxdi_minimal core/matrix.ts core/text_format.ts core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
+    target_link_libraries(rtxdi_minimal PRIVATE rtxdi_runtime)
+    # Sanity checks (-test), not reference compares: reference comparisons need a build of the original sample
+    # (its MinimalSample.exe, from RTXDI_DIR). noresampling: initial sampling only; unbiased: the sample's
+    # unbiased resampling; moving: the camera moves every frame (motion vectors, temporal reuse); resize: the
+    # offscreen back buffer is resized to three quarters at frame 10 (the test checks the new size).
+    add_tslang_example_test(rtxdi_minimal ARGS -width 1280 -height 720 -frames 60)
+    add_tslang_example_test(rtxdi_minimal SUFFIX noresampling ARGS -width 1280 -height 720 -frames 60 -noResampling)
+    add_tslang_example_test(rtxdi_minimal SUFFIX unbiased ARGS -width 1280 -height 720 -frames 60 -unbiased)
+    add_tslang_example_test(rtxdi_minimal SUFFIX moving ARGS -width 1280 -height 720 -frames 60 -moveCamera 0.01 0 0)
+    add_tslang_example_test(rtxdi_minimal SUFFIX resize ARGS -width 1280 -height 720 -frames 20 -resizeAt 10)
 endif()
 
 # Port of NVIDIA's RTX Mega Geometry demo (github.com/NVIDIA-RTX/RTXMG), its cluster tessellation path:
