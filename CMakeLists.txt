@@ -5522,6 +5522,9 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
     # check the frame first (media/sponza-plus.scene.json: its second robot is behind the camera).
     add_tslang_example_test(streamline_demo ARGS -width 1280 -height 720)
     add_tslang_example_test(streamline_demo SUFFIX sl_disabled ARGS -width 1280 -height 720 -slDisable)
+    # Reflex low latency with DLSS: without -debug, as Vulkan's validation layer crashes Reflex's sleep
+    # (core/streamline.cpp skips it there).
+    add_tslang_example_test(streamline_demo SUFFIX reflex NO_DEBUG ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
     # The sample's frame 120 at its size, in its scene, one test per lighting / anti-aliasing mode of its
     # reference frames (ray traced, deferred, TAA), each saving its frame (bin/streamline_demo_<mode>_<api>.png)
     # for comparing with the sample's.
@@ -5533,6 +5536,12 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
             --scene ${STREAMLINE_DEMO_SCENE} -noRT -testOutput streamline_demo_deferred_${api}.png)
         add_tslang_example_test(streamline_demo SUFFIX taa APIS ${api} ARGS -width 1920 -height 1080
             --scene ${STREAMLINE_DEMO_SCENE} -aa taa -testOutput streamline_demo_taa_${api}.png)
+        # DLSS-SR MaxQuality (the reference's -DLSS_mode 3: 1280x720 to 1920x1080), then the same switching
+        # to MaxPerformance at frame 60 (render targets and DLSS's resources made again).
+        add_tslang_example_test(streamline_demo SUFFIX dlss APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlss 3 -testOutput streamline_demo_dlss_${api}.png)
+        add_tslang_example_test(streamline_demo SUFFIX dlss_switch APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlss 3 -testDlssModeSwitch)
     endforeach()
 endif()
 

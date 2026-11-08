@@ -12,16 +12,29 @@
 // make the device and factory, NVRHI gets the proxy device and Streamline the native one (slSetD3DDevice); on
 // Vulkan the interposer is the Vulkan loader (vulkanLibraryName, and GLFW's for a window's surface), so its
 // vkCreateInstance and vkCreateDevice add what the plugins need (no slSetVulkanInfo).
+//
+// Per frame: the app's device manager gets frame callbacks (g_StreamlineAppCreated) that take the frame's
+// token and run Reflex's sleep before it and set PCL markers around its animation, rendering and present;
+// the demo then sets the camera's constants, tags its motion vectors, depth and color without the UI, and
+// has DLSS-SR upscale (slSetTagForFrame and slEvaluateFeature: frame-based tagging). Textures go to
+// Streamline in a state NVRHI has committed (COMMON on D3D12, GENERAL on Vulkan), which its own barriers
+// return them to.
 
 #include <donut/app/DeviceManager.h>
 #include <donut/core/log.h>
+#include <donut/core/math/math.h>
+#include <donut/engine/View.h>
 #include <nvrhi/nvrhi.h>
+#include <nvrhi/vulkan.h>
 
+#include <cfloat>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -33,11 +46,16 @@
 #include <sl_consts.h>
 #include <sl_helpers.h>
 #include <sl_security.h>
+#include <sl_dlss.h>
+#include <sl_pcl.h>
+#include <sl_reflex.h>
 
-// The hook Donut_CreateAppWithOptions calls with AppOptions.Streamline (core/donut_interop.cpp).
+// The hooks Donut_CreateAppWithOptions calls with AppOptions.Streamline (core/donut_interop.cpp): on the
+// device's parameters, then on the new app's device manager.
 namespace donut_interop
 {
     extern std::function<void(nvrhi::GraphicsAPI, donut::app::DeviceCreationParameters&)> g_StreamlineConfigureDevice;
+    extern std::function<void(donut::app::DeviceManager&)> g_StreamlineAppCreated;
 }
 
 // core/donut_interop.cpp's app and its NVRHI device.
@@ -48,6 +66,14 @@ namespace
 {
     // The sample's (and its NGX) application id.
     constexpr uint32_t kApplicationId = 231313132;
+
+    // The sample's camera planes for Streamline's constants (the far plane only there: the projection is
+    // reverse-Z with an infinite far plane).
+    constexpr float kCameraNear = 0.01f;
+    constexpr float kCameraFar = 200.f;
+
+    // The one viewport the demo renders.
+    const sl::ViewportHandle kViewport(0);
 
     using PFunD3D12CreateDevice = HRESULT WINAPI(IUnknown* adapter, D3D_FEATURE_LEVEL minimumFeatureLevel, REFIID riid, void** device);
     using PFunCreateDXGIFactory2 = HRESULT WINAPI(UINT flags, REFIID riid, void** factory);
@@ -68,12 +94,38 @@ namespace
         SL_FUN_DECL(slSetFeatureLoaded);
         SL_FUN_DECL(slGetNativeInterface);
         SL_FUN_DECL(slSetD3DDevice);
+        SL_FUN_DECL(slGetFeatureFunction);
+        SL_FUN_DECL(slGetNewFrameToken);
+        SL_FUN_DECL(slSetConstants);
+        SL_FUN_DECL(slSetTagForFrame);
+        SL_FUN_DECL(slEvaluateFeature);
+        SL_FUN_DECL(slFreeResources);
+        // The plugins' functions (slGetFeatureFunction, once the device exists: FeatureFunctions).
+        SL_FUN_DECL(slDLSSGetOptimalSettings);
+        SL_FUN_DECL(slDLSSSetOptions);
+        SL_FUN_DECL(slReflexSleep);
+        SL_FUN_DECL(slReflexSetOptions);
+        SL_FUN_DECL(slReflexGetState);
+        SL_FUN_DECL(slPCLSetMarker);
+        bool featureFunctionsQueried = false;
         PFunD3D12CreateDevice* d3d12CreateDevice = nullptr;
         PFunCreateDXGIFactory2* createDxgiFactory2 = nullptr;
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
 
         // Streamline_FeatureStatusText's: by feature, what Streamline_IsFeatureSupported found last.
         std::map<uint32_t, std::string> status;
+        // The features Streamline_IsFeatureSupported found supported: the others' functions aren't called.
+        std::set<uint32_t> supported;
+
+        // This frame's token (Streamline_BeginFrame's), which constants, tags and evaluations are for.
+        sl::FrameToken* frame = nullptr;
+        // Whether a resource is tagged (then Streamline_ClearTags has tags to drop).
+        bool tagged = false;
+        // No Reflex sleep: on Vulkan under the validation layer, where it crashes (in its VK_NV_low_latency
+        // calls, NvLowLatencyVk.dll).
+        bool skipReflexSleep = false;
+
+        bool IsSupported(sl::Feature feature) const { return supported.count(static_cast<uint32_t>(feature)) != 0; }
     };
 
     Streamline g_Streamline;
@@ -112,6 +164,181 @@ namespace
         if (!function)
             donut::log::error("Streamline: sl.interposer.dll doesn't export %s", name);
         return function != nullptr;
+    }
+
+    // Logs a failed Streamline call (as a warning: see LogMessage).
+    bool Check(sl::Result result, const char* what)
+    {
+        if (result != sl::Result::eOk)
+            donut::log::warning("Streamline: %s: %s", what, sl::getResultAsStr(result));
+        return result == sl::Result::eOk;
+    }
+
+    template <typename T>
+    void GetFeatureFunction(sl::Feature feature, T*& function, const char* name)
+    {
+        void* address = nullptr;
+        if (g_Streamline.slGetFeatureFunction(feature, name, address) == sl::Result::eOk)
+            function = reinterpret_cast<T*>(address);
+        else
+            donut::log::warning("Streamline: no %s", name);
+    }
+
+    // The plugins' functions, the first time one is needed (their plugins load with the device), of the
+    // features found supported.
+    void FeatureFunctions()
+    {
+        if (g_Streamline.featureFunctionsQueried)
+            return;
+        g_Streamline.featureFunctionsQueried = true;
+        if (g_Streamline.IsSupported(sl::kFeatureDLSS))
+        {
+            GetFeatureFunction(sl::kFeatureDLSS, g_Streamline.slDLSSGetOptimalSettings, "slDLSSGetOptimalSettings");
+            GetFeatureFunction(sl::kFeatureDLSS, g_Streamline.slDLSSSetOptions, "slDLSSSetOptions");
+        }
+        if (g_Streamline.IsSupported(sl::kFeatureReflex))
+        {
+            GetFeatureFunction(sl::kFeatureReflex, g_Streamline.slReflexSleep, "slReflexSleep");
+            GetFeatureFunction(sl::kFeatureReflex, g_Streamline.slReflexSetOptions, "slReflexSetOptions");
+            GetFeatureFunction(sl::kFeatureReflex, g_Streamline.slReflexGetState, "slReflexGetState");
+        }
+        if (g_Streamline.IsSupported(sl::kFeaturePCL))
+            GetFeatureFunction(sl::kFeaturePCL, g_Streamline.slPCLSetMarker, "slPCLSetMarker");
+    }
+
+    // The frame's start: a new frame token (for frameIndex, or Streamline's next frame), then Reflex's sleep.
+    int BeginFrame(const uint32_t* frameIndex)
+    {
+        if (!g_Streamline.initialized)
+            return -1;
+        FeatureFunctions();
+        if (!Check(g_Streamline.slGetNewFrameToken(g_Streamline.frame, frameIndex), "slGetNewFrameToken"))
+        {
+            g_Streamline.frame = nullptr;
+            return -1;
+        }
+        if (g_Streamline.slReflexSleep && !g_Streamline.skipReflexSleep)
+            Check(g_Streamline.slReflexSleep(*g_Streamline.frame), "slReflexSleep");
+        return static_cast<int>(static_cast<uint32_t>(*g_Streamline.frame));
+    }
+
+    void PclMarker(sl::PCLMarker marker)
+    {
+        if (g_Streamline.initialized && g_Streamline.frame && g_Streamline.slPCLSetMarker)
+            Check(g_Streamline.slPCLSetMarker(marker, *g_Streamline.frame), "slPCLSetMarker");
+    }
+
+    // The frame's token and the PCL markers around its simulation, rendering and present, through the device
+    // manager's frame callbacks (Donut_RunApp calls them in test mode too, where nothing presents).
+    void InstallFrameCallbacks(donut::app::DeviceManager& deviceManager)
+    {
+        g_Streamline.skipReflexSleep = g_Streamline.api == nvrhi::GraphicsAPI::VULKAN
+            && deviceManager.IsVulkanLayerEnabled("VK_LAYER_KHRONOS_validation");
+        if (g_Streamline.skipReflexSleep)
+            donut::log::info("Reflex: no sleep under Vulkan's validation layer (it crashes there)");
+        auto& callbacks = deviceManager.m_callbacks;
+        callbacks.beforeFrame = [](donut::app::DeviceManager&, uint32_t frameIndex) { BeginFrame(&frameIndex); };
+        callbacks.beforeAnimate = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::eSimulationStart); };
+        callbacks.afterAnimate = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::eSimulationEnd); };
+        callbacks.beforeRender = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::eRenderSubmitStart); };
+        callbacks.afterRender = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::eRenderSubmitEnd); };
+        callbacks.beforePresent = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::ePresentStart); };
+        callbacks.afterPresent = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::ePresentEnd); };
+    }
+
+    sl::float4x4 ToSl(const dm::float4x4& m)
+    {
+        sl::float4x4 result;
+        result.setRow(0, sl::float4{ m.row0.x, m.row0.y, m.row0.z, m.row0.w });
+        result.setRow(1, sl::float4{ m.row1.x, m.row1.y, m.row1.z, m.row1.w });
+        result.setRow(2, sl::float4{ m.row2.x, m.row2.y, m.row2.z, m.row2.w });
+        result.setRow(3, sl::float4{ m.row3.x, m.row3.y, m.row3.z, m.row3.w });
+        return result;
+    }
+
+    sl::float3 ToSl3(const float* v)
+    {
+        return sl::float3{ v[0], v[1], v[2] };
+    }
+
+    // A texture as Streamline takes it, put in a known state first: Streamline transitions it with its own
+    // barriers from the state its tag gives, and back. On D3D12 COMMON (its legacy barriers are allowed on
+    // an enhanced-barrier resource in that layout only), on Vulkan GENERAL (UnorderedAccess), as Donut's
+    // own Streamline integration does.
+    sl::Resource ToSl(nvrhi::ICommandList* commandList, nvrhi::ITexture* texture)
+    {
+        const nvrhi::TextureDesc& desc = texture->getDesc();
+        if (g_Streamline.api == nvrhi::GraphicsAPI::D3D12)
+        {
+            commandList->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::Common);
+            commandList->commitBarriers();
+            return sl::Resource{ sl::ResourceType::eTex2d, texture->getNativeObject(nvrhi::ObjectTypes::D3D12_Resource).pointer,
+                nullptr, nullptr, static_cast<uint32_t>(D3D12_RESOURCE_STATE_COMMON) };
+        }
+        commandList->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+        const auto* imageInfo = static_cast<const VkImageCreateInfo*>(
+            texture->getNativeObject(nvrhi::ObjectTypes::VK_ImageCreateInfo).pointer);
+        sl::Resource resource{ sl::ResourceType::eTex2d, texture->getNativeObject(nvrhi::ObjectTypes::VK_Image).pointer,
+            texture->getNativeObject(nvrhi::ObjectTypes::VK_DeviceMemory).pointer,
+            texture->getNativeView(nvrhi::ObjectTypes::VK_ImageView, desc.format, nvrhi::TextureSubresourceSet(0, 1, 0, 1)).pointer,
+            static_cast<uint32_t>(VK_IMAGE_LAYOUT_GENERAL) };
+        resource.width = desc.width;
+        resource.height = desc.height;
+        resource.nativeFormat = static_cast<uint32_t>(nvrhi::vulkan::convertFormat(desc.format));
+        resource.mipLevels = desc.mipLevels;
+        resource.arrayLayers = imageInfo ? imageInfo->arrayLayers : 1;
+        resource.flags = imageInfo ? static_cast<uint32_t>(imageInfo->flags) : 0;
+        resource.usage = imageInfo ? static_cast<uint32_t>(imageInfo->usage) : 0;
+        return resource;
+    }
+
+    sl::CommandBuffer* NativeCommandList(nvrhi::ICommandList* commandList)
+    {
+        return static_cast<sl::CommandBuffer*>(commandList->getNativeObject(g_Streamline.api == nvrhi::GraphicsAPI::D3D12
+            ? nvrhi::ObjectTypes::D3D12_GraphicsCommandList : nvrhi::ObjectTypes::VK_CommandBuffer).pointer);
+    }
+
+    // A texture to tag for this frame, over its top-left width x height.
+    struct Tag
+    {
+        nvrhi::ITexture* texture;
+        sl::BufferType type;
+        sl::ResourceLifecycle lifecycle;
+        uint32_t width;
+        uint32_t height;
+    };
+
+    constexpr size_t kMaxTags = 4;
+
+    bool SetTags(nvrhi::ICommandList* commandList, const Tag* tags, size_t count, const char* what)
+    {
+        if (!g_Streamline.initialized || !g_Streamline.frame || count > kMaxTags)
+            return false;
+        sl::Resource resources[kMaxTags];
+        sl::Extent extents[kMaxTags];
+        sl::ResourceTag slTags[kMaxTags];
+        for (size_t i = 0; i < count; i++)
+        {
+            resources[i] = ToSl(commandList, tags[i].texture);
+            extents[i] = sl::Extent{ 0, 0, tags[i].width, tags[i].height };
+            slTags[i] = sl::ResourceTag{ &resources[i], tags[i].type, tags[i].lifecycle, &extents[i] };
+        }
+        g_Streamline.tagged = true;
+        return Check(g_Streamline.slSetTagForFrame(*g_Streamline.frame, kViewport, slTags, static_cast<uint32_t>(count),
+            NativeCommandList(commandList)), what);
+    }
+
+    sl::DLSSOptions DlssOptions(int mode, uint32_t outputWidth, uint32_t outputHeight)
+    {
+        sl::DLSSOptions options{};
+        options.mode = static_cast<sl::DLSSMode>(mode);
+        options.outputWidth = outputWidth;
+        options.outputHeight = outputHeight;
+        // HDR color in; the exposure is the demo's (tone mapping comes after DLSS).
+        options.colorBuffersHDR = sl::Boolean::eTrue;
+        options.useAutoExposure = sl::Boolean::eFalse;
+        return options;
     }
 
     // What AppOptions.Streamline does to the device's parameters.
@@ -213,7 +440,13 @@ extern "C"
 
         bool found = GetExport(g_Streamline.slInit, "slInit") && GetExport(g_Streamline.slShutdown, "slShutdown")
             && GetExport(g_Streamline.slIsFeatureSupported, "slIsFeatureSupported")
-            && GetExport(g_Streamline.slSetFeatureLoaded, "slSetFeatureLoaded");
+            && GetExport(g_Streamline.slSetFeatureLoaded, "slSetFeatureLoaded")
+            && GetExport(g_Streamline.slGetFeatureFunction, "slGetFeatureFunction")
+            && GetExport(g_Streamline.slGetNewFrameToken, "slGetNewFrameToken")
+            && GetExport(g_Streamline.slSetConstants, "slSetConstants")
+            && GetExport(g_Streamline.slSetTagForFrame, "slSetTagForFrame")
+            && GetExport(g_Streamline.slEvaluateFeature, "slEvaluateFeature")
+            && GetExport(g_Streamline.slFreeResources, "slFreeResources");
         if (graphicsApi == nvrhi::GraphicsAPI::D3D12)
             found = found && GetExport(g_Streamline.slGetNativeInterface, "slGetNativeInterface")
                 && GetExport(g_Streamline.slSetD3DDevice, "slSetD3DDevice")
@@ -260,6 +493,7 @@ extern "C"
             g_Streamline.slSetFeatureLoaded(sl::kFeatureDLSS_G, false);
 
         donut_interop::g_StreamlineConfigureDevice = &ConfigureDevice;
+        donut_interop::g_StreamlineAppCreated = &InstallFrameCallbacks;
         donut::log::info("Streamline: started, plugins from %s", directory.u8string().c_str());
         return 1;
     }
@@ -299,6 +533,10 @@ extern "C"
 
         const sl::Result result = g_Streamline.slIsFeatureSupported(static_cast<sl::Feature>(feature), adapter);
         status = result == sl::Result::eOk ? "supported" : sl::getResultAsStr(result);
+        if (result == sl::Result::eOk)
+            g_Streamline.supported.insert(static_cast<uint32_t>(feature));
+        else
+            g_Streamline.supported.erase(static_cast<uint32_t>(feature));
         return result == sl::Result::eOk ? 1 : 0;
     }
 
@@ -309,18 +547,198 @@ extern "C"
         return it != g_Streamline.status.end() ? it->second.c_str() : "not queried";
     }
 
+    // A new frame (see streamline.d.ts): its token, -1 without one.
+    DONUT_API int Streamline_BeginFrame()
+    {
+        return BeginFrame(nullptr);
+    }
+
+    // A PCL marker (sl::PCLMarker) for this frame, if PCL is supported.
+    DONUT_API void Streamline_PclMarker(int marker)
+    {
+        PclMarker(static_cast<sl::PCLMarker>(marker));
+    }
+
+    // Reflex's mode (sl::ReflexMode) and frame rate cap (0: none), if Reflex is supported.
+    DONUT_API void Streamline_SetReflex(int mode, int fpsCap)
+    {
+        if (!g_Streamline.initialized)
+            return;
+        FeatureFunctions();
+        if (!g_Streamline.slReflexSetOptions)
+            return;
+        sl::ReflexOptions options{};
+        options.mode = static_cast<sl::ReflexMode>(mode);
+        options.frameLimitUs = fpsCap > 0 ? static_cast<uint32_t>(1000000.0 / fpsCap) : 0;
+        options.useMarkersToOptimize = true;
+        // The key the PC latency ping is sent with.
+        options.virtualKey = VK_F13;
+        Check(g_Streamline.slReflexSetOptions(options), "slReflexSetOptions");
+    }
+
+    // Reflex's latest latency report: the simulation's start to the GPU's end of rendering, in milliseconds;
+    // -1 without a report (no Reflex, or no frame presented yet).
+    DONUT_API double Streamline_ReflexLatencyMs()
+    {
+        if (!g_Streamline.initialized)
+            return -1.0;
+        FeatureFunctions();
+        if (!g_Streamline.slReflexGetState)
+            return -1.0;
+        sl::ReflexState state{};
+        if (!Check(g_Streamline.slReflexGetState(state), "slReflexGetState") || !state.latencyReportAvailable)
+            return -1.0;
+        const sl::ReflexReport& report = state.frameReport[63];
+        if (report.gpuRenderEndTime == 0 || report.gpuRenderEndTime < report.simStartTime)
+            return -1.0;
+        return double(report.gpuRenderEndTime - report.simStartTime) / 1000.0;
+    }
+
+    // This frame's camera for Streamline (see streamline.d.ts).
+    DONUT_API void Streamline_SetConstants(donut::engine::IView* view, donut::engine::IView* prevView, const float* cameraPos,
+        const float* cameraFwd, const float* cameraUp, const float* cameraRight, int renderWidth, int renderHeight, int reset)
+    {
+        if (!g_Streamline.initialized || !g_Streamline.frame || !view || !prevView)
+            return;
+        const dm::float4x4 projection = view->GetProjectionMatrix(false);
+        // This frame's clip space to the previous frame's: through world space (this view's inverse, the
+        // previous view), both projections without jitter.
+        const dm::affine3 viewReprojection = view->GetInverseViewMatrix() * prevView->GetViewMatrix();
+        const dm::float4x4 reprojection = dm::inverse(projection) * dm::affineToHomogeneous(viewReprojection)
+            * prevView->GetProjectionMatrix(false);
+
+        sl::Constants constants{};
+        constants.cameraAspectRatio = float(renderWidth) / float(renderHeight);
+        // The projection's vertical field of view (its y scale is 1 / tan(fov / 2)).
+        constants.cameraFOV = 2.f * std::atan(1.f / projection.row1.y);
+        constants.cameraNear = kCameraNear;
+        constants.cameraFar = kCameraFar;
+        constants.cameraMotionIncluded = sl::Boolean::eTrue;
+        constants.cameraPinholeOffset = { 0.f, 0.f };
+        constants.cameraPos = ToSl3(cameraPos);
+        constants.cameraFwd = ToSl3(cameraFwd);
+        constants.cameraUp = ToSl3(cameraUp);
+        constants.cameraRight = ToSl3(cameraRight);
+        constants.cameraViewToClip = ToSl(projection);
+        constants.clipToCameraView = ToSl(dm::inverse(projection));
+        constants.clipToPrevClip = ToSl(reprojection);
+        constants.prevClipToClip = ToSl(dm::inverse(reprojection));
+        constants.depthInverted = view->IsReverseDepth() ? sl::Boolean::eTrue : sl::Boolean::eFalse;
+        const dm::float2 jitter = view->GetPixelOffset();
+        constants.jitterOffset = { jitter.x, jitter.y };
+        // Donut's motion vectors are in pixels, Streamline's normalized.
+        constants.mvecScale = { 1.f / float(renderWidth), 1.f / float(renderHeight) };
+        constants.reset = reset != 0 ? sl::Boolean::eTrue : sl::Boolean::eFalse;
+        constants.motionVectors3D = sl::Boolean::eFalse;
+        constants.motionVectorsInvalidValue = FLT_MIN;
+        Check(g_Streamline.slSetConstants(constants, *g_Streamline.frame, kViewport), "slSetConstants");
+    }
+
+    // Tags this frame's motion vectors and depth (whole: they're at the render size) and its color without
+    // the UI (see streamline.d.ts).
+    DONUT_API void Streamline_TagCommon(nvrhi::ICommandList* commandList, nvrhi::ITexture* motionVectors, nvrhi::ITexture* depth,
+        nvrhi::ITexture* hudless)
+    {
+        if (!commandList || !motionVectors || !depth || !hudless)
+            return;
+        const Tag tags[] = {
+            { motionVectors, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilPresent,
+                motionVectors->getDesc().width, motionVectors->getDesc().height },
+            // Valid until present (nothing draws into depth after this; the next frame clears it), as Donut's
+            // own integration tags it. The sample tags it eOnlyValidNow, which has Streamline copy it into an
+            // image of its own that it then uses (on Vulkan) without moving it out of the undefined layout.
+            { depth, sl::kBufferTypeDepth, sl::ResourceLifecycle::eValidUntilPresent, depth->getDesc().width, depth->getDesc().height },
+            { hudless, sl::kBufferTypeHUDLessColor, sl::ResourceLifecycle::eValidUntilPresent,
+                hudless->getDesc().width, hudless->getDesc().height },
+        };
+        SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (common)");
+    }
+
+    // DLSS's render size for the mode at the display size (see streamline.d.ts).
+    DONUT_API int Streamline_DlssOptimalRenderSize(int mode, int displayWidth, int displayHeight)
+    {
+        if (!g_Streamline.initialized)
+            return 0;
+        FeatureFunctions();
+        if (!g_Streamline.slDLSSGetOptimalSettings || !g_Streamline.slDLSSSetOptions)
+            return 0;
+        const sl::DLSSOptions options = DlssOptions(mode, uint32_t(displayWidth), uint32_t(displayHeight));
+        if (mode == 0)
+        {
+            Check(g_Streamline.slDLSSSetOptions(kViewport, options), "slDLSSSetOptions");
+            // Fails if DLSS never ran on the viewport: then there's nothing to free.
+            g_Streamline.slFreeResources(sl::kFeatureDLSS, kViewport);
+            return displayWidth | displayHeight << 16;
+        }
+        sl::DLSSOptimalSettings settings{};
+        if (!Check(g_Streamline.slDLSSGetOptimalSettings(options, settings), "slDLSSGetOptimalSettings")
+            || settings.optimalRenderWidth == 0 || settings.optimalRenderHeight == 0)
+            return 0;
+        return int(settings.optimalRenderWidth) | int(settings.optimalRenderHeight) << 16;
+    }
+
+    // DLSS's upscaling of input into output (see streamline.d.ts).
+    DONUT_API void Streamline_EvaluateDlss(nvrhi::ICommandList* commandList, int mode, nvrhi::ITexture* input, nvrhi::ITexture* output,
+        int renderWidth, int renderHeight)
+    {
+        if (!g_Streamline.initialized || !g_Streamline.frame || !commandList || !input || !output)
+            return;
+        FeatureFunctions();
+        if (!g_Streamline.slDLSSSetOptions)
+            return;
+        const nvrhi::TextureDesc& outputDesc = output->getDesc();
+        if (!Check(g_Streamline.slDLSSSetOptions(kViewport, DlssOptions(mode, outputDesc.width, outputDesc.height)), "slDLSSSetOptions"))
+            return;
+        const Tag tags[] = {
+            { input, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent, uint32_t(renderWidth), uint32_t(renderHeight) },
+            { output, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent, outputDesc.width, outputDesc.height },
+        };
+        if (!SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (DLSS)"))
+            return;
+        const sl::BaseStructure* inputs[] = { &kViewport };
+        Check(g_Streamline.slEvaluateFeature(sl::kFeatureDLSS, *g_Streamline.frame, inputs, 1, NativeCommandList(commandList)),
+            "slEvaluateFeature (DLSS)");
+        // Streamline bound its own pipelines and resources (eDisableCLStateTracking: it doesn't restore them).
+        commandList->clearState();
+    }
+
+    // Drops every tag: before the tagged resources are released (Streamline holds them until then).
+    DONUT_API void Streamline_ClearTags()
+    {
+        if (!g_Streamline.initialized || !g_Streamline.frame || !g_Streamline.tagged)
+            return;
+        const sl::BufferType types[] = { sl::kBufferTypeDepth, sl::kBufferTypeMotionVectors, sl::kBufferTypeHUDLessColor,
+            sl::kBufferTypeScalingInputColor, sl::kBufferTypeScalingOutputColor };
+        sl::ResourceTag tags[std::size(types)];
+        for (size_t i = 0; i < std::size(types); i++)
+            tags[i] = sl::ResourceTag{ nullptr, types[i], sl::ResourceLifecycle::eValidUntilPresent };
+        Check(g_Streamline.slSetTagForFrame(*g_Streamline.frame, kViewport, tags, uint32_t(std::size(tags)), nullptr),
+            "slSetTagForFrame (clear)");
+        g_Streamline.tagged = false;
+    }
+
     // Shuts Streamline down, before the app's device is destroyed (see streamline.d.ts).
     DONUT_API void Streamline_Shutdown()
     {
         if (!g_Streamline.initialized)
             return;
-        // No resource is tagged yet (the evaluations come with the demo's frame); slShutdown drops Streamline's
-        // tags and the plugins' resources.
+        Streamline_ClearTags();
         const sl::Result result = g_Streamline.slShutdown();
         if (result != sl::Result::eOk)
             donut::log::warning("Streamline: slShutdown: %s", sl::getResultAsStr(result));
         g_Streamline.initialized = false;
+        g_Streamline.frame = nullptr;
+        g_Streamline.supported.clear();
+        g_Streamline.featureFunctionsQueried = false;
+        g_Streamline.slDLSSGetOptimalSettings = nullptr;
+        g_Streamline.slDLSSSetOptions = nullptr;
+        g_Streamline.slReflexSleep = nullptr;
+        g_Streamline.slReflexSetOptions = nullptr;
+        g_Streamline.slReflexGetState = nullptr;
+        g_Streamline.slPCLSetMarker = nullptr;
         donut_interop::g_StreamlineConfigureDevice = nullptr;
-        // The interposer stays loaded: the app's D3D12 device is its proxy until Donut_DestroyApp.
+        donut_interop::g_StreamlineAppCreated = nullptr;
+        // The interposer stays loaded: the app's D3D12 device is its proxy until Donut_DestroyApp. So do the
+        // device manager's frame callbacks, which do nothing from now on.
     }
 }

@@ -7,10 +7,11 @@ import { radiansF32 } from "../core/matrix";
 
 // NVIDIA Streamline (github.com/NVIDIA-RTX/Streamline) on Donut: core/streamline.cpp loads its interposer and
 // plugins from bin/streamline/ and hooks the app's device creation (AppOptions.Streamline). The frame is the
-// Streamline Sample's (github.com/NVIDIA-RTX/Streamline_Sample, its StreamlineSample::RenderScene), ported
-// without its Streamline features so far: Sponza with a dancing robot, cascaded shadow maps, a G-buffer,
-// then ray traced lighting (the sample's ray generation library, compiled in place from STREAMLINE_SAMPLE_DIR)
-// or deferred lighting with SSAO, the procedural sky, bloom, TAA or none, and tone mapping with auto exposure.
+// Streamline Sample's (github.com/NVIDIA-RTX/Streamline_Sample, its StreamlineSample::RenderScene): Sponza
+// with a dancing robot, cascaded shadow maps, a G-buffer, then ray traced lighting (the sample's ray
+// generation library, compiled in place from STREAMLINE_SAMPLE_DIR) or deferred lighting with SSAO, the
+// procedural sky, bloom, DLSS-SR, TAA or none, and tone mapping with auto exposure. Streamline's frame token,
+// Reflex and PCL markers come from the device manager's frame callbacks (core/streamline.cpp).
 namespace StreamlineDemo {
     // Test mode: the frames rendered: the last one is the sample's frame 120 (its reference frames', at
     // 1/60 s a frame), the 121st it renders.
@@ -19,8 +20,8 @@ namespace StreamlineDemo {
     // -test: checks the last frame, Sponza lit and the robot in front of the camera, by the shares the
     // sample's own frames have (1920x1080): lit (not near black) 98-99% ray traced, 94.6% deferred; the
     // robot's white plates, 15-18% of its rectangle; saturated colors (the banners' pattern), 6-7% ray
-    // traced (its reflections), 0.5% deferred.
-    function checkFrame(app: App, rayTraced: boolean) {
+    // traced (its reflections), 0.5% deferred; upscaled with DLSS from 960x540 (MaxPerformance) 3.9%.
+    function checkFrame(app: App, rayTraced: boolean, dlss: boolean) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -41,7 +42,28 @@ namespace StreamlineDemo {
             return robot;
         }
         return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
-            rayTraced ? 4.0 : 0.2, rayTraced ? 9.0 : 1.5, "Colored");
+            rayTraced ? (dlss ? 3.0 : 4.0) : 0.2, rayTraced ? 9.0 : 1.5, "Colored");
+    }
+
+    // -test with -dlss: DLSS upscaled every frame, from a smaller render size (DLAA's is the display's), made
+    // once, or (-testDlssModeSwitch) made again once at the switch.
+    function checkDlss(demo: StreamlineDemo, ui: UIData, modeSwitch: boolean) {
+        if (ui.antiAliasingMode != AntiAliasingMode.DLSS) {
+            return "";
+        }
+        if (demo.dlssEvaluations != TEST_FRAMES) {
+            return `DLSS upscaled ${demo.dlssEvaluations} of ${TEST_FRAMES} frames`;
+        }
+        const targets = demo.renderTargets as RenderTargets;
+        console.log(`DLSS: ${targets.renderWidth}x${targets.renderHeight} to ${targets.displayWidth}x${targets.displayHeight}`);
+        if (ui.dlssMode != DlssMode.DLAA && targets.renderWidth >= targets.displayWidth) {
+            return `DLSS renders at ${targets.renderWidth}x${targets.renderHeight}, not below the display size`;
+        }
+        const expectedChanges = modeSwitch ? 1 : 0;
+        if (demo.renderSizeChanges != expectedChanges) {
+            return `The render size changed ${demo.renderSizeChanges} times, not ${expectedChanges}`;
+        }
+        return "";
     }
 
     const WINDOW_TITLE = "Donut Example: Streamline";
@@ -56,7 +78,8 @@ namespace StreamlineDemo {
     const CAMERA_MOVE_SPEED = 3.0;
 
     // The sample's cascaded shadow map (2048 x 2048, 4 cascades), its depth pass's biases, and its setup:
-    // up to 100 m, the view's frustum grown by 1 m ("to prevent volumetric light leaking").
+    // up to 100 m, over the view's frustum enlarged by 1 m on every side (so that light doesn't leak in at its
+// edges).
     const SHADOW_MAP_RESOLUTION = 2048;
     const SHADOW_MAP_CASCADES = 4;
     const SHADOW_DEPTH_BIAS = 100;
@@ -136,8 +159,24 @@ namespace StreamlineDemo {
 
     enum AntiAliasingMode {
         NONE = 0,
-        TEMPORAL = 1
+        TEMPORAL = 1,
+        DLSS = 2
     }
+
+    // DLSS-SR's modes (sl::DLSSMode), as the sample's -DLSS_mode numbers them. UltraQuality (5) is
+    // rejected, as the sample does.
+    enum DlssMode {
+        Off = 0,
+        MaxPerformance = 1,
+        Balanced = 2,
+        MaxQuality = 3,
+        UltraPerformance = 4,
+        UltraQuality = 5,
+        DLAA = 6
+    }
+
+    // -testDlssModeSwitch: the frame DLSS switches to MaxPerformance at.
+    const DLSS_SWITCH_FRAME = 60;
 
     // --- UI state -----------------------------------------------------------------------------------
 
@@ -158,6 +197,8 @@ namespace StreamlineDemo {
         // 1: ray traced lighting; 0: deferred.
         public rayTracingMode: int = 1;
         public enableVsync = false;
+        // DlssMode, with antiAliasingMode DLSS.
+        public dlssMode: int = DlssMode.Off;
     }
 
     // --- Render targets --------------------------------------------------------------------------------
@@ -285,6 +326,23 @@ namespace StreamlineDemo {
         private shadowDepthPass: DepthPass;
 
         public renderTargets: RenderTargets | null;
+        // -test's DLSS checks: the frames DLSS upscaled, and how many times the render size changed.
+        public dlssEvaluations: int;
+        public renderSizeChanges: int;
+        // Streamline started, DLSS supported; -testDlssModeSwitch.
+        public streamline: boolean;
+        public dlssSupported: boolean;
+        public testDlssModeSwitch: boolean;
+        // The DLSS mode and display size the render size was last asked for (Off: DLSS not in use), that
+        // render size, and the mip level bias the passes were made with.
+        private dlssLastMode: int;
+        private dlssLastDisplayWidth: int;
+        private dlssLastDisplayHeight: int;
+        private dlssRenderWidth: int;
+        private dlssRenderHeight: int;
+        private previousLodBias: number;
+        // Streamline's camera: position, forward, up, right (3 floats each).
+        private cameraVectors: f32[];
         private gbufferPass: GBufferFillPass;
         private deferredLightingPass: DeferredLightingPass;
         private skyPass: SkyPassHandle | null;
@@ -329,6 +387,21 @@ namespace StreamlineDemo {
             this.wallclockTime = 0.0;
             this.sunLight = new Light(null);
             this.renderTargets = null;
+            this.dlssEvaluations = 0;
+            this.renderSizeChanges = 0;
+            this.streamline = false;
+            this.dlssSupported = false;
+            this.testDlssModeSwitch = false;
+            this.dlssLastMode = DlssMode.Off;
+            this.dlssLastDisplayWidth = 0;
+            this.dlssLastDisplayHeight = 0;
+            this.dlssRenderWidth = 0;
+            this.dlssRenderHeight = 0;
+            this.previousLodBias = 0.0;
+            this.cameraVectors = [];
+            for (let i = 0; i < 12; i++) {
+                this.cameraVectors.push(0.0);
+            }
             this.gbufferPass = new GBufferFillPass(null);
             this.deferredLightingPass = new DeferredLightingPass(null);
             this.skyPass = null;
@@ -579,11 +652,15 @@ namespace StreamlineDemo {
             }
         }
 
-        // The sample's CreateRenderPasses; returns whether the exposure needs resetting (the first tone mapping
-        // pass).
-        createRenderPasses(targets: RenderTargets) {
+        // The sample's CreateRenderPasses, with the common samplers' mip level bias; returns whether the
+        // exposure needs resetting (the first tone mapping pass).
+        createRenderPasses(targets: RenderTargets, lodBias: number) {
             const app = this.app;
             const view = this.view;
+
+            // The old passes may still be in flight.
+            app.waitForIdle();
+            app.setCommonSamplersMipBias(lodBias);
 
             this.releaseObject(this.gbufferPass.handle);
             this.releaseObject(this.deferredLightingPass.handle);
@@ -612,15 +689,20 @@ namespace StreamlineDemo {
             return exposureResetRequired;
         }
 
-        // The render targets for the frame's size (at the display size: no DLSS yet), made again when it
-        // changes, with the ray tracing binding set over them.
-        updateRenderTargets(width: int, height: int): RenderTargets {
+        // The render targets for the render and display sizes, made again when either changes, with the ray
+        // tracing binding set over them.
+        updateRenderTargets(renderWidth: int, renderHeight: int, width: int, height: int): RenderTargets {
             this.renderTargetsChanged = false;
             const current = this.renderTargets;
             if (current) {
-                if (current.displayWidth == width && current.displayHeight == height) {
+                if (current.renderWidth == renderWidth && current.renderHeight == renderHeight && current.displayWidth == width
+                    && current.displayHeight == height) {
                     return current;
                 }
+                this.renderSizeChanges++;
+                // Released below: the GPU done with them, Streamline's references dropped.
+                this.app.waitForIdle();
+                Streamline_ClearTags();
                 if (!this.rtBindingSet.isNull()) {
                     this.app.releaseResource(this.rtBindingSet.handle);
                     this.rtBindingSet = new BindingSet(null);
@@ -629,7 +711,7 @@ namespace StreamlineDemo {
                 this.app.clearBindingCache();
                 current.release(this.app);
             }
-            const targets = new RenderTargets(this.app, width, height, width, height, this.app.getBackBufferFormat());
+            const targets = new RenderTargets(this.app, renderWidth, renderHeight, width, height, this.app.getBackBufferFormat());
             this.renderTargets = targets;
             this.renderTargetsChanged = true;
 
@@ -650,7 +732,68 @@ namespace StreamlineDemo {
             return targets;
         }
 
-        // The sample's RenderScene, without its Streamline features (DLSS, DLSS-RR, NIS, DeepDVC, DLSS-G, Reflex).
+        // With DLSS: its render size for the mode at the display size, asked again when either changes (into
+        // dlssRenderWidth / Height; DLSS failing to answer turns anti-aliasing off), and the texture mip level
+        // bias for it, DLSS's programming guide's log2(render / display width) - 1. Leaving DLSS turns it off
+        // and frees its resources. Returns the bias (0 without DLSS).
+        updateDlss(width: int, height: int): number {
+            const ui = this.ui;
+            const usingDlss = ui.antiAliasingMode == AntiAliasingMode.DLSS && ui.dlssMode != DlssMode.Off && this.dlssSupported;
+            if (!usingDlss) {
+                if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
+                    ui.antiAliasingMode = AntiAliasingMode.NONE;
+                }
+                if (this.dlssLastMode != DlssMode.Off) {
+                    this.app.waitForIdle();
+                    Streamline_DlssOptimalRenderSize(DlssMode.Off, width, height);
+                    this.dlssLastMode = DlssMode.Off;
+                }
+                return 0.0;
+            }
+            if (ui.dlssMode != this.dlssLastMode || width != this.dlssLastDisplayWidth || height != this.dlssLastDisplayHeight) {
+                if (this.dlssLastMode != DlssMode.Off) {
+                    this.app.waitForIdle();
+                    Streamline_DlssOptimalRenderSize(DlssMode.Off, width, height);
+                }
+                const size = Streamline_DlssOptimalRenderSize(ui.dlssMode, width, height);
+                if (size == 0) {
+                    console.log(`DLSS has no render size for mode ${ui.dlssMode} at ${width}x${height}: anti-aliasing off`);
+                    ui.antiAliasingMode = AntiAliasingMode.NONE;
+                    ui.dlssMode = DlssMode.Off;
+                    return 0.0;
+                }
+                this.dlssRenderWidth = size & 0xffff;
+                this.dlssRenderHeight = (size >> 16) & 0xffff;
+                this.dlssLastMode = ui.dlssMode;
+                this.dlssLastDisplayWidth = width;
+                this.dlssLastDisplayHeight = height;
+            }
+            // In float, as the sample's log2f.
+            return Math.fround(Math.fround(Math.log2(Math.fround(this.dlssRenderWidth / width))) - 1.0);
+        }
+
+        // Streamline's constants for the frame (set every frame Streamline runs, whatever its features do) and
+        // its common tags: motion vectors, depth, the color before the UI.
+        setStreamlineConstants(commandList: CommandList, targets: RenderTargets) {
+            const v = this.cameraVectors;
+            this.camera.getPosition(Ref(v[0]));
+            this.camera.getDirection(Ref(v[3]));
+            this.camera.getUp(Ref(v[6]));
+            // Right = normalize(forward x up).
+            const rx = Math.fround(v[4] * v[8] - v[5] * v[7]);
+            const ry = Math.fround(v[5] * v[6] - v[3] * v[8]);
+            const rz = Math.fround(v[3] * v[7] - v[4] * v[6]);
+            const length = Math.fround(Math.sqrt(rx * rx + ry * ry + rz * rz));
+            v[9] = length > 0.0 ? rx / length : 0.0;
+            v[10] = length > 0.0 ? ry / length : 0.0;
+            v[11] = length > 0.0 ? rz / length : 0.0;
+            // reset 0 always: the sample's flag for it is a shadowed local that stays false.
+            Streamline_SetConstants(this.view.handle, this.viewPrevious.handle, Ref(v[0]), Ref(v[3]), Ref(v[6]), Ref(v[9]),
+                targets.renderWidth, targets.renderHeight, 0);
+            Streamline_TagCommon(commandList.handle, targets.motionVectors, targets.depth, targets.preUIColor);
+        }
+
+        // The sample's RenderScene, without its NIS, DeepDVC, DLSS-RR and DLSS-G features (yet).
         renderScene(frame: Frame) {
             const app = this.app;
             const ui = this.ui;
@@ -659,20 +802,30 @@ namespace StreamlineDemo {
             const width = frame.getWidth();
             const height = frame.getHeight();
 
+            if (this.testDlssModeSwitch && app.getFrameIndex() == DLSS_SWITCH_FRAME) {
+                ui.dlssMode = DlssMode.MaxPerformance;
+            }
+
+            // The render size: DLSS's for its mode, else the display size; the mip level bias for it.
+            const lodBias = this.updateDlss(width, height);
+            const renderWidth = ui.antiAliasingMode == AntiAliasingMode.DLSS ? this.dlssRenderWidth : width;
+            const renderHeight = ui.antiAliasingMode == AntiAliasingMode.DLSS ? this.dlssRenderHeight : height;
+
             // RefreshSceneGraph, and (into the frame's command list) RefreshBuffers: the robot's skinning.
             app.refreshScene(frame, this.scene);
 
-            const targets = this.updateRenderTargets(width, height);
+            const targets = this.updateRenderTargets(renderWidth, renderHeight, width, height);
             let needNewPasses = this.renderTargetsChanged;
-            // The render size is the display size (DLSS would render smaller).
-            const renderWidth = targets.renderWidth;
-            const renderHeight = targets.renderHeight;
+            if (lodBias != this.previousLodBias) {
+                needNewPasses = true;
+                this.previousLodBias = lodBias;
+            }
             if (this.setupView(renderWidth, renderHeight, targets.displayWidth, targets.displayHeight)) {
                 needNewPasses = true;
             }
             let exposureResetRequired = false;
             if (needNewPasses) {
-                exposureResetRequired = this.createRenderPasses(targets);
+                exposureResetRequired = this.createRenderPasses(targets, lodBias);
             }
 
             const commandList = frame.getCommandList();
@@ -734,7 +887,8 @@ namespace StreamlineDemo {
                 // robots). The TLAS rebuilt in place instead is the same one (the instances don't move).
                 commandList.rebuildSceneAccelStructs(this.accelStructs, this.scene, RT_HIT_GROUPS_PER_GEOMETRY);
 
-                // At the back buffer's size, as the sample dispatches (the render size until DLSS).
+                // At the back buffer's size, as the sample dispatches: with DLSS more rays than the render size,
+                // whose writes outside the color target are dropped.
                 frame.dispatchRays(this.shaderTable, this.rtBindingSet, width, height);
 
                 // The sample's sky and bloom in this branch, then once more after it (below): kept.
@@ -770,8 +924,17 @@ namespace StreamlineDemo {
                 commandList.renderBloom(bloomPass, targets.hdrFramebuffer, view, targets.hdrColor, ui.bloomSigma, ui.bloomAlpha);
             }
 
-            // Anti-aliasing into the resolved color: TAA, or a copy.
-            if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL) {
+            if (this.streamline) {
+                this.setStreamlineConstants(commandList, targets);
+            }
+
+            // Anti-aliasing into the resolved color: DLSS, TAA, or a copy.
+            if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
+                Streamline_EvaluateDlss(commandList.handle, ui.dlssMode, targets.hdrColor, targets.aaResolvedColor,
+                    targets.renderWidth, targets.renderHeight);
+                this.dlssEvaluations++;
+                this.previousViewsValid = true;
+            } else if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL) {
                 commandList.temporalResolveView(temporalAntiAliasingPass, view, this.previousViewsValid ? 1 : 0, 1);
                 this.previousViewsValid = true;
             } else {
@@ -890,7 +1053,16 @@ namespace StreamlineDemo {
             if (this.rayTracingSupported) {
                 ui.rayTracingMode = ImGui.checkbox("Ray Traced Lighting", ui.rayTracingMode != 0) ? 1 : 0;
             }
-            ui.antiAliasingMode = ImGui.combo("AA Mode", ui.antiAliasingMode, "None|TAA");
+            ui.antiAliasingMode = ImGui.combo("AA Mode", ui.antiAliasingMode, "None|TAA|DLSS");
+            if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
+                // DLSS turned on starts Balanced, as the sample's; UltraQuality isn't offered.
+                if (ui.dlssMode == DlssMode.Off) {
+                    ui.dlssMode = DlssMode.Balanced;
+                }
+                const index = ui.dlssMode == DlssMode.DLAA ? 5 : ui.dlssMode;
+                const chosen = ImGui.combo("DLSS Mode", index, "Off|Max Performance|Balanced|Max Quality|Ultra Performance|DLAA");
+                ui.dlssMode = chosen == 5 ? DlssMode.DLAA : chosen;
+            }
             ImGui.separator();
             ui.enableShadows = ImGui.checkbox("Shadows", ui.enableShadows);
             ui.enableSsao = ImGui.checkbox("SSAO (deferred)", ui.enableSsao);
@@ -919,6 +1091,14 @@ namespace StreamlineDemo {
         taa: boolean = false;
         // -pauseAnimation: the robot stands still (the sample's EnableAnimations off).
         pauseAnimation: boolean = false;
+        // -dlss <mode>: DLSS-SR in the sample's -DLSS_mode numbering (DlssMode); -1: not given.
+        dlss: int = -1;
+        // -testDlssModeSwitch: under -test, DLSS switches to MaxPerformance at frame DLSS_SWITCH_FRAME.
+        testDlssModeSwitch: boolean = false;
+        // -reflex <0..2>: Reflex off, low latency, low latency with boost; -reflexFpsCap <n>: a frame rate
+        // cap (0: none).
+        reflex: int = 0;
+        reflexFpsCap: int = 0;
 
         protected parseOptions() {
             for (let i = 1; i < this.argc; i++) {
@@ -939,6 +1119,14 @@ namespace StreamlineDemo {
                     this.taa = this[i + 1] == "taa";
                 } else if (arg == "-pauseAnimation") {
                     this.pauseAnimation = true;
+                } else if (arg == "-dlss" && i + 1 < this.argc) {
+                    this.dlss = parseInt(this[i + 1]);
+                } else if (arg == "-testDlssModeSwitch") {
+                    this.testDlssModeSwitch = true;
+                } else if (arg == "-reflex" && i + 1 < this.argc) {
+                    this.reflex = parseInt(this[i + 1]);
+                } else if (arg == "-reflexFpsCap" && i + 1 < this.argc) {
+                    this.reflexFpsCap = parseInt(this[i + 1]);
                 }
             }
         }
@@ -1004,9 +1192,25 @@ namespace StreamlineDemo {
         if (args.pauseAnimation) {
             uiData.enableAnimations = false;
         }
+        if (args.dlss == DlssMode.UltraQuality || args.dlss < -1 || args.dlss > DlssMode.DLAA) {
+            console.log(`-dlss ${args.dlss}: not a DLSS mode (0..4, 6), ignored`);
+        } else if (args.dlss > 0) {
+            uiData.antiAliasingMode = AntiAliasingMode.DLSS;
+            uiData.dlssMode = args.dlss;
+        }
 
         const scenePath = args.scenePath != "" ? args.scenePath : DEFAULT_SCENE;
         const demo = new StreamlineDemo(app, uiData);
+        demo.streamline = slInitialized;
+        demo.dlssSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.DLSS) != 0;
+        demo.testDlssModeSwitch = args.test && args.testDlssModeSwitch;
+        if (uiData.antiAliasingMode == AntiAliasingMode.DLSS && !demo.dlssSupported) {
+            console.log("DLSS: not supported here, anti-aliasing off");
+        }
+        // Reflex's options (its sleep runs every frame, Reflex supported).
+        if (Streamline_IsFeatureSupported(app.handle, StreamlineFeature.Reflex) != 0) {
+            Streamline_SetReflex(args.reflex, args.reflexFpsCap);
+        }
         if (!demo.init(scenePath, args.api)) {
             Streamline_Shutdown();
             app.destroy();
@@ -1021,9 +1225,13 @@ namespace StreamlineDemo {
         const input = new InputPass(app.handle);
         app.run();
 
+        // Reflex's latency once, at the end (none without a presented frame, e.g. under -test).
+        const latency = Streamline_ReflexLatencyMs();
+        console.log(latency >= 0.0 ? `Reflex latency: ${latency} ms` : "Reflex latency: no report");
+
         let result = 0;
         if (args.test) {
-            const frameFailure = checkFrame(app, uiData.rayTracingMode != 0);
+            const frameFailure = checkFrame(app, uiData.rayTracingMode != 0, uiData.antiAliasingMode == AntiAliasingMode.DLSS);
             if (frameFailure != "") {
                 result = app.finishTest(frameFailure);
             } else if (!args.slDisable && !slInitialized) {
@@ -1038,7 +1246,7 @@ namespace StreamlineDemo {
             } else if (missing != "") {
                 result = unsupported(true, `not supported here: ${missing}`);
             } else {
-                result = app.finishTest("");
+                result = app.finishTest(checkDlss(demo, uiData, args.testDlssModeSwitch));
             }
         }
 

@@ -334,6 +334,12 @@ export class App {
         return Donut_GetCommonSampler(this.handle, which);
     }
 
+    // Makes the common samplers again with a mip level bias (e.g. log2(render / display width) - 1 when
+    // upscaling). Passes made afterwards use them, those made before keep the old ones.
+    setCommonSamplersMipBias(mipBias: number): void {
+        Donut_SetCommonSamplersMipBias(this.handle, mipBias);
+    }
+
     // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
     // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
     createComparisonSampler(): SamplerHandle {

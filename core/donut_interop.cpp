@@ -2709,6 +2709,9 @@ namespace donut_interop
     // Set by Streamline_Init (core/streamline.cpp, linked only where Streamline is): what AppOptions.Streamline
     // does to the device's parameters, to have Streamline's interposer make the device. Empty otherwise.
     std::function<void(nvrhi::GraphicsAPI, donut::app::DeviceCreationParameters&)> g_StreamlineConfigureDevice;
+    // Also Streamline_Init's: what AppOptions.Streamline does to the new app's device manager (its frame
+    // callbacks: Streamline's frame token, Reflex and PCL markers).
+    std::function<void(donut::app::DeviceManager&)> g_StreamlineAppCreated;
 
     // AppOptions.Streamline: the device through Streamline, once Streamline_Init has started it.
     static void ConfigureStreamlineDevice(nvrhi::GraphicsAPI api, donut::app::DeviceCreationParameters& params)
@@ -2717,6 +2720,12 @@ namespace donut_interop
             g_StreamlineConfigureDevice(api, params);
         else
             donut::log::info("AppOptions.Streamline without Streamline_Init: the device is made without Streamline");
+    }
+
+    static void StreamlineAppCreated(donut::app::DeviceManager& deviceManager)
+    {
+        if (g_StreamlineAppCreated)
+            g_StreamlineAppCreated(deviceManager);
     }
 }
 
@@ -2920,6 +2929,8 @@ extern "C"
 #endif
 
         App* app = MakeApp(std::move(deviceManager), api);
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::StreamlineAppCreated(*app->deviceManager);
         if (testMode)
         {
             // The swap chain's: its format (BGRA on Vulkan, as Donut's device manager makes it)
@@ -3440,6 +3451,8 @@ extern "C"
         App* app = MakeApp(std::move(deviceManager), api);
         app->indirectDrawSupport = indirectDrawSupport;
         app->sparseResidency = sparseResidency;
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::StreamlineAppCreated(*app->deviceManager);
         return app;
     }
 
@@ -3560,13 +3573,31 @@ extern "C"
             else
                 query = device->createEventQuery();
             device->resetEventQuery(query);
+            // The device manager's frame callbacks, as its own loop calls them (the present pair around the
+            // frame's end, as nothing presents).
+            const auto& callbacks = deviceManager->m_callbacks;
+            const uint32_t frameIndex = DeviceManagerAccess::FrameIndex(deviceManager);
+            if (callbacks.beforeFrame)
+                callbacks.beforeFrame(*deviceManager, frameIndex);
             // Copied: a pass may add or remove passes.
             const std::list<donut::app::IRenderPass*> passes = DeviceManagerAccess::RenderPasses(deviceManager);
+            if (callbacks.beforeAnimate)
+                callbacks.beforeAnimate(*deviceManager, frameIndex);
             for (donut::app::IRenderPass* pass : passes)
                 pass->Animate(float(offscreen->frameSeconds));
+            if (callbacks.afterAnimate)
+                callbacks.afterAnimate(*deviceManager, frameIndex);
+            if (callbacks.beforeRender)
+                callbacks.beforeRender(*deviceManager, frameIndex);
             for (donut::app::IRenderPass* pass : passes)
                 pass->Render(offscreen->framebuffers[offscreen->current]);
+            if (callbacks.afterRender)
+                callbacks.afterRender(*deviceManager, frameIndex);
+            if (callbacks.beforePresent)
+                callbacks.beforePresent(*deviceManager, frameIndex);
             device->setEventQuery(query, nvrhi::CommandQueue::Graphics);
+            if (callbacks.afterPresent)
+                callbacks.afterPresent(*deviceManager, frameIndex);
             app->device()->runGarbageCollection();
             DeviceManagerAccess::FrameIndex(deviceManager)++;
             if (offscreen->closeRequested)
@@ -5833,6 +5864,25 @@ extern "C"
         case CommonSampler_AnisotropicWrap: return a->Own(passes->m_AnisotropicWrapSampler);
         default: return nullptr;
         }
+    }
+
+    // Makes the common samplers (point clamp, linear clamp and wrap, anisotropic wrap) again with a mip
+    // level bias, e.g. for rendering below the display size and upscaling. The passes made afterwards use
+    // them; those made before keep the old ones.
+    DONUT_API void Donut_SetCommonSamplersMipBias(App* app, double mipBias)
+    {
+        donut::engine::CommonRenderPasses* passes = app->commonPasses();
+        nvrhi::IDevice* device = app->device();
+        auto rebias = [&](nvrhi::SamplerHandle& sampler)
+        {
+            nvrhi::SamplerDesc desc = sampler->getDesc();
+            desc.mipBias = float(mipBias);
+            sampler = device->createSampler(desc);
+        };
+        rebias(passes->m_PointClampSampler);
+        rebias(passes->m_LinearClampSampler);
+        rebias(passes->m_LinearWrapSampler);
+        rebias(passes->m_AnisotropicWrapSampler);
     }
 
     // A sampler: linearFilter / linearMipFilter non-zero for linear filtering within / between

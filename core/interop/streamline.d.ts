@@ -26,3 +26,39 @@ enum StreamlineFeature {
 @nodrops declare function Streamline_FeatureStatusText(feature: StreamlineFeature): string;
 // Clears the resource tags and shuts Streamline down: before Donut_DestroyApp. Nothing without Streamline_Init.
 @nodrops declare function Streamline_Shutdown(): void;
+
+// --- Per frame. The app made with AppOptions.Streamline does the first two itself, in its device manager's
+// frame callbacks (also in test mode): Streamline_BeginFrame before the frame, PCL markers around its
+// animation, rendering and present. The rest need the frame's token.
+
+// A new frame: Streamline's frame token (returned, -1 without Streamline), then Reflex's sleep (Reflex
+// supported).
+@nodrops declare function Streamline_BeginFrame(): int;
+// A PCL marker for this frame (sl::PCLMarker: 0 simulation start, 1 its end, 2 render submit start, 3 its
+// end, 4 present start, 5 its end), PCL supported.
+@nodrops declare function Streamline_PclMarker(marker: int): void;
+// Reflex's mode (0 off, 1 low latency, 2 with boost) and a frame rate cap (0: none), Reflex supported.
+@nodrops declare function Streamline_SetReflex(mode: int, fpsCap: int): void;
+// Reflex's latest latency, the simulation's start to the GPU's end of rendering, in milliseconds; -1 without
+// a report (no Reflex, nothing presented yet).
+@nodrops declare function Streamline_ReflexLatencyMs(): number;
+// The frame's camera, every frame Streamline runs: the view rendered and the previous frame's (Donut planar
+// views; their projections without jitter, and this one's jitter), the camera's position and its forward,
+// up and right directions (3 floats each), the render size (motion vectors are in its pixels), reset non-zero
+// for a frame without history. Near plane 0.01, far plane 200.
+@nodrops declare function Streamline_SetConstants(view: ViewHandle, prevView: ViewHandle, cameraPos: Ref<f32>, fwd: Ref<f32>,
+    up: Ref<f32>, right: Ref<f32>, renderW: int, renderH: int, reset: int): void;
+// Tags the frame's motion vectors and depth (at the render size; depth is copied now) and its final color
+// without the UI (at the display size), on the command list.
+@nodrops declare function Streamline_TagCommon(cmd: CommandListHandle, motionVectors: TextureHandle, depth: TextureHandle,
+    hudless: TextureHandle): void;
+// DLSS's render size for the mode (the -DLSS_mode numbering: 1 MaxPerformance, 2 Balanced, 3 MaxQuality,
+// 4 UltraPerformance, 6 DLAA) at the display size: w | h << 16; 0 if DLSS can't. Mode 0 turns DLSS off,
+// frees its resources (wait for the GPU first) and returns the display size.
+@nodrops declare function Streamline_DlssOptimalRenderSize(mode: int, displayW: int, displayH: int): int;
+// Upscales input's top-left renderW x renderH (HDR color) into output (at the display size) with DLSS in
+// the mode, on the command list, whose state is cleared after (Streamline binds its own).
+@nodrops declare function Streamline_EvaluateDlss(cmd: CommandListHandle, mode: int, input: TextureHandle, output: TextureHandle,
+    renderW: int, renderH: int): void;
+// Drops the resource tags: before releasing tagged resources (Streamline holds them until then).
+@nodrops declare function Streamline_ClearTags(): void;
