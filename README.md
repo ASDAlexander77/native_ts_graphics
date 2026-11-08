@@ -466,6 +466,19 @@ window surface after the device so that DLSS-G finds the window. Known: under `-
 plugins leave a few NGX buffers alive at `vkDestroyDevice`, as in the sample. This software contains source code
 provided by NVIDIA Corporation.
 
+| Ray traced lighting, no upscaling | DLSS Super Resolution (`-dlss 3`, 1280x720 to 1920x1080) |
+| --- | --- |
+| ![streamline_demo: Sponza-plus with ray traced lighting](docs/screenshots/streamline_demo.jpg) | ![streamline_demo: the same frame upscaled by DLSS Super Resolution](docs/screenshots/streamline_demo_dlss.jpg) |
+| **DLSS Ray Reconstruction (`-dlssRR 3`, 1280x720 to 1920x1080)** | **Deferred lighting (`-noRT`)** |
+| ![streamline_demo: the same frame denoised and upscaled by DLSS Ray Reconstruction](docs/screenshots/streamline_demo_dlssrr.jpg) | ![streamline_demo: the same frame with deferred lighting](docs/screenshots/streamline_demo_deferred.jpg) |
+
+Frame 120 of the `-test` runs above, D3D12, from a Debug build (`build-streamline`), saved at 1920x1080 and scaled
+down to 1280x720 for this page:
+
+```
+build-streamline/bin/streamline_demo.exe -dx12 -debug -test -width 1920 -height 1080 --scene E:/Gits/Streamline_Sample/media/sponza-plus.scene.json -dlss 3 -testOutput streamline_demo_dlss_dx12.png
+```
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
