@@ -1,6 +1,6 @@
 """Checks that core/donut_interop.d.ts declares the interop functions as the C++ defines them.
 
-Every Donut_* (and Streamline_*, core/streamline.cpp's, and Rtxdi_*, core/rtxdi.cpp's) function defined in an `extern "C"` block of
+Every Donut_* (and Streamline_*, core/streamline.cpp's, and Rtxdi_*, core/rtxdi.cpp's and core/rtxdi_minimal.cpp's) function defined in an `extern "C"` block of
 core/*.cpp must be declared in
 donut_interop.d.ts with the same parameters, and each C++ type must map to the TypeScript type
 TYPES (or HANDLES, for object pointers) gives it. The callback types (RenderFn <->

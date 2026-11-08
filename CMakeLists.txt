@@ -821,8 +821,9 @@ if (RTXDI_DIR)
     if (RTXPT_DIR)
         message(FATAL_ERROR "RTXDI_DIR and RTXPT_DIR cannot both be set: RTXPT bundles its own RTXDI library, which would clash with RTXDI_DIR's (configure one example family per build directory)")
     endif()
-    # The glue to the sample's host (linked into rtxdi_minimal, and into donut_interop_shared for the JIT).
-    set(RTXDI_GLUE_SOURCES core/rtxdi.cpp)
+    # The glue to RTXDI (core/rtxdi.cpp) and to the Minimal Sample's shaders (core/rtxdi_minimal.cpp), linked
+    # into rtxdi_minimal, and into donut_interop_shared for the JIT.
+    set(RTXDI_GLUE_SOURCES core/rtxdi.cpp core/rtxdi_minimal.cpp)
     list(APPEND JIT_MODULE_SOURCES ${RTXDI_GLUE_SOURCES})
 endif()
 if (RTXMG_DIR)
@@ -5483,9 +5484,11 @@ if (RTXDI_DIR)
     set_target_properties(rtxdi_runtime PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
     target_include_directories(rtxdi_runtime PUBLIC ${RTXDI_DIR}/Libraries/Rtxdi/Include)
 
-    # core/rtxdi.cpp (the glue to the sample's host) includes the library's headers and the sample's
-    # ShaderParameters.h in place (it declares the structures the shaders read).
+    # The glue includes the library's headers; core/rtxdi_minimal.cpp also the Minimal Sample's
+    # ShaderParameters.h in place (it declares the structures the shaders read), core/rtxdi.cpp doesn't.
     set_source_files_properties(core/rtxdi.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXDI_DIR}/Libraries/Rtxdi/Include")
+    set_source_files_properties(core/rtxdi_minimal.cpp PROPERTIES
         INCLUDE_DIRECTORIES "${RTXDI_DIR}/Libraries/Rtxdi/Include;${RTXDI_DIR}/Samples/MinimalSample/Shaders")
     if (TARGET donut_interop_shared)
         target_link_libraries(donut_interop_shared PRIVATE rtxdi_runtime)

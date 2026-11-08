@@ -1,12 +1,13 @@
 // RTXDI's ReSTIR DI (github.com/NVIDIA-RTX/RTXDI) on Donut, the parts its samples share: the ReSTIR DI
-// context and resources with the light preparation (core/rtxdi.cpp, over RTXDI's runtime library), the G-buffer
-// render targets of the current and the previous frame, and the PrepareLights pass, which turns the scene's
-// emissive triangles into RTXDI's light buffer; and the Minimal Sample's fused Render pass with its settings.
+// context and resources with the light preparation (core/rtxdi.cpp and core/rtxdi_minimal.cpp, over RTXDI's
+// runtime library), the G-buffer render targets of the current and the previous frame, and the PrepareLights
+// pass, which turns the scene's emissive triangles into RTXDI's light buffer; and the Minimal Sample's fused
+// Render pass with its settings.
 // Written from the Minimal Sample's RtxdiResources, RenderTargets, PrepareLightsPass and RenderPass; the
 // shaders are the sample's, compiled in place from RTXDI_DIR (rtxdi_minimal_shaders in CMakeLists.txt).
 //
 // Imported with `import { RtxdiDI, ... } from "../core/rtxdi_di";` (from examples/); list core/rtxdi_di.ts with
-// core/rtxdi.cpp in the example's add_tslang_example sources.
+// core/rtxdi.cpp and core/rtxdi_minimal.cpp (RTXDI_GLUE_SOURCES) in the example's add_tslang_example sources.
 //
 // The sample is under the NVIDIA RTX SDKs License. This software contains source code provided by NVIDIA
 // Corporation.
@@ -30,6 +31,8 @@ const RTXDI_SCREEN_SPACE_GROUP_SIZE = 8;
 export class RtxdiDI {
     readonly context: RtxdiDIContextHandle;
     readonly resources: RtxdiResourcesHandle;
+    // The neighbor offsets are written once (they don't change with the frame).
+    private neighborOffsetsWritten: boolean = false;
 
     // public readonly: tslang makes no parameter property of `readonly` alone.
     constructor(app: App, private scene: Scene, public readonly width: int, public readonly height: int) {
@@ -46,7 +49,10 @@ export class RtxdiDI {
 
     // The neighbor offsets of the spatial resampling, written on the command list the first time.
     initializeNeighborOffsets(commandList: CommandList): void {
-        Rtxdi_InitializeNeighborOffsets(this.resources, this.context, commandList.handle);
+        if (!this.neighborOffsetsWritten) {
+            Rtxdi_InitializeNeighborOffsets(this.context, commandList.handle, this.buffer(RtxdiBuffer.NeighborOffsets));
+            this.neighborOffsetsWritten = true;
+        }
     }
 
     // The frame the context's runtime parameters are for (the random seed, the reservoir buffers read and

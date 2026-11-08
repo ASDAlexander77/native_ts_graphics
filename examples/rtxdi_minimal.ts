@@ -51,6 +51,12 @@ namespace RtxdiMinimal {
     const LIGHT_CENTER = 0;
     const LIGHT_RADIANCE = 4;
 
+    // The ray masks of the sample's ShaderParameters.h (INSTANCE_MASK_*; core/rtxdi_minimal.cpp asserts them):
+    // the TLAS instances' masks by content.
+    const INSTANCE_MASK_OPAQUE = 0x01;
+    const INSTANCE_MASK_ALPHA_TESTED = 0x02;
+    const INSTANCE_MASK_TRANSPARENT = 0x04;
+
     // value within min..max (if-chains: tslang's Math.max / min are wrong for negative numbers).
     function clampInt(value: int, min: int, max: int): int {
         if (value < min) {
@@ -243,12 +249,16 @@ namespace RtxdiMinimal {
                 return false;
             }
 
+            // Not executed when the build fails: nothing was recorded then.
             const commandList = this.app.createCommandList();
             commandList.open();
-            this.accelStructs = Rtxdi_BuildSceneAccelStructs(this.app.handle, commandList.handle, scene.handle);
+            this.accelStructs = Rtxdi_BuildSceneAccelStructs(this.app.handle, commandList.handle, scene.handle,
+                INSTANCE_MASK_OPAQUE, INSTANCE_MASK_ALPHA_TESTED, INSTANCE_MASK_TRANSPARENT);
             commandList.close();
-            this.app.executeCommandList(commandList);
-            this.app.waitForIdle();
+            if (this.accelStructs) {
+                this.app.executeCommandList(commandList);
+                this.app.waitForIdle();
+            }
             this.app.releaseResource(commandList.handle);
             if (!this.accelStructs) {
                 return false;
