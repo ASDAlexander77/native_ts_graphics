@@ -1588,7 +1588,7 @@ namespace StreamlineDemo {
             const forced = this.dlssgEnabled && ui.dlssgMode != 0;
             ImGui.beginDisabled(unsupported);
             const mode = ImGui.combo("Reflex", ui.reflexMode, "Off|Low latency|Boost");
-            ui.reflexMode = forced && mode < 1 ? 1 : mode;
+            ui.reflexMode = (forced && (mode < 1)) ? 1 : mode;
             ui.reflexFpsCap = ImGui.sliderInt("Reflex FPS cap (0: none)", ui.reflexFpsCap, 0, 360);
             ImGui.endDisabled();
             if (unsupported) {
