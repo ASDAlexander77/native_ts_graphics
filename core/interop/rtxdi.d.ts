@@ -41,19 +41,20 @@ enum RtxdiBuffer {
 // next times.
 @nodrops declare function Rtxdi_InitializeNeighborOffsets(resources: RtxdiResourcesHandle, context: RtxdiDIContextHandle,
     commandList: CommandListHandle): void;
-// The two volatile constant buffers (PrepareLightsConstants and ResamplingConstants), made once, after the
-// resources: the sample keeps the second as a volatile constant buffer in its render pass and passes the first
-// as push constants, which tslang's pass binds as a constant buffer instead.
+// The resampling constant buffer (ResamplingConstants, volatile), made once, after the resources. PrepareLights'
+// constants (PrepareLightsConstants: numTasks) are push constants, as the sample's: push
+// Rtxdi_GetPrepareLightsTaskCount's value (Donut_LayoutPushConstants, Donut_BindPushConstants).
 @nodrops declare function Rtxdi_CreateConstantBuffers(app: AppHandle, resources: RtxdiResourcesHandle): void;
-@nodrops declare function Rtxdi_GetPrepareLightsConstantBuffer(resources: RtxdiResourcesHandle): BufferHandle;
 @nodrops declare function Rtxdi_GetResamplingConstantBuffer(resources: RtxdiResourcesHandle): BufferHandle;
 
 // The CPU part of PrepareLightsPass::Process, on the command list: the tasks (one per emissive geometry, as
-// PrepareLightsTask), the geometry instance to light map (RTXDI_INVALID_LIGHT_INDEX for the others) and the
-// PrepareLightsConstants, written to their buffers, and the light buffer parameters kept for
+// PrepareLightsTask) and the geometry instance to light map (RTXDI_INVALID_LIGHT_INDEX for the others), written
+// to their buffers, and the light buffer parameters kept for
 // Rtxdi_WriteResamplingConstants (all lights local, no environment light). Returns the number of lights
 // (emissive triangles): dispatch the PrepareLights shader for div_ceil(count, 256) groups of 256 (none for 0).
 @nodrops declare function Rtxdi_PrepareLights(resources: RtxdiResourcesHandle, scene: SceneHandle, commandList: CommandListHandle): int;
+// The task count of the last Rtxdi_PrepareLights: PrepareLightsConstants::numTasks, to push to the shader.
+@nodrops declare function Rtxdi_GetPrepareLightsTaskCount(resources: RtxdiResourcesHandle): int;
 
 // RenderPass::Render's ResamplingConstants, written to the constant buffer on the command list: the two
 // views' constants, the runtime parameters and reservoir buffer indices from the context (frame index, the

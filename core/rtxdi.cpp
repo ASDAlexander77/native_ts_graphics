@@ -67,7 +67,6 @@ struct RtxdiMinimalResources
     nvrhi::BufferHandle geometryInstanceToLightBuffer;
     nvrhi::BufferHandle neighborOffsetsBuffer;
     nvrhi::BufferHandle lightReservoirBuffer;
-    nvrhi::BufferHandle prepareLightsConstantBuffer;
     nvrhi::BufferHandle resamplingConstantBuffer;
 
     // What the buffers were made for, in elements (at least one each: NVRHI has no empty buffers).
@@ -76,6 +75,8 @@ struct RtxdiMinimalResources
     uint32_t maxGeometryInstances = 1;
 
     bool neighborOffsetsInitialized = false;
+    // The last Rtxdi_PrepareLights' task count: PrepareLightsConstants::numTasks, which TypeScript pushes.
+    uint32_t taskCount = 0;
     // Kept for the ResamplingConstants, as the sample hands PrepareLightsPass::Process's to Render.
     RTXDI_LightBufferParameters lightBufferParams = {};
     // The capacity errors are logged once, not every frame.
@@ -302,20 +303,18 @@ extern "C"
         resources->neighborOffsetsInitialized = true;
     }
 
-    // The two constant buffers, volatile (rewritten every frame by Rtxdi_PrepareLights and
-    // Rtxdi_WriteResamplingConstants); 16 versions as the sample's.
+    // The resampling constant buffer, volatile (rewritten every frame by Rtxdi_WriteResamplingConstants); 16
+    // versions as the sample's. The PrepareLights constants are push constants, as the sample's.
     DONUT_API void Rtxdi_CreateConstantBuffers(App* app, RtxdiMinimalResources* resources)
     {
+        if (!app || !resources)
+        {
+            donut::log::error("Rtxdi_CreateConstantBuffers: needs an app and resources");
+            return;
+        }
         nvrhi::IDevice* device = static_cast<nvrhi::IDevice*>(Donut_GetNvrhiDevice(app));
-        resources->prepareLightsConstantBuffer = device->createBuffer(
-            nvrhi::utils::CreateVolatileConstantBufferDesc(sizeof(PrepareLightsConstants), "PrepareLightsConstants", 16));
         resources->resamplingConstantBuffer = device->createBuffer(
             nvrhi::utils::CreateVolatileConstantBufferDesc(sizeof(ResamplingConstants), "ResamplingConstants", 16));
-    }
-
-    DONUT_API nvrhi::IBuffer* Rtxdi_GetPrepareLightsConstantBuffer(RtxdiMinimalResources* resources)
-    {
-        return resources->prepareLightsConstantBuffer.Get();
     }
 
     DONUT_API nvrhi::IBuffer* Rtxdi_GetResamplingConstantBuffer(RtxdiMinimalResources* resources)
@@ -327,6 +326,11 @@ extern "C"
     // constants, and the light buffer parameters kept. Returns the number of lights.
     DONUT_API int Rtxdi_PrepareLights(RtxdiMinimalResources* resources, donut::engine::Scene* scene, nvrhi::ICommandList* commandList)
     {
+        if (!resources || !scene || !scene->GetSceneGraph() || !commandList)
+        {
+            donut::log::error("Rtxdi_PrepareLights: needs resources, a scene and a command list");
+            return 0;
+        }
         std::vector<PrepareLightsTask> tasks;
         uint32_t lightBufferOffset = 0;
         const auto& sceneGraph = scene->GetSceneGraph();
@@ -389,11 +393,14 @@ extern "C"
         if (!tasks.empty())
             commandList->writeBuffer(resources->taskBuffer, tasks.data(), tasks.size() * sizeof(PrepareLightsTask));
 
-        PrepareLightsConstants constants = {};
-        constants.numTasks = uint32_t(tasks.size());
-        commandList->writeBuffer(resources->prepareLightsConstantBuffer, &constants, sizeof(constants));
-
+        resources->taskCount = uint32_t(tasks.size());
         return int(lightBufferOffset);
+    }
+
+    // PrepareLightsConstants::numTasks of the last Rtxdi_PrepareLights: the push constant of its dispatch.
+    DONUT_API int Rtxdi_GetPrepareLightsTaskCount(RtxdiMinimalResources* resources)
+    {
+        return int(resources->taskCount);
     }
 
     // RenderPass::Render's ResamplingConstants, with the sample's parameters and the UI's settings.
@@ -401,6 +408,11 @@ extern "C"
         donut::engine::IView* view, donut::engine::IView* prevView, int enableResampling, int unbiasedMode,
         int numLocalLightSamples, int numBrdfSamples, double brdfCutoff, int numSpatialSamples)
     {
+        if (!resources || !resources->resamplingConstantBuffer || !context || !commandList || !view || !prevView)
+        {
+            donut::log::error("Rtxdi_WriteResamplingConstants: needs resources with constant buffers, a context, a command list and two views");
+            return;
+        }
         ResamplingConstants constants = {};
         view->FillPlanarViewConstants(constants.view);
         prevView->FillPlanarViewConstants(constants.prevView);
