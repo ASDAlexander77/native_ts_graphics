@@ -8,7 +8,9 @@ enum GBufferTexture {
     Diffuse = 1,
     Specular = 2,
     Normals = 3,
-    Emissive = 4
+    Emissive = 4,
+    // Donut_CreateGBufferTargetsWithMotionVectors' only.
+    MotionVectors = 5
 }
 
 // Textures of Donut_GetTemporalTargetsTexture.
@@ -237,6 +239,43 @@ enum TemporalJitter {
     exposureBias: number, minAdaptedLuminance: number, maxAdaptedLuminance: number): void;
 @nodrops declare function Donut_CreateBloomPass(app: AppHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle): BloomPassHandle;
 @nodrops declare function Donut_RenderBloom(commandList: CommandListHandle, bloomPass: BloomPassHandle, framebuffer: FramebufferFactoryHandle, view: ViewHandle, sourceTexture: TextureHandle, sigma: number, alpha: number): void;
+// Passes over render targets an example lays out itself (streamline_demo's): a G-buffer as
+// Donut_CreateGBufferTargets', with motion vectors (written by the G-buffer fill and TAA's camera motion pass).
+@nodrops declare function Donut_CreateGBufferTargetsWithMotionVectors(app: AppHandle, width: int, height: int, reverseDepth: int): GBufferTargetsHandle;
+// The G-buffer's framebuffer (its textures and depth); valid as long as the targets.
+@nodrops declare function Donut_GetGBufferFramebuffer(gbufferTargets: GBufferTargetsHandle): FramebufferFactoryHandle;
+// A framebuffer factory over a color target and / or a depth target (either may be null), for the passes
+// that draw into one (sky, bloom, tone mapping, Donut_BlitTextureToFramebuffer); release it with the textures.
+@nodrops declare function Donut_CreateFramebufferFactory(app: AppHandle, colorTexture: TextureHandle | null, depthTexture: TextureHandle | null): FramebufferFactoryHandle;
+// Stretches a texture over a framebuffer factory's framebuffer for view.
+@nodrops declare function Donut_BlitTextureToFramebuffer(app: AppHandle, commandList: CommandListHandle, framebuffer: FramebufferFactoryHandle,
+    view: ViewHandle, texture: TextureHandle): void;
+// Donut_RenderGBufferFill into a Donut_CreateGBufferTargetsWithMotionVectors G-buffer.
+@nodrops declare function Donut_RenderGBufferFillTargets(commandList: CommandListHandle, gbufferFillPass: GBufferFillPassHandle, view: ViewHandle,
+    previousView: ViewHandle, gbufferTargets: GBufferTargetsHandle, sceneGraph: SceneGraphHandle): void;
+// Lights the G-buffer into output (a UAV texture): the scene graph's lights, ambient between the top and
+// bottom colors, times ambientOcclusion (null for none).
+@nodrops declare function Donut_RenderDeferredLightingTargets(commandList: CommandListHandle, deferredLightingPass: DeferredLightingPassHandle,
+    view: ViewHandle, gbufferTargets: GBufferTargetsHandle, ambientOcclusion: TextureHandle | null, topR: number, topG: number, topB: number,
+    bottomR: number, bottomG: number, bottomB: number, sceneGraph: SceneGraphHandle, output: TextureHandle): void;
+// Donut's SSAO from depth and G-buffer normals into an R8 UAV texture; render it with Donut_RenderSsao.
+@nodrops declare function Donut_CreateSsaoPassForTextures(app: AppHandle, depth: TextureHandle, normals: TextureHandle, output: TextureHandle): SsaoPassHandle;
+// Donut's TAA over textures: resolves unresolvedColor into resolvedColor (Catmull-Rom filtering), with motion
+// vectors where the stencil has motionVectorStencilMask set.
+@nodrops declare function Donut_CreateTemporalAntiAliasingPassForTextures(app: AppHandle, view: ViewHandle, depth: TextureHandle,
+    motionVectors: TextureHandle, unresolvedColor: TextureHandle, resolvedColor: TextureHandle, feedback1: TextureHandle,
+    feedback2: TextureHandle, motionVectorStencilMask: int): TemporalAntiAliasingPassHandle;
+// Donut_RenderSky with the light's radiance clamped at maxLightRadiance (100 in SkyParameters' defaults).
+@nodrops declare function Donut_RenderSkyClamped(commandList: CommandListHandle, skyPass: SkyPassHandle, view: ViewHandle, light: LightHandle,
+    brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number, maxLightRadiance: number): void;
+// Tone mapping with the eye adaptation's parameters (Donut's defaults: speeds 1 up, 0.5 down, the adapted
+// luminance within 0.02 .. 0.5, exposure bias -0.5).
+@nodrops declare function Donut_RenderToneMappingAdapted(commandList: CommandListHandle, toneMappingPass: ToneMappingPassHandle, view: ViewHandle,
+    sourceTexture: TextureHandle, eyeAdaptationSpeedUp: number, eyeAdaptationSpeedDown: number, minAdaptedLuminance: number,
+    maxAdaptedLuminance: number, exposureBias: number): void;
+// Donut_SetupShadowMapForView with the view's frustum grown by `grow` first.
+@nodrops declare function Donut_SetupShadowMapForGrownView(shadowMap: ShadowMapHandle, light: LightHandle, view: ViewHandle, grow: number,
+    maxShadowDistance: number, zRange: number, exponent: number): void;
 // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
 @nodrops declare function Donut_CreatePixelReadbackPass(app: AppHandle, texture: TextureHandle): PixelReadbackPassHandle;
 @nodrops declare function Donut_CapturePixel(commandList: CommandListHandle, pixelReadbackPass: PixelReadbackPassHandle, x: int, y: int): void;

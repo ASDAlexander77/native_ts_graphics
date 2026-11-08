@@ -4962,6 +4962,18 @@ extern "C"
         bindingLayoutDesc->registerSpaceIsDescriptorSet = true;
     }
 
+    // The Vulkan binding numbers of the layout's registers: t<n> at shaderResource + n, and so on, as
+    // the SPIR-V was compiled (ShaderMake's --tRegShift etc.; NVRHI's defaults are 0, 128, 256, 384).
+    DONUT_API void Donut_SetBindingLayoutVulkanOffsets(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int shaderResource, int sampler,
+        int constantBuffer, int unorderedAccess)
+    {
+        bindingLayoutDesc->bindingOffsets = nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(static_cast<uint32_t>(shaderResource))
+            .setSamplerOffset(static_cast<uint32_t>(sampler))
+            .setConstantBufferOffset(static_cast<uint32_t>(constantBuffer))
+            .setUnorderedAccessViewOffset(static_cast<uint32_t>(unorderedAccess));
+    }
+
     // RWBuffer<T> at u<slot>.
     DONUT_API void Donut_LayoutTypedBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
@@ -9351,6 +9363,7 @@ extern "C"
         GBufferTexture_Specular = 2,
         GBufferTexture_Normals = 3,
         GBufferTexture_Emissive = 4,
+        GBufferTexture_MotionVectors = 5, // Donut_CreateGBufferTargetsWithMotionVectors' only
     };
 
     // One of the G-buffer textures, e.g. for binding to a shader that decodes the G-buffer;
@@ -9365,6 +9378,7 @@ extern "C"
         case GBufferTexture_Specular: return targets->GBufferSpecular.Get();
         case GBufferTexture_Normals: return targets->GBufferNormals.Get();
         case GBufferTexture_Emissive: return targets->GBufferEmissive.Get();
+        case GBufferTexture_MotionVectors: return targets->MotionVectors.Get();
         default: return nullptr;
         }
     }
@@ -12055,6 +12069,21 @@ extern "C"
             v->GetProjectionFrustum(), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange), float(exponent));
     }
 
+    // Same, the view's frustum grown by `grow` first (frustum::grow), as samples that keep volumetric light
+    // from leaking past the cascades do.
+    DONUT_API void Donut_SetupShadowMapForGrownView(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, donut::engine::IView* view,
+        double grow, double maxShadowDistance, double zRange, double exponent)
+    {
+        auto* target = shadowMapTarget;
+        if (!target->cascaded)
+            return;
+        const dm::affine3 viewMatrixInv = view->GetChildView(donut::engine::ViewType::PLANAR, 0)->GetInverseViewMatrix();
+        target->cascaded->SetupForPlanarViewStable(
+            *static_cast<donut::engine::DirectionalLight*>(light),
+            view->GetProjectionFrustum().grow(float(grow)), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange),
+            float(exponent));
+    }
+
     DONUT_API void Donut_ClearShadowMap(nvrhi::ICommandList* commandList, ShadowMapTarget* shadowMapTarget)
     {
         auto* target = shadowMapTarget;
@@ -12471,6 +12500,192 @@ extern "C"
     {
         bloomPass->Render(commandList, *framebuffer,
             *view, sourceTexture, float(sigma), float(alpha));
+    }
+
+    // --- Passes over render targets an example lays out itself ---------------------------------
+    // (streamline_demo's, as the Streamline Sample's RenderTargets: a Donut G-buffer and textures of
+    // their own formats, with framebuffer factories over them.)
+
+    // A G-buffer as Donut_CreateGBufferTargets', with motion vectors (RG16_FLOAT, written by the G-buffer
+    // fill pass and TAA's camera motion pass); Donut_GetGBufferTexture's MotionVectors.
+    DONUT_API GBufferTargets* Donut_CreateGBufferTargetsWithMotionVectors(App* app, int width, int height, int reverseDepth)
+    {
+        App* a = app;
+        auto targets = std::make_shared<GBufferTargets>();
+        targets->Init(a->device(), dm::uint2(uint32_t(width), uint32_t(height)), 1, true, reverseDepth != 0);
+        return a->OwnObject(targets);
+    }
+
+    // The G-buffer's framebuffer (its textures and depth), for Donut_RenderGBufferFillTargets.
+    DONUT_API FramebufferFactoryRef* Donut_GetGBufferFramebuffer(GBufferTargets* gbufferTargets)
+    {
+        return &gbufferTargets->GBufferFramebuffer;
+    }
+
+    // A render target of `format` cleared to 0 (fast), resting at initialState (an nvrhi::ResourceStates
+    // value); also a UAV if isUAV != 0.
+    DONUT_API nvrhi::ITexture* Donut_CreateRenderTargetTextureInState(App* app, int width, int height, int format, int isUAV,
+        int initialState, const char* debugName)
+    {
+        nvrhi::TextureDesc desc;
+        desc.width = static_cast<uint32_t>(width);
+        desc.height = static_cast<uint32_t>(height);
+        desc.format = static_cast<nvrhi::Format>(format);
+        desc.isRenderTarget = true;
+        desc.isUAV = isUAV != 0;
+        desc.useClearValue = true;
+        desc.clearValue = nvrhi::Color(0.f);
+        desc.initialState = static_cast<nvrhi::ResourceStates>(initialState);
+        desc.keepInitialState = true;
+        desc.debugName = debugName;
+        return app->Own(app->device()->createTexture(desc));
+    }
+
+    // A framebuffer factory over a color target and / or a depth target (either may be null), for the
+    // passes that draw into one (sky, bloom, tone mapping, Donut_BlitTextureToFramebuffer).
+    DONUT_API FramebufferFactoryRef* Donut_CreateFramebufferFactory(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
+    {
+        App* a = app;
+        auto factory = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        if (colorTexture)
+            factory->RenderTargets = { colorTexture };
+        factory->DepthTarget = depthTexture;
+        return a->OwnObject(std::make_shared<FramebufferFactoryRef>(factory));
+    }
+
+    // Stretches a texture over a framebuffer factory's framebuffer for view (CommonRenderPasses::BlitTexture).
+    DONUT_API void Donut_BlitTextureToFramebuffer(App* app, nvrhi::ICommandList* commandList, FramebufferFactoryRef* framebuffer,
+        donut::engine::IView* view, nvrhi::ITexture* texture)
+    {
+        App* a = app;
+        a->frameCommonPasses(commandList)->BlitTexture(commandList, (*framebuffer)->GetFramebuffer(*view), texture,
+            a->bindingCache());
+    }
+
+    // Donut_RenderGBufferFill into a Donut_CreateGBufferTargetsWithMotionVectors G-buffer.
+    DONUT_API void Donut_RenderGBufferFillTargets(nvrhi::ICommandList* commandList, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view,
+        donut::engine::IView* previousView, GBufferTargets* gbufferTargets, donut::engine::SceneGraph* sceneGraph)
+    {
+        donut::render::InstancedOpaqueDrawStrategy strategy;
+        donut::render::GBufferFillPass::Context context;
+        donut::render::RenderCompositeView(commandList, view, previousView,
+            *gbufferTargets->GBufferFramebuffer, sceneGraph->GetRootNode(), strategy,
+            *gbufferFillPass, context, "GBufferFill");
+    }
+
+    // Lights the G-buffer into output (a UAV texture): the scene graph's lights, ambient between the
+    // top and bottom colors, times ambientOcclusion (null for none).
+    DONUT_API void Donut_RenderDeferredLightingTargets(nvrhi::ICommandList* commandList, donut::render::DeferredLightingPass* deferredLightingPass,
+        donut::engine::IView* view, GBufferTargets* gbufferTargets, nvrhi::ITexture* ambientOcclusion, double topR, double topG, double topB,
+        double bottomR, double bottomG, double bottomB, donut::engine::SceneGraph* sceneGraph, nvrhi::ITexture* output)
+    {
+        donut::render::DeferredLightingPass::Inputs inputs;
+        inputs.SetGBuffer(*gbufferTargets);
+        inputs.ambientOcclusion = ambientOcclusion;
+        inputs.ambientColorTop = dm::float3(float(topR), float(topG), float(topB));
+        inputs.ambientColorBottom = dm::float3(float(bottomR), float(bottomG), float(bottomB));
+        inputs.lights = &sceneGraph->GetLights();
+        inputs.output = output;
+        deferredLightingPass->Render(commandList, *view, inputs);
+    }
+
+    // Donut's SSAO from depth and G-buffer normals into an R8 UAV texture (Donut_RenderSsao renders it).
+    DONUT_API donut::render::SsaoPass* Donut_CreateSsaoPassForTextures(App* app, nvrhi::ITexture* depth, nvrhi::ITexture* normals,
+        nvrhi::ITexture* output)
+    {
+        App* a = app;
+        return a->OwnObject(std::make_shared<donut::render::SsaoPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
+            depth, normals, output));
+    }
+
+    // Donut's TAA over textures: resolves unresolvedColor into resolvedColor (Catmull-Rom filtering),
+    // with motion vectors where the stencil has motionVectorStencilMask set.
+    DONUT_API donut::render::TemporalAntiAliasingPass* Donut_CreateTemporalAntiAliasingPassForTextures(App* app, donut::engine::IView* view,
+        nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors, nvrhi::ITexture* unresolvedColor, nvrhi::ITexture* resolvedColor,
+        nvrhi::ITexture* feedback1, nvrhi::ITexture* feedback2, int motionVectorStencilMask)
+    {
+        App* a = app;
+        donut::render::TemporalAntiAliasingPass::CreateParameters params;
+        params.sourceDepth = depth;
+        params.motionVectors = motionVectors;
+        params.unresolvedColor = unresolvedColor;
+        params.resolvedColor = resolvedColor;
+        params.feedback1 = feedback1;
+        params.feedback2 = feedback2;
+        params.motionVectorStencilMask = static_cast<uint32_t>(motionVectorStencilMask);
+        params.useCatmullRomFilter = true;
+        return a->OwnObject(std::make_shared<donut::render::TemporalAntiAliasingPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), *view, params));
+    }
+
+    // Donut_RenderSky with the light's radiance clamped at maxLightRadiance (SkyParameters' 100 by default).
+    DONUT_API void Donut_RenderSkyClamped(nvrhi::ICommandList* commandList, donut::render::SkyPass* skyPass, donut::engine::IView* view,
+        donut::engine::Light* light, double brightness, double glowSize, double glowSharpness, double glowIntensity, double horizonSize,
+        double maxLightRadiance)
+    {
+        donut::render::SkyParameters params;
+        params.brightness = float(brightness);
+        params.glowSize = float(glowSize);
+        params.glowSharpness = float(glowSharpness);
+        params.glowIntensity = float(glowIntensity);
+        params.horizonSize = float(horizonSize);
+        params.maxLightRadiance = float(maxLightRadiance);
+        skyPass->Render(commandList, *view, *static_cast<donut::engine::DirectionalLight*>(light), params);
+    }
+
+    // Tone mapping with the eye adaptation's parameters (Donut's defaults: speeds 1 up, 0.5 down, the
+    // adapted luminance within 0.02 .. 0.5, exposure bias -0.5).
+    DONUT_API void Donut_RenderToneMappingAdapted(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass,
+        donut::engine::IView* view, nvrhi::ITexture* sourceTexture, double eyeAdaptationSpeedUp, double eyeAdaptationSpeedDown,
+        double minAdaptedLuminance, double maxAdaptedLuminance, double exposureBias)
+    {
+        donut::render::ToneMappingParameters params;
+        params.eyeAdaptationSpeedUp = float(eyeAdaptationSpeedUp);
+        params.eyeAdaptationSpeedDown = float(eyeAdaptationSpeedDown);
+        params.minAdaptedLuminance = float(minAdaptedLuminance);
+        params.maxAdaptedLuminance = float(maxAdaptedLuminance);
+        params.exposureBias = float(exposureBias);
+        toneMappingPass->SimpleRender(commandList, params, *view, sourceTexture);
+    }
+
+    // Rebuilds in place, into an open command list, Donut_BuildSceneAccelStructsWithHitGroupStride's acceleration
+    // structures: every mesh's BLAS (skinned ones in their current pose), then the TLAS over them (the same
+    // hitGroupStride), from the instances' current transforms.
+    DONUT_API void Donut_RebuildSceneAccelStructs(nvrhi::ICommandList* commandList, SceneAccelStructs* sceneAccelStructs, donut::engine::Scene* scene,
+        int hitGroupStride)
+    {
+        const auto& sceneGraph = scene->GetSceneGraph();
+        for (const auto& mesh : sceneGraph->GetMeshes())
+        {
+            if (!mesh->accelStruct)
+                continue;
+            nvrhi::rt::AccelStructDesc blasDesc = GetMeshBlasDesc(*mesh);
+            blasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::None;
+            for (auto& geometryDesc : blasDesc.bottomLevelGeometries)
+                geometryDesc.flags = nvrhi::rt::GeometryFlags::Opaque;
+            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, mesh->accelStruct, blasDesc);
+        }
+
+        // A TLAS over rebuilt BLASes must be built again before rays trace it (DXR's rule; D3D12 removes the
+        // device otherwise): the same TLAS object, so binding sets holding it stay valid.
+        std::vector<nvrhi::rt::InstanceDesc> instances;
+        for (const auto& instance : sceneGraph->GetMeshInstances())
+        {
+            const auto& mesh = instance->GetMesh();
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc.bottomLevelAS = mesh->accelStruct;
+            instanceDesc.instanceMask = 1;
+            instanceDesc.instanceContributionToHitGroupIndex = mesh->geometries[0]->globalGeometryIndex * static_cast<uint32_t>(hitGroupStride);
+            dm::affineToColumnMajor(instance->GetNode()->GetLocalToWorldTransformFloat(), instanceDesc.transform);
+            instances.push_back(instanceDesc);
+        }
+        commandList->buildTopLevelAccelStruct(sceneAccelStructs->topLevel, instances.data(), instances.size());
+    }
+
+    // The device manager's frame index (Donut's GetFrameIndex): the frames presented so far.
+    DONUT_API int Donut_GetFrameIndex(App* app)
+    {
+        return static_cast<int>(app->deviceManager->GetFrameIndex());
     }
 
     // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop_shared.dll's under

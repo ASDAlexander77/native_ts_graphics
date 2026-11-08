@@ -279,6 +279,8 @@ declare function Donut_RunApp(app: AppHandle): void;
 @nodrops declare function Donut_GetExecutableDirectory(): string;
 // Seconds per frame, averaged; 0 until measured.
 @nodrops declare function Donut_GetAverageFrameTime(app: AppHandle): number;
+// The device manager's frame index (Donut's GetFrameIndex): the frames rendered so far.
+@nodrops declare function Donut_GetFrameIndex(app: AppHandle): int;
 @nodrops declare function Donut_GetWindowWidth(app: AppHandle): int;
 @nodrops declare function Donut_GetWindowHeight(app: AppHandle): int;
 // Destroys resources the GPU has finished with; after Donut_WaitForIdle.

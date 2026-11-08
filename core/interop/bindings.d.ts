@@ -79,6 +79,10 @@
 // Same, on Vulkan too, where the space is the descriptor set: the layout must be the pipeline's
 // binding layout of that index (e.g. space 1 for the second).
 @nodrops declare function Donut_SetBindingLayoutDescriptorSet(bindingLayoutDesc: BindingLayoutDescHandle, space: int): void;
+// The Vulkan binding numbers of the layout's registers: t<n> at shaderResource + n, and so on, as the
+// SPIR-V was compiled (ShaderMake's --tRegShift etc.; NVRHI's defaults are 0, 128, 256, 384).
+@nodrops declare function Donut_SetBindingLayoutVulkanOffsets(bindingLayoutDesc: BindingLayoutDescHandle, shaderResource: int, sampler: int,
+    constantBuffer: int, unorderedAccess: int): void;
 
 // Bindless: a layout of unbounded resource arrays, one register space each (visible to
 // shaderType's stages), freed by Donut_CreateBindlessLayout.

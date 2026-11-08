@@ -11,6 +11,7 @@ enum ResourceState {
     IndirectArgument = 0x10,
     ShaderResource = 0x60,
     UnorderedAccess = 0x80,
+    RenderTarget = 0x100,
     CopyDest = 0x1000,
     CopySource = 0x2000,
 }
@@ -18,6 +19,10 @@ enum ResourceState {
 // Donut_CommitBarriers or the next draw or dispatch: for accesses NVRHI doesn't see (device
 // addresses).
 @nodrops declare function Donut_SetBufferState(commandList: CommandListHandle, buffer: BufferHandle, state: ResourceState): void;
+// A render target (resources.d.ts' textures) cleared to 0 (fast), resting at initialState; also a UAV if
+// isUAV != 0.
+@nodrops declare function Donut_CreateRenderTargetTextureInState(app: AppHandle, width: int, height: int, format: Format, isUAV: int,
+    initialState: ResourceState, debugName: string): TextureHandle;
 @nodrops declare function Donut_CommitBarriers(commandList: CommandListHandle): void;
 // A barrier between the draws or dispatches before and after that write and read a UAV texture
 // (NVRHI only places one where the texture is bound anew).

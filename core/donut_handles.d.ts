@@ -42,7 +42,7 @@
 @cpp declare class ObjectHandle { private readonly __object: index; }
 @cpp declare class DescriptorTableManagerHandle extends ObjectHandle { private readonly __descriptorTableManager: index; }
 @cpp declare class FramebufferHandle extends ResourceHandle { private readonly __framebuffer: index; }
-@cpp declare class FramebufferFactoryHandle { private readonly __framebufferFactory: index; }
+@cpp declare class FramebufferFactoryHandle extends ObjectHandle { private readonly __framebufferFactory: index; }
 @cpp declare class GraphicsPipelineHandle extends ResourceHandle { private readonly __graphicsPipeline: index; }
 @cpp declare class ComputePipelineHandle extends ResourceHandle { private readonly __computePipeline: index; }
 @cpp declare class MeshletPipelineHandle extends ResourceHandle { private readonly __meshletPipeline: index; }

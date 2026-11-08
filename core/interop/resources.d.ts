@@ -46,6 +46,7 @@ enum Format {
     RGBA16_UINT = 36,
     RGBA16_FLOAT = 38,
     RGBA16_UNORM = 39,
+    RGBA16_SNORM = 40,
     D16 = 50,
     D24S8 = 51,
     D32 = 53,

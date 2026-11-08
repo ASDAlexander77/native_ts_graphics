@@ -680,6 +680,12 @@ if (WITH_STREAMLINE AND WIN32)
         ${STREAMLINE_COPY_COMMANDS}
         COMMENT "Copying the Streamline runtime DLLs")
 endif()
+# streamline_demo (see the end of this file) builds only with STREAMLINE_SAMPLE_DIR too: a checkout of
+# NVIDIA's Streamline Sample (github.com/NVIDIA-RTX/Streamline_Sample), whose ray tracing shader library
+# and UI composite shader compile in place (shaders/streamline_demo.cfg names them); nothing of it is
+# copied here. Its media folder has the scene the sample renders (sponza-plus.scene.json with its metal
+# sphere), which the parity tests load from there.
+set(STREAMLINE_SAMPLE_DIR "" CACHE PATH "Streamline Sample checkout (github.com/NVIDIA-RTX/Streamline_Sample) for streamline_demo")
 
 # NVIDIA's Opacity Micro-Map SDK (github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK): its GPU baker and
 # the baker's NVRHI layer (omm-lib, omm-gpu-nvrhi), for opacity_micromaps -bake, which bakes the
@@ -5494,13 +5500,40 @@ endif()
 
 # NVIDIA Streamline (WITH_STREAMLINE above): core/streamline.cpp starts it from bin/streamline/ and hooks the
 # device's creation (AppOptions.Streamline); D3D12 and Vulkan.
-if (WITH_STREAMLINE AND WIN32)
-    add_tslang_example(streamline_demo core/streamline.cpp)
+# The frame is the Streamline Sample's (STREAMLINE_SAMPLE_DIR above), whose shaders compile in place: its
+# ray generation library (REFLECT_MATERIALS 1 on D3D12, 0 on Vulkan, as the sample loads them) and the UI
+# composite pixel shader. The sample's SPIR-V has ShaderMake's own register shifts, not Donut's (its
+# global binding layout sets the matching Vulkan offsets: SRVs 200, constant buffers 300, UAVs 400).
+if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
+    donut_compile_shaders(
+        TARGET streamline_demo_shaders
+        PROJECT_NAME "Streamline Demo"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/streamline_demo.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/streamline_demo.cfg
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/streamline_demo/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/streamline_demo/spirv
+        SHADERMAKE_OPTIONS "--sourceDir ${STREAMLINE_SAMPLE_DIR}/src"
+        SHADERMAKE_OPTIONS_SPIRV "--tRegShift 200 --sRegShift 128 --bRegShift 300 --uRegShift 400"
+    )
+    add_tslang_example(streamline_demo core/matrix.ts core/streamline.cpp MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets)
     add_dependencies(streamline_demo copy_streamline_binaries)
     # DLSS, DLSS-RR, DeepDVC and Reflex supported, or skipped (no RTX GPU, old driver); then without
-    # Streamline (-slDisable), where nothing may report supported: always skipped, failed otherwise.
+    # Streamline (-slDisable), where nothing may report supported: always skipped, failed otherwise. Both
+    # check the frame first (media/sponza-plus.scene.json: its second robot is behind the camera).
     add_tslang_example_test(streamline_demo ARGS -width 1280 -height 720)
     add_tslang_example_test(streamline_demo SUFFIX sl_disabled ARGS -width 1280 -height 720 -slDisable)
+    # The sample's frame 120 at its size, in its scene, one test per lighting / anti-aliasing mode of its
+    # reference frames (ray traced, deferred, TAA), each saving its frame (bin/streamline_demo_<mode>_<api>.png)
+    # for comparing with the sample's.
+    set(STREAMLINE_DEMO_SCENE ${STREAMLINE_SAMPLE_DIR}/media/sponza-plus.scene.json)
+    foreach(api dx12 vk)
+        add_tslang_example_test(streamline_demo SUFFIX rt APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -testOutput streamline_demo_rt_${api}.png)
+        add_tslang_example_test(streamline_demo SUFFIX deferred APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -noRT -testOutput streamline_demo_deferred_${api}.png)
+        add_tslang_example_test(streamline_demo SUFFIX taa APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -aa taa -testOutput streamline_demo_taa_${api}.png)
+    endforeach()
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)
