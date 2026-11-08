@@ -415,11 +415,11 @@ checks, not reference compares (the reference dumps aren't in the repository). T
 
 ![rtxdi_minimal: the Arcade lit by its emissive triangles through ReSTIR DI](docs/screenshots/rtxdi_minimal.jpg)
 
-The Arcade at 1280x720, frame index 60, D3D12 (the HDR color clamped to [0,1] and sRGB encoded, as the sample's blit
-to its 8-bit sRGB swapchain shows it):
+The Arcade at 1280x720, frame index 60, D3D12, from a Debug build (`build-rtxdi`). The dump is converted to the JPG by
+clamping the HDR color to [0,1] and sRGB encoding it, as the blit to the sample's 8-bit sRGB swapchain shows it:
 
 ```
-build-release-rtxdi/bin/rtxdi_minimal.exe -dx12 -test -width 1280 -height 720 -dumpFrame 60 -dumpPath rtxdi_minimal_hdr.bin
+build-rtxdi/bin/rtxdi_minimal.exe -dx12 -test -width 1280 -height 720 -dumpFrame 60 -dumpPath rtxdi_minimal_hdr.bin
 ```
 
 `streamline_demo` is a port of NVIDIA's [Streamline Sample](https://github.com/NVIDIA-RTX/Streamline_Sample)

@@ -5531,8 +5531,9 @@ if (RTXDI_DIR)
     # render targets); add_tslang_example makes rtxdi_minimal depend on rtxdi_minimal_shaders.
     add_tslang_example(rtxdi_minimal core/matrix.ts core/text_format.ts core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
     target_link_libraries(rtxdi_minimal PRIVATE rtxdi_runtime)
-    # Sanity checks (-test), not reference compares: the frame matches Minimal.exe's bit for bit in the notes' compares,
-    # whose reference dumps can't live in the repo. unbiased: the sample's unbiased resampling; moving: the camera moves
+    # Sanity checks (-test), not reference compares: reference comparisons need a build of
+    # the original sample (its Minimal.exe, from RTXDI_DIR). unbiased: the sample's unbiased resampling; moving: the
+    # camera moves
     # every frame (motion vectors, temporal reuse); resize: the offscreen back buffer is resized at frame 10.
     add_tslang_example_test(rtxdi_minimal ARGS -width 1280 -height 720 -frames 60)
     add_tslang_example_test(rtxdi_minimal SUFFIX unbiased ARGS -width 1280 -height 720 -frames 60 -unbiased)
