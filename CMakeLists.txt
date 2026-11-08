@@ -5519,7 +5519,8 @@ if (RTXDI_DIR)
     )
     unset(SHADERMAKE_DXC_VK_PATH)
 
-    # The sample's code finds its Assets folder next to the executable: a link to RTXDI_DIR/Assets there.
+    # The scene loads from ../Assets relative to bin/ (as the sample finds its Assets folder): a link to
+    # RTXDI_DIR/Assets at CMAKE_BINARY_DIR/Assets, one level above the executable.
     if (NOT EXISTS "${CMAKE_BINARY_DIR}/Assets")
         if (WIN32)
             file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/Assets" RTXDI_ASSETS_LINK)
@@ -5534,11 +5535,12 @@ if (RTXDI_DIR)
     # render targets); add_tslang_example makes rtxdi_minimal depend on rtxdi_minimal_shaders.
     add_tslang_example(rtxdi_minimal core/matrix.ts core/text_format.ts core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
     target_link_libraries(rtxdi_minimal PRIVATE rtxdi_runtime)
-    # Sanity checks (-test), not reference compares: reference comparisons need a build of
-    # the original sample (its MinimalSample.exe, from RTXDI_DIR). unbiased: the sample's unbiased resampling; moving: the
-    # camera moves
-    # every frame (motion vectors, temporal reuse); resize: the offscreen back buffer is resized at frame 10.
+    # Sanity checks (-test), not reference compares: reference comparisons need a build of the original sample
+    # (its MinimalSample.exe, from RTXDI_DIR). noresampling: initial sampling only; unbiased: the sample's
+    # unbiased resampling; moving: the camera moves every frame (motion vectors, temporal reuse); resize: the
+    # offscreen back buffer is resized to three quarters at frame 10 (the test checks the new size).
     add_tslang_example_test(rtxdi_minimal ARGS -width 1280 -height 720 -frames 60)
+    add_tslang_example_test(rtxdi_minimal SUFFIX noresampling ARGS -width 1280 -height 720 -frames 60 -noResampling)
     add_tslang_example_test(rtxdi_minimal SUFFIX unbiased ARGS -width 1280 -height 720 -frames 60 -unbiased)
     add_tslang_example_test(rtxdi_minimal SUFFIX moving ARGS -width 1280 -height 720 -frames 60 -moveCamera 0.01 0 0)
     add_tslang_example_test(rtxdi_minimal SUFFIX resize ARGS -width 1280 -height 720 -frames 20 -resizeAt 10)

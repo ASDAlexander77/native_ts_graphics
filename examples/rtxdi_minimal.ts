@@ -190,8 +190,8 @@ namespace RtxdiMinimal {
         private start: number[] = [Math.fround(CAMERA_POSITION_X), Math.fround(CAMERA_POSITION_Y),
             Math.fround(CAMERA_POSITION_Z), Math.fround(CAMERA_TARGET_X), Math.fround(CAMERA_TARGET_Y),
             Math.fround(CAMERA_TARGET_Z)];
-        // The ReSTIR DI context and resources couldn't be made: the window closes.
-        private failed: boolean = false;
+        // The ReSTIR DI context and resources couldn't be made: the window closes and main returns 1.
+        failed: boolean = false;
         private resized: boolean = false;
         private imguiPass: ImGuiPass;
         private font: ImGuiFont;
@@ -206,6 +206,12 @@ namespace RtxdiMinimal {
         // frame after a synchronous load), and the light count of the last frame.
         firstFrameIndex: int = -1;
         lightCount: int = 0;
+        // -resizeAt: whether it was given, the size the back buffers were resized to (-1 before), or why they
+        // couldn't be.
+        expectsResize: boolean = false;
+        resizedWidth: int = -1;
+        resizedHeight: int = -1;
+        resizeError: string = "";
         // The frames rendered (-moveCamera's k), and whether -dumpFrame's frame was rendered (main saves it).
         renderedFrames: int = 0;
         dumpRendered: boolean = false;
@@ -219,6 +225,7 @@ namespace RtxdiMinimal {
                 this.projMatrix.push(0.0);
             }
             this.args.applyTo(this.settings);
+            this.expectsResize = this.args.resizeAt >= 0;
             const s = this.settings;
             console.log(`Settings: resampling ${s.enableResampling}, unbiased ${s.unbiasedMode}, initial samples ${s.numLocalLightSamples}, spatial samples ${s.numSpatialSamples}, BRDF samples ${s.numBrdfSamples}, BRDF cutoff ${s.brdfCutoff}`);
 
@@ -316,17 +323,24 @@ namespace RtxdiMinimal {
         }
 
         // Before the frame's render: -resizeAt's resize (outside the render callbacks, which App.resizeBackBuffers
-        // needs), and the camera's movement unless -camera or -moveCamera script it (the reference's Animate).
+        // needs), and the camera's movement unless -moveCamera scripts it (-camera only sets where it starts).
         onAnimate(elapsedSeconds: number) {
-            if (this.args.resizeAt >= 0 && !this.resized && this.app.getFrameIndex() >= this.args.resizeAt) {
-                this.resized = true;
+            if (this.args.resizeAt >= 0 && !this.resized && this.resizeError == ""
+                && this.app.getFrameIndex() >= this.args.resizeAt) {
                 // Three quarters of the size: another aspect ratio than a multiple of the group size would give.
                 const width: int = Math.floor(this.app.getWindowWidth() * 3 / 4);
                 const height: int = Math.floor(this.app.getWindowHeight() * 3 / 4);
                 console.log(`Resizing to ${width} x ${height} before frame index ${this.app.getFrameIndex()}`);
-                this.app.resizeBackBuffers(width, height);
+                if (this.app.resizeBackBuffers(width, height) != 0) {
+                    this.resized = true;
+                    this.resizedWidth = width;
+                    this.resizedHeight = height;
+                } else {
+                    this.resizeError = `the back buffers could not be resized to ${width} x ${height}`;
+                    console.log(`Resize failed: ${this.resizeError}`);
+                }
             }
-            if (!this.args.hasCamera && !this.args.hasMove) {
+            if (!this.args.hasMove) {
                 this.camera.animate(elapsedSeconds);
             }
         }
@@ -600,6 +614,20 @@ namespace RtxdiMinimal {
         }
         const width = targets.width;
         const height = targets.height;
+        // -resizeAt: the back buffer and the render targets have the new size.
+        if (renderer.expectsResize) {
+            if (renderer.resizeError != "") {
+                return renderer.resizeError;
+            }
+            if (renderer.resizedWidth < 0) {
+                return `the back buffers were not resized (no frame index reached -resizeAt)`;
+            }
+            if (check.width != renderer.resizedWidth || check.height != renderer.resizedHeight
+                || width != renderer.resizedWidth || height != renderer.resizedHeight) {
+                return `after the resize to ${renderer.resizedWidth} x ${renderer.resizedHeight} the back buffer is ${check.width} x ${check.height} and the render targets ${width} x ${height}`;
+            }
+            console.log(`Resized: back buffer and render targets ${width} x ${height}`);
+        }
         // RGBA16_FLOAT: two halves an int.
         const halves: int[] = [];
         for (let i = 0; i < width * height * 2; i++) {
@@ -703,6 +731,10 @@ namespace RtxdiMinimal {
             } else {
                 console.log(`Dumped frame index ${args.dumpFrame} (${targets.width} x ${targets.height}) to ${args.dumpPath}`);
             }
+        }
+        if (renderer.failed) {
+            // Logged by the glue.
+            result = 1;
         }
         if (args.test) {
             let failure = checkLights(app, renderer);
