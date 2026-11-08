@@ -622,6 +622,61 @@ if (DONUT_WITH_DLSS AND WIN32)
     endif()
 endif()
 
+# NVIDIA Streamline 2.12.0 (github.com/NVIDIA-RTX/Streamline), for the streamline_demo example: its
+# interposer and plugins (DLSS, DLSS-RR, DeepDVC, Reflex/PCL, DLSS-G) are loaded at run time from
+# bin/streamline/ by core/streamline.cpp. The release zip (~232 MB, headers + signed bin/x64) is fetched
+# at configure time into the build folder (STREAMLINE_FETCH_DIR to share one). The SDK is MIT-licensed, but
+# the plugin and NGX DLLs in it are under NVIDIA's own licenses (license files next to them in bin/x64):
+# none of it may be committed here. Latewarp (sl.latewarp.dll, sl_latewarp.h) isn't in every release, so
+# STREAMLINE_HAS_LATEWARP says whether this one has it.
+option(WITH_STREAMLINE "Fetch the NVIDIA Streamline SDK (~232 MB) for the streamline_demo example" OFF)
+set(STREAMLINE_FETCH_DIR "" CACHE STRING "Directory to fetch Streamline to, empty uses build directory default")
+if (WITH_STREAMLINE AND WIN32)
+    if (STREAMLINE_FETCH_DIR)
+        set(STREAMLINE_SOURCE_DIR_OPTION SOURCE_DIR "${STREAMLINE_FETCH_DIR}")
+    endif()
+    message(STATUS "Fetching Streamline SDK 2.12.0 (~232 MB the first time)")
+    include(FetchContent)
+    FetchContent_Declare(streamline
+        URL "https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.12.0/streamline-sdk-v2.12.0.zip"
+        URL_HASH SHA256=f5c0a3d870707dddc3570fb4bcd3655cf48a8a68c3a9d342910cfa21b77dcf48
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        ${STREAMLINE_SOURCE_DIR_OPTION})
+    FetchContent_MakeAvailable(streamline)
+    set(STREAMLINE_INCLUDE_DIR "${streamline_SOURCE_DIR}/include")
+    set(STREAMLINE_BIN_DIR "${streamline_SOURCE_DIR}/bin/x64")
+    if (EXISTS "${STREAMLINE_BIN_DIR}/sl.latewarp.dll" AND EXISTS "${STREAMLINE_INCLUDE_DIR}/sl_latewarp.h")
+        set(STREAMLINE_HAS_LATEWARP TRUE)
+    else()
+        set(STREAMLINE_HAS_LATEWARP FALSE)
+    endif()
+    message(STATUS "Streamline Latewarp: ${STREAMLINE_HAS_LATEWARP}")
+
+    # The runtime DLLs next to the examples' binaries, in bin/streamline/ (the interposer loads the plugins
+    # from the folder it is in). NIS and the rest of the plugins aren't used.
+    set(STREAMLINE_RUNTIME_FILES
+        sl.interposer.dll sl.common.dll sl.pcl.dll sl.reflex.dll sl.dlss.dll sl.dlss_d.dll sl.deepdvc.dll
+        sl.dlss_g.dll NvLowLatencyVk.dll)
+    if (STREAMLINE_HAS_LATEWARP)
+        list(APPEND STREAMLINE_RUNTIME_FILES sl.latewarp.dll)
+    endif()
+    file(GLOB STREAMLINE_NGX_FILES "${STREAMLINE_BIN_DIR}/nvngx_*.dll")
+    file(GLOB STREAMLINE_JSON_FILES "${STREAMLINE_BIN_DIR}/*.json")
+    set(STREAMLINE_COPY_COMMANDS)
+    foreach(f IN LISTS STREAMLINE_RUNTIME_FILES)
+        list(APPEND STREAMLINE_COPY_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${STREAMLINE_BIN_DIR}/${f}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline/${f}")
+    endforeach()
+    foreach(f IN LISTS STREAMLINE_NGX_FILES STREAMLINE_JSON_FILES)
+        list(APPEND STREAMLINE_COPY_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${f}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline")
+    endforeach()
+    add_custom_target(copy_streamline_binaries
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline"
+        ${STREAMLINE_COPY_COMMANDS}
+        COMMENT "Copying the Streamline runtime DLLs")
+endif()
+
 # NVIDIA's Opacity Micro-Map SDK (github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK): its GPU baker and
 # the baker's NVRHI layer (omm-lib, omm-gpu-nvrhi), for opacity_micromaps -bake, which bakes the
 # micromaps at run time (core/omm_bake.cpp). Fetched at configure time into the build folder, with
