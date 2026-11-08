@@ -16,7 +16,7 @@
 // Per frame: the app's device manager gets frame callbacks (g_StreamlineAppCreated) that take the frame's
 // token and run Reflex's sleep before it and set PCL markers around its animation, rendering and present;
 // the demo then sets the camera's constants, tags its motion vectors, depth and color without the UI, and
-// has DLSS-SR or DLSS-RR upscale (slSetTagForFrame and slEvaluateFeature: frame-based tagging). Textures go to
+// has DLSS-SR or DLSS-RR upscale and DeepDVC change the final color (slSetTagForFrame and slEvaluateFeature: frame-based tagging). Textures go to
 // Streamline in a state NVRHI has committed (COMMON on D3D12, GENERAL on Vulkan), which its own barriers
 // return them to.
 
@@ -48,6 +48,7 @@
 #include <sl_security.h>
 #include <sl_dlss.h>
 #include <sl_dlss_d.h>
+#include <sl_deepdvc.h>
 #include <sl_pcl.h>
 #include <sl_reflex.h>
 
@@ -106,6 +107,7 @@ namespace
         SL_FUN_DECL(slDLSSSetOptions);
         SL_FUN_DECL(slDLSSDGetOptimalSettings);
         SL_FUN_DECL(slDLSSDSetOptions);
+        SL_FUN_DECL(slDeepDVCSetOptions);
         SL_FUN_DECL(slReflexSleep);
         SL_FUN_DECL(slReflexSetOptions);
         SL_FUN_DECL(slReflexGetState);
@@ -204,6 +206,8 @@ namespace
             GetFeatureFunction(sl::kFeatureDLSS_RR, g_Streamline.slDLSSDGetOptimalSettings, "slDLSSDGetOptimalSettings");
             GetFeatureFunction(sl::kFeatureDLSS_RR, g_Streamline.slDLSSDSetOptions, "slDLSSDSetOptions");
         }
+        if (g_Streamline.IsSupported(sl::kFeatureDeepDVC))
+            GetFeatureFunction(sl::kFeatureDeepDVC, g_Streamline.slDeepDVCSetOptions, "slDeepDVCSetOptions");
         if (g_Streamline.IsSupported(sl::kFeatureReflex))
         {
             GetFeatureFunction(sl::kFeatureReflex, g_Streamline.slReflexSleep, "slReflexSleep");
@@ -806,6 +810,35 @@ extern "C"
         commandList->clearState();
     }
 
+    // DeepDVC on color, in place (see streamline.d.ts).
+    DONUT_API void Streamline_EvaluateDeepDvc(nvrhi::ICommandList* commandList, nvrhi::ITexture* color, double intensity,
+        double saturationBoost)
+    {
+        if (!g_Streamline.initialized || !g_Streamline.frame || !commandList || !color)
+            return;
+        FeatureFunctions();
+        if (!g_Streamline.slDeepDVCSetOptions)
+            return;
+        sl::DeepDVCOptions options{};
+        options.mode = sl::DeepDVCMode::eOn;
+        options.intensity = float(intensity);
+        options.saturationBoost = float(saturationBoost);
+        if (!Check(g_Streamline.slDeepDVCSetOptions(kViewport, options), "slDeepDVCSetOptions"))
+            return;
+        // DeepDVC reads and writes the one texture, tagged as the output color.
+        const nvrhi::TextureDesc& desc = color->getDesc();
+        const Tag tags[] = {
+            { color, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent, desc.width, desc.height },
+        };
+        if (!SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (DeepDVC)"))
+            return;
+        const sl::BaseStructure* inputs[] = { &kViewport };
+        Check(g_Streamline.slEvaluateFeature(sl::kFeatureDeepDVC, *g_Streamline.frame, inputs, 1, NativeCommandList(commandList)),
+            "slEvaluateFeature (DeepDVC)");
+        // Streamline bound its own pipelines and resources (eDisableCLStateTracking: it doesn't restore them).
+        commandList->clearState();
+    }
+
     // Drops every tag: before the tagged resources are released (Streamline holds them until then).
     DONUT_API void Streamline_ClearTags()
     {
@@ -839,6 +872,7 @@ extern "C"
         g_Streamline.slDLSSSetOptions = nullptr;
         g_Streamline.slDLSSDGetOptimalSettings = nullptr;
         g_Streamline.slDLSSDSetOptions = nullptr;
+        g_Streamline.slDeepDVCSetOptions = nullptr;
         g_Streamline.slReflexSleep = nullptr;
         g_Streamline.slReflexSetOptions = nullptr;
         g_Streamline.slReflexGetState = nullptr;

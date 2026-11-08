@@ -72,5 +72,9 @@ enum StreamlineFeature {
 @nodrops declare function Streamline_EvaluateDlssRR(cmd: CommandListHandle, mode: int, input: TextureHandle, output: TextureHandle,
     diffuse: TextureHandle, specular: TextureHandle, normalRoughness: TextureHandle, specHitDistance: TextureHandle,
     worldToView: Ref<f32>, viewToWorld: Ref<f32>): void;
+// DeepDVC (AI-driven digital vibrance) on color, in place: the final color before the UI (at the display
+// size), on the command list, whose state is cleared after. intensity and saturationBoost in [0, 1].
+@nodrops declare function Streamline_EvaluateDeepDvc(cmd: CommandListHandle, color: TextureHandle, intensity: number,
+    saturationBoost: number): void;
 // Drops the resource tags: before releasing tagged resources (Streamline holds them until then).
 @nodrops declare function Streamline_ClearTags(): void;

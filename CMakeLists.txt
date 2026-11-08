@@ -5548,6 +5548,14 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
         add_tslang_example_test(streamline_demo SUFFIX dlssrr APIS ${api} ARGS -width 1920 -height 1080
             --scene ${STREAMLINE_DEMO_SCENE} -dlssRR 3 -testOutput streamline_demo_dlssrr_${api}.png)
     endforeach()
+    # DeepDVC on the color before the UI (the reference's -DeepDVC_on: intensity 0.5, saturation boost 0.75):
+    # its frame more saturated than any plain one. On Vulkan without -debug: the DeepDVC plugin leaves its
+    # buffers (nv.ngx.deepdvc.resource) alive at vkDestroyDevice, which the validation layer reports; the
+    # Streamline Sample's own run does the same, and the plugin has no explicit free.
+    add_tslang_example_test(streamline_demo SUFFIX deepdvc APIS dx12 ARGS -width 1920 -height 1080
+        --scene ${STREAMLINE_DEMO_SCENE} -deepdvc -testOutput streamline_demo_deepdvc_dx12.png)
+    add_tslang_example_test(streamline_demo SUFFIX deepdvc NO_DEBUG APIS vk ARGS -width 1920 -height 1080
+        --scene ${STREAMLINE_DEMO_SCENE} -deepdvc -testOutput streamline_demo_deepdvc_vk.png)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

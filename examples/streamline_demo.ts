@@ -10,8 +10,8 @@ import { radiansF32 } from "../core/matrix";
 // Streamline Sample's (github.com/NVIDIA-RTX/Streamline_Sample, its StreamlineSample::RenderScene): Sponza
 // with a dancing robot, cascaded shadow maps, a G-buffer, then ray traced lighting (the sample's ray
 // generation library, compiled in place from STREAMLINE_SAMPLE_DIR) or deferred lighting with SSAO, the
-// procedural sky, bloom, DLSS-SR, TAA or none (then optionally DLSS Ray Reconstruction), and tone mapping
-// with auto exposure. Streamline's frame token,
+// procedural sky, bloom, DLSS-SR, TAA or none (then optionally DLSS Ray Reconstruction), tone mapping with
+// auto exposure, and optionally DeepDVC. Streamline's frame token,
 // Reflex and PCL markers come from the device manager's frame callbacks (core/streamline.cpp).
 namespace StreamlineDemo {
     // Test mode: the frames rendered: the last one is the sample's frame 120 (its reference frames', at
@@ -22,7 +22,12 @@ namespace StreamlineDemo {
     // sample's own frames have (1920x1080): lit (not near black) 98-99% ray traced, 94.6% deferred; the
     // robot's white plates, 15-18% of its rectangle; saturated colors (the banners' pattern), 6-7% ray
     // traced (its reflections), 0.5% deferred; upscaled with DLSS from 960x540 (MaxPerformance) 3.9%.
-    function checkFrame(app: App, rayTraced: boolean, dlss: boolean) {
+    // With DeepDVC (its saturation boost) the sample's colored share is 41-43%: its band starts above the
+    // plain frames' highest (DEEPDVC_MIN_COLORED > PLAIN_MAX_COLORED), so a pass also says it's more saturated.
+    const PLAIN_MAX_COLORED = 9.0;
+    const DEEPDVC_MIN_COLORED = 25.0;
+    const DEEPDVC_MAX_COLORED = 60.0;
+    function checkFrame(app: App, rayTraced: boolean, dlss: boolean, deepDvc: boolean) {
         const check = new TestCheck(app);
         if (check.frameRead() != "") {
             return check.frameRead();
@@ -42,8 +47,19 @@ namespace StreamlineDemo {
         if (robot != "") {
             return robot;
         }
-        return check.share(check.countSpread(61, false, 0, 0, 0, check.width, check.height), total,
-            rayTraced ? (dlss ? 3.0 : 4.0) : 0.2, rayTraced ? 9.0 : 1.5, "Colored");
+        const colored = check.countSpread(61, false, 0, 0, 0, check.width, check.height);
+        if (deepDvc) {
+            return check.share(colored, total, DEEPDVC_MIN_COLORED, DEEPDVC_MAX_COLORED, "Colored (DeepDVC)");
+        }
+        return check.share(colored, total, rayTraced ? (dlss ? 3.0 : 4.0) : 0.2, rayTraced ? PLAIN_MAX_COLORED : 1.5, "Colored");
+    }
+
+    // -test with -deepdvc: DeepDVC ran every frame.
+    function checkDeepDvc(demo: StreamlineDemo, ui: UIData) {
+        if (!ui.enableDeepDvc) {
+            return "";
+        }
+        return demo.deepDvcEvaluations == TEST_FRAMES ? "" : `DeepDVC ran ${demo.deepDvcEvaluations} of ${TEST_FRAMES} frames`;
     }
 
     // -test with -dlss: DLSS upscaled every frame, from a smaller render size (DLAA's is the display's), made
@@ -222,6 +238,10 @@ namespace StreamlineDemo {
         public dlssMode: int = DlssMode.Off;
         // DLSS-RR's DlssMode (Off: not in use); anti-aliasing stays NONE with it, as in the sample.
         public dlssRRMode: int = DlssMode.Off;
+        // DeepDVC on the color before the UI, its intensity and saturation boost (the sample's defaults).
+        public enableDeepDvc = false;
+        public deepDvcIntensity = 0.5;
+        public deepDvcSaturationBoost = 0.75;
     }
 
     // --- Render targets --------------------------------------------------------------------------------
@@ -352,12 +372,14 @@ namespace StreamlineDemo {
         // -test's DLSS checks: the frames DLSS upscaled, and how many times the render size changed.
         public dlssEvaluations: int;
         public renderSizeChanges: int;
-        // -test's DLSS-RR check: the frames DLSS-RR evaluated.
+        // -test's DLSS-RR and DeepDVC checks: the frames each ran.
         public dlssRREvaluations: int;
+        public deepDvcEvaluations: int;
         // Streamline started, DLSS and DLSS-RR supported; -testDlssModeSwitch.
         public streamline: boolean;
         public dlssSupported: boolean;
         public dlssRRSupported: boolean;
+        public deepDvcSupported: boolean;
         public testDlssModeSwitch: boolean;
         // The DLSS mode and display size the render size was last asked for (Off: DLSS not in use), that
         // render size, and the mip level bias the passes were made with.
@@ -424,9 +446,11 @@ namespace StreamlineDemo {
             this.dlssEvaluations = 0;
             this.renderSizeChanges = 0;
             this.dlssRREvaluations = 0;
+            this.deepDvcEvaluations = 0;
             this.streamline = false;
             this.dlssSupported = false;
             this.dlssRRSupported = false;
+            this.deepDvcSupported = false;
             this.testDlssModeSwitch = false;
             this.dlssLastMode = DlssMode.Off;
             this.dlssLastDisplayWidth = 0;
@@ -900,7 +924,7 @@ namespace StreamlineDemo {
             Streamline_TagCommon(commandList.handle, targets.motionVectors, targets.depth, targets.preUIColor);
         }
 
-        // The sample's RenderScene, without its NIS, DeepDVC and DLSS-G features (yet).
+        // The sample's RenderScene, without its NIS and DLSS-G features (yet).
         renderScene(frame: Frame) {
             const app = this.app;
             const ui = this.ui;
@@ -1072,6 +1096,14 @@ namespace StreamlineDemo {
             }
             app.blitTextureToFramebuffer(commandList, targets.preUIFramebuffer, view, texToDisplay);
 
+            // DeepDVC on the color before the UI, in place (after tone mapping, as the sample). Turned off, it
+            // just isn't evaluated: its plugin has no explicit resource free (slFreeResources: "plugin does
+            // not support explicit resource deallocation").
+            if (ui.enableDeepDvc && this.deepDvcSupported) {
+                Streamline_EvaluateDeepDvc(commandList.handle, targets.preUIColor, ui.deepDvcIntensity, ui.deepDvcSaturationBoost);
+                this.deepDvcEvaluations++;
+            }
+
             // Into the back buffer as it is (the UI draws over it after).
             frame.copyTextureToFrame(targets.preUIColor);
 
@@ -1180,6 +1212,11 @@ namespace StreamlineDemo {
                 const chosen = ImGui.combo("DLSS Mode", index, "Off|Max Performance|Balanced|Max Quality|Ultra Performance|DLAA");
                 ui.dlssMode = chosen == 5 ? DlssMode.DLAA : chosen;
             }
+            ui.enableDeepDvc = ImGui.checkbox("DeepDVC", ui.enableDeepDvc);
+            if (ui.enableDeepDvc) {
+                ui.deepDvcIntensity = ImGui.sliderFloat("DeepDVC Intensity", ui.deepDvcIntensity, 0.0, 1.0);
+                ui.deepDvcSaturationBoost = ImGui.sliderFloat("DeepDVC Saturation Boost", ui.deepDvcSaturationBoost, 0.0, 1.0);
+            }
             ImGui.separator();
             ui.enableShadows = ImGui.checkbox("Shadows", ui.enableShadows);
             ui.enableSsao = ImGui.checkbox("SSAO (deferred)", ui.enableSsao);
@@ -1216,6 +1253,8 @@ namespace StreamlineDemo {
         // cap (0: none).
         reflex: int = 0;
         reflexFpsCap: int = 0;
+        // -deepdvc: DeepDVC on (intensity 0.5, saturation boost 0.75).
+        deepDvc: boolean = false;
         // -dlssRR <mode>: DLSS Ray Reconstruction in the sample's -DLSSRR_mode numbering (DlssMode); -1: not
         // given.
         dlssRR: int = -1;
@@ -1247,6 +1286,8 @@ namespace StreamlineDemo {
                     this.reflex = parseInt(this[i + 1]);
                 } else if (arg == "-reflexFpsCap" && i + 1 < this.argc) {
                     this.reflexFpsCap = parseInt(this[i + 1]);
+                } else if (arg == "-deepdvc") {
+                    this.deepDvc = true;
                 } else if (arg == "-dlssRR" && i + 1 < this.argc) {
                     this.dlssRR = parseInt(this[i + 1]);
                 }
@@ -1332,6 +1373,10 @@ namespace StreamlineDemo {
             uiData.dlssRRMode = args.dlssRR;
         }
 
+        if (args.deepDvc) {
+            uiData.enableDeepDvc = true;
+        }
+
         const scenePath = args.scenePath != "" ? args.scenePath : DEFAULT_SCENE;
         const demo = new StreamlineDemo(app, uiData);
         demo.streamline = slInitialized;
@@ -1339,6 +1384,10 @@ namespace StreamlineDemo {
         demo.dlssRRSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.DLSS_RR) != 0;
         if (uiData.dlssRRMode != DlssMode.Off && !demo.dlssRRSupported) {
             console.log("DLSS-RR: not supported here, off");
+        }
+        demo.deepDvcSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.DeepDVC) != 0;
+        if (uiData.enableDeepDvc && !demo.deepDvcSupported) {
+            console.log("DeepDVC: not supported here, off");
         }
         demo.testDlssModeSwitch = args.test && args.testDlssModeSwitch;
         if (uiData.antiAliasingMode == AntiAliasingMode.DLSS && !demo.dlssSupported) {
@@ -1369,7 +1418,7 @@ namespace StreamlineDemo {
         let result = 0;
         if (args.test) {
             const frameFailure = checkFrame(app, uiData.rayTracingMode != 0,
-                uiData.antiAliasingMode == AntiAliasingMode.DLSS || uiData.dlssRRMode != DlssMode.Off);
+                uiData.antiAliasingMode == AntiAliasingMode.DLSS || uiData.dlssRRMode != DlssMode.Off, uiData.enableDeepDvc);
             if (frameFailure != "") {
                 result = app.finishTest(frameFailure);
             } else if (!args.slDisable && !slInitialized) {
@@ -1385,7 +1434,8 @@ namespace StreamlineDemo {
                 result = unsupported(true, `not supported here: ${missing}`);
             } else {
                 const dlssFailure = checkDlss(demo, uiData, args.testDlssModeSwitch);
-                result = app.finishTest(dlssFailure != "" ? dlssFailure : checkDlssRR(demo, uiData));
+                const rrFailure = dlssFailure != "" ? dlssFailure : checkDlssRR(demo, uiData);
+                result = app.finishTest(rrFailure != "" ? rrFailure : checkDeepDvc(demo, uiData));
             }
         }
 
