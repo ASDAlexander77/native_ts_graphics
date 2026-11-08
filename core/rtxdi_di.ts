@@ -34,8 +34,7 @@ export class RtxdiDI {
     // The neighbor offsets are written once (they don't change with the frame).
     private neighborOffsetsWritten: boolean = false;
 
-    // public readonly: tslang makes no parameter property of `readonly` alone.
-    constructor(app: App, private scene: Scene, public readonly width: int, public readonly height: int) {
+    constructor(app: App, private scene: Scene, readonly width: int, readonly height: int) {
         this.context = Rtxdi_CreateDIContext(width, height);
         this.resources = Rtxdi_CreateResources(app.handle, this.context, scene.handle) as RtxdiResourcesHandle;
         if (this.resources) {
@@ -125,8 +124,7 @@ export class RtxdiRenderTargets {
     previous: RtxdiGBuffer;
     readonly hdrColor: TextureHandle;
 
-    // public readonly: tslang makes no parameter property of `readonly` alone.
-    constructor(app: App, public readonly width: int, public readonly height: int) {
+    constructor(app: App, readonly width: int, readonly height: int) {
         this.current = new RtxdiGBuffer(app, width, height, "");
         this.previous = new RtxdiGBuffer(app, width, height, "Prev");
         this.hdrColor = app.createUAVTextureWithFormat(width, height, Format.RGBA16_FLOAT, "HdrColor");
