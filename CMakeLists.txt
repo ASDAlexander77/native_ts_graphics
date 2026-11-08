@@ -821,12 +821,7 @@ if (RTXDI_DIR)
     if (RTXPT_DIR)
         message(FATAL_ERROR "RTXDI_DIR and RTXPT_DIR cannot both be set: RTXPT bundles its own RTXDI library, which would clash with RTXDI_DIR's (configure one example family per build directory)")
     endif()
-    # core/rtxdi.cpp (the glue to the sample's host) is added once it exists.
-    set(RTXDI_GLUE_SOURCES "")
-    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/core/rtxdi.cpp")
-        set(RTXDI_GLUE_SOURCES core/rtxdi.cpp)
-    endif()
-    list(APPEND JIT_MODULE_SOURCES ${RTXDI_GLUE_SOURCES})
+    list(APPEND JIT_MODULE_SOURCES core/rtxdi.cpp)
 endif()
 if (RTXMG_DIR)
     # core/rtxmg.cpp includes RTXMG's library and demo headers (C++23) and the demo's HiZ prepass, built in place.
@@ -5486,10 +5481,25 @@ if (RTXDI_DIR)
     set_target_properties(rtxdi_runtime PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
     target_include_directories(rtxdi_runtime PUBLIC ${RTXDI_DIR}/Libraries/Rtxdi/Include)
 
+    # core/rtxdi.cpp (the glue to the sample's host) includes the library's headers and the sample's
+    # ShaderParameters.h in place (it declares the structures the shaders read).
+    set_source_files_properties(core/rtxdi.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${RTXDI_DIR}/Libraries/Rtxdi/Include;${RTXDI_DIR}/Samples/MinimalSample/Shaders")
+    if (TARGET donut_interop_shared)
+        target_link_libraries(donut_interop_shared PRIVATE rtxdi_runtime)
+    endif()
+
     # The sample's shaders at bin/shaders/rtxdi_minimal/<dxil|spirv>. They are in the checkout's
     # Samples/MinimalSample/Shaders (--sourceDir) and include its ../Types.h-style headers relative to the
     # file (--relaxedInclude). donut_compile_shaders passes the SPIR-V define and the Vulkan register
     # offsets the shaders' bindings rely on, as the checkout's own compileshaders.cmake does.
+    #
+    # The shaders read the neighbor offsets as Buffer<float2>, which DXC gives the SPIR-V image format Rg32f by
+    # default, while the buffer's view is RG8_SNORM (Vulkan: undefined reads, and a validation warning).
+    # -fspv-use-unknown-image-format takes the format from the view instead (SPIR-V only: DXIL has no such
+    # thing). The Vulkan SDK's DXC (1.8) doesn't know it: the SPIR-V is compiled by the DXC that compiles the
+    # DXIL (SHADERMAKE_DXC_PATH, 1.9), which has SPIR-V output too.
+    set(SHADERMAKE_DXC_VK_PATH "${SHADERMAKE_DXC_PATH}")
     donut_compile_shaders(
         TARGET rtxdi_minimal_shaders
         PROJECT_NAME "RTXDI"
@@ -5500,7 +5510,9 @@ if (RTXDI_DIR)
         SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/rtxdi_minimal/spirv
         SHADER_MODEL 6_5
         SHADERMAKE_OPTIONS "--sourceDir ${RTXDI_DIR}/Samples/MinimalSample/Shaders --relaxedInclude ../Types.h"
+        SHADERMAKE_OPTIONS_SPIRV "--compilerOptions=-fspv-use-unknown-image-format"
     )
+    unset(SHADERMAKE_DXC_VK_PATH)
 
     # The sample's code finds its Assets folder next to the executable: a link to RTXDI_DIR/Assets there.
     if (NOT EXISTS "${CMAKE_BINARY_DIR}/Assets")
