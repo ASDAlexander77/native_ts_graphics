@@ -144,7 +144,10 @@ enum AppOptions {
     ShaderPrintf = 512,
     // With Vulkan, descriptor sets in buffers (Donut_HasDescriptorBuffers); not by default, as the
     // validation layer's shader instrumentation (GPU-AV, shader printf) is off with them.
-    DescriptorBuffers = 1024
+    DescriptorBuffers = 1024,
+    // With D3D12, shaders index ResourceDescriptorHeap[] (the root signatures of pipelines with a mutable
+    // bindless layout get CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED).
+    HeapDirectlyIndexed = 2048
 }
 
 // The color space of what the back buffers hold (donut::app::SwapChainColorSpace): sRGB (SDR),
