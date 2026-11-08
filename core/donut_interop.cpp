@@ -7545,6 +7545,21 @@ extern "C"
         cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
     }
 
+    // Same, with a descriptor table bound after the binding set (Donut_DispatchWithDescriptorTable's).
+    DONUT_API void Donut_DispatchWithDescriptorTableAndPushConstants(nvrhi::ICommandList* commandList, nvrhi::IComputePipeline* computePipeline,
+        nvrhi::IBindingSet* bindingSet, nvrhi::IDescriptorTable* descriptorTable, const void* data, int byteSize, int groupsX, int groupsY, int groupsZ)
+    {
+        auto state = nvrhi::ComputeState()
+            .setPipeline(computePipeline)
+            .addBindingSet(bindingSet)
+            .addBindingSet(descriptorTable);
+
+        nvrhi::ICommandList* cl = commandList;
+        cl->setComputeState(state);
+        cl->setPushConstants(data, static_cast<size_t>(byteSize));
+        cl->dispatch(static_cast<uint32_t>(groupsX), static_cast<uint32_t>(groupsY), static_cast<uint32_t>(groupsZ));
+    }
+
     // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
     DONUT_API void Donut_ClearDepth(nvrhi::ICommandList* commandList, nvrhi::ITexture* depthTexture, double depth)
     {
@@ -8137,6 +8152,13 @@ extern "C"
     {
         bindlessLayoutDesc->registerSpaces.push_back(
             nvrhi::BindingLayoutItem::Texture_SRV(static_cast<uint32_t>(space)));
+    }
+
+    // RWTexture2D<float4>[] in register space `space`.
+    DONUT_API void Donut_BindlessLayoutAddTextureUAVs(nvrhi::BindlessLayoutDesc* bindlessLayoutDesc, int space)
+    {
+        bindlessLayoutDesc->registerSpaces.push_back(
+            nvrhi::BindingLayoutItem::Texture_UAV(static_cast<uint32_t>(space)));
     }
 
     // Returns null on failure.

@@ -821,7 +821,9 @@ if (RTXDI_DIR)
     if (RTXPT_DIR)
         message(FATAL_ERROR "RTXDI_DIR and RTXPT_DIR cannot both be set: RTXPT bundles its own RTXDI library, which would clash with RTXDI_DIR's (configure one example family per build directory)")
     endif()
-    list(APPEND JIT_MODULE_SOURCES core/rtxdi.cpp)
+    # The glue to the sample's host (linked into rtxdi_minimal, and into donut_interop_shared for the JIT).
+    set(RTXDI_GLUE_SOURCES core/rtxdi.cpp)
+    list(APPEND JIT_MODULE_SOURCES ${RTXDI_GLUE_SOURCES})
 endif()
 if (RTXMG_DIR)
     # core/rtxmg.cpp includes RTXMG's library and demo headers (C++23) and the demo's HiZ prepass, built in place.
@@ -5524,6 +5526,11 @@ if (RTXDI_DIR)
             file(CREATE_LINK "${RTXDI_DIR}/Assets" "${CMAKE_BINARY_DIR}/Assets" SYMBOLIC)
         endif()
     endif()
+
+    # core/rtxdi_di.ts: what the RTXDI samples share (the context, resources and light preparation, the
+    # render targets); add_tslang_example makes rtxdi_minimal depend on rtxdi_minimal_shaders.
+    add_tslang_example(rtxdi_minimal core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
+    target_link_libraries(rtxdi_minimal PRIVATE rtxdi_runtime)
 endif()
 
 # Port of NVIDIA's RTX Mega Geometry demo (github.com/NVIDIA-RTX/RTXMG), its cluster tessellation path:

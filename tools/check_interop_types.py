@@ -159,6 +159,7 @@ HANDLES = {
     "Clas": "ClasHandle",
     "rtxdi::ReSTIRDIContext": "RtxdiDIContextHandle",
     "RtxdiMinimalResources": "RtxdiResourcesHandle",
+    "RtxdiSceneAccelStructs": "RtxdiSceneAccelStructsHandle",
     "OcclusionPredication": "OcclusionPredicationHandle",
     "PredicationBuffer": "PredicationBufferHandle",
     "MeshPipelineStatistics": "MeshPipelineStatisticsHandle",

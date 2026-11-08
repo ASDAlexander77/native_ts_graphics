@@ -22,6 +22,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include <donut/core/log.h>
@@ -81,6 +82,15 @@ struct RtxdiMinimalResources
     RTXDI_LightBufferParameters lightBufferParams = {};
     // The capacity errors are logged once, not every frame.
     bool capacityErrorLogged = false;
+};
+
+// The sample's ray tracing acceleration structures (SampleScene's BuildMeshBLASes and BuildTopLevelAccelStruct):
+// a BLAS per mesh and the TLAS over the mesh instances. TypeScript holds it as an RtxdiSceneAccelStructsHandle
+// until Rtxdi_DestroySceneAccelStructs.
+struct RtxdiSceneAccelStructs
+{
+    std::unordered_map<const donut::engine::MeshInfo*, nvrhi::rt::AccelStructHandle> meshes;
+    nvrhi::rt::AccelStructHandle topLevel;
 };
 
 namespace
@@ -329,6 +339,8 @@ extern "C"
         if (!resources || !scene || !scene->GetSceneGraph() || !commandList)
         {
             donut::log::error("Rtxdi_PrepareLights: needs resources, a scene and a command list");
+            if (resources)
+                resources->taskCount = 0;
             return 0;
         }
         std::vector<PrepareLightsTask> tasks;
@@ -400,7 +412,125 @@ extern "C"
     // PrepareLightsConstants::numTasks of the last Rtxdi_PrepareLights: the push constant of its dispatch.
     DONUT_API int Rtxdi_GetPrepareLightsTaskCount(RtxdiMinimalResources* resources)
     {
-        return int(resources->taskCount);
+        return resources ? int(resources->taskCount) : 0;
+    }
+
+    // SampleScene::BuildMeshBLASes and BuildTopLevelAccelStruct, recorded into an open command list (the sample
+    // builds the BLASes on a list of its own and waits for them; NVRHI orders the TLAS build after them here).
+    // As the sample's: no BLAS for skinned meshes (vertex joint weights); each geometry opaque only for an
+    // opaque material; PreferFastTrace, plus AllowCompaction for meshes without a skin; the TLAS AllowUpdate,
+    // each instance's mask from its content (INSTANCE_MASK_OPAQUE, _ALPHA_TESTED, _TRANSPARENT), triangle culling
+    // off when any of its materials is double-sided, its instance index as the ID. Unlike the sample's, the
+    // acceleration structures have memory of their own, not placed in one heap (no effect on what rays hit),
+    // and the instances without a BLAS are left out of the TLAS rather than left empty at its end. Null
+    // (logged) without an app, a command list or a loaded scene.
+    DONUT_API RtxdiSceneAccelStructs* Rtxdi_BuildSceneAccelStructs(App* app, nvrhi::ICommandList* commandList, donut::engine::Scene* scene)
+    {
+        if (!app || !commandList || !scene || !scene->GetSceneGraph())
+        {
+            donut::log::error("Rtxdi_BuildSceneAccelStructs: needs an app, a command list and a loaded scene");
+            return nullptr;
+        }
+        nvrhi::IDevice* device = static_cast<nvrhi::IDevice*>(Donut_GetNvrhiDevice(app));
+        const auto& sceneGraph = scene->GetSceneGraph();
+        auto accelStructs = std::make_unique<RtxdiSceneAccelStructs>();
+
+        for (const auto& mesh : sceneGraph->GetMeshes())
+        {
+            if (mesh->buffers->hasAttribute(donut::engine::VertexAttribute::JointWeights))
+                continue;
+
+            nvrhi::rt::AccelStructDesc blasDesc;
+            blasDesc.isTopLevel = false;
+            for (const auto& geometry : mesh->geometries)
+            {
+                nvrhi::rt::GeometryDesc geometryDesc;
+                auto& triangles = geometryDesc.geometryData.triangles;
+                triangles.indexBuffer = mesh->buffers->indexBuffer;
+                triangles.indexOffset = (mesh->indexOffset + geometry->indexOffsetInMesh) * sizeof(uint32_t);
+                triangles.indexFormat = nvrhi::Format::R32_UINT;
+                triangles.indexCount = geometry->numIndices;
+                triangles.vertexBuffer = mesh->buffers->vertexBuffer;
+                triangles.vertexOffset = (mesh->vertexOffset + geometry->vertexOffsetInMesh) * sizeof(float3)
+                    + mesh->buffers->getVertexBufferRange(donut::engine::VertexAttribute::Position).byteOffset;
+                triangles.vertexFormat = nvrhi::Format::RGB32_FLOAT;
+                triangles.vertexStride = sizeof(float3);
+                triangles.vertexCount = geometry->numVertices;
+                geometryDesc.geometryType = nvrhi::rt::GeometryType::Triangles;
+                geometryDesc.flags = geometry->material->domain == donut::engine::MaterialDomain::Opaque
+                    ? nvrhi::rt::GeometryFlags::Opaque
+                    : nvrhi::rt::GeometryFlags::None;
+                blasDesc.bottomLevelGeometries.push_back(geometryDesc);
+            }
+            blasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
+            if (!mesh->skinPrototype)
+                blasDesc.buildFlags = blasDesc.buildFlags | nvrhi::rt::AccelStructBuildFlags::AllowCompaction;
+            blasDesc.trackLiveness = false;
+            blasDesc.debugName = mesh->name;
+
+            nvrhi::rt::AccelStructHandle blas = device->createAccelStruct(blasDesc);
+            if (!blas)
+            {
+                donut::log::error("Rtxdi_BuildSceneAccelStructs: the BLAS of %s couldn't be created", mesh->name.c_str());
+                return nullptr;
+            }
+            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, blas, blasDesc);
+            accelStructs->meshes[mesh.get()] = blas;
+        }
+
+        std::vector<nvrhi::rt::InstanceDesc> instances;
+        for (const auto& instance : sceneGraph->GetMeshInstances())
+        {
+            const auto blas = accelStructs->meshes.find(instance->GetMesh().get());
+            if (blas == accelStructs->meshes.end())
+                continue;
+
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc.instanceMask = 0;
+            const donut::engine::SceneContentFlags contentFlags = instance->GetContentFlags();
+            if ((contentFlags & donut::engine::SceneContentFlags::OpaqueMeshes) != 0)
+                instanceDesc.instanceMask |= INSTANCE_MASK_OPAQUE;
+            if ((contentFlags & donut::engine::SceneContentFlags::AlphaTestedMeshes) != 0)
+                instanceDesc.instanceMask |= INSTANCE_MASK_ALPHA_TESTED;
+            if ((contentFlags & donut::engine::SceneContentFlags::BlendedMeshes) != 0)
+                instanceDesc.instanceMask |= INSTANCE_MASK_TRANSPARENT;
+            for (const auto& geometry : instance->GetMesh()->geometries)
+            {
+                if (geometry->material->doubleSided)
+                    instanceDesc.flags = nvrhi::rt::InstanceFlags::TriangleCullDisable;
+            }
+            instanceDesc.bottomLevelAS = blas->second;
+            if (const auto node = instance->GetNode())
+                affineToColumnMajor(node->GetLocalToWorldTransformFloat(), instanceDesc.transform);
+            instanceDesc.instanceID = uint32_t(instance->GetInstanceIndex());
+            instances.push_back(instanceDesc);
+        }
+
+        nvrhi::rt::AccelStructDesc tlasDesc;
+        tlasDesc.isTopLevel = true;
+        tlasDesc.topLevelMaxInstances = std::max<size_t>(sceneGraph->GetMeshInstances().size(), 1);
+        tlasDesc.debugName = "TopLevelAS";
+        tlasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::AllowUpdate;
+        accelStructs->topLevel = device->createAccelStruct(tlasDesc);
+        if (!accelStructs->topLevel)
+        {
+            donut::log::error("Rtxdi_BuildSceneAccelStructs: the TLAS couldn't be created");
+            return nullptr;
+        }
+        commandList->buildTopLevelAccelStruct(accelStructs->topLevel, instances.data(), instances.size(),
+            nvrhi::rt::AccelStructBuildFlags::None);
+        return accelStructs.release();
+    }
+
+    DONUT_API void Rtxdi_DestroySceneAccelStructs(RtxdiSceneAccelStructs* accelStructs)
+    {
+        delete accelStructs;
+    }
+
+    // For the binding sets; valid as long as the acceleration structures.
+    DONUT_API nvrhi::rt::IAccelStruct* Rtxdi_GetTopLevelAS(RtxdiSceneAccelStructs* accelStructs)
+    {
+        return accelStructs ? accelStructs->topLevel.Get() : nullptr;
     }
 
     // RenderPass::Render's ResamplingConstants, with the sample's parameters and the UI's settings.

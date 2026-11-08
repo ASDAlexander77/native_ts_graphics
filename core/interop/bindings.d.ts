@@ -90,6 +90,8 @@
 // ByteAddressBuffer[] / Texture2D[] in register space `space`.
 @nodrops declare function Donut_BindlessLayoutAddRawBuffers(bindlessLayoutDesc: BindlessLayoutDescHandle, space: int): void;
 @nodrops declare function Donut_BindlessLayoutAddTextures(bindlessLayoutDesc: BindlessLayoutDescHandle, space: int): void;
+// RWTexture2D<float4>[] in register space `space`.
+@nodrops declare function Donut_BindlessLayoutAddTextureUAVs(bindlessLayoutDesc: BindlessLayoutDescHandle, space: int): void;
 @nodrops declare function Donut_CreateBindlessLayout(app: AppHandle, bindlessLayoutDesc: BindlessLayoutDescHandle): BindingLayoutHandle;
 // Donut's DescriptorTableManager over a bindless layout; scenes loaded with
 // Donut_LoadSceneWithDescriptorTable register their buffers and textures in it.

@@ -95,6 +95,9 @@ enum ResourceState {
 // element) for the binding set's Donut_BindPushConstants item.
 @nodrops declare function Donut_DispatchWithPushConstants(commandList: CommandListHandle, computePipeline: ComputePipelineHandle, bindingSet: BindingSetHandle,
     data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void;
+// Same, with a descriptor table bound after the binding set (Donut_DispatchWithDescriptorTable's).
+@nodrops declare function Donut_DispatchWithDescriptorTableAndPushConstants(commandList: CommandListHandle, computePipeline: ComputePipelineHandle,
+    bindingSet: BindingSetHandle, descriptorTable: DescriptorTableHandle, data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void;
 // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
 @nodrops declare function Donut_ClearDepth(commandList: CommandListHandle, depthTexture: TextureHandle, depth: number): void;
 // Fills a color texture (Donut_CreateRenderTargetTexture) with r, g, b, a.

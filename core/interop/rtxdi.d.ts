@@ -4,6 +4,7 @@
 // Handles of the module's objects (see donut_handles.d.ts).
 @cpp declare class RtxdiDIContextHandle { private readonly __rtxdiDIContext: index; }
 @cpp declare class RtxdiResourcesHandle { private readonly __rtxdiResources: index; }
+@cpp declare class RtxdiSceneAccelStructsHandle { private readonly __rtxdiSceneAccelStructs: index; }
 
 // The buffers of Rtxdi_GetBuffer.
 enum RtxdiBuffer {
@@ -17,7 +18,8 @@ enum RtxdiBuffer {
 // The host side of NVIDIA's RTXDI Minimal Sample (github.com/NVIDIA-RTX/RTXDI, Samples/MinimalSample): RTXDI's
 // runtime library (RTXDI_DIR's, rtxdi_runtime in CMakeLists.txt) and the sample's resource, light preparation
 // and constants code, over Donut's scene and NVRHI buffers; examples/rtxdi_minimal.ts runs the sample's two
-// compute shaders on them. Free the context and the resources with the Destroy functions before the app.
+// compute shaders on them. Free the context, the resources and the acceleration structures with the Destroy
+// functions before the app.
 
 // A ReSTIR DI context (rtxdi::ReSTIRDIContext) for width x height frames; every other static parameter is
 // the library's default (8192 neighbor offsets, no checkerboard). Resize: destroy it and the resources, create
@@ -55,6 +57,17 @@ enum RtxdiBuffer {
 @nodrops declare function Rtxdi_PrepareLights(resources: RtxdiResourcesHandle, scene: SceneHandle, commandList: CommandListHandle): int;
 // The task count of the last Rtxdi_PrepareLights: PrepareLightsConstants::numTasks, to push to the shader.
 @nodrops declare function Rtxdi_GetPrepareLightsTaskCount(resources: RtxdiResourcesHandle): int;
+
+// The sample's acceleration structures (SampleScene::BuildMeshBLASes, BuildTopLevelAccelStruct), recorded into
+// an open command list: a BLAS per mesh but the skinned ones (each geometry opaque only for an opaque
+// material; PreferFastTrace, AllowCompaction without a skin) and the TLAS over the instances (AllowUpdate; mask
+// INSTANCE_MASK_OPAQUE / _ALPHA_TESTED / _TRANSPARENT by content, triangle culling off with a double-sided
+// material, the instance index as the ID). Donut_BuildSceneAccelStructs makes every geometry opaque, every mask
+// 1 and no IDs. Null (after logging why) without a command list or scene.
+@nodrops declare function Rtxdi_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): RtxdiSceneAccelStructsHandle | null;
+@nodrops declare function Rtxdi_DestroySceneAccelStructs(accelStructs: RtxdiSceneAccelStructsHandle): void;
+// For Donut_BindAccelStruct; valid as long as the acceleration structures.
+@nodrops declare function Rtxdi_GetTopLevelAS(accelStructs: RtxdiSceneAccelStructsHandle): AccelStructHandle;
 
 // RenderPass::Render's ResamplingConstants, written to the constant buffer on the command list: the two
 // views' constants, the runtime parameters and reservoir buffer indices from the context (frame index, the

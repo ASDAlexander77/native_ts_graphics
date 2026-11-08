@@ -2339,6 +2339,11 @@ export class CommandList {
         Donut_DispatchWithPushConstants(this.handle, computePipeline, bindingSet.handle, data, byteSize, groupsX, groupsY, groupsZ);
     }
 
+    // Same, with a descriptor table bound after the binding set (Donut_DispatchWithDescriptorTable's).
+    dispatchWithDescriptorTableAndPushConstants(computePipeline: ComputePipelineHandle, bindingSet: BindingSet, descriptorTable: DescriptorTableHandle, data: Opaque, byteSize: int, groupsX: int, groupsY: int, groupsZ: int): void {
+        Donut_DispatchWithDescriptorTableAndPushConstants(this.handle, computePipeline, bindingSet.handle, descriptorTable, data, byteSize, groupsX, groupsY, groupsZ);
+    }
+
     // Fills a depth texture (Donut_CreateRenderTargetTexture) with `depth`.
     clearDepth(depthTexture: TextureHandle, depth: number): void {
         Donut_ClearDepth(this.handle, depthTexture, depth);
@@ -2932,6 +2937,11 @@ export class BindlessLayoutDesc {
 
     addTextures(space: int): void {
         Donut_BindlessLayoutAddTextures(this.handle, space);
+    }
+
+    // RWTexture2D<float4>[] in register space `space`.
+    addTextureUAVs(space: int): void {
+        Donut_BindlessLayoutAddTextureUAVs(this.handle, space);
     }
 }
 
