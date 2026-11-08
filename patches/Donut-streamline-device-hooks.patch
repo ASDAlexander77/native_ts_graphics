@@ -1,0 +1,49 @@
+diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager.h
+--- a/include/donut/app/DeviceManager.h
++++ b/include/donut/app/DeviceManager.h
+@@ -234,6 +234,13 @@ namespace donut::app
+         D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;
+ #endif
+ 
++#if DONUT_WITH_DX12
++        // D3D12 only: replace D3D12CreateDevice and CreateDXGIFactory2 when set (e.g. with Streamline's
++        // interposer's, loaded at run time). Same parameters as the D3D functions.
++        std::function<HRESULT(IUnknown* adapter, D3D_FEATURE_LEVEL minimumFeatureLevel, REFIID riid, void** device)> d3d12CreateDevice;
++        std::function<HRESULT(UINT flags, REFIID riid, void** factory)> createDxgiFactory2;
++#endif
++
+ #if DONUT_WITH_VULKAN
+         std::vector<std::string> requiredVulkanDeviceExtensions;
+         std::vector<std::string> optionalVulkanDeviceExtensions;
+diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX12.cpp
+--- a/src/app/dx12/DeviceManager_DX12.cpp
++++ b/src/app/dx12/DeviceManager_DX12.cpp
+@@ -169,7 +169,10 @@ bool DeviceManager_DX12::CreateInstanceInternal()
+ 
+     if (!m_DxgiFactory2)
+     {
+-        HRESULT hres = CreateDXGIFactory2(m_DeviceParams.enableDebugRuntime ? DXGI_CREATE_FACTORY_DEBUG : 0, IID_PPV_ARGS(&m_DxgiFactory2));
++        const UINT factoryFlags = m_DeviceParams.enableDebugRuntime ? DXGI_CREATE_FACTORY_DEBUG : 0;
++        HRESULT hres = m_DeviceParams.createDxgiFactory2
++            ? m_DeviceParams.createDxgiFactory2(factoryFlags, IID_PPV_ARGS(&m_DxgiFactory2))
++            : CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&m_DxgiFactory2));
+         if (hres != S_OK)
+         {
+             donut::log::error("ERROR in CreateDXGIFactory2.\n"
+@@ -279,10 +282,12 @@ bool DeviceManager_DX12::CreateDevice()
+     }
+ 
+     
+-    HRESULT hr = D3D12CreateDevice(
+-        m_DxgiAdapter,
+-        m_DeviceParams.featureLevel,
+-        IID_PPV_ARGS(&m_Device12));
++    HRESULT hr = m_DeviceParams.d3d12CreateDevice
++        ? m_DeviceParams.d3d12CreateDevice(m_DxgiAdapter, m_DeviceParams.featureLevel, IID_PPV_ARGS(&m_Device12))
++        : D3D12CreateDevice(
++            m_DxgiAdapter,
++            m_DeviceParams.featureLevel,
++            IID_PPV_ARGS(&m_Device12));
+ 
+     if (FAILED(hr))
+     {

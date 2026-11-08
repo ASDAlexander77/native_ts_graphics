@@ -441,9 +441,15 @@ def parse(source):
             while not text.rstrip().endswith(";"):
                 i += 1
                 text += " " + lines[i].strip()
-            match = re.match(r"declare function (Donut_\w+)\((.*)\)\s*:\s*(.+);$", text)
+            match = re.match(r"declare function (\w+)\((.*)\)\s*:\s*(.+);$", text)
             if not match:
                 sys.exit(f"can't parse: {text}")
+            # Only the Donut_* functions are wrapped: others (core/streamline.cpp's Streamline_*) stay
+            # free functions.
+            if not match.group(1).startswith("Donut_"):
+                comments = []
+                i += 1
+                continue
             function = Function(match.group(1), match.group(2), match.group(3), comments)
             function.previous = functions[-1] if functions else None
             if function.target in STATIC_ONLY:

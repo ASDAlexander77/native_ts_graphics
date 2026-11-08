@@ -185,6 +185,10 @@ set(DONUT_PATCHES
     # executable, which under tslang's JIT is tslang.exe's folder, not bin/; rtxpt's run-time shader
     # compiler (RTXPT_DIR's) finds ShaderDynamic/ there, so core/rtxpt.cpp points it at bin/.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-executable-directory-override.patch"
+    # DeviceCreationParameters::d3d12CreateDevice and createDxgiFactory2: D3D12's device and DXGI factory made by
+    # the application's functions when set, as core/streamline.cpp has Streamline's interposer make them (it is
+    # loaded at run time from bin/streamline/, so its exports can't be linked in place of d3d12.lib and dxgi.lib).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-streamline-device-hooks.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -808,6 +812,11 @@ if (RTXMG_DIR)
     set_source_files_properties(${RTXMG_GLUE_SOURCES} PROPERTIES
         INCLUDE_DIRECTORIES "${RTXMG_DIR}/demo;${RTXMG_DIR}/rtxmg/include;${RTXMG_DIR};${RTXMG_DIR}/extern"
         COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/std:c++latest;/wd5333,-std=c++23>")
+endif()
+if (STREAMLINE_INCLUDE_DIR)
+    # Streamline's headers only: its interposer is loaded at run time (core/streamline.cpp).
+    list(APPEND JIT_MODULE_SOURCES core/streamline.cpp)
+    set_source_files_properties(core/streamline.cpp PROPERTIES INCLUDE_DIRECTORIES "${STREAMLINE_INCLUDE_DIR}")
 endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
@@ -5481,6 +5490,17 @@ if (RTXMG_DIR)
     # with NVRHI_D3D12_WITH_DXRCLUSTER, Developer Mode and driver 621.01+: else that test exits as skipped.
     add_tslang_example_test(rtxmg_demo ARGS -width 1280 -height 720
         --media ${RTXMG_DIR}/assets --scene subdivision/amy_kitchenset.scene.json)
+endif()
+
+# NVIDIA Streamline (WITH_STREAMLINE above): core/streamline.cpp starts it from bin/streamline/ and hooks the
+# device's creation (AppOptions.Streamline); D3D12 and Vulkan.
+if (WITH_STREAMLINE AND WIN32)
+    add_tslang_example(streamline_demo core/streamline.cpp)
+    add_dependencies(streamline_demo copy_streamline_binaries)
+    # DLSS, DLSS-RR, DeepDVC and Reflex supported, or skipped (no RTX GPU, old driver); then without
+    # Streamline (-slDisable), where nothing may report supported: always skipped, failed otherwise.
+    add_tslang_example_test(streamline_demo ARGS -width 1280 -height 720)
+    add_tslang_example_test(streamline_demo SUFFIX sl_disabled ARGS -width 1280 -height 720 -slDisable)
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

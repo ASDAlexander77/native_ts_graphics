@@ -147,7 +147,10 @@ enum AppOptions {
     DescriptorBuffers = 1024,
     // With D3D12, shaders index ResourceDescriptorHeap[] (the root signatures of pipelines with a mutable
     // bindless layout get CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED).
-    HeapDirectlyIndexed = 2048
+    HeapDirectlyIndexed = 2048,
+    // The device made through Streamline (after Streamline_Init, core/streamline.cpp; nothing without it):
+    // D3D12's by its interposer, Vulkan's with the interposer as the Vulkan loader.
+    Streamline = 4096
 }
 
 // The color space of what the back buffers hold (donut::app::SwapChainColorSpace): sRGB (SDR),

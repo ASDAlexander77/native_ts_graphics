@@ -2704,6 +2704,22 @@ bool UseD3D12RuntimeUnderJit(const char* folder, unsigned version)
 }
 #endif
 
+namespace donut_interop
+{
+    // Set by Streamline_Init (core/streamline.cpp, linked only where Streamline is): what AppOptions.Streamline
+    // does to the device's parameters, to have Streamline's interposer make the device. Empty otherwise.
+    std::function<void(nvrhi::GraphicsAPI, donut::app::DeviceCreationParameters&)> g_StreamlineConfigureDevice;
+
+    // AppOptions.Streamline: the device through Streamline, once Streamline_Init has started it.
+    static void ConfigureStreamlineDevice(nvrhi::GraphicsAPI api, donut::app::DeviceCreationParameters& params)
+    {
+        if (g_StreamlineConfigureDevice)
+            g_StreamlineConfigureDevice(api, params);
+        else
+            donut::log::info("AppOptions.Streamline without Streamline_Init: the device is made without Streamline");
+    }
+}
+
 extern "C"
 {
     // --- Application -----------------------------------------------------------------------
@@ -2730,6 +2746,7 @@ extern "C"
         AppOption_ShaderPrintf = 512, // with Vulkan, shaders' printf through the validation layer (Donut_HasShaderPrintf)
         AppOption_DescriptorBuffers = 1024, // with Vulkan, descriptor sets in buffers (Donut_HasDescriptorBuffers)
         AppOption_HeapDirectlyIndexed = 2048, // with D3D12, ResourceDescriptorHeap[] in shaders (mutable bindless layouts)
+        AppOption_Streamline = 4096, // the device made through Streamline (g_StreamlineConfigureDevice, set by Streamline_Init)
     };
 
     // The nvrhi::IMessageCallback the devices made after Donut_SetNvrhiMessageCallback get: null for
@@ -2868,6 +2885,9 @@ extern "C"
                 params.optionalVulkanDeviceExtensions);
         }
 #endif
+
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::ConfigureStreamlineDevice(api, params);
 
         // D3D12's ExecuteIndirect does all of it but buffer addresses; D3D11 has single indirect draws.
         int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance | IndirectDraw_Count
@@ -3395,6 +3415,8 @@ extern "C"
             params.optionalVulkanDeviceExtensions.push_back("VK_KHR_ray_tracing_position_fetch");
         }
 #endif
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::ConfigureStreamlineDevice(api, params);
 
         if (!deviceManager->CreateHeadlessDevice(params))
             return nullptr;

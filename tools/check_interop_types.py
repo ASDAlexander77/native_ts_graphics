@@ -1,6 +1,7 @@
 """Checks that core/donut_interop.d.ts declares the interop functions as the C++ defines them.
 
-Every Donut_* function defined in an `extern "C"` block of core/*.cpp must be declared in
+Every Donut_* (and Streamline_*, core/streamline.cpp's) function defined in an `extern "C"` block of
+core/*.cpp must be declared in
 donut_interop.d.ts with the same parameters, and each C++ type must map to the TypeScript type
 TYPES (or HANDLES, for object pointers) gives it. The callback types (RenderFn <->
 RenderCallback, ...) are compared the same way.
@@ -241,7 +242,7 @@ def parse_cpp(root):
         for block in re.finditer(r'^extern "C"\s*\n\{\n(.*?)^\}', text, re.S | re.M):
             body = block.group(1)
             first_line = text[:block.start(1)].count("\n") + 1
-            for m in re.finditer(r"^    (DONUT_API )?([A-Za-z_][\w:<>\s\*&]*?[\s\*&])(Donut_\w+)\(([^)]*)\)\s*\n    \{", body, re.M):
+            for m in re.finditer(r"^    (DONUT_API )?([A-Za-z_][\w:<>\s\*&]*?[\s\*&])((?:Donut|Streamline)_\w+)\(([^)]*)\)\s*\n    \{", body, re.M):
                 line = first_line + body[:m.start()].count("\n")
                 functions[m.group(3)] = (rel, line, normalize(m.group(2)),
                                          [cpp_param(p) for p in split_params(m.group(4))])
