@@ -7959,6 +7959,24 @@ extern "C"
         ImGui::NewLine();
     }
 
+    // The items until Donut_ImGuiEndDisabled greyed out and not interactive when disabled (ImGui::BeginDisabled;
+    // pair with Donut_ImGuiEndDisabled whatever disabled is).
+    DONUT_API void Donut_ImGuiBeginDisabled(bool disabled)
+    {
+        ImGui::BeginDisabled(disabled);
+    }
+
+    DONUT_API void Donut_ImGuiEndDisabled()
+    {
+        ImGui::EndDisabled();
+    }
+
+    // Whether ImGui takes the mouse (it's over one of its windows, or dragging an item); false without ImGui.
+    DONUT_API bool Donut_ImGuiWantCaptureMouse()
+    {
+        return ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse;
+    }
+
     // A scrolling region of width x height pixels (0: the rest of the window); end it with
     // Donut_ImGuiEndChild whatever this returns.
     DONUT_API bool Donut_ImGuiBeginChild(const char* id, double width, double height, bool border)

@@ -5288,6 +5288,21 @@ export class ImGui {
         Donut_ImGuiNewLine();
     }
 
+    // The items until ImGui.endDisabled greyed out and not interactive when disabled; pair them
+    // whatever disabled is.
+    static beginDisabled(disabled: boolean): void {
+        Donut_ImGuiBeginDisabled(disabled);
+    }
+
+    static endDisabled(): void {
+        Donut_ImGuiEndDisabled();
+    }
+
+    // Whether ImGui takes the mouse (it's over one of its windows, or dragging an item); false without ImGui.
+    static wantCaptureMouse(): boolean {
+        return Donut_ImGuiWantCaptureMouse();
+    }
+
     // A scrolling region of width x height pixels (0: the rest of the window); end it with
     // ImGui.endChild whatever this returns.
     static beginChild(id: string, width: number, height: number, border: boolean): boolean {

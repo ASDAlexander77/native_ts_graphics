@@ -47,8 +47,6 @@
 
 #include "donut_api.h"
 
-#include <imgui.h>
-
 #include <windows.h>
 
 #include <sl.h>
@@ -142,6 +140,8 @@ namespace
         sl::FrameToken* frame = nullptr;
         // Whether a resource is tagged (then Streamline_ClearTags has tags to drop).
         bool tagged = false;
+        // Reflex's sleeps that succeeded (Streamline_ReflexSleeps).
+        int reflexSleeps = 0;
 
         // DLSS-G: on (Streamline_SetDlssG's mode not off), loaded (on D3D12 from the swap chain made with it on),
         // the swap chain to make again at the next frame's start (D3D12).
@@ -283,8 +283,8 @@ namespace
             g_Streamline.frame = nullptr;
             return -1;
         }
-        if (g_Streamline.slReflexSleep)
-            Check(g_Streamline.slReflexSleep(*g_Streamline.frame), "slReflexSleep");
+        if (g_Streamline.slReflexSleep && Check(g_Streamline.slReflexSleep(*g_Streamline.frame), "slReflexSleep"))
+            g_Streamline.reflexSleeps++;
         return static_cast<int>(static_cast<uint32_t>(*g_Streamline.frame));
     }
 
@@ -583,7 +583,7 @@ namespace
 extern "C"
 {
     // Starts Streamline (see streamline.d.ts). Non-zero on success.
-    DONUT_API int Streamline_Init(int api, const char* pluginDir, int latewarp, int log)
+    DONUT_API int Streamline_Init(int api, const char* pluginDir, int log)
     {
         // Console app: log to the console instead of Donut's default modal MessageBox on errors.
         donut::log::ConsoleApplicationMode();
@@ -592,12 +592,6 @@ extern "C"
         {
             donut::log::warning("Streamline: already started");
             return 1;
-        }
-        if (latewarp != 0)
-        {
-            // sl.latewarp.dll and sl_latewarp.h aren't in the public 2.12.0 release (STREAMLINE_HAS_LATEWARP).
-            donut::log::warning("Latewarp: not in Streamline 2.12.0");
-            return 0;
         }
         const auto graphicsApi = static_cast<nvrhi::GraphicsAPI>(api);
         if (graphicsApi != nvrhi::GraphicsAPI::D3D12 && graphicsApi != nvrhi::GraphicsAPI::VULKAN)
@@ -649,7 +643,7 @@ extern "C"
         if (!found)
             return 0;
 
-        // DLSS-G or Latewarp (only one of them loads, by latewarp; Latewarp returned above).
+        // Not Latewarp: sl.latewarp.dll and sl_latewarp.h aren't in the public 2.12.0 release.
         const sl::Feature features[] = { sl::kFeatureDLSS, sl::kFeatureDLSS_RR, sl::kFeatureDeepDVC,
             sl::kFeatureReflex, sl::kFeaturePCL, sl::kFeatureDLSS_G };
         const std::wstring pluginPath = directory.wstring();
@@ -755,20 +749,26 @@ extern "C"
     }
 
     // Reflex's mode (sl::ReflexMode) and frame rate cap (0: none), if Reflex is supported.
-    DONUT_API void Streamline_SetReflex(int mode, int fpsCap)
+    DONUT_API int Streamline_SetReflex(int mode, int fpsCap)
     {
         if (!g_Streamline.initialized)
-            return;
+            return 0;
         FeatureFunctions();
         if (!g_Streamline.slReflexSetOptions)
-            return;
+            return 0;
         sl::ReflexOptions options{};
         options.mode = static_cast<sl::ReflexMode>(mode);
         options.frameLimitUs = fpsCap > 0 ? static_cast<uint32_t>(1000000.0 / fpsCap) : 0;
         options.useMarkersToOptimize = true;
         // The key the PC latency ping is sent with.
         options.virtualKey = VK_F13;
-        Check(g_Streamline.slReflexSetOptions(options), "slReflexSetOptions");
+        return Check(g_Streamline.slReflexSetOptions(options), "slReflexSetOptions") ? 1 : 0;
+    }
+
+    // Reflex's sleeps that succeeded so far (Streamline_BeginFrame's).
+    DONUT_API int Streamline_ReflexSleeps()
+    {
+        return g_Streamline.reflexSleeps;
     }
 
     // Reflex's latest latency report: the simulation's start to the GPU's end of rendering, in milliseconds;
@@ -877,28 +877,29 @@ extern "C"
     }
 
     // DLSS's upscaling of input into output (see streamline.d.ts).
-    DONUT_API void Streamline_EvaluateDlss(nvrhi::ICommandList* commandList, int mode, nvrhi::ITexture* input, nvrhi::ITexture* output,
+    DONUT_API int Streamline_EvaluateDlss(nvrhi::ICommandList* commandList, int mode, nvrhi::ITexture* input, nvrhi::ITexture* output,
         int renderWidth, int renderHeight)
     {
         if (!g_Streamline.initialized || !g_Streamline.frame || !commandList || !input || !output)
-            return;
+            return 0;
         FeatureFunctions();
         if (!g_Streamline.slDLSSSetOptions)
-            return;
+            return 0;
         const nvrhi::TextureDesc& outputDesc = output->getDesc();
         if (!Check(g_Streamline.slDLSSSetOptions(kViewport, DlssOptions(mode, outputDesc.width, outputDesc.height)), "slDLSSSetOptions"))
-            return;
+            return 0;
         const Tag tags[] = {
             { input, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent, uint32_t(renderWidth), uint32_t(renderHeight) },
             { output, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent, outputDesc.width, outputDesc.height },
         };
         if (!SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (DLSS)"))
-            return;
+            return 0;
         const sl::BaseStructure* inputs[] = { &kViewport };
-        Check(g_Streamline.slEvaluateFeature(sl::kFeatureDLSS, *g_Streamline.frame, inputs, 1, NativeCommandList(commandList)),
-            "slEvaluateFeature (DLSS)");
+        const bool evaluated = Check(g_Streamline.slEvaluateFeature(sl::kFeatureDLSS, *g_Streamline.frame, inputs, 1,
+            NativeCommandList(commandList)), "slEvaluateFeature (DLSS)");
         // Streamline bound its own pipelines and resources (eDisableCLStateTracking: it doesn't restore them).
         commandList->clearState();
+        return evaluated ? 1 : 0;
     }
 
     // DLSS-RR's render size for the mode at the display size (see streamline.d.ts).
@@ -925,20 +926,20 @@ extern "C"
     }
 
     // DLSS-RR's denoising and upscaling of input into output with its guides (see streamline.d.ts).
-    DONUT_API void Streamline_EvaluateDlssRR(nvrhi::ICommandList* commandList, int mode, nvrhi::ITexture* input,
+    DONUT_API int Streamline_EvaluateDlssRR(nvrhi::ICommandList* commandList, int mode, nvrhi::ITexture* input,
         nvrhi::ITexture* output, nvrhi::ITexture* diffuseAlbedo, nvrhi::ITexture* specularAlbedo, nvrhi::ITexture* normalRoughness,
         nvrhi::ITexture* specularHitDistance, const float* worldToView, const float* viewToWorld)
     {
         if (!g_Streamline.initialized || !g_Streamline.frame || !commandList || !input || !output || !diffuseAlbedo
             || !specularAlbedo || !normalRoughness || !specularHitDistance || !worldToView || !viewToWorld)
-            return;
+            return 0;
         FeatureFunctions();
         if (!g_Streamline.slDLSSDSetOptions)
-            return;
+            return 0;
         const nvrhi::TextureDesc& outputDesc = output->getDesc();
         if (!Check(g_Streamline.slDLSSDSetOptions(kViewport, DlssRROptions(mode, outputDesc.width, outputDesc.height, worldToView,
             viewToWorld)), "slDLSSDSetOptions"))
-            return;
+            return 0;
         // The input is at the render size; the guides are read over as much of them (they may be larger).
         const uint32_t renderWidth = input->getDesc().width;
         const uint32_t renderHeight = input->getDesc().height;
@@ -952,41 +953,43 @@ extern "C"
             { output, sl::kBufferTypeScalingOutputColor, lifecycle, outputDesc.width, outputDesc.height },
         };
         if (!SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (DLSS-RR)"))
-            return;
+            return 0;
         const sl::BaseStructure* inputs[] = { &kViewport };
-        Check(g_Streamline.slEvaluateFeature(sl::kFeatureDLSS_RR, *g_Streamline.frame, inputs, 1, NativeCommandList(commandList)),
-            "slEvaluateFeature (DLSS-RR)");
+        const bool evaluated = Check(g_Streamline.slEvaluateFeature(sl::kFeatureDLSS_RR, *g_Streamline.frame, inputs, 1,
+            NativeCommandList(commandList)), "slEvaluateFeature (DLSS-RR)");
         // Streamline bound its own pipelines and resources (eDisableCLStateTracking: it doesn't restore them).
         commandList->clearState();
+        return evaluated ? 1 : 0;
     }
 
     // DeepDVC on color, in place (see streamline.d.ts).
-    DONUT_API void Streamline_EvaluateDeepDvc(nvrhi::ICommandList* commandList, nvrhi::ITexture* color, double intensity,
+    DONUT_API int Streamline_EvaluateDeepDvc(nvrhi::ICommandList* commandList, nvrhi::ITexture* color, double intensity,
         double saturationBoost)
     {
         if (!g_Streamline.initialized || !g_Streamline.frame || !commandList || !color)
-            return;
+            return 0;
         FeatureFunctions();
         if (!g_Streamline.slDeepDVCSetOptions)
-            return;
+            return 0;
         sl::DeepDVCOptions options{};
         options.mode = sl::DeepDVCMode::eOn;
         options.intensity = float(intensity);
         options.saturationBoost = float(saturationBoost);
         if (!Check(g_Streamline.slDeepDVCSetOptions(kViewport, options), "slDeepDVCSetOptions"))
-            return;
+            return 0;
         // DeepDVC reads and writes the one texture, tagged as the output color.
         const nvrhi::TextureDesc& desc = color->getDesc();
         const Tag tags[] = {
             { color, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent, desc.width, desc.height },
         };
         if (!SetTags(commandList, tags, std::size(tags), "slSetTagForFrame (DeepDVC)"))
-            return;
+            return 0;
         const sl::BaseStructure* inputs[] = { &kViewport };
-        Check(g_Streamline.slEvaluateFeature(sl::kFeatureDeepDVC, *g_Streamline.frame, inputs, 1, NativeCommandList(commandList)),
-            "slEvaluateFeature (DeepDVC)");
+        const bool evaluated = Check(g_Streamline.slEvaluateFeature(sl::kFeatureDeepDVC, *g_Streamline.frame, inputs, 1,
+            NativeCommandList(commandList)), "slEvaluateFeature (DeepDVC)");
         // Streamline bound its own pipelines and resources (eDisableCLStateTracking: it doesn't restore them).
         commandList->clearState();
+        return evaluated ? 1 : 0;
     }
 
     // DeepDVC's mode off (its plugin has no explicit resource free; see streamline.d.ts).
@@ -1002,13 +1005,13 @@ extern "C"
         Check(g_Streamline.slDeepDVCSetOptions(kViewport, options), "slDeepDVCSetOptions (off)");
     }
 
-    // DLSS Frame Generation's mode (sl::DLSSGMode: 0 off, 1 on) and frames generated per frame rendered (see
-    // streamline.d.ts). Its resources are kept while it's off for a moment (the mouse over the UI, which is
-    // being changed, as in the sample) and freed when it's turned off.
-    DONUT_API void Streamline_SetDlssG(int mode, int framesToGenerate)
+    // DLSS Frame Generation's mode (sl::DLSSGMode: 0 off, 1 on), frames generated per frame rendered, and
+    // whether it's held off for this frame (see streamline.d.ts). Its resources are kept while it's held off
+    // and freed when it's turned off.
+    DONUT_API int Streamline_SetDlssG(int mode, int framesToGenerate, int holdOff)
     {
         if (!g_Streamline.initialized || !g_Streamline.IsSupported(sl::kFeatureDLSS_G))
-            return;
+            return 0;
         const bool wanted = mode != 0;
         const bool turnedOff = g_Streamline.dlssgWanted && !wanted;
         if (wanted != g_Streamline.dlssgWanted)
@@ -1021,7 +1024,7 @@ extern "C"
         }
         DlssGFunctions();
         if (!g_Streamline.slDLSSGSetOptions)
-            return;
+            return 0;
         sl::DLSSGOptions options{};
         options.mode = static_cast<sl::DLSSGMode>(mode);
         options.numFramesToGenerate = static_cast<uint32_t>(framesToGenerate > 1 ? framesToGenerate : 1);
@@ -1035,12 +1038,14 @@ extern "C"
             options.numFramesToGenerate = maxFrames;
         }
         options.flags = sl::DLSSGFlags::eRetainResourcesWhenOff;
-        if (ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse)
+        // Held off: off for this frame only, its resources kept (it's still wanted).
+        if (holdOff != 0)
             options.mode = sl::DLSSGMode::eOff;
-        Check(g_Streamline.slDLSSGSetOptions(kViewport, options), "slDLSSGSetOptions");
+        const bool set = Check(g_Streamline.slDLSSGSetOptions(kViewport, options), "slDLSSGSetOptions");
         // Vulkan (no new swap chain): its resources freed as it's turned off.
         if (turnedOff && g_Streamline.api == nvrhi::GraphicsAPI::VULKAN)
             g_Streamline.slFreeResources(sl::kFeatureDLSS_G, kViewport);
+        return set ? 1 : 0;
     }
 
     // DLSS-G's state (see streamline.d.ts): status | frames actually presented per frame rendered << 8 |
@@ -1065,11 +1070,11 @@ extern "C"
     // DLSS-G's inputs at present, on the frame's last command list (see streamline.d.ts): the UI's color and
     // alpha and its alpha (either may be null), the back buffer's extent, and Streamline_TagCommon's motion
     // vectors, depth and color without the UI again, each in the state it has at present (ToSlAtPresent).
-    DONUT_API void Streamline_TagUi(nvrhi::ICommandList* commandList, nvrhi::ITexture* uiColorAlpha, nvrhi::ITexture* uiAlpha,
+    DONUT_API int Streamline_TagUi(nvrhi::ICommandList* commandList, nvrhi::ITexture* uiColorAlpha, nvrhi::ITexture* uiAlpha,
         int backbufferWidth, int backbufferHeight)
     {
         if (!g_Streamline.initialized || !g_Streamline.frame || !commandList)
-            return;
+            return 0;
         struct PresentTag
         {
             nvrhi::ITexture* texture;
@@ -1102,8 +1107,8 @@ extern "C"
         tags[count] = sl::ResourceTag{ nullptr, sl::kBufferTypeBackbuffer, sl::ResourceLifecycle{}, &extents[count] };
         count++;
         g_Streamline.tagged = true;
-        Check(g_Streamline.slSetTagForFrame(*g_Streamline.frame, kViewport, tags, count, NativeCommandList(commandList)),
-            "slSetTagForFrame (DLSS-G)");
+        return Check(g_Streamline.slSetTagForFrame(*g_Streamline.frame, kViewport, tags, count, NativeCommandList(commandList)),
+            "slSetTagForFrame (DLSS-G)") ? 1 : 0;
     }
 
     // Drops every tag: before the tagged resources are released (Streamline holds them until then).

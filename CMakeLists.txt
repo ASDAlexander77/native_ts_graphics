@@ -640,8 +640,8 @@ endif()
 # bin/streamline/ by core/streamline.cpp. The release zip (~232 MB, headers + signed bin/x64) is fetched
 # at configure time into the build folder (STREAMLINE_FETCH_DIR to share one). The SDK is MIT-licensed, but
 # the plugin and NGX DLLs in it are under NVIDIA's own licenses (license files next to them in bin/x64):
-# none of it may be committed here. Latewarp (sl.latewarp.dll, sl_latewarp.h) isn't in every release, so
-# STREAMLINE_HAS_LATEWARP says whether this one has it.
+# none of it may be committed here. Latewarp isn't in the 2.12.0 release (no sl.latewarp.dll or
+# sl_latewarp.h), so it isn't used.
 option(WITH_STREAMLINE "Fetch the NVIDIA Streamline SDK (~232 MB) for the streamline_demo example" OFF)
 set(STREAMLINE_FETCH_DIR "" CACHE STRING "Directory to fetch Streamline to, empty uses build directory default")
 if (WITH_STREAMLINE AND WIN32)
@@ -658,36 +658,29 @@ if (WITH_STREAMLINE AND WIN32)
     FetchContent_MakeAvailable(streamline)
     set(STREAMLINE_INCLUDE_DIR "${streamline_SOURCE_DIR}/include")
     set(STREAMLINE_BIN_DIR "${streamline_SOURCE_DIR}/bin/x64")
-    if (EXISTS "${STREAMLINE_BIN_DIR}/sl.latewarp.dll" AND EXISTS "${STREAMLINE_INCLUDE_DIR}/sl_latewarp.h")
-        set(STREAMLINE_HAS_LATEWARP TRUE)
-    else()
-        set(STREAMLINE_HAS_LATEWARP FALSE)
-    endif()
-    message(STATUS "Streamline Latewarp: ${STREAMLINE_HAS_LATEWARP}")
+    message(STATUS "Streamline Latewarp: not in the 2.12.0 release, not used")
 
     # The runtime DLLs next to the examples' binaries, in bin/streamline/ (the interposer loads the plugins
-    # from the folder it is in). NIS and the rest of the plugins aren't used.
+    # from the folder it is in), with the license files that go with them (bin/x64's *.license.txt). NIS and
+    # the rest of the plugins aren't used.
     set(STREAMLINE_RUNTIME_FILES
         sl.interposer.dll sl.common.dll sl.pcl.dll sl.reflex.dll sl.dlss.dll sl.dlss_d.dll sl.deepdvc.dll
         sl.dlss_g.dll NvLowLatencyVk.dll)
-    if (STREAMLINE_HAS_LATEWARP)
-        list(APPEND STREAMLINE_RUNTIME_FILES sl.latewarp.dll)
-    endif()
     file(GLOB STREAMLINE_NGX_FILES "${STREAMLINE_BIN_DIR}/nvngx_*.dll")
-    file(GLOB STREAMLINE_JSON_FILES "${STREAMLINE_BIN_DIR}/*.json")
+    file(GLOB STREAMLINE_LICENSE_FILES "${STREAMLINE_BIN_DIR}/*.txt")
     set(STREAMLINE_COPY_COMMANDS)
     foreach(f IN LISTS STREAMLINE_RUNTIME_FILES)
         list(APPEND STREAMLINE_COPY_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${STREAMLINE_BIN_DIR}/${f}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline/${f}")
     endforeach()
-    foreach(f IN LISTS STREAMLINE_NGX_FILES STREAMLINE_JSON_FILES)
+    foreach(f IN LISTS STREAMLINE_NGX_FILES STREAMLINE_LICENSE_FILES)
         list(APPEND STREAMLINE_COPY_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${f}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline")
     endforeach()
     add_custom_target(copy_streamline_binaries
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline"
         ${STREAMLINE_COPY_COMMANDS}
-        COMMENT "Copying the Streamline runtime DLLs")
+        COMMENT "Copying the Streamline runtime DLLs and their licenses")
 endif()
 # streamline_demo (see the end of this file) builds only with STREAMLINE_SAMPLE_DIR too: a checkout of
 # NVIDIA's Streamline Sample (github.com/NVIDIA-RTX/Streamline_Sample), whose ray tracing shader library

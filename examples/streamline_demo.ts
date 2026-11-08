@@ -122,8 +122,24 @@ namespace StreamlineDemo {
         }
         // The multiplier as the UI clamps it by the state the run got (none on D3D12 while DLSS-G is off): the
         // one asked for, unless DLSS-G reported it can't.
-        return demo.dlssgClampedMultiplier == multiplier || demo.dlssgClampedMultiplier == dlssgMaxMultiplier(demo.dlssgState)
-            && demo.dlssgState >= 0 ? "" : `DLSS-G: -dlssg ${multiplier} clamped to ${demo.dlssgClampedMultiplier}x (state ${demo.dlssgState})`;
+        // Parenthesized in full: tslang has mis-parsed ternaries over mixed conditions before.
+        const clampedOk = (demo.dlssgClampedMultiplier == multiplier)
+            || ((demo.dlssgClampedMultiplier == dlssgMaxMultiplier(demo.dlssgState)) && (demo.dlssgState >= 0));
+        return clampedOk ? "" : `DLSS-G: -dlssg ${multiplier} clamped to ${demo.dlssgClampedMultiplier}x (state ${demo.dlssgState})`;
+    }
+
+    // -test with -reflex 1|2: Streamline took Reflex's options and its sleep ran every frame (Streamline_BeginFrame
+    // sleeps before each frame; the count is of the sleeps Streamline reported succeeding).
+    function checkReflex(demo: StreamlineDemo, reflexMode: int) {
+        if (reflexMode < 1) {
+            return "";
+        }
+        if (demo.reflexOptionsSet < 1) {
+            return "Reflex: Streamline_SetReflex never succeeded";
+        }
+        const sleeps = Streamline_ReflexSleeps();
+        console.log(`Reflex: options set ${demo.reflexOptionsSet} times, ${sleeps} sleeps`);
+        return sleeps >= TEST_FRAMES ? "" : `Reflex slept ${sleeps} of ${TEST_FRAMES} frames`;
     }
 
     const WINDOW_TITLE = "Donut Example: Streamline";
@@ -275,6 +291,13 @@ namespace StreamlineDemo {
         // The overlay: Streamline_DlssGState's last answer (-1: none), Reflex's latency (-1: none).
         public dlssgState: int = -1;
         public reflexLatencyMs = -1.0;
+        // Why a feature isn't supported (Streamline_FeatureStatusText), empty if it is: its controls are greyed
+        // out with the reason next to them.
+        public dlssUnsupported = "";
+        public dlssRRUnsupported = "";
+        public deepDvcUnsupported = "";
+        public reflexUnsupported = "";
+        public dlssgUnsupported = "";
     }
 
     // The largest multiplier DLSS-G takes by its state (Streamline_DlssGState: the most frames it can generate
@@ -448,6 +471,12 @@ namespace StreamlineDemo {
         public dlssSupported: boolean;
         public dlssRRSupported: boolean;
         public deepDvcSupported: boolean;
+        // Reflex supported; the times Streamline took its options (applyReflex), and the mode and frame rate cap
+        // last given (-1: none yet).
+        public reflexSupported: boolean;
+        public reflexOptionsSet: int;
+        private reflexAppliedMode: int;
+        private reflexAppliedFpsCap: int;
         // DLSS-G supported; -test with -dlssg: it was skipped (no swap chain to present).
         public dlssgSupported: boolean;
         public dlssgHeadlessSkipped: boolean;
@@ -461,6 +490,8 @@ namespace StreamlineDemo {
         public dlssgOnFrames: int;
         public dlssgOkFrames: int;
         public dlssgFullFrames: int;
+        // The frames DLSS-G's inputs were tagged at present.
+        public dlssgTaggedFrames: int;
         // The ImGui pass (none without the UI), and whether it draws into the UI layer, for which render targets.
         public imguiPass: ImGuiPass | null;
         private uiLayerOn: boolean;
@@ -551,6 +582,10 @@ namespace StreamlineDemo {
             this.dlssSupported = false;
             this.dlssRRSupported = false;
             this.deepDvcSupported = false;
+            this.reflexSupported = false;
+            this.reflexOptionsSet = 0;
+            this.reflexAppliedMode = -1;
+            this.reflexAppliedFpsCap = -1;
             this.dlssgSupported = false;
             this.dlssgHeadlessSkipped = false;
             this.dlssgState = -1;
@@ -559,6 +594,7 @@ namespace StreamlineDemo {
             this.dlssgOnFrames = 0;
             this.dlssgOkFrames = 0;
             this.dlssgFullFrames = 0;
+            this.dlssgTaggedFrames = 0;
             this.imguiPass = null;
             this.uiLayerOn = false;
             this.uiLayerGeneration = 0;
@@ -1021,27 +1057,48 @@ namespace StreamlineDemo {
                     + Math.fround(m[14] * m[column * 4 + 2])));
             }
             inv[15] = 1.0;
-            Streamline_EvaluateDlssRR(commandList.handle, this.ui.dlssRRMode, targets.hdrColor, targets.aaResolvedColor,
+            if (Streamline_EvaluateDlssRR(commandList.handle, this.ui.dlssRRMode, targets.hdrColor, targets.aaResolvedColor,
                 targets.gbufferDiffuseRR, targets.gbufferSpecularRR, targets.gbufferNormalsRR, targets.specHitDistance,
-                Ref(this.viewMatrix[0]), Ref(inv[0]));
-            this.dlssRREvaluations++;
+                Ref(this.viewMatrix[0]), Ref(inv[0])) != 0) {
+                this.dlssRREvaluations++;
+            }
         }
 
-        // DLSS-G for the frame (with a swap chain): its options, the overlay's state, Reflex on while it's on.
+        // Reflex's options, given to Streamline when they change (the UI's, -reflex at the start; DLSS-G on forces
+        // low latency at least), counting those it took; and its latency for the overlay, every frame.
+        applyReflex() {
+            const ui = this.ui;
+            if (!this.reflexSupported) {
+                return;
+            }
+            if (this.dlssgEnabled && ui.dlssgMode != 0 && ui.reflexMode < 1) {
+                ui.reflexMode = 1;
+                console.log("DLSS-G: Reflex low latency on (DLSS-G needs it)");
+            }
+            if (ui.reflexMode != this.reflexAppliedMode || ui.reflexFpsCap != this.reflexAppliedFpsCap) {
+                if (Streamline_SetReflex(ui.reflexMode, ui.reflexFpsCap) != 0) {
+                    this.reflexOptionsSet++;
+                }
+                // Not asked again until they change (a failure is logged once).
+                this.reflexAppliedMode = ui.reflexMode;
+                this.reflexAppliedFpsCap = ui.reflexFpsCap;
+            }
+            ui.reflexLatencyMs = Streamline_ReflexLatencyMs();
+        }
+
+        // DLSS-G for the frame (with a swap chain): its options (held off for the frame while ImGui takes the
+        // mouse, as the sample does: the UI being changed), the overlay's state.
         updateDlssG() {
             const ui = this.ui;
             if (!this.dlssgEnabled) {
                 return;
             }
-            if (ui.dlssgMode != 0 && ui.reflexMode < 1) {
-                ui.reflexMode = 1;
-                Streamline_SetReflex(ui.reflexMode, ui.reflexFpsCap);
-                console.log("DLSS-G: Reflex low latency on (DLSS-G needs it)");
-            }
-            Streamline_SetDlssG(ui.dlssgMode, ui.dlssgMultiplier - 1);
+            const holdOff = ImGui.wantCaptureMouse() ? 1 : 0;
+            const set = Streamline_SetDlssG(ui.dlssgMode, ui.dlssgMultiplier - 1, holdOff) != 0;
             ui.dlssgState = Streamline_DlssGState();
-            ui.reflexLatencyMs = Streamline_ReflexLatencyMs();
-            if (ui.dlssgMode != 0) {
+            // Counted while Streamline takes its options (on D3D12 not on the frame it's turned on: it loads with
+            // the swap chain made at the next frame's start).
+            if (ui.dlssgMode != 0 && set) {
                 this.dlssgOnFrames++;
                 if (ui.dlssgState >= 0 && (ui.dlssgState & 0xff) == 0) {
                     this.dlssgOkFrames++;
@@ -1151,8 +1208,9 @@ namespace StreamlineDemo {
             if (this.uiLayerOn) {
                 this.compositeUi(commandList, t);
             }
-            if (this.ui.dlssgMode != 0) {
-                Streamline_TagUi(commandList.handle, t.uiColorAlpha, t.uiAlpha, frame.getWidth(), frame.getHeight());
+            if (this.ui.dlssgMode != 0
+                && Streamline_TagUi(commandList.handle, t.uiColorAlpha, t.uiAlpha, frame.getWidth(), frame.getHeight()) != 0) {
+                this.dlssgTaggedFrames++;
             }
         }
 
@@ -1171,9 +1229,12 @@ namespace StreamlineDemo {
             v[9] = length > 0.0 ? rx / length : 0.0;
             v[10] = length > 0.0 ? ry / length : 0.0;
             v[11] = length > 0.0 ? rz / length : 0.0;
-            // reset 0 always: the sample's flag for it is a shadowed local that stays false.
+            // reset on the frames the render targets were made (again): the first, and a render or display size
+            // change, whose history (the previous frame's motion vectors, depth and color) is gone. The sample
+            // always passes 0 (its flag for it is a shadowed local that stays false); this port differs so that
+            // DLSS doesn't blend in history from a frame of another size.
             Streamline_SetConstants(this.view.handle, this.viewPrevious.handle, Ref(v[0]), Ref(v[3]), Ref(v[6]), Ref(v[9]),
-                targets.renderWidth, targets.renderHeight, 0);
+                targets.renderWidth, targets.renderHeight, this.renderTargetsChanged ? 1 : 0);
             Streamline_TagCommon(commandList.handle, targets.motionVectors, targets.depth, targets.preUIColor);
         }
 
@@ -1196,6 +1257,7 @@ namespace StreamlineDemo {
             }
 
             this.updateDlssG();
+            this.applyReflex();
 
             // DLSS-RR replaces anti-aliasing: whatever the AA combo (or -aa) asks for, it's NONE while RR is
             // on, so DLSS-SR is never evaluated (updateDlss frees it) and the view isn't jittered.
@@ -1336,9 +1398,10 @@ namespace StreamlineDemo {
 
             // Anti-aliasing into the resolved color: DLSS, TAA, or a copy.
             if (ui.antiAliasingMode == AntiAliasingMode.DLSS) {
-                Streamline_EvaluateDlss(commandList.handle, ui.dlssMode, targets.hdrColor, targets.aaResolvedColor,
-                    targets.renderWidth, targets.renderHeight);
-                this.dlssEvaluations++;
+                if (Streamline_EvaluateDlss(commandList.handle, ui.dlssMode, targets.hdrColor, targets.aaResolvedColor,
+                    targets.renderWidth, targets.renderHeight) != 0) {
+                    this.dlssEvaluations++;
+                }
                 this.previousViewsValid = true;
             } else if (ui.antiAliasingMode == AntiAliasingMode.TEMPORAL) {
                 commandList.temporalResolveView(temporalAntiAliasingPass, view, this.previousViewsValid ? 1 : 0, 1);
@@ -1370,8 +1433,10 @@ namespace StreamlineDemo {
             // not support explicit resource deallocation").
             // Its mode is set to off once when it's turned off.
             if (ui.enableDeepDvc && this.deepDvcSupported) {
-                Streamline_EvaluateDeepDvc(commandList.handle, targets.preUIColor, ui.deepDvcIntensity, ui.deepDvcSaturationBoost);
-                this.deepDvcEvaluations++;
+                if (Streamline_EvaluateDeepDvc(commandList.handle, targets.preUIColor, ui.deepDvcIntensity,
+                    ui.deepDvcSaturationBoost) != 0) {
+                    this.deepDvcEvaluations++;
+                }
                 this.deepDvcOn = true;
             } else if (this.deepDvcOn) {
                 Streamline_DeepDvcOff();
@@ -1453,11 +1518,18 @@ namespace StreamlineDemo {
 
     // --- UI ----------------------------------------------------------------------------------------------
 
+    // Why a feature's controls (just drawn, greyed out) are: its reason on the same line.
+    function unsupportedNote(reason: string) {
+        ImGui.sameLine();
+        ImGui.text(`(not supported: ${reason})`);
+    }
+
     // The sample's settings this port has so far (its UIRenderer's rendering section).
     class UserInterface {
         private ui: UIData;
         private rayTracingSupported: boolean;
-        // DLSS-G in use (StreamlineDemo.dlssgEnabled): its controls and overlay; the app, for the frame time.
+        // DLSS-G in use (StreamlineDemo.dlssgEnabled): its controls and overlay, else greyed out; the app, for the
+        // frame time.
         public dlssgEnabled: boolean;
         private app: App;
         public imguiPass: ImGuiPass;
@@ -1475,11 +1547,18 @@ namespace StreamlineDemo {
             return !this.imguiPass.isNull();
         }
 
-        // DLSS-G's controls and the overlay: frames presented per frame rendered, its status, the frame rates,
-        // Reflex's latency.
+        // DLSS-G's controls and the overlay: frames presented per frame rendered, its status, the frame rates.
+        // Greyed out with the reason when it isn't supported.
         buildDlssG() {
             const ui = this.ui;
             ImGui.separator();
+            if (!this.dlssgEnabled) {
+                ImGui.beginDisabled(true);
+                ImGui.checkbox("DLSS Frame Generation", false);
+                ImGui.endDisabled();
+                unsupportedNote(ui.dlssgUnsupported);
+                return;
+            }
             ui.dlssgMode = ImGui.checkbox("DLSS Frame Generation", ui.dlssgMode != 0) ? 1 : 0;
             const state = ui.dlssgState;
             // The most frames it can generate (+ 1: the multiplier), at least 2x.
@@ -1498,6 +1577,27 @@ namespace StreamlineDemo {
             } else {
                 ImGui.text(`DLSS-G: off (frame rate ${Math.round(renderedFps)})`);
             }
+        }
+
+        // Reflex's mode and frame rate cap (low latency at least while DLSS-G is on: it needs Reflex), and its
+        // latency. Greyed out with the reason when it isn't supported.
+        buildReflex() {
+            const ui = this.ui;
+            ImGui.separator();
+            const unsupported = ui.reflexUnsupported != "";
+            const forced = this.dlssgEnabled && ui.dlssgMode != 0;
+            ImGui.beginDisabled(unsupported);
+            const mode = ImGui.combo("Reflex", ui.reflexMode, "Off|Low latency|Boost");
+            ui.reflexMode = forced && mode < 1 ? 1 : mode;
+            ui.reflexFpsCap = ImGui.sliderInt("Reflex FPS cap (0: none)", ui.reflexFpsCap, 0, 360);
+            ImGui.endDisabled();
+            if (unsupported) {
+                unsupportedNote(ui.reflexUnsupported);
+                return;
+            }
+            if (forced) {
+                ImGui.text("Reflex on: DLSS-G needs it");
+            }
             ImGui.text(ui.reflexLatencyMs >= 0.0 ? `Reflex latency: ${Math.round(ui.reflexLatencyMs * 10.0) / 10.0} ms` : "Reflex latency: no report");
         }
 
@@ -1511,15 +1611,29 @@ namespace StreamlineDemo {
                 ui.rayTracingMode = ImGui.checkbox("Ray Traced Lighting", ui.rayTracingMode != 0) ? 1 : 0;
             }
             // DLSS-RR (its mode's index as DLSS's): anti-aliasing is none while it's on, its combo hidden.
+            const rrUnsupported = ui.dlssRRUnsupported != "";
+            ImGui.beginDisabled(rrUnsupported);
             const rrIndex = ui.dlssRRMode == DlssMode.DLAA ? 5 : ui.dlssRRMode;
             const rrChosen = ImGui.combo("DLSS-RR Mode", rrIndex, "Off|Max Performance|Balanced|Max Quality|Ultra Performance|DLAA");
-            ui.dlssRRMode = rrChosen == 5 ? DlssMode.DLAA : rrChosen;
+            ui.dlssRRMode = rrUnsupported ? DlssMode.Off : (rrChosen == 5 ? DlssMode.DLAA : rrChosen);
+            ImGui.endDisabled();
+            if (rrUnsupported) {
+                unsupportedNote(ui.dlssRRUnsupported);
+            }
             if (ui.dlssRRMode != DlssMode.Off) {
                 ImGui.text("AA Mode: none (DLSS-RR)");
+            } else if (ui.dlssUnsupported != "") {
+                // No DLSS entry; its mode combo greyed out with the reason.
+                ui.antiAliasingMode = ImGui.combo("AA Mode", ui.antiAliasingMode == AntiAliasingMode.DLSS ? AntiAliasingMode.NONE
+                    : ui.antiAliasingMode, "None|TAA");
+                ImGui.beginDisabled(true);
+                ImGui.combo("DLSS Mode", 0, "Off");
+                ImGui.endDisabled();
+                unsupportedNote(ui.dlssUnsupported);
             } else {
                 ui.antiAliasingMode = ImGui.combo("AA Mode", ui.antiAliasingMode, "None|TAA|DLSS");
             }
-            if (ui.dlssRRMode == DlssMode.Off && ui.antiAliasingMode == AntiAliasingMode.DLSS) {
+            if (ui.dlssRRMode == DlssMode.Off && ui.antiAliasingMode == AntiAliasingMode.DLSS && ui.dlssUnsupported == "") {
                 // DLSS turned on starts Balanced, as the sample's; UltraQuality isn't offered.
                 if (ui.dlssMode == DlssMode.Off) {
                     ui.dlssMode = DlssMode.Balanced;
@@ -1528,14 +1642,19 @@ namespace StreamlineDemo {
                 const chosen = ImGui.combo("DLSS Mode", index, "Off|Max Performance|Balanced|Max Quality|Ultra Performance|DLAA");
                 ui.dlssMode = chosen == 5 ? DlssMode.DLAA : chosen;
             }
-            ui.enableDeepDvc = ImGui.checkbox("DeepDVC", ui.enableDeepDvc);
+            const dvcUnsupported = ui.deepDvcUnsupported != "";
+            ImGui.beginDisabled(dvcUnsupported);
+            ui.enableDeepDvc = ImGui.checkbox("DeepDVC", ui.enableDeepDvc) && !dvcUnsupported;
+            ImGui.endDisabled();
+            if (dvcUnsupported) {
+                unsupportedNote(ui.deepDvcUnsupported);
+            }
             if (ui.enableDeepDvc) {
                 ui.deepDvcIntensity = ImGui.sliderFloat("DeepDVC Intensity", ui.deepDvcIntensity, 0.0, 1.0);
                 ui.deepDvcSaturationBoost = ImGui.sliderFloat("DeepDVC Saturation Boost", ui.deepDvcSaturationBoost, 0.0, 1.0);
             }
-            if (this.dlssgEnabled) {
-                this.buildDlssG();
-            }
+            this.buildReflex();
+            this.buildDlssG();
             ImGui.separator();
             ui.enableShadows = ImGui.checkbox("Shadows", ui.enableShadows);
             ui.enableSsao = ImGui.checkbox("SSAO (deferred)", ui.enableSsao);
@@ -1554,8 +1673,6 @@ namespace StreamlineDemo {
         height: int = 1080;
         // -slDisable: without Streamline (no Streamline_Init): every feature reports unsupported.
         slDisable: boolean = false;
-        // -latewarp: Latewarp instead of DLSS-G (not in Streamline 2.12.0: Streamline_Init fails).
-        latewarp: boolean = false;
         // -slLog: Streamline's log in the console.
         slLog: boolean = false;
         // -noRT: deferred lighting (the sample's RayTracing_Mode 0) instead of ray traced.
@@ -1592,8 +1709,6 @@ namespace StreamlineDemo {
                     this.height = parseInt(this[i + 1]);
                 } else if (arg == "-slDisable") {
                     this.slDisable = true;
-                } else if (arg == "-latewarp") {
-                    this.latewarp = true;
                 } else if (arg == "-slLog") {
                     this.slLog = true;
                 } else if (arg == "-noRT") {
@@ -1624,7 +1739,8 @@ namespace StreamlineDemo {
     }
 
     // The features the demo reports, by name, and those -test needs (DLSS-G and PCL depend on the GPU
-    // generation and on a swap chain, Latewarp isn't in 2.12.0: reported only).
+    // generation and on a swap chain: reported only; Latewarp isn't in the 2.12.0 release, never loaded: its
+    // status line only).
     const FEATURE_NAMES = ["DLSS", "DLSS_RR", "DeepDVC", "Reflex", "PCL", "DLSS_G", "Latewarp"];
     const FEATURES = [StreamlineFeature.DLSS, StreamlineFeature.DLSS_RR, StreamlineFeature.DeepDVC,
         StreamlineFeature.Reflex, StreamlineFeature.PCL, StreamlineFeature.DLSS_G, StreamlineFeature.Latewarp];
@@ -1641,7 +1757,7 @@ namespace StreamlineDemo {
         // donut_interop_shared.dll under the JIT).
         let slInitialized = false;
         if (!args.slDisable) {
-            slInitialized = Streamline_Init(args.api, "", args.latewarp ? 1 : 0, args.slLog ? 1 : 0) != 0;
+            slInitialized = Streamline_Init(args.api, "", args.slLog ? 1 : 0) != 0;
             if (!slInitialized) {
                 console.log("Streamline: not initialized (see the log above)");
             }
@@ -1674,6 +1790,25 @@ namespace StreamlineDemo {
         }
 
         const uiData = new UIData();
+        // The UI greys out what isn't supported, with the reason.
+        for (let i = 0; i < FEATURES.length; i++) {
+            if (Streamline_IsFeatureSupported(app.handle, FEATURES[i]) != 0) {
+                continue;
+            }
+            const text = Streamline_FeatureStatusText(FEATURES[i]);
+            const reason = text != "" ? text : "no Streamline";
+            if (FEATURES[i] == StreamlineFeature.DLSS) {
+                uiData.dlssUnsupported = reason;
+            } else if (FEATURES[i] == StreamlineFeature.DLSS_RR) {
+                uiData.dlssRRUnsupported = reason;
+            } else if (FEATURES[i] == StreamlineFeature.DeepDVC) {
+                uiData.deepDvcUnsupported = reason;
+            } else if (FEATURES[i] == StreamlineFeature.Reflex) {
+                uiData.reflexUnsupported = reason;
+            } else if (FEATURES[i] == StreamlineFeature.DLSS_G) {
+                uiData.dlssgUnsupported = reason;
+            }
+        }
         if (args.noRT) {
             uiData.rayTracingMode = 0;
         }
@@ -1739,7 +1874,7 @@ namespace StreamlineDemo {
             }
             if (args.test) {
                 console.log("DLSS-G: needs a presented swapchain, skipped");
-                Streamline_SetDlssG(0, args.dlssg - 1);
+                Streamline_SetDlssG(0, args.dlssg - 1, 0);
                 const state = Streamline_DlssGState();
                 console.log(state < 0 ? "DLSS-G state: none (not loaded while off)"
                     : `DLSS-G state: ${dlssgStatusText(state & 0xff)}, presented ${(state >> 8) & 0xff}, up to ${((state >> 16) & 0xff) + 1}x`);
@@ -1751,10 +1886,13 @@ namespace StreamlineDemo {
             }
         }
         demo.dlssgEnabled = demo.dlssgSupported && !args.test;
-        // Reflex's options (its sleep runs every frame, Reflex supported).
-        if (Streamline_IsFeatureSupported(app.handle, StreamlineFeature.Reflex) != 0) {
-            Streamline_SetReflex(uiData.reflexMode, uiData.reflexFpsCap);
+        if (!demo.dlssgEnabled && uiData.dlssgUnsupported == "") {
+            uiData.dlssgUnsupported = "no swap chain";
         }
+        // Reflex's options before the first frame (its sleep runs every frame, Reflex supported), then again when
+        // the UI changes them (applyReflex).
+        demo.reflexSupported = Streamline_IsFeatureSupported(app.handle, StreamlineFeature.Reflex) != 0;
+        demo.applyReflex();
         if (!demo.init(scenePath, args.api)) {
             Streamline_Shutdown();
             app.destroy();
@@ -1790,7 +1928,7 @@ namespace StreamlineDemo {
         const hiddenFrames = Donut_HiddenWindowFrames();
         if (hiddenFrames > 0 && args.dlssg != 0) {
             const state = Streamline_DlssGState();
-            console.log(`DLSS-G: on ${demo.dlssgOnFrames} of ${hiddenFrames} frames, ok ${demo.dlssgOkFrames}, presented ${uiData.dlssgMultiplier}x in ${demo.dlssgFullFrames}`
+            console.log(`DLSS-G: on ${demo.dlssgOnFrames} of ${hiddenFrames} frames, ok ${demo.dlssgOkFrames}, presented ${uiData.dlssgMultiplier}x in ${demo.dlssgFullFrames}, tagged ${demo.dlssgTaggedFrames}`
                 + (state < 0 ? " (no state)" : ` (last state: ${dlssgStatusText(state & 0xff)}, presented ${(state >> 8) & 0xff}x)`));
             if (!demo.dlssgEnabled) {
                 console.log("Hidden window SKIPPED: DLSS-G not supported here");
@@ -1808,10 +1946,8 @@ namespace StreamlineDemo {
             if (frameFailure != "") {
                 result = app.finishTest(frameFailure);
             } else if (!args.slDisable && !slInitialized) {
-                // Streamline starts on any GPU (its features may not be supported): failing to is an error, but
-                // Latewarp's, which this SDK hasn't.
-                result = args.latewarp ? unsupported(true, "Latewarp: not in Streamline 2.12.0")
-                    : app.finishTest("Streamline_Init failed");
+                // Streamline starts on any GPU (its features may not be supported): failing to is an error.
+                result = app.finishTest("Streamline_Init failed");
             } else if (!slInitialized) {
                 // Without Streamline nothing may report supported.
                 result = supportedCount == 0 ? unsupported(true, "Streamline is not initialized")
@@ -1824,7 +1960,8 @@ namespace StreamlineDemo {
                 const dlssFailure = checkDlss(demo, uiData, args.testDlssModeSwitch);
                 const rrFailure = dlssFailure != "" ? dlssFailure : checkDlssRR(demo, uiData);
                 const dvcFailure = rrFailure != "" ? rrFailure : checkDeepDvc(demo, uiData);
-                result = app.finishTest(dvcFailure != "" ? dvcFailure : checkDlssG(demo, args.dlssg));
+                const reflexFailure = dvcFailure != "" ? dvcFailure : checkReflex(demo, args.reflex);
+                result = app.finishTest(reflexFailure != "" ? reflexFailure : checkDlssG(demo, args.dlssg));
             }
         }
 

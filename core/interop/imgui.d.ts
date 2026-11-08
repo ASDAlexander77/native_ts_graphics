@@ -83,6 +83,12 @@
 @nodrops declare function Donut_ImGuiSameLine(): void;
 // Ends the line: the next item starts on a new one (after Donut_ImGuiSameLine, an empty line).
 @nodrops declare function Donut_ImGuiNewLine(): void;
+// The items until Donut_ImGuiEndDisabled greyed out and not interactive when disabled; pair them whatever
+// disabled is.
+@nodrops declare function Donut_ImGuiBeginDisabled(disabled: boolean): void;
+@nodrops declare function Donut_ImGuiEndDisabled(): void;
+// Whether ImGui takes the mouse (it's over one of its windows, or dragging an item); false without ImGui.
+@nodrops declare function Donut_ImGuiWantCaptureMouse(): boolean;
 // A scrolling region of width x height pixels (0: the rest of the window); end it with
 // Donut_ImGuiEndChild whatever this returns.
 @nodrops declare function Donut_ImGuiBeginChild(id: string, width: number, height: number, border: boolean): boolean;

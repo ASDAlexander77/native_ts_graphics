@@ -394,8 +394,8 @@ and Vulkan. The sample is under the NVIDIA RTX SDKs License, so (as with RTXCR a
 `-DSTREAMLINE_SAMPLE_DIR=<checkout>` makes its ray-gen HLSL compile in place (`shaders/streamline_demo.cfg`) and
 its scene load from there. The Streamline SDK 2.12.0 (MIT) release zip (~232 MB) is fetched at configure time by
 the `streamline` / `release-streamline` presets (`WITH_STREAMLINE`); its plugins and the NGX DLLs are copied to
-`bin/streamline` and never committed. It needs an RTX GPU; a feature the GPU or driver lacks is reported and
-disabled:
+`bin/streamline` (with their license files) and never committed. It needs an RTX GPU; a feature the GPU or
+driver lacks is reported at startup with the reason, and its controls in the UI are greyed out with it:
 
 ```
 cmake --preset streamline -DSTREAMLINE_SAMPLE_DIR=E:/Gits/Streamline_Sample
@@ -407,15 +407,20 @@ Switches: `-noRT` (deferred lighting), `-aa none|taa`, `-pauseAnimation`, `-dlss
 `-DLSS_mode` numbers), `-dlssRR <mode>` (DLSS-RR; anti-aliasing stays off under it), `-deepdvc`, `-reflex 0..2`
 and `-reflexFpsCap <n>`, `-dlssg 2..4` (frame generation multiplier; it forces Reflex on), `-slDisable` (no
 Streamline: every feature reports unsupported), `-slLog` (Streamline's log) and `-width`/`-height` (1920x1080
-default); the UI has the same controls. Latewarp is not in the public Streamline 2.12.0 (no `sl.latewarp.dll` or
-`sl_latewarp.h`), so it is not included (`-latewarp` fails Streamline's init); NIS is not included either.
+default). The UI has the lighting and anti-aliasing settings, the DLSS-SR and DLSS-RR modes, DeepDVC (intensity,
+saturation boost), Reflex (mode, frame rate cap, its latency) and DLSS-G (on/off, multiplier, its state; it holds
+Reflex at low latency at least). Latewarp is not in the public Streamline 2.12.0 (no `sl.latewarp.dll` or
+`sl_latewarp.h`), so it is not included (no switch; the startup log lists its status only); NIS is not included
+either.
 
-The frames match the original sample's (patched locally to dump its frames, same checkout) on both APIs: ray
-traced, deferred and TAA within 0.27% of pixels over 8/255, DLSS-SR 0.25% (D3D12) / 0.62% (Vulkan), DLSS-RR
-0.28% / 0.42%, DeepDVC 0.23% / 0.29%. `-test` (`streamline_demo.*` in CTest) checks the features' state (and the
-reference frames above, saved as `streamline_demo_<mode>_<api>.png`) in a hidden window; the presented frames of
-DLSS Frame Generation can't be seen there, so it is checked by hand in a visible window (Vulkan: 2x, status ok,
-Reflex about 7 ms). On Vulkan the Khronos validation layer's handle wrapping is turned off for Streamline's
+The parity with the original sample was measured offline, against its frames dumped by a locally patched build
+(same checkout), on both APIs: ray traced, deferred and TAA within 0.27% of pixels over 8/255, DLSS-SR 0.25%
+(D3D12) / 0.62% (Vulkan), DLSS-RR 0.28% / 0.42%, DeepDVC 0.23% / 0.29%. `-test` (`streamline_demo.*` in CTest) is
+headless: it checks that the features ran (DLSS-SR, DLSS-RR and DeepDVC evaluated every frame, Reflex's options
+taken and its sleep every frame) plus the frame's statistics (lit, the robot, saturated colors), saving the frame
+as `streamline_demo_<mode>_<api>.png`. DLSS Frame Generation acts only on a presented swap chain:
+`streamline_demo.hidden_dlssg.*` runs it on a hidden window's swap chain and checks only that it is on and its
+state ok; it was checked by hand in a visible window (Vulkan: 2x, status ok, Reflex about 7 ms). On Vulkan the Khronos validation layer's handle wrapping is turned off for Streamline's
 devices (`VK_LAYER_UNIQUE_HANDLES=false`: Reflex talks to the driver around the loader), and Donut re-creates the
 window surface after the device so that DLSS-G finds the window. Known: under `-debug` the DeepDVC and DLSS-G
 plugins leave a few NGX buffers alive at `vkDestroyDevice`, as in the sample. This software contains source code
