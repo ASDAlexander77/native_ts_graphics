@@ -330,6 +330,18 @@ namespace
             ImGui_Renderer::Render(m_Framebuffer ? m_Framebuffer.Get() : framebuffer);
         }
 
+        // Draws into framebuffer as a layer (Donut_SetImGuiPassLayerFramebuffer): the alpha accumulates the UI's
+        // coverage (One, InvSrcAlpha) instead of Donut's (InvSrcAlpha, Zero); the color's blending stays, which
+        // over a target cleared to 0 leaves it premultiplied. The pipeline is made again for the new target.
+        void SetLayerFramebuffer(nvrhi::IFramebuffer* framebuffer)
+        {
+            m_Framebuffer = framebuffer;
+            nvrhi::BlendState::RenderTarget& blend = imgui_nvrhi->basePSODesc.renderState.blendState.targets[0];
+            blend.setSrcBlendAlpha(framebuffer ? nvrhi::BlendFactor::One : nvrhi::BlendFactor::InvSrcAlpha)
+                .setDestBlendAlpha(framebuffer ? nvrhi::BlendFactor::InvSrcAlpha : nvrhi::BlendFactor::Zero);
+            imgui_nvrhi->pso = nullptr;
+        }
+
         // For the Donut_ImGui* functions; the base class keeps these protected.
         using ImGui_Renderer::BeginFullScreenWindow;
         using ImGui_Renderer::DrawScreenCenteredText;
@@ -692,6 +704,32 @@ namespace
     double g_TestFrameSeconds = 1.0 / 60.0;
     // The image file -testOutput names (Donut_ParseTestArgs), empty if none.
     std::string g_TestOutput;
+    // -hiddenWindow <frames> (Donut_ParseTestArgs): the app created next has its window, swap chain and
+    // message loop as usual, but the window is never shown, and the loop ends after that many presented
+    // frames; 0 for a visible window. The windowed path checked without a window on the desktop.
+    int g_HiddenWindowFrames = 0;
+
+    // A hidden window's app: frames rendered although the window never has the focus, and the window
+    // closed after g_HiddenWindowFrames of them.
+    class HiddenWindowPass : public donut::app::IRenderPass
+    {
+    public:
+        HiddenWindowPass(DeviceManager* deviceManager, int frames)
+            : IRenderPass(deviceManager)
+            , m_FramesLeft(frames)
+        { }
+
+        bool ShouldRenderUnfocused() override { return true; }
+
+        void Render(nvrhi::IFramebuffer*) override
+        {
+            if (--m_FramesLeft <= 0)
+                glfwSetWindowShouldClose(GetDeviceManager()->GetWindow(), GLFW_TRUE);
+        }
+
+    private:
+        int m_FramesLeft;
+    };
 
     // The device manager's render passes and frame index: protected members, reached through
     // pointers to members named from a derived class (as DeviceManagerVKAccess below).
@@ -2704,6 +2742,31 @@ bool UseD3D12RuntimeUnderJit(const char* folder, unsigned version)
 }
 #endif
 
+namespace donut_interop
+{
+    // Set by Streamline_Init (core/streamline.cpp, linked only where Streamline is): what AppOptions.Streamline
+    // does to the device's parameters, to have Streamline's interposer make the device. Empty otherwise.
+    std::function<void(nvrhi::GraphicsAPI, donut::app::DeviceCreationParameters&)> g_StreamlineConfigureDevice;
+    // Also Streamline_Init's: what AppOptions.Streamline does to the new app's device manager (its frame
+    // callbacks: Streamline's frame token, Reflex and PCL markers).
+    std::function<void(donut::app::DeviceManager&)> g_StreamlineAppCreated;
+
+    // AppOptions.Streamline: the device through Streamline, once Streamline_Init has started it.
+    static void ConfigureStreamlineDevice(nvrhi::GraphicsAPI api, donut::app::DeviceCreationParameters& params)
+    {
+        if (g_StreamlineConfigureDevice)
+            g_StreamlineConfigureDevice(api, params);
+        else
+            donut::log::info("AppOptions.Streamline without Streamline_Init: the device is made without Streamline");
+    }
+
+    static void StreamlineAppCreated(donut::app::DeviceManager& deviceManager)
+    {
+        if (g_StreamlineAppCreated)
+            g_StreamlineAppCreated(deviceManager);
+    }
+}
+
 extern "C"
 {
     // --- Application -----------------------------------------------------------------------
@@ -2730,6 +2793,7 @@ extern "C"
         AppOption_ShaderPrintf = 512, // with Vulkan, shaders' printf through the validation layer (Donut_HasShaderPrintf)
         AppOption_DescriptorBuffers = 1024, // with Vulkan, descriptor sets in buffers (Donut_HasDescriptorBuffers)
         AppOption_HeapDirectlyIndexed = 2048, // with D3D12, ResourceDescriptorHeap[] in shaders (mutable bindless layouts)
+        AppOption_Streamline = 4096, // the device made through Streamline (g_StreamlineConfigureDevice, set by Streamline_Init)
     };
 
     // The nvrhi::IMessageCallback the devices made after Donut_SetNvrhiMessageCallback get: null for
@@ -2869,6 +2933,9 @@ extern "C"
         }
 #endif
 
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::ConfigureStreamlineDevice(api, params);
+
         // D3D12's ExecuteIndirect does all of it but buffer addresses; D3D11 has single indirect draws.
         int indirectDrawSupport = api == nvrhi::GraphicsAPI::D3D12 ? IndirectDraw_MultiDraw | IndirectDraw_FirstInstance | IndirectDraw_Count
             : api == nvrhi::GraphicsAPI::D3D11 ? IndirectDraw_FirstInstance : 0;
@@ -2877,6 +2944,8 @@ extern "C"
 #endif
 
         const bool testMode = g_TestFrameCount > 0;
+        const bool hiddenWindow = !testMode && g_HiddenWindowFrames > 0;
+        params.startHidden = hiddenWindow;
         if (testMode ? !deviceManager->CreateHeadlessDevice(params) : !deviceManager->CreateWindowDeviceAndSwapChain(params, title))
         {
             donut::log::error("cannot initialize the graphics device");
@@ -2900,6 +2969,15 @@ extern "C"
 #endif
 
         App* app = MakeApp(std::move(deviceManager), api);
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::StreamlineAppCreated(*app->deviceManager);
+        if (hiddenWindow)
+        {
+            donut::log::info("Hidden window: %d frames", g_HiddenWindowFrames);
+            auto hiddenPass = std::make_unique<HiddenWindowPass>(app->deviceManager.get(), g_HiddenWindowFrames);
+            app->deviceManager->AddRenderPassToBack(hiddenPass.get());
+            app->otherPasses.push_back(std::move(hiddenPass));
+        }
         if (testMode)
         {
             // The swap chain's: its format (BGRA on Vulkan, as Donut's device manager makes it)
@@ -3395,6 +3473,8 @@ extern "C"
             params.optionalVulkanDeviceExtensions.push_back("VK_KHR_ray_tracing_position_fetch");
         }
 #endif
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::ConfigureStreamlineDevice(api, params);
 
         if (!deviceManager->CreateHeadlessDevice(params))
             return nullptr;
@@ -3418,6 +3498,8 @@ extern "C"
         App* app = MakeApp(std::move(deviceManager), api);
         app->indirectDrawSupport = indirectDrawSupport;
         app->sparseResidency = sparseResidency;
+        if ((options & AppOption_Streamline) != 0)
+            donut_interop::StreamlineAppCreated(*app->deviceManager);
         return app;
     }
 
@@ -3538,13 +3620,31 @@ extern "C"
             else
                 query = device->createEventQuery();
             device->resetEventQuery(query);
+            // The device manager's frame callbacks, as its own loop calls them (the present pair around the
+            // frame's end, as nothing presents).
+            const auto& callbacks = deviceManager->m_callbacks;
+            const uint32_t frameIndex = DeviceManagerAccess::FrameIndex(deviceManager);
+            if (callbacks.beforeFrame)
+                callbacks.beforeFrame(*deviceManager, frameIndex);
             // Copied: a pass may add or remove passes.
             const std::list<donut::app::IRenderPass*> passes = DeviceManagerAccess::RenderPasses(deviceManager);
+            if (callbacks.beforeAnimate)
+                callbacks.beforeAnimate(*deviceManager, frameIndex);
             for (donut::app::IRenderPass* pass : passes)
                 pass->Animate(float(offscreen->frameSeconds));
+            if (callbacks.afterAnimate)
+                callbacks.afterAnimate(*deviceManager, frameIndex);
+            if (callbacks.beforeRender)
+                callbacks.beforeRender(*deviceManager, frameIndex);
             for (donut::app::IRenderPass* pass : passes)
                 pass->Render(offscreen->framebuffers[offscreen->current]);
+            if (callbacks.afterRender)
+                callbacks.afterRender(*deviceManager, frameIndex);
+            if (callbacks.beforePresent)
+                callbacks.beforePresent(*deviceManager, frameIndex);
             device->setEventQuery(query, nvrhi::CommandQueue::Graphics);
+            if (callbacks.afterPresent)
+                callbacks.afterPresent(*deviceManager, frameIndex);
             app->device()->runGarbageCollection();
             DeviceManagerAccess::FrameIndex(deviceManager)++;
             if (offscreen->closeRequested)
@@ -3568,7 +3668,9 @@ extern "C"
 
     // The examples' test options in main's argv: -test renders frameCount frames, frameSeconds each,
     // without a window (Donut_SetTestMode, for the app created next); -testOutput <file> names an
-    // image file for the last one (Donut_FinishTest). Non-zero if -test is given.
+    // image file for the last one (Donut_FinishTest). Non-zero if -test is given. -hiddenWindow <frames>
+    // (without -test): the windowed app, its window never shown, ends after that many frames
+    // (Donut_HiddenWindowFrames); also makes stdout unbuffered.
     DONUT_API int Donut_ParseTestArgs(int argc, const char* const* argv, int frameCount, double frameSeconds)
     {
         bool test = false;
@@ -3578,10 +3680,20 @@ extern "C"
                 test = true;
             else if (strcmp(argv[i], "-testOutput") == 0 && i + 1 < argc)
                 g_TestOutput = argv[++i];
+            else if (strcmp(argv[i], "-hiddenWindow") == 0 && i + 1 < argc)
+                g_HiddenWindowFrames = std::max(atoi(argv[++i]), 0);
         }
+        if (!test && g_HiddenWindowFrames > 0)
+            setvbuf(stdout, nullptr, _IONBF, 0);
         if (test)
             Donut_SetTestMode(frameCount, frameSeconds);
         return test ? 1 : 0;
+    }
+
+    // The frames a -hiddenWindow run renders (Donut_ParseTestArgs), 0 if it isn't one (or under -test).
+    DONUT_API int Donut_HiddenWindowFrames()
+    {
+        return g_TestFrameCount > 0 ? 0 : g_HiddenWindowFrames;
     }
 
     // Non-zero for an app created in test mode.
@@ -4940,6 +5052,18 @@ extern "C"
         bindingLayoutDesc->registerSpaceIsDescriptorSet = true;
     }
 
+    // The Vulkan binding numbers of the layout's registers: t<n> at shaderResource + n, and so on, as
+    // the SPIR-V was compiled (ShaderMake's --tRegShift etc.; NVRHI's defaults are 0, 128, 256, 384).
+    DONUT_API void Donut_SetBindingLayoutVulkanOffsets(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int shaderResource, int sampler,
+        int constantBuffer, int unorderedAccess)
+    {
+        bindingLayoutDesc->bindingOffsets = nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(static_cast<uint32_t>(shaderResource))
+            .setSamplerOffset(static_cast<uint32_t>(sampler))
+            .setConstantBufferOffset(static_cast<uint32_t>(constantBuffer))
+            .setUnorderedAccessViewOffset(static_cast<uint32_t>(unorderedAccess));
+    }
+
     // RWBuffer<T> at u<slot>.
     DONUT_API void Donut_LayoutTypedBufferUAV(nvrhi::BindingLayoutDesc* bindingLayoutDesc, int slot)
     {
@@ -5799,6 +5923,31 @@ extern "C"
         case CommonSampler_AnisotropicWrap: return a->Own(passes->m_AnisotropicWrapSampler);
         default: return nullptr;
         }
+    }
+
+    // CommonRenderPasses' full-screen vertex shader (see resources.d.ts).
+    DONUT_API nvrhi::IShader* Donut_GetFullscreenVertexShader(App* app)
+    {
+        return app->Own(app->commonPasses()->m_FullscreenVS);
+    }
+
+    // Makes the common samplers (point clamp, linear clamp and wrap, anisotropic wrap) again with a mip
+    // level bias, e.g. for rendering below the display size and upscaling. The passes made afterwards use
+    // them; those made before keep the old ones.
+    DONUT_API void Donut_SetCommonSamplersMipBias(App* app, double mipBias)
+    {
+        donut::engine::CommonRenderPasses* passes = app->commonPasses();
+        nvrhi::IDevice* device = app->device();
+        auto rebias = [&](nvrhi::SamplerHandle& sampler)
+        {
+            nvrhi::SamplerDesc desc = sampler->getDesc();
+            desc.mipBias = float(mipBias);
+            sampler = device->createSampler(desc);
+        };
+        rebias(passes->m_PointClampSampler);
+        rebias(passes->m_LinearClampSampler);
+        rebias(passes->m_LinearWrapSampler);
+        rebias(passes->m_AnisotropicWrapSampler);
     }
 
     // A sampler: linearFilter / linearMipFilter non-zero for linear filtering within / between
@@ -7546,6 +7695,12 @@ extern "C"
         imguiPass->m_Framebuffer = framebuffer;
     }
 
+    // Same, as a layer: the UI's premultiplied color and coverage, to composite later (see imgui.d.ts).
+    DONUT_API void Donut_SetImGuiPassLayerFramebuffer(TsImGuiPass* imguiPass, nvrhi::IFramebuffer* framebuffer)
+    {
+        imguiPass->SetLayerFramebuffer(framebuffer);
+    }
+
     // Keyboard navigation of the ImGui windows (Tab, arrows, Enter or Space to activate, Escape),
     // as ImGuiConfigFlags_NavEnableKeyboard; after Donut_AddImGuiPass (which creates the context).
     // ImGui then takes the keyboard while one of its windows has the focus.
@@ -7802,6 +7957,24 @@ extern "C"
     DONUT_API void Donut_ImGuiNewLine()
     {
         ImGui::NewLine();
+    }
+
+    // The items until Donut_ImGuiEndDisabled greyed out and not interactive when disabled (ImGui::BeginDisabled;
+    // pair with Donut_ImGuiEndDisabled whatever disabled is).
+    DONUT_API void Donut_ImGuiBeginDisabled(bool disabled)
+    {
+        ImGui::BeginDisabled(disabled);
+    }
+
+    DONUT_API void Donut_ImGuiEndDisabled()
+    {
+        ImGui::EndDisabled();
+    }
+
+    // Whether ImGui takes the mouse (it's over one of its windows, or dragging an item); false without ImGui.
+    DONUT_API bool Donut_ImGuiWantCaptureMouse()
+    {
+        return ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse;
     }
 
     // A scrolling region of width x height pixels (0: the rest of the window); end it with
@@ -9329,6 +9502,7 @@ extern "C"
         GBufferTexture_Specular = 2,
         GBufferTexture_Normals = 3,
         GBufferTexture_Emissive = 4,
+        GBufferTexture_MotionVectors = 5, // Donut_CreateGBufferTargetsWithMotionVectors' only
     };
 
     // One of the G-buffer textures, e.g. for binding to a shader that decodes the G-buffer;
@@ -9343,6 +9517,7 @@ extern "C"
         case GBufferTexture_Specular: return targets->GBufferSpecular.Get();
         case GBufferTexture_Normals: return targets->GBufferNormals.Get();
         case GBufferTexture_Emissive: return targets->GBufferEmissive.Get();
+        case GBufferTexture_MotionVectors: return targets->MotionVectors.Get();
         default: return nullptr;
         }
     }
@@ -12033,6 +12208,21 @@ extern "C"
             v->GetProjectionFrustum(), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange), float(exponent));
     }
 
+    // Same, the view's frustum grown by `grow` first (frustum::grow), as samples that keep volumetric light
+    // from leaking past the cascades do.
+    DONUT_API void Donut_SetupShadowMapForGrownView(ShadowMapTarget* shadowMapTarget, donut::engine::Light* light, donut::engine::IView* view,
+        double grow, double maxShadowDistance, double zRange, double exponent)
+    {
+        auto* target = shadowMapTarget;
+        if (!target->cascaded)
+            return;
+        const dm::affine3 viewMatrixInv = view->GetChildView(donut::engine::ViewType::PLANAR, 0)->GetInverseViewMatrix();
+        target->cascaded->SetupForPlanarViewStable(
+            *static_cast<donut::engine::DirectionalLight*>(light),
+            view->GetProjectionFrustum().grow(float(grow)), viewMatrixInv, float(maxShadowDistance), float(zRange), float(zRange),
+            float(exponent));
+    }
+
     DONUT_API void Donut_ClearShadowMap(nvrhi::ICommandList* commandList, ShadowMapTarget* shadowMapTarget)
     {
         auto* target = shadowMapTarget;
@@ -12449,6 +12639,192 @@ extern "C"
     {
         bloomPass->Render(commandList, *framebuffer,
             *view, sourceTexture, float(sigma), float(alpha));
+    }
+
+    // --- Passes over render targets an example lays out itself ---------------------------------
+    // (streamline_demo's, as the Streamline Sample's RenderTargets: a Donut G-buffer and textures of
+    // their own formats, with framebuffer factories over them.)
+
+    // A G-buffer as Donut_CreateGBufferTargets', with motion vectors (RG16_FLOAT, written by the G-buffer
+    // fill pass and TAA's camera motion pass); Donut_GetGBufferTexture's MotionVectors.
+    DONUT_API GBufferTargets* Donut_CreateGBufferTargetsWithMotionVectors(App* app, int width, int height, int reverseDepth)
+    {
+        App* a = app;
+        auto targets = std::make_shared<GBufferTargets>();
+        targets->Init(a->device(), dm::uint2(uint32_t(width), uint32_t(height)), 1, true, reverseDepth != 0);
+        return a->OwnObject(targets);
+    }
+
+    // The G-buffer's framebuffer (its textures and depth), for Donut_RenderGBufferFillTargets.
+    DONUT_API FramebufferFactoryRef* Donut_GetGBufferFramebuffer(GBufferTargets* gbufferTargets)
+    {
+        return &gbufferTargets->GBufferFramebuffer;
+    }
+
+    // A render target of `format` cleared to 0 (fast), resting at initialState (an nvrhi::ResourceStates
+    // value); also a UAV if isUAV != 0.
+    DONUT_API nvrhi::ITexture* Donut_CreateRenderTargetTextureInState(App* app, int width, int height, int format, int isUAV,
+        int initialState, const char* debugName)
+    {
+        nvrhi::TextureDesc desc;
+        desc.width = static_cast<uint32_t>(width);
+        desc.height = static_cast<uint32_t>(height);
+        desc.format = static_cast<nvrhi::Format>(format);
+        desc.isRenderTarget = true;
+        desc.isUAV = isUAV != 0;
+        desc.useClearValue = true;
+        desc.clearValue = nvrhi::Color(0.f);
+        desc.initialState = static_cast<nvrhi::ResourceStates>(initialState);
+        desc.keepInitialState = true;
+        desc.debugName = debugName;
+        return app->Own(app->device()->createTexture(desc));
+    }
+
+    // A framebuffer factory over a color target and / or a depth target (either may be null), for the
+    // passes that draw into one (sky, bloom, tone mapping, Donut_BlitTextureToFramebuffer).
+    DONUT_API FramebufferFactoryRef* Donut_CreateFramebufferFactory(App* app, nvrhi::ITexture* colorTexture, nvrhi::ITexture* depthTexture)
+    {
+        App* a = app;
+        auto factory = std::make_shared<donut::engine::FramebufferFactory>(a->device());
+        if (colorTexture)
+            factory->RenderTargets = { colorTexture };
+        factory->DepthTarget = depthTexture;
+        return a->OwnObject(std::make_shared<FramebufferFactoryRef>(factory));
+    }
+
+    // Stretches a texture over a framebuffer factory's framebuffer for view (CommonRenderPasses::BlitTexture).
+    DONUT_API void Donut_BlitTextureToFramebuffer(App* app, nvrhi::ICommandList* commandList, FramebufferFactoryRef* framebuffer,
+        donut::engine::IView* view, nvrhi::ITexture* texture)
+    {
+        App* a = app;
+        a->frameCommonPasses(commandList)->BlitTexture(commandList, (*framebuffer)->GetFramebuffer(*view), texture,
+            a->bindingCache());
+    }
+
+    // Donut_RenderGBufferFill into a Donut_CreateGBufferTargetsWithMotionVectors G-buffer.
+    DONUT_API void Donut_RenderGBufferFillTargets(nvrhi::ICommandList* commandList, donut::render::GBufferFillPass* gbufferFillPass, donut::engine::IView* view,
+        donut::engine::IView* previousView, GBufferTargets* gbufferTargets, donut::engine::SceneGraph* sceneGraph)
+    {
+        donut::render::InstancedOpaqueDrawStrategy strategy;
+        donut::render::GBufferFillPass::Context context;
+        donut::render::RenderCompositeView(commandList, view, previousView,
+            *gbufferTargets->GBufferFramebuffer, sceneGraph->GetRootNode(), strategy,
+            *gbufferFillPass, context, "GBufferFill");
+    }
+
+    // Lights the G-buffer into output (a UAV texture): the scene graph's lights, ambient between the
+    // top and bottom colors, times ambientOcclusion (null for none).
+    DONUT_API void Donut_RenderDeferredLightingTargets(nvrhi::ICommandList* commandList, donut::render::DeferredLightingPass* deferredLightingPass,
+        donut::engine::IView* view, GBufferTargets* gbufferTargets, nvrhi::ITexture* ambientOcclusion, double topR, double topG, double topB,
+        double bottomR, double bottomG, double bottomB, donut::engine::SceneGraph* sceneGraph, nvrhi::ITexture* output)
+    {
+        donut::render::DeferredLightingPass::Inputs inputs;
+        inputs.SetGBuffer(*gbufferTargets);
+        inputs.ambientOcclusion = ambientOcclusion;
+        inputs.ambientColorTop = dm::float3(float(topR), float(topG), float(topB));
+        inputs.ambientColorBottom = dm::float3(float(bottomR), float(bottomG), float(bottomB));
+        inputs.lights = &sceneGraph->GetLights();
+        inputs.output = output;
+        deferredLightingPass->Render(commandList, *view, inputs);
+    }
+
+    // Donut's SSAO from depth and G-buffer normals into an R8 UAV texture (Donut_RenderSsao renders it).
+    DONUT_API donut::render::SsaoPass* Donut_CreateSsaoPassForTextures(App* app, nvrhi::ITexture* depth, nvrhi::ITexture* normals,
+        nvrhi::ITexture* output)
+    {
+        App* a = app;
+        return a->OwnObject(std::make_shared<donut::render::SsaoPass>(a->device(), a->shaderFactory, a->sharedCommonPasses(),
+            depth, normals, output));
+    }
+
+    // Donut's TAA over textures: resolves unresolvedColor into resolvedColor (Catmull-Rom filtering),
+    // with motion vectors where the stencil has motionVectorStencilMask set.
+    DONUT_API donut::render::TemporalAntiAliasingPass* Donut_CreateTemporalAntiAliasingPassForTextures(App* app, donut::engine::IView* view,
+        nvrhi::ITexture* depth, nvrhi::ITexture* motionVectors, nvrhi::ITexture* unresolvedColor, nvrhi::ITexture* resolvedColor,
+        nvrhi::ITexture* feedback1, nvrhi::ITexture* feedback2, int motionVectorStencilMask)
+    {
+        App* a = app;
+        donut::render::TemporalAntiAliasingPass::CreateParameters params;
+        params.sourceDepth = depth;
+        params.motionVectors = motionVectors;
+        params.unresolvedColor = unresolvedColor;
+        params.resolvedColor = resolvedColor;
+        params.feedback1 = feedback1;
+        params.feedback2 = feedback2;
+        params.motionVectorStencilMask = static_cast<uint32_t>(motionVectorStencilMask);
+        params.useCatmullRomFilter = true;
+        return a->OwnObject(std::make_shared<donut::render::TemporalAntiAliasingPass>(a->device(), a->shaderFactory,
+            a->sharedCommonPasses(), *view, params));
+    }
+
+    // Donut_RenderSky with the light's radiance clamped at maxLightRadiance (SkyParameters' 100 by default).
+    DONUT_API void Donut_RenderSkyClamped(nvrhi::ICommandList* commandList, donut::render::SkyPass* skyPass, donut::engine::IView* view,
+        donut::engine::Light* light, double brightness, double glowSize, double glowSharpness, double glowIntensity, double horizonSize,
+        double maxLightRadiance)
+    {
+        donut::render::SkyParameters params;
+        params.brightness = float(brightness);
+        params.glowSize = float(glowSize);
+        params.glowSharpness = float(glowSharpness);
+        params.glowIntensity = float(glowIntensity);
+        params.horizonSize = float(horizonSize);
+        params.maxLightRadiance = float(maxLightRadiance);
+        skyPass->Render(commandList, *view, *static_cast<donut::engine::DirectionalLight*>(light), params);
+    }
+
+    // Tone mapping with the eye adaptation's parameters (Donut's defaults: speeds 1 up, 0.5 down, the
+    // adapted luminance within 0.02 .. 0.5, exposure bias -0.5).
+    DONUT_API void Donut_RenderToneMappingAdapted(nvrhi::ICommandList* commandList, donut::render::ToneMappingPass* toneMappingPass,
+        donut::engine::IView* view, nvrhi::ITexture* sourceTexture, double eyeAdaptationSpeedUp, double eyeAdaptationSpeedDown,
+        double minAdaptedLuminance, double maxAdaptedLuminance, double exposureBias)
+    {
+        donut::render::ToneMappingParameters params;
+        params.eyeAdaptationSpeedUp = float(eyeAdaptationSpeedUp);
+        params.eyeAdaptationSpeedDown = float(eyeAdaptationSpeedDown);
+        params.minAdaptedLuminance = float(minAdaptedLuminance);
+        params.maxAdaptedLuminance = float(maxAdaptedLuminance);
+        params.exposureBias = float(exposureBias);
+        toneMappingPass->SimpleRender(commandList, params, *view, sourceTexture);
+    }
+
+    // Rebuilds in place, into an open command list, Donut_BuildSceneAccelStructsWithHitGroupStride's acceleration
+    // structures: every mesh's BLAS (skinned ones in their current pose), then the TLAS over them (the same
+    // hitGroupStride), from the instances' current transforms.
+    DONUT_API void Donut_RebuildSceneAccelStructs(nvrhi::ICommandList* commandList, SceneAccelStructs* sceneAccelStructs, donut::engine::Scene* scene,
+        int hitGroupStride)
+    {
+        const auto& sceneGraph = scene->GetSceneGraph();
+        for (const auto& mesh : sceneGraph->GetMeshes())
+        {
+            if (!mesh->accelStruct)
+                continue;
+            nvrhi::rt::AccelStructDesc blasDesc = GetMeshBlasDesc(*mesh);
+            blasDesc.buildFlags = nvrhi::rt::AccelStructBuildFlags::None;
+            for (auto& geometryDesc : blasDesc.bottomLevelGeometries)
+                geometryDesc.flags = nvrhi::rt::GeometryFlags::Opaque;
+            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, mesh->accelStruct, blasDesc);
+        }
+
+        // A TLAS over rebuilt BLASes must be built again before rays trace it (DXR's rule; D3D12 removes the
+        // device otherwise): the same TLAS object, so binding sets holding it stay valid.
+        std::vector<nvrhi::rt::InstanceDesc> instances;
+        for (const auto& instance : sceneGraph->GetMeshInstances())
+        {
+            const auto& mesh = instance->GetMesh();
+            nvrhi::rt::InstanceDesc instanceDesc;
+            instanceDesc.bottomLevelAS = mesh->accelStruct;
+            instanceDesc.instanceMask = 1;
+            instanceDesc.instanceContributionToHitGroupIndex = mesh->geometries[0]->globalGeometryIndex * static_cast<uint32_t>(hitGroupStride);
+            dm::affineToColumnMajor(instance->GetNode()->GetLocalToWorldTransformFloat(), instanceDesc.transform);
+            instances.push_back(instanceDesc);
+        }
+        commandList->buildTopLevelAccelStruct(sceneAccelStructs->topLevel, instances.data(), instances.size());
+    }
+
+    // The device manager's frame index (Donut's GetFrameIndex): the frames presented so far.
+    DONUT_API int Donut_GetFrameIndex(App* app)
+    {
+        return static_cast<int>(app->deviceManager->GetFrameIndex());
     }
 
     // NVIDIA DLSS, loading nvngx_dlss.dll from the executable's directory (donut_interop_shared.dll's under

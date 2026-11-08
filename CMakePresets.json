@@ -80,6 +80,26 @@
       }
     },
     {
+      "name": "streamline",
+      "displayName": "Default with Streamline (Ninja)",
+      "description": "Debug with the NVIDIA Streamline SDK (WITH_STREAMLINE, ~232 MB fetched from GitHub at configure time) for the streamline_demo example.",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-streamline",
+      "cacheVariables": {
+        "WITH_STREAMLINE": "ON"
+      }
+    },
+    {
+      "name": "release-streamline",
+      "displayName": "Release with Streamline (Ninja)",
+      "description": "Release with the NVIDIA Streamline SDK (WITH_STREAMLINE).",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build-release-streamline",
+      "cacheVariables": {
+        "WITH_STREAMLINE": "ON"
+      }
+    },
+    {
       "name": "dlss-nr",
       "displayName": "Default with DLSS-NR (Ninja)",
       "description": "Debug with NVIDIA DLSS-NR (DONUT_WITH_DLSS_NR, which needs DONUT_WITH_DLSS): Donut fetches the DLSS-NR SDK from GitHub at configure time.",
@@ -225,6 +245,14 @@
     {
       "name": "release-dlss",
       "configurePreset": "release-dlss"
+    },
+    {
+      "name": "streamline",
+      "configurePreset": "streamline"
+    },
+    {
+      "name": "release-streamline",
+      "configurePreset": "release-streamline"
     },
     {
       "name": "dlss-nr",

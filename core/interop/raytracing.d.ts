@@ -157,6 +157,11 @@ enum AccelStructBuildFlags {
 @nodrops declare function Donut_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): SceneAccelStructsHandle;
 // For Donut_BindAccelStruct; valid as long as the acceleration structures.
 @nodrops declare function Donut_GetSceneTopLevelAS(sceneAccelStructs: SceneAccelStructsHandle): AccelStructHandle;
+// Rebuilds in place, into an open command list, Donut_BuildSceneAccelStructsWithHitGroupStride's acceleration
+// structures: every mesh's BLAS (skinned ones in their current pose), then the TLAS over them (the same
+// hitGroupStride), from the instances' current transforms. Binding sets holding the TLAS stay valid.
+@nodrops declare function Donut_RebuildSceneAccelStructs(commandList: CommandListHandle, sceneAccelStructs: SceneAccelStructsHandle, scene: SceneHandle,
+    hitGroupStride: int): void;
 // Like Donut_BuildSceneAccelStructs, for shader tables with hitGroupStride entries per geometry in
 // global geometry index order.
 @nodrops declare function Donut_BuildSceneAccelStructsWithHitGroupStride(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle,

@@ -29,6 +29,7 @@
 /// <reference path="interop/rtxpt.d.ts" />
 /// <reference path="interop/rtxmg.d.ts" />
 /// <reference path="interop/rtxcr.d.ts" />
+/// <reference path="interop/streamline.d.ts" />
 // --- Donut interop: the C functions core/*.cpp export, declared for TypeScript ------------------
 //
 // This file only gathers the declarations, grouped by what they do, in core/interop/: the app and

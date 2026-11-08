@@ -185,6 +185,19 @@ set(DONUT_PATCHES
     # executable, which under tslang's JIT is tslang.exe's folder, not bin/; rtxpt's run-time shader
     # compiler (RTXPT_DIR's) finds ShaderDynamic/ there, so core/rtxpt.cpp points it at bin/.
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-executable-directory-override.patch"
+    # DeviceCreationParameters::d3d12CreateDevice and createDxgiFactory2: D3D12's device and DXGI factory made by
+    # the application's functions when set, as core/streamline.cpp has Streamline's interposer make them (it is
+    # loaded at run time from bin/streamline/, so its exports can't be linked in place of d3d12.lib and dxgi.lib);
+    # and swapChainRecreationRequested / swapChainRecreation: D3D12's swap chain made again at a frame's start when
+    # asked, as DLSS-G needs when it's turned on or off (loaded only while it's on).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-streamline-device-hooks.patch"
+    # DeviceCreationParameters::startHidden: the window never shown nor focused, its swap chain still presented
+    # to (-hiddenWindow <frames>, Donut_ParseTestArgs: the windowed path run without a visible window).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-hidden-window.patch"
+    # DeviceCreationParameters::recreateWindowSurfaceAfterDevice (Vulkan): the window's surface made again once the
+    # device exists, as Streamline's interposer passes surface creation to its plugins (DLSS-G learns the window
+    # a swap chain presents to there) only once it has a device (core/streamline.cpp).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-vulkan-surface-after-device.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
@@ -622,6 +635,60 @@ if (DONUT_WITH_DLSS AND WIN32)
     endif()
 endif()
 
+# NVIDIA Streamline 2.12.0 (github.com/NVIDIA-RTX/Streamline), for the streamline_demo example: its
+# interposer and plugins (DLSS, DLSS-RR, DeepDVC, Reflex/PCL, DLSS-G) are loaded at run time from
+# bin/streamline/ by core/streamline.cpp. The release zip (~232 MB, headers + signed bin/x64) is fetched
+# at configure time into the build folder (STREAMLINE_FETCH_DIR to share one). The SDK is MIT-licensed, but
+# the plugin and NGX DLLs in it are under NVIDIA's own licenses (license files next to them in bin/x64):
+# none of it may be committed here. Latewarp isn't in the 2.12.0 release (no sl.latewarp.dll or
+# sl_latewarp.h), so it isn't used.
+option(WITH_STREAMLINE "Fetch the NVIDIA Streamline SDK (~232 MB) for the streamline_demo example" OFF)
+set(STREAMLINE_FETCH_DIR "" CACHE STRING "Directory to fetch Streamline to, empty uses build directory default")
+if (WITH_STREAMLINE AND WIN32)
+    if (STREAMLINE_FETCH_DIR)
+        set(STREAMLINE_SOURCE_DIR_OPTION SOURCE_DIR "${STREAMLINE_FETCH_DIR}")
+    endif()
+    message(STATUS "Fetching Streamline SDK 2.12.0 (~232 MB the first time)")
+    include(FetchContent)
+    FetchContent_Declare(streamline
+        URL "https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.12.0/streamline-sdk-v2.12.0.zip"
+        URL_HASH SHA256=f5c0a3d870707dddc3570fb4bcd3655cf48a8a68c3a9d342910cfa21b77dcf48
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        ${STREAMLINE_SOURCE_DIR_OPTION})
+    FetchContent_MakeAvailable(streamline)
+    set(STREAMLINE_INCLUDE_DIR "${streamline_SOURCE_DIR}/include")
+    set(STREAMLINE_BIN_DIR "${streamline_SOURCE_DIR}/bin/x64")
+    message(STATUS "Streamline Latewarp: not in the 2.12.0 release, not used")
+
+    # The runtime DLLs next to the examples' binaries, in bin/streamline/ (the interposer loads the plugins
+    # from the folder it is in), with the license files that go with them (bin/x64's *.license.txt). NIS and
+    # the rest of the plugins aren't used.
+    set(STREAMLINE_RUNTIME_FILES
+        sl.interposer.dll sl.common.dll sl.pcl.dll sl.reflex.dll sl.dlss.dll sl.dlss_d.dll sl.deepdvc.dll
+        sl.dlss_g.dll NvLowLatencyVk.dll)
+    file(GLOB STREAMLINE_NGX_FILES "${STREAMLINE_BIN_DIR}/nvngx_*.dll")
+    file(GLOB STREAMLINE_LICENSE_FILES "${STREAMLINE_BIN_DIR}/*.txt")
+    set(STREAMLINE_COPY_COMMANDS)
+    foreach(f IN LISTS STREAMLINE_RUNTIME_FILES)
+        list(APPEND STREAMLINE_COPY_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${STREAMLINE_BIN_DIR}/${f}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline/${f}")
+    endforeach()
+    foreach(f IN LISTS STREAMLINE_NGX_FILES STREAMLINE_LICENSE_FILES)
+        list(APPEND STREAMLINE_COPY_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${f}" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline")
+    endforeach()
+    add_custom_target(copy_streamline_binaries
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/streamline"
+        ${STREAMLINE_COPY_COMMANDS}
+        COMMENT "Copying the Streamline runtime DLLs and their licenses")
+endif()
+# streamline_demo (see the end of this file) builds only with STREAMLINE_SAMPLE_DIR too: a checkout of
+# NVIDIA's Streamline Sample (github.com/NVIDIA-RTX/Streamline_Sample), whose ray tracing shader library
+# and UI composite shader compile in place (shaders/streamline_demo.cfg names them); nothing of it is
+# copied here. Its media folder has the scene the sample renders (sponza-plus.scene.json with its metal
+# sphere), which the parity tests load from there.
+set(STREAMLINE_SAMPLE_DIR "" CACHE PATH "Streamline Sample checkout (github.com/NVIDIA-RTX/Streamline_Sample) for streamline_demo")
+
 # NVIDIA's Opacity Micro-Map SDK (github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK): its GPU baker and
 # the baker's NVRHI layer (omm-lib, omm-gpu-nvrhi), for opacity_micromaps -bake, which bakes the
 # micromaps at run time (core/omm_bake.cpp). Fetched at configure time into the build folder, with
@@ -753,6 +820,11 @@ if (RTXMG_DIR)
     set_source_files_properties(${RTXMG_GLUE_SOURCES} PROPERTIES
         INCLUDE_DIRECTORIES "${RTXMG_DIR}/demo;${RTXMG_DIR}/rtxmg/include;${RTXMG_DIR};${RTXMG_DIR}/extern"
         COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/std:c++latest;/wd5333,-std=c++23>")
+endif()
+if (STREAMLINE_INCLUDE_DIR)
+    # Streamline's headers only: its interposer is loaded at run time (core/streamline.cpp).
+    list(APPEND JIT_MODULE_SOURCES core/streamline.cpp)
+    set_source_files_properties(core/streamline.cpp PROPERTIES INCLUDE_DIRECTORIES "${STREAMLINE_INCLUDE_DIR}")
 endif()
 if (RTXCR_DIR)
     list(APPEND JIT_MODULE_SOURCES core/rtxcr.cpp)
@@ -5426,6 +5498,95 @@ if (RTXMG_DIR)
     # with NVRHI_D3D12_WITH_DXRCLUSTER, Developer Mode and driver 621.01+: else that test exits as skipped.
     add_tslang_example_test(rtxmg_demo ARGS -width 1280 -height 720
         --media ${RTXMG_DIR}/assets --scene subdivision/amy_kitchenset.scene.json)
+endif()
+
+# NVIDIA Streamline (WITH_STREAMLINE above): core/streamline.cpp starts it from bin/streamline/ and hooks the
+# device's creation (AppOptions.Streamline); D3D12 and Vulkan.
+# The frame is the Streamline Sample's (STREAMLINE_SAMPLE_DIR above), whose shaders compile in place: its
+# ray generation library (REFLECT_MATERIALS 1 on D3D12, 0 on Vulkan, as the sample loads them) and the UI
+# composite pixel shader. The sample's SPIR-V has ShaderMake's own register shifts, not Donut's (its
+# global binding layout sets the matching Vulkan offsets: SRVs 200, constant buffers 300, UAVs 400).
+if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
+    donut_compile_shaders(
+        TARGET streamline_demo_shaders
+        PROJECT_NAME "Streamline Demo"
+        CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/streamline_demo.cfg
+        SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/streamline_demo.cfg
+        DXIL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/streamline_demo/dxil
+        SPIRV_DXC ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders/streamline_demo/spirv
+        SHADERMAKE_OPTIONS "--sourceDir ${STREAMLINE_SAMPLE_DIR}/src"
+        SHADERMAKE_OPTIONS_SPIRV "--tRegShift 200 --sRegShift 128 --bRegShift 300 --uRegShift 400"
+    )
+    add_tslang_example(streamline_demo core/matrix.ts core/streamline.cpp MEDIA fonts sponza-plus.scene.json glTF-Sample-Assets)
+    add_dependencies(streamline_demo copy_streamline_binaries)
+    # DLSS, DLSS-RR, DeepDVC and Reflex supported, or skipped (no RTX GPU, old driver); then without
+    # Streamline (-slDisable), where nothing may report supported: always skipped, failed otherwise. Both
+    # check the frame first (media/sponza-plus.scene.json: its second robot is behind the camera).
+    add_tslang_example_test(streamline_demo ARGS -width 1280 -height 720)
+    add_tslang_example_test(streamline_demo SUFFIX sl_disabled ARGS -width 1280 -height 720 -slDisable)
+    # Reflex low latency with DLSS. On Vulkan under the validation layer its sleep (NvLowLatencyVk) crashed in the
+    # driver unless the layer's handle wrapping is off, which core/streamline.cpp sees to.
+    add_tslang_example_test(streamline_demo SUFFIX reflex ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
+    # The sample's frame 120 at its size, in its scene, one test per lighting / anti-aliasing mode of its
+    # reference frames (ray traced, deferred, TAA), each saving its frame (bin/streamline_demo_<mode>_<api>.png)
+    # for comparing with the sample's.
+    set(STREAMLINE_DEMO_SCENE ${STREAMLINE_SAMPLE_DIR}/media/sponza-plus.scene.json)
+    foreach(api dx12 vk)
+        add_tslang_example_test(streamline_demo SUFFIX rt APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -testOutput streamline_demo_rt_${api}.png)
+        add_tslang_example_test(streamline_demo SUFFIX deferred APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -noRT -testOutput streamline_demo_deferred_${api}.png)
+        add_tslang_example_test(streamline_demo SUFFIX taa APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -aa taa -testOutput streamline_demo_taa_${api}.png)
+        # DLSS-SR MaxQuality (the reference's -DLSS_mode 3: 1280x720 to 1920x1080), then the same switching
+        # to MaxPerformance at frame 60 (render targets and DLSS's resources made again).
+        add_tslang_example_test(streamline_demo SUFFIX dlss APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlss 3 -testOutput streamline_demo_dlss_${api}.png)
+        add_tslang_example_test(streamline_demo SUFFIX dlss_switch APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlss 3 -testDlssModeSwitch)
+        # DLSS Ray Reconstruction MaxQuality (the reference's -DLSSRR_mode 3, anti-aliasing none: 1280x720 to
+        # 1920x1080).
+        add_tslang_example_test(streamline_demo SUFFIX dlssrr APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlssRR 3 -testOutput streamline_demo_dlssrr_${api}.png)
+        # The same asked for TAA from the start and DLSS-SR at frame 60 (as the UI could): anti-aliasing stays
+        # none under RR (no jitter, DLSS-SR never evaluated).
+        add_tslang_example_test(streamline_demo SUFFIX dlssrr_aa APIS ${api} ARGS -width 1920 -height 1080
+            --scene ${STREAMLINE_DEMO_SCENE} -dlssRR 3 -aa taa -testAAUnderRR)
+    endforeach()
+    # DeepDVC on the color before the UI (the reference's -DeepDVC_on: intensity 0.5, saturation boost 0.75):
+    # its frame more saturated than any plain one. On Vulkan without -debug: the DeepDVC plugin leaves its
+    # buffers (nv.ngx.deepdvc.resource) alive at vkDestroyDevice, which the validation layer reports; the
+    # Streamline Sample's own run does the same, and the plugin has no explicit free.
+    add_tslang_example_test(streamline_demo SUFFIX deepdvc APIS dx12 ARGS -width 1920 -height 1080
+        --scene ${STREAMLINE_DEMO_SCENE} -deepdvc -testOutput streamline_demo_deepdvc_dx12.png)
+    add_tslang_example_test(streamline_demo SUFFIX deepdvc NO_DEBUG APIS vk ARGS -width 1920 -height 1080
+        --scene ${STREAMLINE_DEMO_SCENE} -deepdvc -testOutput streamline_demo_deepdvc_vk.png)
+    # DLSS Frame Generation at 2x (Reflex forced on, as the sample does): it acts on presented frames only, so
+    # headless (no swap chain) the demo checks it's supported, logs that it's skipped and renders as usual.
+    add_tslang_example_test(streamline_demo SUFFIX dlssg ARGS -width 1280 -height 720 -dlssg 2)
+    # 3x: the multiplier survives the UI's clamp by DLSS-G's state, also without one (D3D12 while it's off).
+    add_tslang_example_test(streamline_demo SUFFIX dlssg3 ARGS -width 1280 -height 720 -dlssg 3)
+    # The windowed path without a visible window (-hiddenWindow <frames>: the window never shown, the run ends
+    # after that many frames): DLSS-G at 2x on a swap chain, on and its state ok for most frames, and on Vulkan
+    # the window found for its swap chain (the surface made through the interposer's hook after the device).
+    # Without -debug on Vulkan: DLSS-G's own pacer (nv.sl.dlss_g.cmdCtx.pacer) submits its fake swap chain
+    # buffer in the wrong layout, which the validation layer reports (the Streamline Sample's run too).
+    # A hidden window's frames never reach the display, and DLSS-G then presents no generated frame: the frames
+    # it reported at 2x are logged, not checked (the visible run is the user's).
+    foreach(api dx12 vk)
+        set(hidden_debug_arg -debug)
+        if (api STREQUAL "vk")
+            set(hidden_debug_arg)
+        endif()
+        add_test(NAME streamline_demo.hidden_dlssg.${api}
+            COMMAND streamline_demo -${api} ${hidden_debug_arg} -width 1280 -height 720 -dlssg 2 -hiddenWindow 120
+            WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+        set_tests_properties(streamline_demo.hidden_dlssg.${api} PROPERTIES
+            FAIL_REGULAR_EXPRESSION "ERROR|Validation Error|D3D12 ERROR|D3D12 CORRUPTION|layerPrefix='Validation'|Hidden window FAILED|Could not find a window|without device being created"
+            SKIP_RETURN_CODE 77
+            LABELS ${api}
+            TIMEOUT 300)
+    endforeach()
 endif()
 
 # jit_runtime: what running the examples' .ts under the tslang JIT (run_jit*.bat, .vscode/launch.json)

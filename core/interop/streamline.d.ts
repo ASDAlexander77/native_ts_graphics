@@ -1,0 +1,108 @@
+/// <reference path="../donut_handles.d.ts" />
+/// <reference path="app.d.ts" />
+// NVIDIA Streamline (core/streamline.cpp; the streamline_demo example links it, with WITH_STREAMLINE)
+
+// Streamline's features (sl::kFeature* in sl_core_types.h; Latewarp isn't in the 2.12.0 release, not loaded:
+// the demo reports its status only).
+enum StreamlineFeature {
+    DLSS = 0,
+    Reflex = 3,
+    PCL = 4,
+    DeepDVC = 5,
+    Latewarp = 6,
+    DLSS_G = 1000,
+    DLSS_RR = 1001
+}
+
+// Starts Streamline, before the app (Donut_CreateAppWithOptions with AppOptions.Streamline, whose device it
+// then makes): loads pluginDir/sl.interposer.dll (empty: bin/streamline/ next to the executable, or to
+// donut_interop_shared.dll under the JIT) after checking its signature, and its plugins (DLSS, DLSS-RR, DeepDVC,
+// Reflex, PCL and DLSS-G). log != 0: Streamline's log in the console. Non-zero on success; logs why not.
+@nodrops declare function Streamline_Init(api: GraphicsAPI, pluginDir: string, log: int): int;
+// Non-zero if the app's adapter (GPU, driver, OS) supports the feature; zero also without Streamline_Init.
+@nodrops declare function Streamline_IsFeatureSupported(app: AppHandle, feature: StreamlineFeature): int;
+// Why the last Streamline_IsFeatureSupported of the feature said what it did ("supported", or Streamline's
+// reason, e.g. "eErrorNoSupportedAdapterFound").
+@nodrops declare function Streamline_FeatureStatusText(feature: StreamlineFeature): string;
+// Clears the resource tags and shuts Streamline down: before Donut_DestroyApp. Nothing without Streamline_Init.
+@nodrops declare function Streamline_Shutdown(): void;
+
+// --- Per frame. The app made with AppOptions.Streamline does the first two itself, in its device manager's
+// frame callbacks (also in test mode): Streamline_BeginFrame before the frame, PCL markers around its
+// animation, rendering and present. The rest need the frame's token.
+
+// A new frame: Streamline's frame token (returned, -1 without Streamline), then Reflex's sleep (Reflex
+// supported).
+@nodrops declare function Streamline_BeginFrame(): int;
+// A PCL marker for this frame (sl::PCLMarker: 0 simulation start, 1 its end, 2 render submit start, 3 its
+// end, 4 present start, 5 its end), PCL supported.
+@nodrops declare function Streamline_PclMarker(marker: int): void;
+// Reflex's mode (0 off, 1 low latency, 2 with boost) and a frame rate cap (0: none), Reflex supported.
+// Non-zero if Streamline took them.
+@nodrops declare function Streamline_SetReflex(mode: int, fpsCap: int): int;
+// Reflex's sleeps (Streamline_BeginFrame's) that succeeded so far.
+@nodrops declare function Streamline_ReflexSleeps(): int;
+// Reflex's latest latency, the simulation's start to the GPU's end of rendering, in milliseconds; -1 without
+// a report (no Reflex, nothing presented yet).
+@nodrops declare function Streamline_ReflexLatencyMs(): number;
+// The frame's camera, every frame Streamline runs: the view rendered and the previous frame's (Donut planar
+// views; their projections without jitter, and this one's jitter), the camera's position and its forward,
+// up and right directions (3 floats each), the render size (motion vectors are in its pixels), reset non-zero
+// for a frame without history. Near plane 0.01, far plane 200.
+@nodrops declare function Streamline_SetConstants(view: ViewHandle, prevView: ViewHandle, cameraPos: Ref<f32>, fwd: Ref<f32>,
+    up: Ref<f32>, right: Ref<f32>, renderW: int, renderH: int, reset: int): void;
+// Tags the frame's motion vectors and depth (at the render size; depth is copied now) and its final color
+// without the UI (at the display size), on the command list.
+@nodrops declare function Streamline_TagCommon(cmd: CommandListHandle, motionVectors: TextureHandle, depth: TextureHandle,
+    hudless: TextureHandle): void;
+// DLSS's render size for the mode (the -DLSS_mode numbering: 1 MaxPerformance, 2 Balanced, 3 MaxQuality,
+// 4 UltraPerformance, 6 DLAA) at the display size: w | h << 16; 0 if DLSS can't. Mode 0 turns DLSS off,
+// frees its resources (wait for the GPU first) and returns the display size.
+@nodrops declare function Streamline_DlssOptimalRenderSize(mode: int, displayW: int, displayH: int): int;
+// Upscales input's top-left renderW x renderH (HDR color) into output (at the display size) with DLSS in
+// the mode, on the command list, whose state is cleared after (Streamline binds its own). Non-zero if it
+// was evaluated (a failed Streamline call is logged as a warning).
+@nodrops declare function Streamline_EvaluateDlss(cmd: CommandListHandle, mode: int, input: TextureHandle, output: TextureHandle,
+    renderW: int, renderH: int): int;
+// DLSS-RR's render size for the mode (the -DLSSRR_mode numbering, as DLSS's) at the display size: w | h << 16;
+// 0 if DLSS-RR can't. Mode 0 turns DLSS-RR off, frees its resources (wait for the GPU first) and returns the
+// display size.
+@nodrops declare function Streamline_DlssRROptimalRenderSize(mode: int, displayW: int, displayH: int): int;
+// DLSS Ray Reconstruction: denoises and upscales input (HDR color at the render size: its whole size) into
+// output (at the display size) in the mode, on the command list, whose state is cleared after. Its guides,
+// read over the input's size: diffuse and specular albedo, normals with roughness in w, the specular hit
+// distance; the camera's world-to-view matrix and its inverse (16 floats each, row-major). The common tags
+// (motion vectors, depth) and constants are the frame's. Non-zero if it was evaluated.
+@nodrops declare function Streamline_EvaluateDlssRR(cmd: CommandListHandle, mode: int, input: TextureHandle, output: TextureHandle,
+    diffuse: TextureHandle, specular: TextureHandle, normalRoughness: TextureHandle, specHitDistance: TextureHandle,
+    worldToView: Ref<f32>, viewToWorld: Ref<f32>): int;
+// DeepDVC (AI-driven digital vibrance) on color, in place: the final color before the UI (at the display
+// size), on the command list, whose state is cleared after. intensity and saturationBoost in [0, 1]. Non-zero
+// if it was evaluated.
+@nodrops declare function Streamline_EvaluateDeepDvc(cmd: CommandListHandle, color: TextureHandle, intensity: number,
+    saturationBoost: number): int;
+// DeepDVC turned off: its mode set to off (its plugin has no explicit resource free).
+@nodrops declare function Streamline_DeepDvcOff(): void;
+// Drops the resource tags: before releasing tagged resources (Streamline holds them until then).
+@nodrops declare function Streamline_ClearTags(): void;
+
+// --- DLSS Frame Generation. It generates frames at present (the proxy swap chain's Present on D3D12, the
+// interposer's vkQueuePresentKHR on Vulkan): a headless app (test mode) has none, so it never acts there.
+
+// DLSS-G's mode (0 off, 1 on), the frames it generates per frame rendered (multiplier - 1), and holdOff != 0
+// to keep it off for this frame only (its resources kept: the demo holds it off while the mouse is over the UI,
+// as the sample does), every frame; DLSS-G supported. Turned off (mode 0), its resources are freed. On D3D12
+// turning it on or off makes the swap chain again at the next frame's start, DLSS-G loaded only while it's on.
+// Non-zero if Streamline took the options (zero also while it isn't loaded).
+@nodrops declare function Streamline_SetDlssG(mode: int, framesToGenerate: int, holdOff: int): int;
+// DLSS-G's state: its status (sl::DLSSGStatus bits: 0 ok, 1 resolution too low, 2 Reflex not detected, 4 HDR
+// format not supported, 8 common constants invalid, 16 GetCurrentBackBufferIndex not called) | the frames
+// actually presented per frame rendered << 8 | the most frames it can generate << 16; -1 without DLSS-G (not
+// supported, or on D3D12 not loaded: off).
+@nodrops declare function Streamline_DlssGState(): int;
+// DLSS-G's inputs at present, on the frame's last command list (after the UI): the UI's premultiplied color and
+// alpha and its alpha (either may be null; DLSS-G takes the alpha if both), the back buffer's extent, and again
+// Streamline_TagCommon's motion vectors, depth and color without the UI, each tagged in the state it rests in
+// at present (on D3D12 one not resting in COMMON is copied now). Non-zero if they were tagged.
+@nodrops declare function Streamline_TagUi(cmd: CommandListHandle, uiColorAlpha: TextureHandle | null, uiAlpha: TextureHandle | null,
+    backbufferW: int, backbufferH: int): int;

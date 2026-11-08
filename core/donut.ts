@@ -334,6 +334,18 @@ export class App {
         return Donut_GetCommonSampler(this.handle, which);
     }
 
+    // Donut's full-screen vertex shader (CommonRenderPasses'): a triangle strip of 4 vertices over the viewport,
+    // SV_Position and float2 UV (0, 0 top left) out. The app keeps it (don't release it).
+    getFullscreenVertexShader(): ShaderHandle {
+        return Donut_GetFullscreenVertexShader(this.handle);
+    }
+
+    // Makes the common samplers again with a mip level bias (e.g. log2(render / display width) - 1 when
+    // upscaling). Passes made afterwards use them, those made before keep the old ones.
+    setCommonSamplersMipBias(mipBias: number): void {
+        Donut_SetCommonSamplersMipBias(this.handle, mipBias);
+    }
+
     // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
     // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
     createComparisonSampler(): SamplerHandle {
@@ -728,6 +740,11 @@ export class App {
         return Donut_GetAverageFrameTime(this.handle);
     }
 
+    // The device manager's frame index (Donut's GetFrameIndex): the frames rendered so far.
+    getFrameIndex(): int {
+        return Donut_GetFrameIndex(this.handle);
+    }
+
     getWindowWidth(): int {
         return Donut_GetWindowWidth(this.handle);
     }
@@ -1031,6 +1048,12 @@ export class App {
     // build it. Null without descriptor buffers; release it with Donut_ReleaseObject.
     createDescriptorBufferPipeline(vertexShader: ShaderHandle, pixelShader: ShaderHandle, inputLayout: InputLayoutHandle, framebuffer: FramebufferHandle, cullMode: CullMode, frontCounterClockwise: int, depthTest: int, depthWrite: int, depthFunc: ComparisonFunc): DescriptorBufferPipeline {
         return new DescriptorBufferPipeline(Donut_CreateDescriptorBufferPipeline(this.handle, vertexShader, pixelShader, inputLayout, framebuffer, cullMode, frontCounterClockwise, depthTest, depthWrite, depthFunc));
+    }
+
+    // A render target (resources.d.ts' textures) cleared to 0 (fast), resting at initialState; also a UAV if
+    // isUAV != 0.
+    createRenderTargetTextureInState(width: int, height: int, format: Format, isUAV: int, initialState: ResourceState, debugName: string): TextureHandle {
+        return Donut_CreateRenderTargetTextureInState(this.handle, width, height, format, isUAV, initialState, debugName);
     }
 
     // Async compute: every intervalMicroseconds, a C++ worker thread dispatches groupsX x groupsY
@@ -1687,6 +1710,34 @@ export class App {
         return Donut_CreateBloomPass(this.handle, framebuffer, view.handle);
     }
 
+    // Passes over render targets an example lays out itself (streamline_demo's): a G-buffer as
+    // Donut_CreateGBufferTargets', with motion vectors (written by the G-buffer fill and TAA's camera motion pass).
+    createGBufferTargetsWithMotionVectors(width: int, height: int, reverseDepth: int): GBufferTargets {
+        return new GBufferTargets(Donut_CreateGBufferTargetsWithMotionVectors(this.handle, width, height, reverseDepth));
+    }
+
+    // A framebuffer factory over a color target and / or a depth target (either may be null), for the passes
+    // that draw into one (sky, bloom, tone mapping, Donut_BlitTextureToFramebuffer); release it with the textures.
+    createFramebufferFactory(colorTexture: TextureHandle | null, depthTexture: TextureHandle | null): FramebufferFactoryHandle {
+        return Donut_CreateFramebufferFactory(this.handle, colorTexture, depthTexture);
+    }
+
+    // Stretches a texture over a framebuffer factory's framebuffer for view.
+    blitTextureToFramebuffer(commandList: CommandList, framebuffer: FramebufferFactoryHandle, view: View, texture: TextureHandle): void {
+        Donut_BlitTextureToFramebuffer(this.handle, commandList.handle, framebuffer, view.handle, texture);
+    }
+
+    // Donut's SSAO from depth and G-buffer normals into an R8 UAV texture; render it with Donut_RenderSsao.
+    createSsaoPassForTextures(depth: TextureHandle, normals: TextureHandle, output: TextureHandle): SsaoPassHandle {
+        return Donut_CreateSsaoPassForTextures(this.handle, depth, normals, output);
+    }
+
+    // Donut's TAA over textures: resolves unresolvedColor into resolvedColor (Catmull-Rom filtering), with motion
+    // vectors where the stencil has motionVectorStencilMask set.
+    createTemporalAntiAliasingPassForTextures(view: View, depth: TextureHandle, motionVectors: TextureHandle, unresolvedColor: TextureHandle, resolvedColor: TextureHandle, feedback1: TextureHandle, feedback2: TextureHandle, motionVectorStencilMask: int): TemporalAntiAliasingPass {
+        return new TemporalAntiAliasingPass(Donut_CreateTemporalAntiAliasingPassForTextures(this.handle, view.handle, depth, motionVectors, unresolvedColor, resolvedColor, feedback1, feedback2, motionVectorStencilMask));
+    }
+
     // One pixel of a texture: capture, execute (Donut_FlushFrameCommandList), then read 4 ints into dst.
     createPixelReadbackPass(texture: TextureHandle): PixelReadbackPass {
         return new PixelReadbackPass(Donut_CreatePixelReadbackPass(this.handle, texture));
@@ -2329,6 +2380,13 @@ export class CommandList {
         Donut_BuildOpacityMicromap(this.handle, opacityMicromap);
     }
 
+    // Rebuilds in place, into an open command list, Donut_BuildSceneAccelStructsWithHitGroupStride's acceleration
+    // structures: every mesh's BLAS (skinned ones in their current pose), then the TLAS over them (the same
+    // hitGroupStride), from the instances' current transforms. Binding sets holding the TLAS stay valid.
+    rebuildSceneAccelStructs(sceneAccelStructs: SceneAccelStructs, scene: Scene, hitGroupStride: int): void {
+        Donut_RebuildSceneAccelStructs(this.handle, sceneAccelStructs.handle, scene.handle, hitGroupStride);
+    }
+
     // Launches the graph with one empty entry record, bindingSet and byteSize bytes of push constants
     // from data as its root arguments, set through computePipeline (one with the same root signature;
     // don't dispatch with it after the graph in the same command list). initializeBackingMemory
@@ -2424,6 +2482,28 @@ export class CommandList {
 
     renderBloom(bloomPass: BloomPassHandle, framebuffer: FramebufferFactoryHandle, view: View, sourceTexture: TextureHandle, sigma: number, alpha: number): void {
         Donut_RenderBloom(this.handle, bloomPass, framebuffer, view.handle, sourceTexture, sigma, alpha);
+    }
+
+    // Donut_RenderGBufferFill into a Donut_CreateGBufferTargetsWithMotionVectors G-buffer.
+    renderGBufferFillTargets(gbufferFillPass: GBufferFillPass, view: View, previousView: View, gbufferTargets: GBufferTargets, sceneGraph: SceneGraph): void {
+        Donut_RenderGBufferFillTargets(this.handle, gbufferFillPass.handle, view.handle, previousView.handle, gbufferTargets.handle, sceneGraph.handle);
+    }
+
+    // Lights the G-buffer into output (a UAV texture): the scene graph's lights, ambient between the top and
+    // bottom colors, times ambientOcclusion (null for none).
+    renderDeferredLightingTargets(deferredLightingPass: DeferredLightingPass, view: View, gbufferTargets: GBufferTargets, ambientOcclusion: TextureHandle | null, topR: number, topG: number, topB: number, bottomR: number, bottomG: number, bottomB: number, sceneGraph: SceneGraph, output: TextureHandle): void {
+        Donut_RenderDeferredLightingTargets(this.handle, deferredLightingPass.handle, view.handle, gbufferTargets.handle, ambientOcclusion, topR, topG, topB, bottomR, bottomG, bottomB, sceneGraph.handle, output);
+    }
+
+    // Donut_RenderSky with the light's radiance clamped at maxLightRadiance (100 in SkyParameters' defaults).
+    renderSkyClamped(skyPass: SkyPassHandle, view: View, light: Light, brightness: number, glowSize: number, glowSharpness: number, glowIntensity: number, horizonSize: number, maxLightRadiance: number): void {
+        Donut_RenderSkyClamped(this.handle, skyPass, view.handle, light.handle, brightness, glowSize, glowSharpness, glowIntensity, horizonSize, maxLightRadiance);
+    }
+
+    // Tone mapping with the eye adaptation's parameters (Donut's defaults: speeds 1 up, 0.5 down, the adapted
+    // luminance within 0.02 .. 0.5, exposure bias -0.5).
+    renderToneMappingAdapted(toneMappingPass: ToneMappingPass, view: View, sourceTexture: TextureHandle, eyeAdaptationSpeedUp: number, eyeAdaptationSpeedDown: number, minAdaptedLuminance: number, maxAdaptedLuminance: number, exposureBias: number): void {
+        Donut_RenderToneMappingAdapted(this.handle, toneMappingPass.handle, view.handle, sourceTexture, eyeAdaptationSpeedUp, eyeAdaptationSpeedDown, minAdaptedLuminance, maxAdaptedLuminance, exposureBias);
     }
 
     capturePixel(pixelReadbackPass: PixelReadbackPass, x: int, y: int): void {
@@ -2806,6 +2886,12 @@ export class BindingLayoutDesc {
         Donut_SetBindingLayoutDescriptorSet(this.handle, space);
     }
 
+    // The Vulkan binding numbers of the layout's registers: t<n> at shaderResource + n, and so on, as the
+    // SPIR-V was compiled (ShaderMake's --tRegShift etc.; NVRHI's defaults are 0, 128, 256, 384).
+    setVulkanOffsets(shaderResource: int, sampler: int, constantBuffer: int, unorderedAccess: int): void {
+        Donut_SetBindingLayoutVulkanOffsets(this.handle, shaderResource, sampler, constantBuffer, unorderedAccess);
+    }
+
     // byteSize bytes of push constants (DECLARE_PUSH_CONSTANTS in HLSL) at b<slot>.
     layoutPushConstants(slot: int, byteSize: int): void {
         Donut_LayoutPushConstants(this.handle, slot, byteSize);
@@ -3177,6 +3263,13 @@ export class ImGuiPass {
     // that takes that framebuffer's texture to the back buffer).
     setFramebuffer(framebuffer: FramebufferHandle | null): void {
         Donut_SetImGuiPassFramebuffer(this.handle, framebuffer);
+    }
+
+    // Same, the UI drawn as a layer to put over the frame later: framebuffer cleared to 0 gets the UI's color
+    // premultiplied by its alpha and its coverage in alpha (Final = UI.rgb + (1 - UI.a) x frame, as Streamline's
+    // DLSS-G wants its UI color and alpha); null: the back buffer again, with Donut's blending.
+    setLayerFramebuffer(framebuffer: FramebufferHandle | null): void {
+        Donut_SetImGuiPassLayerFramebuffer(this.handle, framebuffer);
     }
 
     // A TrueType font (path relative to the executable's directory) at a size in pixels; call right
@@ -3949,6 +4042,11 @@ export class GBufferTargets {
     getTexture(which: GBufferTexture): TextureHandle {
         return Donut_GetGBufferTexture(this.handle, which);
     }
+
+    // The G-buffer's framebuffer (its textures and depth); valid as long as the targets.
+    getFramebuffer(): FramebufferFactoryHandle {
+        return Donut_GetGBufferFramebuffer(this.handle);
+    }
 }
 
 @value
@@ -4032,6 +4130,11 @@ export class ShadowMap {
     // Fits the cascades to a directional light and the view, out to maxShadowDistance (stable).
     setupForView(light: Light, view: View, maxShadowDistance: number, zRange: number, exponent: number): void {
         Donut_SetupShadowMapForView(this.handle, light.handle, view.handle, maxShadowDistance, zRange, exponent);
+    }
+
+    // Donut_SetupShadowMapForView with the view's frustum grown by `grow` first.
+    setupForGrownView(light: Light, view: View, grow: number, maxShadowDistance: number, zRange: number, exponent: number): void {
+        Donut_SetupShadowMapForGrownView(this.handle, light.handle, view.handle, grow, maxShadowDistance, zRange, exponent);
     }
 
     setupForLightProbeCapture(light: Light, lightProbeCapture: LightProbeCapture, cullDistance: number, zRange: number, exponent: number): void {
@@ -5185,6 +5288,21 @@ export class ImGui {
         Donut_ImGuiNewLine();
     }
 
+    // The items until ImGui.endDisabled greyed out and not interactive when disabled; pair them
+    // whatever disabled is.
+    static beginDisabled(disabled: boolean): void {
+        Donut_ImGuiBeginDisabled(disabled);
+    }
+
+    static endDisabled(): void {
+        Donut_ImGuiEndDisabled();
+    }
+
+    // Whether ImGui takes the mouse (it's over one of its windows, or dragging an item); false without ImGui.
+    static wantCaptureMouse(): boolean {
+        return Donut_ImGuiWantCaptureMouse();
+    }
+
     // A scrolling region of width x height pixels (0: the rest of the window); end it with
     // ImGui.endChild whatever this returns.
     static beginChild(id: string, width: number, height: number, border: boolean): boolean {
@@ -5239,7 +5357,9 @@ export class CommandLine {
 
     // The examples' test options: -test renders frameCount frames, frameSeconds each, without a
     // window (Program.setTestMode, for the app created next); -testOutput <file> names an image
-    // file for the last one (Donut_FinishTest). Non-zero if -test is given.
+    // file for the last one (Donut_FinishTest). Non-zero if -test is given. -hiddenWindow <frames>
+    // (without -test): the app created next has its window and swap chain, but the window is never
+    // shown and Donut_RunApp returns after that many frames.
     static parseTestArgs(argc: int, argv: Ref<string>, frameCount: int, frameSeconds: number): int {
         return Donut_ParseTestArgs(argc, argv, frameCount, frameSeconds);
     }

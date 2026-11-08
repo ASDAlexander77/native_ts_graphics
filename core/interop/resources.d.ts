@@ -46,6 +46,7 @@ enum Format {
     RGBA16_UINT = 36,
     RGBA16_FLOAT = 38,
     RGBA16_UNORM = 39,
+    RGBA16_SNORM = 40,
     D16 = 50,
     D24S8 = 51,
     D32 = 53,
@@ -242,6 +243,12 @@ enum CommonSampler {
 // that): marks it as written by shaders, so that its next use waits for the writes.
 @nodrops declare function Donut_SetBufferWrittenByShaders(commandList: CommandListHandle, buffer: BufferHandle): void;
 @nodrops declare function Donut_GetCommonSampler(app: AppHandle, which: CommonSampler): SamplerHandle;
+// Donut's full-screen vertex shader (CommonRenderPasses'): a triangle strip of 4 vertices over the viewport,
+// SV_Position and float2 UV (0, 0 top left) out. The app keeps it (don't release it).
+@nodrops declare function Donut_GetFullscreenVertexShader(app: AppHandle): ShaderHandle;
+// Makes the common samplers again with a mip level bias (e.g. log2(render / display width) - 1 when
+// upscaling). Passes made afterwards use them, those made before keep the old ones.
+@nodrops declare function Donut_SetCommonSamplersMipBias(app: AppHandle, mipBias: number): void;
 // SamplerComparisonState for depth textures: bilinear, clamped. Its comparison is "less" (NVRHI
 // fixes it): SampleCmp returns the fraction of texels deeper than the reference.
 @nodrops declare function Donut_CreateComparisonSampler(app: AppHandle): SamplerHandle;

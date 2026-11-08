@@ -10,6 +10,10 @@
 // buffer; null: the back buffer again. Passes added after the ImGui pass draw after it (e.g. one
 // that takes that framebuffer's texture to the back buffer).
 @nodrops declare function Donut_SetImGuiPassFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
+// Same, the UI drawn as a layer to put over the frame later: framebuffer cleared to 0 gets the UI's color
+// premultiplied by its alpha and its coverage in alpha (Final = UI.rgb + (1 - UI.a) x frame, as Streamline's
+// DLSS-G wants its UI color and alpha); null: the back buffer again, with Donut's blending.
+@nodrops declare function Donut_SetImGuiPassLayerFramebuffer(imguiPass: ImGuiPassHandle, framebuffer: FramebufferHandle | null): void;
 @nodrops declare function Donut_ImGuiSetNextWindowPos(x: number, y: number): void;
 // autoResize != 0: the window fits its contents. Pair with Donut_ImGuiEnd.
 @nodrops declare function Donut_ImGuiBegin(title: string, autoResize: boolean): void;
@@ -79,6 +83,12 @@
 @nodrops declare function Donut_ImGuiSameLine(): void;
 // Ends the line: the next item starts on a new one (after Donut_ImGuiSameLine, an empty line).
 @nodrops declare function Donut_ImGuiNewLine(): void;
+// The items until Donut_ImGuiEndDisabled greyed out and not interactive when disabled; pair them whatever
+// disabled is.
+@nodrops declare function Donut_ImGuiBeginDisabled(disabled: boolean): void;
+@nodrops declare function Donut_ImGuiEndDisabled(): void;
+// Whether ImGui takes the mouse (it's over one of its windows, or dragging an item); false without ImGui.
+@nodrops declare function Donut_ImGuiWantCaptureMouse(): boolean;
 // A scrolling region of width x height pixels (0: the rest of the window); end it with
 // Donut_ImGuiEndChild whatever this returns.
 @nodrops declare function Donut_ImGuiBeginChild(id: string, width: number, height: number, border: boolean): boolean;

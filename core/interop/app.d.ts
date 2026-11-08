@@ -147,7 +147,10 @@ enum AppOptions {
     DescriptorBuffers = 1024,
     // With D3D12, shaders index ResourceDescriptorHeap[] (the root signatures of pipelines with a mutable
     // bindless layout get CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED).
-    HeapDirectlyIndexed = 2048
+    HeapDirectlyIndexed = 2048,
+    // The device made through Streamline (after Streamline_Init, core/streamline.cpp; nothing without it):
+    // D3D12's by its interposer, Vulkan's with the interposer as the Vulkan loader.
+    Streamline = 4096
 }
 
 // The color space of what the back buffers hold (donut::app::SwapChainColorSpace): sRGB (SDR),
@@ -217,8 +220,12 @@ declare function Donut_RunApp(app: AppHandle): void;
 @nodrops declare function Donut_SaveBackBufferToFile(app: AppHandle, path: string): int;
 // The examples' test options: -test renders frameCount frames, frameSeconds each, without a window
 // (Donut_SetTestMode, for the app created next); -testOutput <file> names an image file for the last
-// one (Donut_FinishTest). Non-zero if -test is given.
+// one (Donut_FinishTest). Non-zero if -test is given. -hiddenWindow <frames> (without -test): the app
+// created next has its window and swap chain, but the window is never shown and Donut_RunApp returns
+// after that many frames.
 @nodrops declare function Donut_ParseTestArgs(argc: int, argv: Ref<string>, frameCount: int, frameSeconds: number): int;
+// The frames a -hiddenWindow run renders, 0 if it isn't one (or under -test).
+@nodrops declare function Donut_HiddenWindowFrames(): int;
 // The current back buffer's pixels (in test mode after Donut_RunApp, the last frame's), one int each
 // with red in the low byte (0xAABBGGRR; BGRA back buffers swapped), row by row into dst (pixelCount
 // ints; Ref of a `let` int array element). 0 on failure or for back buffers not 8-bit RGBA / BGRA.
@@ -276,6 +283,8 @@ declare function Donut_RunApp(app: AppHandle): void;
 @nodrops declare function Donut_GetExecutableDirectory(): string;
 // Seconds per frame, averaged; 0 until measured.
 @nodrops declare function Donut_GetAverageFrameTime(app: AppHandle): number;
+// The device manager's frame index (Donut's GetFrameIndex): the frames rendered so far.
+@nodrops declare function Donut_GetFrameIndex(app: AppHandle): int;
 @nodrops declare function Donut_GetWindowWidth(app: AppHandle): int;
 @nodrops declare function Donut_GetWindowHeight(app: AppHandle): int;
 // Destroys resources the GPU has finished with; after Donut_WaitForIdle.
