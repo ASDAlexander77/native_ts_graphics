@@ -5531,6 +5531,13 @@ if (RTXDI_DIR)
     # render targets); add_tslang_example makes rtxdi_minimal depend on rtxdi_minimal_shaders.
     add_tslang_example(rtxdi_minimal core/matrix.ts core/text_format.ts core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
     target_link_libraries(rtxdi_minimal PRIVATE rtxdi_runtime)
+    # Sanity checks (-test), not reference compares: the frame matches Minimal.exe's bit for bit in the notes' compares,
+    # whose reference dumps can't live in the repo. unbiased: the sample's unbiased resampling; moving: the camera moves
+    # every frame (motion vectors, temporal reuse); resize: the offscreen back buffer is resized at frame 10.
+    add_tslang_example_test(rtxdi_minimal ARGS -width 1280 -height 720 -frames 60)
+    add_tslang_example_test(rtxdi_minimal SUFFIX unbiased ARGS -width 1280 -height 720 -frames 60 -unbiased)
+    add_tslang_example_test(rtxdi_minimal SUFFIX moving ARGS -width 1280 -height 720 -frames 60 -moveCamera 0.01 0 0)
+    add_tslang_example_test(rtxdi_minimal SUFFIX resize ARGS -width 1280 -height 720 -frames 20 -resizeAt 10)
 endif()
 
 # Port of NVIDIA's RTX Mega Geometry demo (github.com/NVIDIA-RTX/RTXMG), its cluster tessellation path:
