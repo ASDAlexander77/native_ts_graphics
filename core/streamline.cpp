@@ -548,7 +548,8 @@ namespace
         else if (api == nvrhi::GraphicsAPI::VULKAN)
         {
             params.vulkanLibraryName = g_Streamline.interposerPath;
-            // Under the validation layer (-debug, or VK_INSTANCE_LAYERS naming it): its handle wrapping off.
+            // The validation layer's handle wrapping off (set whether or not the layer is on: -debug, VK_INSTANCE_LAYERS
+            // or vkconfig may enable it; without it the variable does nothing).
             // SDK 2.12's sl.reflex sleeps through NvLowLatencyVk.dll (VK_NV_low_latency over NVAPI), which reaches
             // the driver beside the loader and its layers, with Vulkan handles the layer has replaced by its own
             // ids: the driver faults on them (an access violation in nvoglv64.dll under slReflexSleep, windowed
@@ -557,13 +558,12 @@ namespace
             // downloaded, 2.14's sl.reflex, which sleeps through VK_NV_low_latency2 in the layer chain; the demo
             // keeps bin/streamline's 2.12 plugins.) The layer reads it from the environment when it loads; a
             // value already set is the user's.
-            const char* layers = getenv("VK_INSTANCE_LAYERS");
-            const bool validationLayer = params.enableDebugRuntime
-                || (layers && strstr(layers, "VK_LAYER_KHRONOS_validation"));
-            if (validationLayer && !getenv("VK_LAYER_UNIQUE_HANDLES"))
+            if (!getenv("VK_LAYER_UNIQUE_HANDLES"))
             {
                 _putenv_s("VK_LAYER_UNIQUE_HANDLES", "false");
-                donut::log::info("Streamline: the validation layer's handle wrapping off (Reflex's NvLowLatencyVk needs the driver's handles)");
+                const char* layers = getenv("VK_INSTANCE_LAYERS");
+                if (params.enableDebugRuntime || (layers && strstr(layers, "VK_LAYER_KHRONOS_validation")))
+                    donut::log::info("Streamline: the validation layer's handle wrapping off (Reflex's NvLowLatencyVk needs the driver's handles)");
             }
             // GLFW's surface (a window's device) through the same loader, its surface functions the interposer's
             // hooked exports (GlfwGetInstanceProcAddr); before glfwInit, which the window's creation calls.
