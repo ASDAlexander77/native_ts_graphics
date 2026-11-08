@@ -65,6 +65,8 @@ enum RtxdiBuffer {
 // material, the instance index as the ID). Donut_BuildSceneAccelStructs makes every geometry opaque, every mask
 // 1 and no IDs. Null (after logging why) without a command list or scene.
 @nodrops declare function Rtxdi_BuildSceneAccelStructs(app: AppHandle, commandList: CommandListHandle, scene: SceneHandle): RtxdiSceneAccelStructsHandle | null;
+// After the GPU is idle (App.waitForIdle): the BLASes don't track liveness (as the sample's), so command lists don't
+// keep them alive.
 @nodrops declare function Rtxdi_DestroySceneAccelStructs(accelStructs: RtxdiSceneAccelStructsHandle): void;
 // For Donut_BindAccelStruct; valid as long as the acceleration structures.
 @nodrops declare function Rtxdi_GetTopLevelAS(accelStructs: RtxdiSceneAccelStructsHandle): AccelStructHandle;
