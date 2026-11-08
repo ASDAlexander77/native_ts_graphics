@@ -1,7 +1,7 @@
 diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager.h
 --- a/include/donut/app/DeviceManager.h
 +++ b/include/donut/app/DeviceManager.h
-@@ -234,6 +234,18 @@ namespace donut::app
+@@ -234,6 +234,19 @@ namespace donut::app
          D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_1;
  #endif
  
@@ -11,10 +11,11 @@ diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager
 +        std::function<HRESULT(IUnknown* adapter, D3D_FEATURE_LEVEL minimumFeatureLevel, REFIID riid, void** device)> d3d12CreateDevice;
 +        std::function<HRESULT(UINT flags, REFIID riid, void** factory)> createDxgiFactory2;
 +        // D3D12 only: asked at the start of every frame; returning true has the swap chain made again (e.g. as
-+        // Streamline's DLSS-G needs when it's turned on or off). swapChainRecreation is called with true once
-+        // the GPU is idle and the old swap chain is released, with false once the new one and its buffers exist.
++        // Streamline's DLSS-G needs when it's turned on or off). swapChainRecreation is called at each step:
++        // 0 once the GPU is idle (the old swap chain still there), 1 once the old swap chain is released, 2 once
++        // the new one and its buffers exist.
 +        std::function<bool()> swapChainRecreationRequested;
-+        std::function<void(bool released)> swapChainRecreation;
++        std::function<void(int step)> swapChainRecreation;
 +#endif
 +
  #if DONUT_WITH_VULKAN
@@ -62,7 +63,7 @@ diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX
  
      if (FAILED(hr))
      {
-@@ -591,9 +596,60 @@ bool DeviceManager_DX12::BeginFrame()
+@@ -591,9 +596,64 @@ bool DeviceManager_DX12::BeginFrame()
  
      WaitForSingleObject(m_FrameFenceEvents[bufferIndex], INFINITE);
  
@@ -85,15 +86,19 @@ diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX
 +        m_DeviceParams.backBufferHeight = currentDesc.Height;
 +    }
 +
++    m_NvrhiDevice->waitForIdle();
++    if (m_DeviceParams.swapChainRecreation)
++        m_DeviceParams.swapChainRecreation(0);
++
 +    BackBufferResizing();
 +
-+    // Idle GPU (ReleaseRenderTargets waits), then no reference to the old swap chain left.
++    // No reference to the old swap chain left (ReleaseRenderTargets collects the GPU's).
 +    m_SwapChain->SetFullscreenState(false, nullptr);
 +    ReleaseRenderTargets();
 +    m_SwapChain = nullptr;
 +
 +    if (m_DeviceParams.swapChainRecreation)
-+        m_DeviceParams.swapChainRecreation(true);
++        m_DeviceParams.swapChainRecreation(1);
 +
 +    RefCountPtr<IDXGISwapChain1> swapChain1;
 +    HRESULT hr = m_DxgiFactory2->CreateSwapChainForHwnd(m_GraphicsQueue, m_hWnd, &m_SwapChainDesc, &m_FullScreenDesc, nullptr, &swapChain1);
@@ -117,7 +122,7 @@ diff --git a/src/app/dx12/DeviceManager_DX12.cpp b/src/app/dx12/DeviceManager_DX
 +    BackBufferResized();
 +
 +    if (m_DeviceParams.swapChainRecreation)
-+        m_DeviceParams.swapChainRecreation(false);
++        m_DeviceParams.swapChainRecreation(2);
 +}
 +
  nvrhi::ITexture* DeviceManager_DX12::GetCurrentBackBuffer()

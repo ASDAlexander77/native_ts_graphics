@@ -508,23 +508,28 @@ namespace
                 return hr;
             };
             // DLSS-G turned on or off: the swap chain made again, with DLSS-G loaded while it's on (Streamline's
-            // DLSS-G guide, section 18). Between the two calls the GPU is idle and the old swap chain gone: its
-            // resources are freed, then it's loaded or unloaded.
+            // DLSS-G guide, section 18). With the GPU idle and the old swap chain still there its resources are
+            // freed (as the sample does); once that swap chain is released it's loaded or unloaded.
             params.swapChainRecreationRequested = []() { return g_Streamline.initialized && g_Streamline.dlssgRecreateSwapChain; };
-            params.swapChainRecreation = [](bool released)
+            params.swapChainRecreation = [](int step)
             {
-                if (released)
+                if (step == 0)
                 {
                     if (g_Streamline.dlssgLoaded)
                         g_Streamline.slFreeResources(sl::kFeatureDLSS_G, kViewport);
+                }
+                else if (step == 1)
+                {
                     g_Streamline.slDLSSGSetOptions = nullptr;
                     g_Streamline.slDLSSGGetState = nullptr;
                     Check(g_Streamline.slSetFeatureLoaded(sl::kFeatureDLSS_G, g_Streamline.dlssgWanted), "slSetFeatureLoaded (DLSS-G)");
                     g_Streamline.dlssgLoaded = g_Streamline.dlssgWanted;
-                    return;
                 }
-                g_Streamline.dlssgRecreateSwapChain = false;
-                donut::log::info("DLSS-G: swap chain made again, DLSS-G %s", g_Streamline.dlssgLoaded ? "loaded" : "unloaded");
+                else
+                {
+                    g_Streamline.dlssgRecreateSwapChain = false;
+                    donut::log::info("DLSS-G: swap chain made again, DLSS-G %s", g_Streamline.dlssgLoaded ? "loaded" : "unloaded");
+                }
             };
         }
         else if (api == nvrhi::GraphicsAPI::VULKAN)
