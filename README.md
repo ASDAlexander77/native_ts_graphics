@@ -346,6 +346,35 @@ the sun) lights only 15:
 build/bin/feature_demo.exe -dx12 -propCameraAttach SHIP_police_squad E:/RTXPT/Assets/bistro-programmer-art.scene.json
 ```
 
+`rtxmg_demo` is a port of NVIDIA's [RTX Mega Geometry](https://github.com/NVIDIA-RTX/RTXMG) demo (v2.2.0), its
+cluster tessellation path: Catmull-Clark subdivision surfaces tessellated into clusters every frame, their CLASes
+and BLASes rebuilt on the GPU, HiZ-culled, path traced with accumulation and tone mapped as the demo does. RTXMG
+is under the NVIDIA RTX SDKs License too, so it is built the same way: with `-DRTXMG_DIR=<checkout>` (submodules
+and assets pulled, and configured once by its own CMake) its library (`rtxmg`, with OpenSubdiv's `osd_lite` and
+the demo's environment map) builds from the checkout against this repository's Donut, the demo's shaders compile
+in place (`shaders/rtxmg_demo.cfg` names them), `core/rtxmg.cpp` drives the library (scene, cluster tessellator,
+HiZ, TLAS, environment map sampling) and `examples/rtxmg_demo.ts` is the demo's app (the path tracer's pipeline,
+shader table and bindings, the trace, the blit, the window). The `default-rtxmg` and `release-rtxmg` presets build
+into `build-rtxmg` and `build-release-rtxmg` (`run_rtxmg.bat` runs the Release build):
+
+```
+cmake --preset release-rtxmg -DRTXMG_DIR=E:/Gits/RTXMG
+cmake --build build-release-rtxmg --target rtxmg_demo
+build-release-rtxmg/bin/rtxmg_demo.exe -dx12 --media E:/Gits/RTXMG/assets --scene subdivision/amy_kitchenset.scene.json
+```
+
+On Vulkan it builds the clusters with `VK_NV_cluster_acceleration_structure`; on D3D12 with NVRHI's native DXR
+clusters (`NVRHI_D3D12_WITH_DXRCLUSTER`, which the `-rtxmg` presets turn on): the 1.722 preview Agility SDK, fetched
+at configure time, its DXC for the path tracer's shader model 6.10 variant, Windows' Developer Mode and an NVIDIA
+driver 621.01 or newer. `-mode pt|primary|ao` picks the demo's shading mode (path tracing by default; primary rays
+and AO show the base color), `-spp` and `-maxBounces` override the scene file's, `-exposure` sets the exposure and
+`-p` the camera (`"[eye][at][up]fov"`, as the demo's shot lists). As in the reference frames the firefly clamp is off
+(`-firefly <max>` sets one). The frames match the demo's own (built from the same checkout) with 256 accumulated
+samples, and D3D12's match Vulkan's to noise. The cluster LOD path (the Zorah scene) and DLSS ray reconstruction,
+the demo's only denoiser, are not ported, nor its UI and camera controls (the camera stays at the scene's view or
+`-p`). This software contains source code provided by NVIDIA
+Corporation.
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
@@ -843,6 +872,7 @@ renders only while its window has focus.
   and [Xbox-ATG-Samples](https://github.com/microsoft/Xbox-ATG-Samples)
 - [NVIDIA DXR Tutorials](https://github.com/NVIDIAGameWorks/DxrTutorials)
 - [NVIDIA RTX Path Tracing](https://github.com/NVIDIA-RTX/RTXPT) and its [NVIDIA Real-time Denoisers (NRD)](https://github.com/NVIDIA-RTX/NRD), both under the NVIDIA RTX SDKs License
+- [NVIDIA RTX Character Rendering](https://github.com/NVIDIA-RTX/RTXCR) and [NVIDIA RTX Mega Geometry](https://github.com/NVIDIA-RTX/RTXMG), under the NVIDIA RTX SDKs License
 - [tslang, the TypeScript native compiler](https://github.com/ASDAlexander77/TypeScriptCompiler)
 
 Each port keeps the original sample's algorithm and look; see the comment above its
