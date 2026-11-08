@@ -2729,6 +2729,7 @@ extern "C"
         AppOption_HdrBackBuffer = 256, // R10G10B10A2_UNORM back buffers, for HDR10 (Donut_SetSwapChainColorSpace)
         AppOption_ShaderPrintf = 512, // with Vulkan, shaders' printf through the validation layer (Donut_HasShaderPrintf)
         AppOption_DescriptorBuffers = 1024, // with Vulkan, descriptor sets in buffers (Donut_HasDescriptorBuffers)
+        AppOption_HeapDirectlyIndexed = 2048, // with D3D12, ResourceDescriptorHeap[] in shaders (mutable bindless layouts)
     };
 
     // The nvrhi::IMessageCallback the devices made after Donut_SetNvrhiMessageCallback get: null for
@@ -2778,6 +2779,8 @@ extern "C"
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
+        // D3D12 only: Donut's Vulkan device manager turns it into other descriptor features.
+        params.enableHeapDirectlyIndexed = (options & AppOption_HeapDirectlyIndexed) != 0 && api == nvrhi::GraphicsAPI::D3D12;
         // Donut's Vulkan device manager turns it into BGRA8_UNORM.
         if ((options & AppOption_UnormBackBuffer) != 0)
             params.swapChainFormat = nvrhi::Format::RGBA8_UNORM;
@@ -3376,6 +3379,8 @@ extern "C"
         params.enableComputeQueue = (options & AppOption_ComputeQueue) != 0;
         params.enableDebugRuntime = (options & AppOption_DebugRuntime) != 0;
         params.enableNvrhiValidationLayer = (options & AppOption_DebugRuntime) != 0;
+        // D3D12 only: Donut's Vulkan device manager turns it into other descriptor features.
+        params.enableHeapDirectlyIndexed = (options & AppOption_HeapDirectlyIndexed) != 0 && api == nvrhi::GraphicsAPI::D3D12;
 #if DONUT_WITH_VULKAN
         // the core features a window's device has (Donut_CreateAppWithOptions), and of its optional
         // extensions those of cooperative vectors, opacity micromaps, partitioned TLASes, clustered

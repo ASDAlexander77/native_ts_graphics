@@ -53,6 +53,7 @@
 #include "rtxmg/subdivision/subdivision_surface.h"
 #include "rtxmg/utils/bindless_layout.h"
 #include "rtxmg/utils/buffer.h"
+#include "rtxmg/utils/cluster_operation.h"
 #include "rtxmg/utils/pixel_pick.h"
 
 // The demo's headers, shared with its shaders (RTXMG_DIR/demo on the include path).
@@ -199,7 +200,9 @@ namespace
         fs->mount("/shaders/donut", bin / "shaders" / "framework" / api);
         r.shaderFactory = std::make_shared<engine::ShaderFactory>(r.device, fs, "/shaders");
         r.commonPasses = std::make_shared<engine::CommonRenderPasses>(r.device, r.shaderFactory);
-        return std::filesystem::exists(bin / "shaders" / "rtxmg_demo" / api / "shaders" / "rtxmg_demo_path_tracer.bin");
+        // D3D12's DXR clusters trace with the shader model 6.10 build (NVRHI_D3D12_WITH_DXRCLUSTER's).
+        const char* pathTracer = UsesDxrClusterOperations(r.device) ? "rtxmg_demo_path_tracer_dxr.bin" : "rtxmg_demo_path_tracer.bin";
+        return std::filesystem::exists(bin / "shaders" / "rtxmg_demo" / api / "shaders" / pathTracer);
     }
 
     nvrhi::TextureHandle CreateOutput(nvrhi::IDevice* device, int2 size, nvrhi::Format format, const char* name)
@@ -454,8 +457,9 @@ extern "C"
     {
         auto r = std::make_unique<RtxmgDemo>();
         r->device = static_cast<nvrhi::IDevice*>(device);
-        // Cluster operations: Vulkan's VK_NV_cluster_acceleration_structure. NVRHI's D3D12 ones need NVAPI
-        // or its DXR cluster build, neither of which this build has.
+        // Cluster operations: Vulkan's VK_NV_cluster_acceleration_structure, or D3D12's DXR clusters with
+        // NVRHI_D3D12_WITH_DXRCLUSTER (the preview Agility SDK, Developer Mode, driver 621.01+). NVRHI's
+        // NVAPI ones aren't built (no NVAPI).
         if (!r->device->queryFeatureSupport(nvrhi::Feature::RayTracingClusters))
         {
             log::info("rtxmg_demo: the device has no cluster acceleration structures");
@@ -855,7 +859,8 @@ extern "C"
         if (!r->pathTracerLibrary)
         {
             std::vector<engine::ShaderMacro> macros = { { "VERTEX_NORMALS", "0" }, { "CLUSTER_LOD_SHADING", "0" } };
-            r->pathTracerLibrary = r->shaderFactory->CreateShaderLibrary("rtxmg_demo/rtxmg_demo_path_tracer.hlsl", &macros);
+            r->pathTracerLibrary = r->shaderFactory->CreateShaderLibrary(
+                GetClusterApiShaderPath(r->device, "rtxmg_demo/rtxmg_demo_path_tracer.hlsl").c_str(), &macros);
         }
         return r->pathTracerLibrary;
     }

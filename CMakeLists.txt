@@ -5393,6 +5393,14 @@ endif()
 # example loads its scenes from RTXMG_DIR/assets.
 if (RTXMG_DIR)
     set(DONUT_WITH_DX11 OFF)  # no D3D11 shaders, as for the library's
+    # D3D12's DXR clusters (NVRHI_D3D12_WITH_DXRCLUSTER): the path tracer's _dxr variant is shader model
+    # 6.10, which only the preview DXC compiles (the SPIR-V stays the Vulkan SDK's DXC's).
+    if (NVRHI_D3D12_WITH_DXRCLUSTER)
+        if (NOT DXC_PREVIEW_PATH)
+            message(FATAL_ERROR "rtxmg_demo with NVRHI_D3D12_WITH_DXRCLUSTER needs the preview DXC (WITH_D3D12_PREVIEW_SDK)")
+        endif()
+        set(SHADERMAKE_DXC_PATH "${DXC_PREVIEW_PATH}")
+    endif()
     donut_compile_shaders_all_platforms(
         TARGET rtxmg_demo_shaders
         CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/shaders/rtxmg_demo.cfg
@@ -5405,11 +5413,17 @@ if (RTXMG_DIR)
         INCLUDES ${RTXMG_SHADERS_INCLUDE_DIR}
     )
     unset(DONUT_WITH_DX11)
-    add_tslang_example(rtxmg_demo core/rtxmg.ts ${RTXMG_GLUE_SOURCES})
+    unset(SHADERMAKE_DXC_PATH)
+    if (NVRHI_D3D12_WITH_DXRCLUSTER)
+        # The Agility SDK runtime in bin/D3D12, the 1.722 preview with DXR clusters (Developer Mode only).
+        add_tslang_example(rtxmg_demo core/rtxmg.ts ${RTXMG_GLUE_SOURCES} core/d3d12_agility_sdk.cpp)
+    else()
+        add_tslang_example(rtxmg_demo core/rtxmg.ts ${RTXMG_GLUE_SOURCES})
+    endif()
     target_link_libraries(rtxmg_demo PRIVATE rtxmg)
     add_dependencies(rtxmg_demo rtxmg_demo_shaders cluster_tess_shaders hiz_shaders envmap_shaders)
-    # The kitchen set (its first animation frame, as the demo shows it paused), path traced. Vulkan only:
-    # the D3D12 test exits as skipped.
+    # The kitchen set (its first animation frame, as the demo shows it paused), path traced. D3D12 only
+    # with NVRHI_D3D12_WITH_DXRCLUSTER, Developer Mode and driver 621.01+: else that test exits as skipped.
     add_tslang_example_test(rtxmg_demo ARGS -width 1280 -height 720
         --media ${RTXMG_DIR}/assets --scene subdivision/amy_kitchenset.scene.json)
 endif()

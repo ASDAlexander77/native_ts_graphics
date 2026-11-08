@@ -23,7 +23,7 @@ export class RtxmgDemo {
     // The demo's cluster tessellation path: its library's scene, cluster tessellator, HiZ buffer and TLAS,
     // and the environment map's sampling tables, with the shader factory, bindless descriptor table and
     // texture cache they need. `device` is Donut_GetNvrhiDevice's. Null without cluster acceleration
-    // structures (Vulkan's; D3D12's need NVAPI or NVRHI's DXR cluster build) or if its shaders aren't built.
+    // structures (Vulkan's, or D3D12's with NVRHI's DXR cluster build) or if its shaders aren't built.
     static create(device: Opaque): RtxmgDemo {
         return new RtxmgDemo(Donut_RtxmgCreate(device));
     }

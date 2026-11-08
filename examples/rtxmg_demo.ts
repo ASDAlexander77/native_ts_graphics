@@ -4,9 +4,9 @@
 //
 // The library's work (scene, cluster tessellator, HiZ culling, TLAS, the environment map's sampling
 // tables) is core/rtxmg.cpp's, over RTXMG_DIR's library; this file is the demo's app: the path tracer's
-// pipeline, shader table and binding set, the trace, the blit and the window. Vulkan only for now (its
-// VK_NV_cluster_acceleration_structure; NVRHI's D3D12 cluster operations need NVAPI or NVRHI's DXR
-// cluster build). Run with:
+// pipeline, shader table and binding set, the trace, the blit and the window. Vulkan (its
+// VK_NV_cluster_acceleration_structure) or D3D12 with NVRHI's DXR cluster build (NVRHI_D3D12_WITH_DXRCLUSTER:
+// the preview Agility SDK, shader model 6.10, Windows' Developer Mode and driver 621.01+). Run with:
 //   rtxmg_demo --media <RTXMG_DIR>/assets --scene subdivision/amy_kitchenset.scene.json
 // RTXMG is under the NVIDIA RTX SDKs License: nothing of it is in this repository.
 
@@ -17,6 +17,9 @@ import { RtxmgDemo } from "../core/rtxmg";
 namespace RtxmgDemoExample {
     const WINDOW_TITLE = "RTX Mega Geometry";
     const TEST_FRAMES = 64;
+    // RTXMG_NVAPI_SHADER_EXT_SLOT (demo/render_params.h): the UAV of NVAPI's shader extensions, which the
+    // D3D12 path tracer declares (no NVAPI here: only its root signature slot, never written).
+    const NVAPI_SHADER_EXT_SLOT = 1000;
 
     // core/rtxmg.cpp's RtxmgResource and RtxmgTexture.
     const RTXMG_BUFFER_LIGHTING = 0;
@@ -52,6 +55,8 @@ namespace RtxmgDemoExample {
         private app: App;
         private rtxmg: RtxmgDemo;
         private exposure: number;
+        // D3D12: the path tracer's RayGen declares NVAPI's extension UAV (its timer), bound null here.
+        private d3d12: boolean;
         private layout: BindingLayoutHandle;
         private bindingSet: BindingSet;
         private bindingGeneration: int = -1;
@@ -63,10 +68,11 @@ namespace RtxmgDemoExample {
         private height: int = 0;
         private frameIndex: int = 0;
 
-        constructor(app: App, rtxmg: RtxmgDemo, exposure: number) {
+        constructor(app: App, rtxmg: RtxmgDemo, exposure: number, d3d12: boolean) {
             this.app = app;
             this.rtxmg = rtxmg;
             this.exposure = exposure;
+            this.d3d12 = d3d12;
         }
 
         // The path tracer's pipeline over its two layouts: the demo's space 0 (constants, scene, outputs) and
@@ -92,6 +98,9 @@ namespace RtxmgDemoExample {
             desc.layoutStructuredBufferUAV(12);
             desc.layoutTypedBufferUAV(13);
             desc.layoutStructuredBufferUAV(14);
+            if (this.d3d12) {
+                desc.layoutTypedBufferUAV(NVAPI_SHADER_EXT_SLOT);
+            }
             this.layout = this.app.createBindingLayout(desc, ShaderType.All);
 
             const library = this.rtxmg.getPathTracerLibrary();
@@ -182,6 +191,9 @@ namespace RtxmgDemoExample {
             desc.bindStructuredBufferUAV(12, r.getBuffer(RTXMG_BUFFER_PIXEL_DEBUG));
             desc.bindTypedBufferUAV(13, r.getBuffer(RTXMG_BUFFER_TIME_VIEW));
             desc.bindStructuredBufferUAV(14, r.getBuffer(RTXMG_BUFFER_PIXEL_PICK));
+            if (this.d3d12) {
+                desc.bindNullTypedBufferUAV(NVAPI_SHADER_EXT_SLOT);
+            }
             this.bindingSet = this.app.createBindingSetForLayout(desc, this.layout);
 
             const blitDesc = BindingSetDesc.create();
@@ -288,13 +300,10 @@ namespace RtxmgDemoExample {
             console.log("Pass the scene with --media <RTXMG_DIR>/assets --scene subdivision/amy_kitchenset.scene.json");
             return 1;
         }
-        if (args.api != GraphicsAPI.VULKAN) {
-            return unsupported(args.test, "rtxmg_demo runs on Vulkan (-vk): NVRHI's D3D12 cluster operations need NVAPI or its DXR cluster build");
-        }
-
-        // UNORM back buffers, as the demo's: the blit writes sRGB itself.
+        // UNORM back buffers, as the demo's: the blit writes sRGB itself. The library's D3D12 shaders read its
+        // bindless table through ResourceDescriptorHeap[].
         const app = App.createWithOptions(args.api, WINDOW_TITLE, args.width, args.height,
-            AppOptions.RayTracing | AppOptions.UnormBackBuffer | args.options);
+            AppOptions.RayTracing | AppOptions.UnormBackBuffer | AppOptions.HeapDirectlyIndexed | args.options);
         if (app.isNull()) {
             console.log("Cannot initialize a graphics device with the requested parameters");
             return 1;
@@ -324,7 +333,7 @@ namespace RtxmgDemoExample {
         rtxmg.setPathTracing(args.spp, args.maxBounces, args.firefly);
         // The demo's primary ray and AO modes decode flat values: exposure 1 (as its shot lists' captures).
         const sceneExposure = args.shadingMode == 2 ? rtxmg.getExposure() : 1.0;
-        const renderer = new Renderer(app, rtxmg, args.exposure >= 0.0 ? args.exposure : sceneExposure);
+        const renderer = new Renderer(app, rtxmg, args.exposure >= 0.0 ? args.exposure : sceneExposure, args.api == GraphicsAPI.D3D12);
         if (!renderer.init()) {
             rtxmg.destroy();
             app.destroy();
