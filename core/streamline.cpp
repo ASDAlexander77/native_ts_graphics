@@ -121,8 +121,8 @@ namespace
         sl::FrameToken* frame = nullptr;
         // Whether a resource is tagged (then Streamline_ClearTags has tags to drop).
         bool tagged = false;
-        // No Reflex sleep: on Vulkan under the validation layer, where it crashes (in its VK_NV_low_latency
-        // calls, NvLowLatencyVk.dll).
+        // No Reflex sleep: on a headless Vulkan device (no swap chain) under the validation layer, where it
+        // crashes (InstallFrameCallbacks).
         bool skipReflexSleep = false;
 
         bool IsSupported(sl::Feature feature) const { return supported.count(static_cast<uint32_t>(feature)) != 0; }
@@ -232,10 +232,14 @@ namespace
     // manager's frame callbacks (Donut_RunApp calls them in test mode too, where nothing presents).
     void InstallFrameCallbacks(donut::app::DeviceManager& deviceManager)
     {
+        // Observed: on Vulkan, a headless device (test mode, no swap chain) under the validation layer crashes in
+        // Reflex's sleep; with the layer and a swap chain (the Streamline Sample's own run) it doesn't. Only that
+        // combination skips it (a windowed Vulkan -debug run still sleeps; to verify with Task 8's windowed run).
         g_Streamline.skipReflexSleep = g_Streamline.api == nvrhi::GraphicsAPI::VULKAN
+            && deviceManager.GetDeviceParams().headlessDevice
             && deviceManager.IsVulkanLayerEnabled("VK_LAYER_KHRONOS_validation");
         if (g_Streamline.skipReflexSleep)
-            donut::log::info("Reflex: no sleep under Vulkan's validation layer (it crashes there)");
+            donut::log::info("Reflex: no sleep on a headless Vulkan device under the validation layer (it crashes there)");
         auto& callbacks = deviceManager.m_callbacks;
         callbacks.beforeFrame = [](donut::app::DeviceManager&, uint32_t frameIndex) { BeginFrame(&frameIndex); };
         callbacks.beforeAnimate = [](donut::app::DeviceManager&, uint32_t) { PclMarker(sl::PCLMarker::eSimulationStart); };

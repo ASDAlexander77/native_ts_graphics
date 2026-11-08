@@ -5522,9 +5522,10 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
     # check the frame first (media/sponza-plus.scene.json: its second robot is behind the camera).
     add_tslang_example_test(streamline_demo ARGS -width 1280 -height 720)
     add_tslang_example_test(streamline_demo SUFFIX sl_disabled ARGS -width 1280 -height 720 -slDisable)
-    # Reflex low latency with DLSS: without -debug, as Vulkan's validation layer crashes Reflex's sleep
-    # (core/streamline.cpp skips it there).
-    add_tslang_example_test(streamline_demo SUFFIX reflex NO_DEBUG ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
+    # Reflex low latency with DLSS. On Vulkan without -debug: a headless device under the validation layer
+    # crashes in Reflex's sleep (core/streamline.cpp skips it there, so -debug wouldn't exercise it).
+    add_tslang_example_test(streamline_demo SUFFIX reflex APIS dx12 ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
+    add_tslang_example_test(streamline_demo SUFFIX reflex NO_DEBUG APIS vk ARGS -width 1280 -height 720 -reflex 1 -dlss 3)
     # The sample's frame 120 at its size, in its scene, one test per lighting / anti-aliasing mode of its
     # reference frames (ray traced, deferred, TAA), each saving its frame (bin/streamline_demo_<mode>_<api>.png)
     # for comparing with the sample's.
