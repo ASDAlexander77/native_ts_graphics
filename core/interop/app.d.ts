@@ -306,6 +306,11 @@ declare function Donut_RunApp(app: AppHandle): void;
 // Changes the back buffers' format (RGBA8_UNORM, SRGBA8_UNORM, R10G10B10A2_UNORM or RGBA16_FLOAT; 8-bit
 // ones BGRA on Vulkan) at once, as a resize; not within a frame. 0 where the swap chain can't have it.
 declare function Donut_SetSwapChainFormat(app: AppHandle, format: Format): int;
+// Resizes the back buffers to width x height as a window resize would (testing an example's resize path):
+// in test mode at once, between the passes' back buffer resizing and resized callbacks (call it outside the
+// render callbacks, e.g. from an animate callback); with a window, its client area (a hidden window stays
+// hidden), the swap chain following at the start of the next frame. 0 for a size of 0 or less.
+@nodrops declare function Donut_ResizeBackBuffers(app: AppHandle, width: int, height: int): int;
 // Non-zero if the display the window is mostly on is in HDR mode (Windows' HDR on: an HDR10
 // output), as the ATG samples' UpdateColorSpace finds it; 0 elsewhere than on Windows.
 @nodrops declare function Donut_IsDisplayHdr(app: AppHandle): int;

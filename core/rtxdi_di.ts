@@ -1,9 +1,9 @@
 // RTXDI's ReSTIR DI (github.com/NVIDIA-RTX/RTXDI) on Donut, the parts its samples share: the ReSTIR DI
 // context and resources with the light preparation (core/rtxdi.cpp, over RTXDI's runtime library), the G-buffer
 // render targets of the current and the previous frame, and the PrepareLights pass, which turns the scene's
-// emissive triangles into RTXDI's light buffer. Written from the Minimal Sample's RtxdiResources,
-// RenderTargets and PrepareLightsPass; the shaders are the sample's, compiled in place from RTXDI_DIR
-// (rtxdi_minimal_shaders in CMakeLists.txt).
+// emissive triangles into RTXDI's light buffer; and the Minimal Sample's fused Render pass with its settings.
+// Written from the Minimal Sample's RtxdiResources, RenderTargets, PrepareLightsPass and RenderPass; the
+// shaders are the sample's, compiled in place from RTXDI_DIR (rtxdi_minimal_shaders in CMakeLists.txt).
 //
 // Imported with `import { RtxdiDI, ... } from "../core/rtxdi_di";` (from examples/); list core/rtxdi_di.ts with
 // core/rtxdi.cpp in the example's add_tslang_example sources.
@@ -19,6 +19,9 @@ import { App, BindingLayoutDesc, BindingSet, BindingSetDesc, CommandList, Scene 
 const PREPARE_LIGHTS_GROUP_SIZE = 256;
 // sizeof(PrepareLightsConstants) in the sample's ShaderParameters.h: numTasks, a uint.
 const PREPARE_LIGHTS_CONSTANTS_SIZE = 4;
+// RTXDI_SCREEN_SPACE_GROUP_SIZE, Render.hlsl's [numthreads(8, 8, 1)]: defined (8) in the Minimal Sample's
+// Shaders/ShaderParameters.h; RTXDI's library headers (Libraries/Rtxdi/Include) don't define it.
+const RTXDI_SCREEN_SPACE_GROUP_SIZE = 8;
 
 // RTXDI's ReSTIR DI context for a render size and the resources sized for a scene (the sample's
 // ReSTIRDIContext and RtxdiResources): the light buffers PrepareLightsPass fills, the neighbor offsets, the
@@ -28,7 +31,8 @@ export class RtxdiDI {
     readonly context: RtxdiDIContextHandle;
     readonly resources: RtxdiResourcesHandle;
 
-    constructor(app: App, private scene: Scene, readonly width: int, readonly height: int) {
+    // public readonly: tslang makes no parameter property of `readonly` alone.
+    constructor(app: App, private scene: Scene, public readonly width: int, public readonly height: int) {
         this.context = Rtxdi_CreateDIContext(width, height);
         this.resources = Rtxdi_CreateResources(app.handle, this.context, scene.handle) as RtxdiResourcesHandle;
         if (this.resources) {
@@ -115,7 +119,8 @@ export class RtxdiRenderTargets {
     previous: RtxdiGBuffer;
     readonly hdrColor: TextureHandle;
 
-    constructor(app: App, readonly width: int, readonly height: int) {
+    // public readonly: tslang makes no parameter property of `readonly` alone.
+    constructor(app: App, public readonly width: int, public readonly height: int) {
         this.current = new RtxdiGBuffer(app, width, height, "");
         this.previous = new RtxdiGBuffer(app, width, height, "Prev");
         this.hdrColor = app.createUAVTextureWithFormat(width, height, Format.RGBA16_FLOAT, "HdrColor");
@@ -211,5 +216,160 @@ export class PrepareLightsPass {
         }
         commandList.endMarker();
         return lightCount;
+    }
+}
+
+// The Minimal Sample's RenderPass::Settings, which its UI changes: resampling on or off, unbiased mode (ray traced
+// bias correction in the spatio-temporal resampling, else basic), the initial local light and BRDF samples, the
+// BRDF cutoff and the spatial samples. The four numbers default to the sample's (Rtxdi_GetDefaultSettings).
+export class RtxdiMinimalSettings {
+    enableResampling: boolean = true;
+    unbiasedMode: boolean = false;
+    numLocalLightSamples: int = 0;
+    numBrdfSamples: int = 0;
+    brdfCutoff: number = 0.0;
+    numSpatialSamples: int = 0;
+
+    constructor() {
+        const defaults: f32[] = [0.0, 0.0, 0.0, 0.0];
+        Rtxdi_GetDefaultSettings(Ref(defaults[0]));
+        this.numLocalLightSamples = Math.round(defaults[0]);
+        this.numBrdfSamples = Math.round(defaults[1]);
+        this.brdfCutoff = defaults[2];
+        this.numSpatialSamples = Math.round(defaults[3]);
+    }
+}
+
+// The Minimal Sample's RenderPass: Render.hlsl (rtxdi_minimal's), a thread per pixel tracing the primary ray,
+// writing the G-buffer, sampling the lights, resampling with the last frame's reservoirs and G-buffer (fused
+// spatio-temporal) and shading into the HDR color. Two binding sets over the render targets (registers as
+// RAB_Buffers.hlsli's): the active one reads the previous G-buffer (t0..t4) and writes the current one (u2..u6),
+// the other the reverse; nextFrame() swaps them as RtxdiRenderTargets.swap() swaps the targets, so the active
+// set always reads the previous frame's. Besides: t30 the TLAS, t32 / t33 / t34 the scene's instances,
+// geometries and materials, t20 the light data, t21 the neighbor offsets (typed), t22 the geometry instance to
+// light map, u0 the light reservoirs, u1 the HDR color, b0 the resampling constants (volatile), s0 and s1
+// linear wrap samplers (the sample binds both; the shader reads s0).
+export class RenderPass {
+    private bindingLayout: BindingLayoutHandle;
+    private pipeline: ComputePipelineHandle | null = null;
+    private bindingSet: BindingSet = new BindingSet(null);
+    private prevBindingSet: BindingSet = new BindingSet(null);
+
+    // descriptorTable: the table of the descriptor table manager the scene was loaded with (over bindlessLayout).
+    constructor(private app: App, private bindlessLayout: BindingLayoutHandle, private scene: Scene,
+        private descriptorTable: DescriptorTableHandle) {
+        const layoutDesc = BindingLayoutDesc.create();
+        for (let slot = 0; slot <= 4; slot++) {
+            layoutDesc.layoutTextureSRV(slot);
+        }
+        layoutDesc.layoutAccelStruct(30);
+        layoutDesc.layoutStructuredBufferSRV(32);
+        layoutDesc.layoutStructuredBufferSRV(33);
+        layoutDesc.layoutStructuredBufferSRV(34);
+        layoutDesc.layoutStructuredBufferSRV(20);
+        layoutDesc.layoutTypedBufferSRV(21);
+        layoutDesc.layoutStructuredBufferSRV(22);
+        layoutDesc.layoutStructuredBufferUAV(0);
+        for (let slot = 1; slot <= 6; slot++) {
+            layoutDesc.layoutTextureUAV(slot);
+        }
+        layoutDesc.layoutVolatileConstantBuffer(0);
+        layoutDesc.layoutSampler(0);
+        layoutDesc.layoutSampler(1);
+        this.bindingLayout = app.createBindingLayout(layoutDesc, ShaderType.Compute);
+    }
+
+    // The pipeline (CreatePipeline); false if the shader isn't there (logged by Donut).
+    createPipeline(): boolean {
+        const shader = this.app.createShader("Render.hlsl", "main", ShaderType.Compute);
+        if (!shader) {
+            return false;
+        }
+        const pipeline = this.app.createComputePipelineWithLayouts(shader, this.bindingLayout, this.bindlessLayout);
+        if (!pipeline) {
+            return false;
+        }
+        this.pipeline = pipeline;
+        return true;
+    }
+
+    // The two binding sets (CreateBindingSet), after new render targets or RTXDI resources: the active one reads
+    // targets.previous and writes targets.current.
+    createBindingSets(tlas: AccelStructHandle, targets: RtxdiRenderTargets, di: RtxdiDI): void {
+        this.releaseBindingSets();
+        this.bindingSet = this.createBindingSet(tlas, targets, di, targets.previous, targets.current);
+        this.prevBindingSet = this.createBindingSet(tlas, targets, di, targets.current, targets.previous);
+    }
+
+    private createBindingSet(tlas: AccelStructHandle, targets: RtxdiRenderTargets, di: RtxdiDI,
+        read: RtxdiGBuffer, write: RtxdiGBuffer): BindingSet {
+        const setDesc = BindingSetDesc.create();
+        setDesc.bindTextureSRV(0, read.depth);
+        setDesc.bindTextureSRV(1, read.normals);
+        setDesc.bindTextureSRV(2, read.geoNormals);
+        setDesc.bindTextureSRV(3, read.diffuseAlbedo);
+        setDesc.bindTextureSRV(4, read.specularRough);
+
+        setDesc.bindAccelStruct(30, tlas);
+        setDesc.bindStructuredBufferSRV(32, this.scene.getBuffer(SceneBuffer.Instances));
+        setDesc.bindStructuredBufferSRV(33, this.scene.getBuffer(SceneBuffer.Geometries));
+        setDesc.bindStructuredBufferSRV(34, this.scene.getBuffer(SceneBuffer.Materials));
+
+        setDesc.bindStructuredBufferSRV(20, di.buffer(RtxdiBuffer.LightData));
+        setDesc.bindTypedBufferSRV(21, di.buffer(RtxdiBuffer.NeighborOffsets));
+        setDesc.bindStructuredBufferSRV(22, di.buffer(RtxdiBuffer.GeometryInstanceToLight));
+
+        setDesc.bindStructuredBufferUAV(0, di.buffer(RtxdiBuffer.LightReservoirs));
+        setDesc.bindTextureUAV(1, targets.hdrColor);
+        setDesc.bindTextureUAV(2, write.depth);
+        setDesc.bindTextureUAV(3, write.normals);
+        setDesc.bindTextureUAV(4, write.geoNormals);
+        setDesc.bindTextureUAV(5, write.diffuseAlbedo);
+        setDesc.bindTextureUAV(6, write.specularRough);
+
+        setDesc.bindEntireConstantBuffer(0, di.resamplingConstantBuffer());
+        const sampler = this.app.getCommonSampler(CommonSampler.LinearWrap);
+        setDesc.bindSampler(0, sampler);
+        setDesc.bindSampler(1, sampler);
+        return this.app.createBindingSetForLayout(setDesc, this.bindingLayout);
+    }
+
+    releaseBindingSets(): void {
+        const bindingSet = this.bindingSet;
+        if (!bindingSet.isNull()) {
+            this.app.releaseResource(bindingSet.handle);
+            this.bindingSet = new BindingSet(null);
+        }
+        const prevBindingSet = this.prevBindingSet;
+        if (!prevBindingSet.isNull()) {
+            this.app.releaseResource(prevBindingSet.handle);
+            this.prevBindingSet = new BindingSet(null);
+        }
+    }
+
+    // RenderPass::Render: the resampling constants (the views, the settings, the context's frame index and
+    // reservoir buffers, the light buffer parameters of the frame's light preparation: after
+    // RtxdiDI.setFrameIndex and PrepareLightsPass.dispatch), then a thread per pixel of width x height.
+    render(commandList: CommandList, di: RtxdiDI, view: ViewHandle, prevView: ViewHandle, s: RtxdiMinimalSettings,
+        width: int, height: int): void {
+        Rtxdi_WriteResamplingConstants(di.resources, di.context, commandList.handle, view, prevView,
+            s.enableResampling ? 1 : 0, s.unbiasedMode ? 1 : 0, s.numLocalLightSamples, s.numBrdfSamples,
+            s.brdfCutoff, s.numSpatialSamples);
+
+        commandList.beginMarker("Render");
+        const pipeline = this.pipeline;
+        if (pipeline) {
+            const groupsX: int = Math.floor((width + RTXDI_SCREEN_SPACE_GROUP_SIZE - 1) / RTXDI_SCREEN_SPACE_GROUP_SIZE);
+            const groupsY: int = Math.floor((height + RTXDI_SCREEN_SPACE_GROUP_SIZE - 1) / RTXDI_SCREEN_SPACE_GROUP_SIZE);
+            commandList.dispatchWithDescriptorTable(pipeline, this.bindingSet, this.descriptorTable, groupsX, groupsY, 1);
+        }
+        commandList.endMarker();
+    }
+
+    // NextFrame: the other binding set, after the frame (with RtxdiRenderTargets.swap()).
+    nextFrame(): void {
+        const bindingSet = this.bindingSet;
+        this.bindingSet = this.prevBindingSet;
+        this.prevBindingSet = bindingSet;
     }
 }

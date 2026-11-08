@@ -5529,7 +5529,7 @@ if (RTXDI_DIR)
 
     # core/rtxdi_di.ts: what the RTXDI samples share (the context, resources and light preparation, the
     # render targets); add_tslang_example makes rtxdi_minimal depend on rtxdi_minimal_shaders.
-    add_tslang_example(rtxdi_minimal core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
+    add_tslang_example(rtxdi_minimal core/matrix.ts core/text_format.ts core/rtxdi_di.ts ${RTXDI_GLUE_SOURCES} MEDIA fonts)
     target_link_libraries(rtxdi_minimal PRIVATE rtxdi_runtime)
 endif()
 

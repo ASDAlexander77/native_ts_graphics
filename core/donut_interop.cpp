@@ -7734,6 +7734,12 @@ extern "C"
         ImGui::SetNextWindowPos(ImVec2(float(x), float(y)), 0);
     }
 
+    // The next window's size limits, in pixels.
+    DONUT_API void Donut_ImGuiSetNextWindowSizeConstraints(double minWidth, double minHeight, double maxWidth, double maxHeight)
+    {
+        ImGui::SetNextWindowSizeConstraints(ImVec2(float(minWidth), float(minHeight)), ImVec2(float(maxWidth), float(maxHeight)));
+    }
+
     // autoResize != 0: the window fits its contents. Always pair with Donut_ImGuiEnd.
     DONUT_API void Donut_ImGuiBegin(const char* title, bool autoResize)
     {
@@ -12004,6 +12010,46 @@ extern "C"
         }
 #endif
         return 0;
+    }
+
+    // Resizes the back buffers to width x height, as the user resizing the window would (a test of an
+    // example's resize path). In test mode the offscreen back buffers are made again at once, between
+    // the passes' back buffer resizing and resized callbacks (as Donut_SetSwapChainFormat), so call it
+    // outside a frame's render callbacks (e.g. from an animate callback, which runs before them).
+    // With a window, the window's client area is set (glfwSetWindowSize: a hidden window stays hidden)
+    // and the device manager resizes the swap chain at the start of its next frame. Returns 0 for a
+    // size of 0 or less, or without a window.
+    DONUT_API int Donut_ResizeBackBuffers(App* app, int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+            return 0;
+        DeviceManager* deviceManager = app->deviceManager.get();
+        donut::app::DeviceCreationParameters& params = DeviceManagerAccess::Params(deviceManager);
+        if (OffscreenBackBuffers* offscreen = app->offscreen.get())
+        {
+            WaitForIdleSynchronized(app->device());
+            for (donut::app::IRenderPass* pass : DeviceManagerAccess::RenderPasses(deviceManager))
+                pass->BackBufferResizing();
+            for (size_t i = 0; i < offscreen->textures.size(); i++)
+            {
+                nvrhi::TextureDesc desc = offscreen->textures[i]->getDesc();
+                desc.width = uint32_t(width);
+                desc.height = uint32_t(height);
+                offscreen->textures[i] = app->device()->createTexture(desc);
+                offscreen->framebuffers[i] = app->device()->createFramebuffer(
+                    nvrhi::FramebufferDesc().addColorAttachment(offscreen->textures[i]));
+            }
+            params.backBufferWidth = uint32_t(width);
+            params.backBufferHeight = uint32_t(height);
+            for (donut::app::IRenderPass* pass : DeviceManagerAccess::RenderPasses(deviceManager))
+                pass->BackBufferResized(params.backBufferWidth, params.backBufferHeight, 1);
+            return 1;
+        }
+        GLFWwindow* window = deviceManager->GetWindow();
+        if (!window)
+            return 0;
+        glfwSetWindowSize(window, width, height);
+        return 1;
     }
 
     // Whether the display the window is mostly on is in HDR mode (Windows' HDR / advanced color on,
