@@ -78,6 +78,9 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${NRI_OUTPUT_DIR}")
 # Vulkan 1.1 drivers (Samsung Galaxy S21's Mali-G78) lack: patched to take Vulkan 1.1 with the 1.2 features as
 # extensions, render passes, vkCmdPipelineBarrier/vkQueueSubmit and static viewport counts and vertex strides
 # (VertexStreamDesc::stride) instead; NRI_VK_LEGACY=1 runs a newer GPU that way (the S21's extensions only).
+# With validation it always asks the Vulkan layer for debug printf (GPU-assisted validation, every
+# shader instrumented; layer 1.4.321 dereferenced null in gpuav PostSubmit now and then): patched to
+# ask only when VK_KHRONOS_VALIDATION_PRINTF_ENABLE is set, as Nri_CreateDevice does for shader printf.
 # Its window is always shown: patched with SampleBase::m_HiddenWindow, which -test sets (headless runs).
 # The patch step resets both checkouts first, so the patches always apply to clean files.
 # A checkout given with FETCHCONTENT_SOURCE_DIR_NRIFRAMEWORK isn't patched.
@@ -138,6 +141,9 @@ FetchContent_Declare(nriframework
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-vulkan-1.1.patch"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
+    COMMAND
+        "${CMAKE_COMMAND}" -DREPOSITORY=External/NRI "-DPATCH=${NRI_PATCHES_DIR}/NRI-vk-debug-printf-on-request.patch"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/apply_patch.cmake"
     COMMAND
         "${CMAKE_COMMAND}" "-DPATCH=${NRI_PATCHES_DIR}/NRIFramework-android-platform.patch"

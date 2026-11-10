@@ -36,26 +36,31 @@ static const int gl_ClusterIDNV;
 [[vk::ext_builtin_input(/* HitTriangleVertexPositionsKHR */ 5335)]]
 static const float3 gl_HitTriangleVertexPositions[3];
 
-uint ClusterID()
+uint HitClusterID()
 {
     return uint(gl_ClusterIDNV);
 }
 
-struct BuiltInTrianglePositions
+// Hit* names, not the intrinsics': DXC 1.9.5512 (Vulkan SDK 1.4.363) declares those itself, for DXIL only.
+struct HitTrianglePositions
 {
     float3 p0;
     float3 p1;
     float3 p2;
 };
 
-BuiltInTrianglePositions TriangleObjectPositions()
+HitTrianglePositions HitTriangleObjectPositions()
 {
-    BuiltInTrianglePositions positions;
+    HitTrianglePositions positions;
     positions.p0 = gl_HitTriangleVertexPositions[0];
     positions.p1 = gl_HitTriangleVertexPositions[1];
     positions.p2 = gl_HitTriangleVertexPositions[2];
     return positions;
 }
+#else
+#define HitClusterID ClusterID
+#define HitTriangleObjectPositions TriangleObjectPositions
+#define HitTrianglePositions BuiltInTrianglePositions
 #endif
 
 RaytracingAccelerationStructure   Scene       : register(t0);
@@ -411,7 +416,7 @@ void GlassAnyHit(inout Payload p, in Attribs a)
 #ifdef TRADITIONAL_ONLY
         uint cid = LoadTraditionalHitIndices().x;
 #else
-        uint cid = ClusterID();
+        uint cid = HitClusterID();
 #endif
         float r = Hash(cid, a.bary);
         if (r < mat.translucency)
@@ -434,7 +439,7 @@ void WireframeHit(inout Payload p, in Attribs a)
 #ifdef TRADITIONAL_ONLY
     const uint cid = LoadTraditionalHitIndices().x;
 #else
-    const uint cid = ClusterID();
+    const uint cid = HitClusterID();
 #endif
     const uint colorIndex = g_clusterMeta.Load(cid * 48u);
     p.color = float4(ClusterColor(colorIndex), 1);
@@ -501,7 +506,7 @@ void LoadHitContext(in Attribs a, in bool allowBackFaceFlip, out HitContext ctx)
 #ifndef TRADITIONAL_ONLY
     else
     {
-        cid     = ClusterID();
+        cid     = HitClusterID();
         primIdx = PrimitiveIndex();
     }
 #endif
@@ -602,7 +607,7 @@ void LoadHitContext(in Attribs a, in bool allowBackFaceFlip, out HitContext ctx)
         if (!isTraditional)
         {
             // Template data access returns the actual quantized hit triangle.
-            BuiltInTrianglePositions positions = TriangleObjectPositions();
+            HitTrianglePositions positions = HitTriangleObjectPositions();
             p0 = positions.p0;
             p1 = positions.p1;
             p2 = positions.p2;

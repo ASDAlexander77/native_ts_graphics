@@ -1389,8 +1389,8 @@ extern "C"
         nri::DeviceCreationDesc desc = {};
         desc.graphicsAPI = (nri::GraphicsAPI)graphicsAPI;
         // Shader printf (Nri_UseShaderPrintf) is the Vulkan validation layer's: on for it, with its
-        // printf setting (NRI's VkValidationFeaturesEXT asks for it too; the layer reads the
-        // environment when it loads, as Donut sets it for AppOption_ShaderPrintf).
+        // printf setting (NRI's VkValidationFeaturesEXT asks for it too, patched to only while it's
+        // set; the layer reads the environment when it loads, as Donut sets it for AppOption_ShaderPrintf).
         const bool shaderPrintf = sample->m_ShaderPrintf && desc.graphicsAPI == nri::GraphicsAPI::VK;
         if (shaderPrintf)
         {
