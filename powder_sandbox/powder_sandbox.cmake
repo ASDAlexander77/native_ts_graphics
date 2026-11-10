@@ -127,4 +127,5 @@ add_tslang_android_release(powder_sandbox_nri
     ICON @mipmap/ic_launcher
     CATEGORY game
     VULKAN_VERSION 0x401000
-    TARGET_SDK 36)
+    TARGET_SDK 36
+    GRADLE powder_sandbox/android)

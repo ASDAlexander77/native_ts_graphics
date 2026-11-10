@@ -1,0 +1,104 @@
+// Powder Sandbox's app with the support ads, packaged by Gradle: tools/package_apk.py --gradle stages
+// what the CMake build made (assets/, with assets.txt, and jniLibs/<abi>/, stripped) and the app's
+// settings (build.properties) in one folder and passes it as -PpowderInput=<folder>, with
+// -PpowderBuildDir=<folder> for Gradle's outputs (out of the source tree).
+plugins {
+    id 'com.android.application' version '8.12.0'
+}
+
+def inputDir = file(findProperty('powderInput') ?: 'missing-powderInput')
+def settings = new Properties()
+def settingsFile = new File(inputDir, 'build.properties')
+if (settingsFile.isFile()) {
+    settingsFile.withInputStream { settings.load(it) }
+}
+def setting = { String key, String fallback = null ->
+    def value = settings.getProperty(key, fallback)
+    if (value == null) {
+        throw new GradleException("no ${key} in ${settingsFile}: run this through tools/package_apk.py --gradle")
+    }
+    value
+}
+if (findProperty('powderBuildDir')) {
+    layout.buildDirectory = file(findProperty('powderBuildDir'))
+}
+
+android {
+    namespace 'io.github.asdalexander77.powdersandbox'
+    compileSdk Integer.parseInt(setting('targetSdk', '36'))
+
+    defaultConfig {
+        applicationId setting('package', 'io.github.asdalexander77.powdersandbox')
+        minSdk Integer.parseInt(setting('minSdk', '29'))
+        targetSdk Integer.parseInt(setting('targetSdk', '36'))
+        versionCode Integer.parseInt(setting('versionCode', '1'))
+        versionName setting('versionName', '1.0')
+        manifestPlaceholders = [
+            libName      : setting('libName', 'powder_sandbox_nri'),
+            label        : setting('label', 'Powder Sandbox'),
+            vulkanVersion: setting('vulkanVersion', '0x401000'),
+            appCategory  : setting('appCategory', 'game'),
+            admobAppId   : setting('admobAppId', 'ca-app-pub-3940256099942544~3347511713'),
+        ]
+        buildConfigField 'String', 'ADMOB_REWARDED_ID',
+            '"' + setting('admobRewardedId', 'ca-app-pub-3940256099942544/5224354917') + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['java']
+            res.srcDirs = ['res']
+            assets.srcDirs = [new File(inputDir, 'assets')]
+            jniLibs.srcDirs = [new File(inputDir, 'jniLibs')]
+        }
+        test {
+            java.srcDirs = ['test']
+        }
+    }
+
+    signingConfigs {
+        // package_apk.py's: the build folder's debug keystore, or the release keystore, whose
+        // passwords are read from the environment variables it names (never stored)
+        powder {
+            storeFile file(setting('keystore', 'missing.keystore'))
+            keyAlias setting('keyAlias', 'androiddebugkey')
+            storePassword System.getenv(setting('storePassEnv', 'POWDER_STORE_PASSWORD')) ?: setting('storePass', 'android')
+            keyPassword System.getenv(setting('keyPassEnv', 'POWDER_KEY_PASSWORD')) ?: setting('keyPass', 'android')
+        }
+    }
+
+    buildTypes {
+        debug {
+            // beside a Play install of the release, not over it
+            applicationIdSuffix '.debug'
+            signingConfig signingConfigs.powder
+        }
+        release {
+            minifyEnabled false
+            debuggable false
+            signingConfig signingConfigs.powder
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+            // package_apk.py stripped them already (and zips the unstripped ones for the store)
+            keepDebugSymbols += '**/*.so'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

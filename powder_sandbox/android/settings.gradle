@@ -1,0 +1,18 @@
+// Powder Sandbox's Gradle-packaged builds (the ones with the support ads): run by
+// tools/package_apk.py --gradle, which stages the native libraries and assets the CMake build made
+// and passes them as -PpowderInput=<folder> (see build.gradle). Not a standalone project.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "powder_sandbox"

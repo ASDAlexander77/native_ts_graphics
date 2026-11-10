@@ -44,6 +44,14 @@ MANIFEST_TEMPLATE = os.path.join(ROOT, "tools", "android", "AndroidManifest.xml.
 KEY_ALIAS = "androiddebugkey"
 KEY_PASSWORD = "android"
 
+GRADLE_VERSION = "8.13"
+GRADLE_URL = f"https://services.gradle.org/distributions/gradle-{GRADLE_VERSION}-bin.zip"
+
+# Google's published test IDs (https://developers.google.com/admob/android/test-ads): what the
+# Gradle-packaged debug builds always show, and a release built without the real ones.
+ADMOB_TEST_APP_ID = "ca-app-pub-3940256099942544~3347511713"
+ADMOB_TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
+
 BUNDLETOOL_VERSION = "1.18.1"
 BUNDLETOOL_URL = (f"https://github.com/google/bundletool/releases/download/{BUNDLETOOL_VERSION}/"
                   f"bundletool-all-{BUNDLETOOL_VERSION}.jar")
@@ -135,6 +143,98 @@ def fetch_bundletool(path):
     urllib.request.urlretrieve(BUNDLETOOL_URL, partial)
     os.replace(partial, path)
     return path
+
+
+def fetch_gradle(folder):
+    """A Gradle distribution unpacked in the folder (fetched once); returns its gradle launcher."""
+    home = os.path.join(folder, f"gradle-{GRADLE_VERSION}")
+    launcher = os.path.join(home, "bin", "gradle.bat" if os.name == "nt" else "gradle")
+    if os.path.isfile(launcher):
+        return launcher
+    os.makedirs(folder, exist_ok=True)
+    print(f"package_apk: fetching Gradle {GRADLE_VERSION} ({GRADLE_URL})")
+    partial = os.path.join(folder, f"gradle-{GRADLE_VERSION}-bin.zip.part")
+    urllib.request.urlretrieve(GRADLE_URL, partial)
+    with zipfile.ZipFile(partial) as archive:
+        archive.extractall(folder)
+    os.remove(partial)
+    if os.name != "nt":
+        os.chmod(launcher, 0o755)
+    return launcher
+
+
+def admob_ids(release):
+    """The AdMob app and rewarded ad unit IDs: Google's test IDs, except for a release given the
+    real ones in POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID (never in the repository)."""
+    if not release:
+        return ADMOB_TEST_APP_ID, ADMOB_TEST_REWARDED_ID, False
+    app_id = os.environ.get("POWDER_ADMOB_APP_ID", "").strip()
+    rewarded_id = os.environ.get("POWDER_ADMOB_REWARDED_ID", "").strip()
+    if app_id and rewarded_id:
+        return app_id, rewarded_id, True
+    print("package_apk: WARNING: POWDER_ADMOB_APP_ID / POWDER_ADMOB_REWARDED_ID not set - "
+          "this release shows Google's TEST ads", flush=True)
+    return ADMOB_TEST_APP_ID, ADMOB_TEST_REWARDED_ID, False
+
+
+def build_with_gradle(args, env, package, assets_folder, libraries, work):
+    """The app packaged by the Gradle module in --gradle (powder_sandbox/android): the staged assets
+    and the stripped libraries in its input folder with build.properties, then Gradle's APK (and,
+    for a release, its bundle) copied to --out (and --bundle)."""
+    input_folder = os.path.join(work, "gradle-input")
+    os.makedirs(input_folder)
+    shutil.move(assets_folder, os.path.join(input_folder, "assets"))
+    for abi, packaged, _, library in libraries:
+        target = os.path.join(input_folder, "jniLibs", abi, packaged)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(library, target)
+    app_id, rewarded_id, _ = admob_ids(args.release)
+    settings = {
+        "package": package, "libName": args.name, "label": args.label or args.name,
+        "versionCode": args.version_code, "versionName": args.version_name,
+        "minSdk": args.min_sdk, "targetSdk": args.target_sdk,
+        "vulkanVersion": args.vulkan_version or "0x401000", "appCategory": args.app_category or "game",
+        "admobAppId": app_id, "admobRewardedId": rewarded_id,
+        "keystore": os.path.abspath(args.keystore).replace("\\", "/"),
+    }
+    if args.release:
+        settings.update(keyAlias=args.key_alias, storePassEnv=password_env(args.store_pass_env),
+                        keyPassEnv=password_env(args.key_pass_env))
+    else:
+        settings.update(keyAlias=KEY_ALIAS, storePass=KEY_PASSWORD, keyPass=KEY_PASSWORD)
+    with open(os.path.join(input_folder, "build.properties"), "w", encoding="utf-8", newline="\n") as file:
+        for key, value in settings.items():
+            # a .properties file: backslashes and colons escaped
+            file.write(f"{key}={str(value).replace(chr(92), chr(92) * 2).replace(':', chr(92) + ':')}\n")
+
+    gradle_env = dict(env)
+    gradle_env["ANDROID_HOME"] = args.sdk
+    gradle_env.pop("ANDROID_SDK_ROOT", None)
+    gradle = fetch_gradle(args.gradle_home or os.path.join(work, "gradle"))
+    build_folder = os.path.join(work, "gradle-build")
+    tasks = ["bundleRelease", "assembleRelease"] if args.release else ["assembleDebug"]
+    if args.gradle_test:
+        tasks.insert(0, "testDebugUnitTest")
+    run([gradle, "--no-daemon", "--console=plain", "-p", args.gradle,
+         "--project-cache-dir", os.path.join(work, "gradle-cache"),
+         f"-PpowderInput={input_folder}", f"-PpowderBuildDir={build_folder}"] + tasks, env=gradle_env)
+
+    variant = "release" if args.release else "debug"
+    apk = os.path.join(build_folder, "outputs", "apk", variant, f"{os.path.basename(args.gradle.rstrip('/'))}-{variant}.apk")
+    found = glob.glob(os.path.join(build_folder, "outputs", "apk", variant, "*.apk"))
+    if not os.path.isfile(apk) and len(found) == 1:
+        apk = found[0]
+    if not os.path.isfile(apk):
+        fail(f"Gradle made no {variant} APK in {os.path.dirname(apk)}")
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    shutil.copyfile(apk, args.out)
+    if args.bundle:
+        bundles = glob.glob(os.path.join(build_folder, "outputs", "bundle", variant, "*.aab"))
+        if len(bundles) != 1:
+            fail(f"Gradle made no single {variant} bundle in {build_folder}/outputs/bundle/{variant}")
+        os.makedirs(os.path.dirname(os.path.abspath(args.bundle)), exist_ok=True)
+        shutil.copyfile(bundles[0], args.bundle)
+        print(f"package_apk: {args.bundle}")
 
 
 def build_bundle(args, env, aapt2, link_args, libraries, work):
@@ -251,6 +351,10 @@ def main():
     parser.add_argument("--symbols", help="a zip of the libraries' debug symbols (unstripped), for the store")
     parser.add_argument("--strip", help="llvm-strip, to package the library without its debug info "
                                         "(the build's copy keeps it, for symbolizing crashes)")
+    parser.add_argument("--gradle", help="package with this Gradle module instead of aapt2 (powder_sandbox/android: "
+                                         "the app with Java code, its ads)")
+    parser.add_argument("--gradle-home", help="the folder Gradle's distribution is fetched to and kept in")
+    parser.add_argument("--gradle-test", action="store_true", help="run the module's unit tests first")
     parser.add_argument("--work", help="the folder to build it in (default: next to --out)")
     parser.add_argument("--out", required=True, help="the APK")
     args = parser.parse_args()
@@ -274,6 +378,12 @@ def main():
         listing.write(f"{args.name} {time.time_ns()}\n")
         for path in files:
             listing.write(path + "\n")
+
+    if args.gradle:
+        libraries = prepare_libraries(args, work)
+        build_with_gradle(args, env, package, assets_folder, libraries, work)
+        finish(args, package if args.release else package + ".debug", libraries, files)
+        return
 
     with open(MANIFEST_TEMPLATE, encoding="utf-8") as template:
         manifest = template.read()
@@ -307,21 +417,7 @@ def main():
     base = os.path.join(work, "base.apk")
     run([aapt2, "link", "-o", base] + link_args)
 
-    # each library under its ABI and name in the APK, stripped if asked: (abi, name, source, packaged copy)
-    sources = [(args.abi, f"lib{args.name}.so", args.lib)] + [(args.abi, os.path.basename(lib), lib) for lib in args.extra_lib]
-    for listing in args.abi_libs:
-        other_abi, libs = read_abi_libs(listing, args.name, args.abi)
-        if any(abi == other_abi for abi, _, _ in sources):
-            fail(f"{other_abi} is given twice")
-        sources += [(other_abi, f"lib{args.name}.so", libs[0])] + [(other_abi, os.path.basename(lib), lib) for lib in libs[1:]]
-    libraries = []
-    for abi, packaged, source in sources:
-        library = source
-        if args.strip:
-            library = os.path.join(work, abi, packaged)
-            os.makedirs(os.path.dirname(library), exist_ok=True)
-            run([args.strip, "--strip-unneeded", "-o", library, source])
-        libraries.append((abi, packaged, source, library))
+    libraries = prepare_libraries(args, work)
 
     # aapt2 has no say over native libraries: copy its entries as they are and add the library
     unaligned = os.path.join(work, "unaligned.apk")
@@ -353,6 +449,30 @@ def main():
     if args.bundle:
         build_bundle(args, env, aapt2, link_args, libraries, work)
 
+    finish(args, package, libraries, files)
+
+
+def prepare_libraries(args, work):
+    """Each library under its ABI and name in the APK, stripped if asked: (abi, name, source, packaged copy)."""
+    sources = [(args.abi, f"lib{args.name}.so", args.lib)] + [(args.abi, os.path.basename(lib), lib) for lib in args.extra_lib]
+    for listing in args.abi_libs:
+        other_abi, libs = read_abi_libs(listing, args.name, args.abi)
+        if any(abi == other_abi for abi, _, _ in sources):
+            fail(f"{other_abi} is given twice")
+        sources += [(other_abi, f"lib{args.name}.so", libs[0])] + [(other_abi, os.path.basename(lib), lib) for lib in libs[1:]]
+    libraries = []
+    for abi, packaged, source in sources:
+        library = source
+        if args.strip:
+            library = os.path.join(work, abi, packaged)
+            os.makedirs(os.path.dirname(library), exist_ok=True)
+            run([args.strip, "--strip-unneeded", "-o", library, source])
+        libraries.append((abi, packaged, source, library))
+    return libraries
+
+
+def finish(args, package, libraries, files):
+    """The symbols zip (--symbols), and the summary line."""
     if args.symbols:
         os.makedirs(os.path.dirname(os.path.abspath(args.symbols)), exist_ok=True)
         with zipfile.ZipFile(args.symbols, "w", zipfile.ZIP_DEFLATED) as symbols:
