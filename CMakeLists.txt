@@ -4380,10 +4380,9 @@ else()
     add_tslang_example(ptlas core/ptlas.ts core/ptlas.cpp)
 endif()
 add_tslang_example_test(ptlas APIS dx12)
-# The Vulkan SDK's validation layer (1.4.321) doesn't know VK_DESCRIPTOR_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_NV:
-# it reports the PTLAS binding as mismatching the shader's, garbles the set's other bindings, and
-# crashes in VkLayer_khronos_validation.dll.
-add_tslang_example_test(ptlas APIS vk NO_DEBUG)
+# With the validation layer: Vulkan SDK 1.4.363 or newer. 1.4.321's doesn't know
+# VK_DESCRIPTOR_TYPE_PARTITIONED_ACCELERATION_STRUCTURE_NV (it crashes in VkLayer_khronos_validation.dll).
+add_tslang_example_test(ptlas APIS vk)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingPartitionedTLAS (NVIDIA's port of vk_partitioned_tlas):
 # a 16 x 16 grid of dominoes in 16 partitions, toppled by GPU physics, a compute shader appending a PTLAS
@@ -4407,14 +4406,14 @@ else()
     add_tslang_example(partitioned_tlas core/directx_math.ts core/text_format.ts core/ptlas.ts core/ptlas.cpp)
 endif()
 add_tslang_example_test(partitioned_tlas APIS dx12)
-# The Vulkan SDK's validation layer doesn't know the PTLAS descriptor type (see ptlas).
-add_tslang_example_test(partitioned_tlas APIS vk NO_DEBUG)
+# Vulkan SDK 1.4.363 or newer, as ptlas.
+add_tslang_example_test(partitioned_tlas APIS vk)
 # The regular TLAS, refitted (patches/nvrhi-tlas-from-buffer-refit.patch), and the moving dominoes moved
 # into the global partition.
 add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS dx12 ARGS -tlas)
-add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS vk NO_DEBUG ARGS -tlas)
+add_tslang_example_test(partitioned_tlas SUFFIX tlas APIS vk ARGS -tlas)
 add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS dx12 ARGS -mode 2)
-add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS vk NO_DEBUG ARGS -mode 2)
+add_tslang_example_test(partitioned_tlas SUFFIX mode2 APIS vk ARGS -mode 2)
 
 # Port of DirectX-Graphics-Samples' D3D12RaytracingClusteredGeometry: spheres, a torus, a cube, a Klein
 # bottle and a glass slab floor decomposed into clusters of up to 256 triangles, each a CLAS built by

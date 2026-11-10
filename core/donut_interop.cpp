@@ -2322,6 +2322,7 @@ namespace
             features12->vulkanMemoryModel = available12.vulkanMemoryModel;
             features12->vulkanMemoryModelDeviceScope = available12.vulkanMemoryModelDeviceScope;
             features12->storageBuffer8BitAccess = available12.storageBuffer8BitAccess;
+            features12->shaderInt8 = available12.shaderInt8; // since Vulkan SDK 1.4.363's layer
             // Indirect draws with their count in a buffer (Donut_DrawIndexedIndirectCount).
             features12->drawIndirectCount = available12.drawIndirectCount;
             if (features12->drawIndirectCount)
