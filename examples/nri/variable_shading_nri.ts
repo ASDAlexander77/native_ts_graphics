@@ -905,7 +905,7 @@ namespace VariableShadingNri {
         clearTargets(commandBuffer: NriCommandBuffer) {
             const noShadowTexture = this.noShadowTexture;
             const noShadowAttachment = this.noShadowAttachment;
-            // (Nested: tslang can't && its @cpp handles, TSLANG_ISSUES #23.)
+            // (Nested: `flag && a && b` in a namespace throws "Can't cast from union type", TSLANG_ISSUES #44.)
             if (!this.noShadowCleared) {
                 if (noShadowTexture) {
                     if (noShadowAttachment) {

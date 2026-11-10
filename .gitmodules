@@ -1,3 +1,48 @@
 [submodule "external/Donut"]
 	path = external/Donut
 	url = https://github.com/NVIDIA-RTX/Donut.git
+[submodule "DirectX-Graphics-Samples"]
+	path = external/DirectX-Graphics-Samples
+	url = https://github.com/microsoft/DirectX-Graphics-Samples.git
+	update = none
+	shallow = true
+[submodule "Xbox-ATG-Samples"]
+	path = external/Xbox-ATG-Samples
+	url = https://github.com/microsoft/Xbox-ATG-Samples.git
+	update = none
+	shallow = true
+[submodule "Vulkan-Samples-Assets"]
+	path = external/Vulkan-Samples-Assets
+	url = https://github.com/KhronosGroup/Vulkan-Samples-Assets.git
+	update = none
+	shallow = true
+[submodule "Donut-Samples"]
+	path = external/Donut-Samples
+	url = https://github.com/NVIDIA-RTX/Donut-Samples.git
+	update = none
+	shallow = true
+[submodule "Streamline_Sample"]
+	path = external/Streamline_Sample
+	url = https://github.com/NVIDIA-RTX/Streamline_Sample.git
+	update = none
+	shallow = true
+[submodule "RTXCR"]
+	path = external/RTXCR
+	url = https://github.com/NVIDIA-RTX/RTXCR.git
+	update = none
+	shallow = true
+[submodule "RTXPT"]
+	path = external/RTXPT
+	url = https://github.com/NVIDIA-RTX/RTXPT.git
+	update = none
+	shallow = true
+[submodule "RTXDI"]
+	path = external/RTXDI
+	url = https://github.com/NVIDIA-RTX/RTXDI.git
+	update = none
+	shallow = true
+[submodule "RTXMG"]
+	path = external/RTXMG
+	url = https://github.com/NVIDIA-RTX/RTXMG.git
+	update = none
+	shallow = true

@@ -630,7 +630,6 @@ namespace HdrDisplayNri {
             this.sample.imguiNewFrame();
             const font = this.font;
             const smallFont = this.smallFont;
-            // (No `handle && ...` conditions: tslang miscompiles them, TSLANG_ISSUES #23.)
             if (!this.enableUI || !font || !smallFont) {
                 this.sample.imguiRender();
                 return;
