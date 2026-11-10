@@ -32,6 +32,7 @@ final class SupportAds {
     private static final String TAG = "PowderSupportAds";
     private static final long TICK_MS = 1000;
     private static final long RETRY_MS = 60_000;
+    private static final long BUTTON_DELAY_MS = 1000;
 
     private final Activity activity;
     private final SupportSchedule schedule;
@@ -41,7 +42,9 @@ final class SupportAds {
     private final ConsentInformation consent;
 
     private RewardedAd ad;
+    private long adLoadedAt;
     private boolean loading;
+    private boolean consentPending;
     private boolean resumed;
     private boolean focused;
     private boolean prompting;   // the dialog, or the ad, is up
@@ -50,6 +53,11 @@ final class SupportAds {
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             long now = SystemClock.elapsedRealtime();
+            if (ad != null && !SupportSchedule.isAdFresh(adLoadedAt, now)) {
+                // expired (or about to): never offer one that can't be shown
+                ad = null;
+                loadAd();
+            }
             if (resumed && focused && !prompting) {
                 schedule.addPlayTime(now - lastTick);
                 if (schedule.isDue(now - launchedAt, ad != null)) {
@@ -67,22 +75,40 @@ final class SupportAds {
         this.activity = activity;
         this.schedule = schedule;
         consent = UserMessagingPlatform.getConsentInformation(activity);
+        requestConsent();
+        // consent given in an earlier launch: no need to wait for the update
+        startAdsIfAllowed();
+    }
+
+    private final Runnable retryConsent = this::requestConsent;
+
+    /** Asks UMP whether consent is needed (showing its form if so), then starts the ads. Offline (a
+     *  first launch on the subway) it fails: asked again a minute later, and on each resume. */
+    private void requestConsent() {
+        handler.removeCallbacks(retryConsent);
+        if (adsStarted.get() || consentPending || activity.isFinishing()) {
+            return;
+        }
+        consentPending = true;
         ConsentRequestParameters parameters = new ConsentRequestParameters.Builder()
             .setTagForUnderAgeOfConsent(false)
             .build();
         consent.requestConsentInfoUpdate(activity, parameters,
             () -> UserMessagingPlatform.loadAndShowConsentFormIfRequired(activity, formError -> {
+                consentPending = false;
                 if (formError != null) {
                     Log.w(TAG, "consent form: " + formError.getMessage());
                 }
                 startAdsIfAllowed();
             }),
             requestError -> {
-                Log.w(TAG, "consent info: " + requestError.getMessage());
+                consentPending = false;
+                Log.w(TAG, "consent info: " + requestError.getMessage() + ": asking again in " + RETRY_MS / 1000 + " s");
                 startAdsIfAllowed();
+                if (!adsStarted.get()) {
+                    handler.postDelayed(retryConsent, RETRY_MS);
+                }
             });
-        // consent given in an earlier launch: no need to wait for the update
-        startAdsIfAllowed();
     }
 
     /** The preferences the schedule is kept in. */
@@ -101,6 +127,9 @@ final class SupportAds {
         lastTick = SystemClock.elapsedRealtime();
         handler.removeCallbacks(tick);
         handler.postDelayed(tick, TICK_MS);
+        if (!adsStarted.get() && !prompting) {
+            requestConsent();
+        }
     }
 
     void onPause() {
@@ -135,6 +164,7 @@ final class SupportAds {
                 @Override public void onAdLoaded(@NonNull RewardedAd loaded) {
                     loading = false;
                     ad = loaded;
+                    adLoadedAt = SystemClock.elapsedRealtime();
                     Log.i(TAG, "rewarded ad loaded");
                 }
 
@@ -170,6 +200,13 @@ final class SupportAds {
             }
         });
         dialog.show();
+        // not answered by a tap meant for the game: the buttons wake up a moment later
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setEnabled(false);
+        handler.postDelayed(() -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setEnabled(true);
+        }, BUTTON_DELAY_MS);
     }
 
     private void showAd() {

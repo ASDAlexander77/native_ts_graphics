@@ -78,6 +78,14 @@ public class SupportScheduleTest {
     }
 
     @Test
+    public void adExpiresBeforeAnHour() {
+        // AdMob's rewarded ads expire an hour after loading: one older than 55 minutes is reloaded
+        assertEquals(55 * MINUTE, SupportSchedule.AD_MAX_AGE_MS);
+        assertTrue(SupportSchedule.isAdFresh(1_000, 1_000 + 55 * MINUTE - 1));
+        assertFalse(SupportSchedule.isAdFresh(1_000, 1_000 + 55 * MINUTE));
+    }
+
+    @Test
     public void answeredPersistsAcrossReload() {
         SupportSchedule s = schedule();
         s.addPlayTime(600_000);

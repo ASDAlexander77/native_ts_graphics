@@ -9,6 +9,12 @@ final class SupportSchedule {
     static final long FIRST_MS = 10 * 60_000L;
     static final long REPEAT_MS = 20 * 60_000L;
     static final long LAUNCH_GRACE_MS = 2 * 60_000L;
+    /** A loaded rewarded ad expires an hour after loading (AdMob): older than this, load another. */
+    static final long AD_MAX_AGE_MS = 55 * 60_000L;
+
+    static boolean isAdFresh(long loadedAtMs, long nowMs) {
+        return nowMs - loadedAtMs < AD_MAX_AGE_MS;
+    }
 
     /** Where it's kept (the app's SharedPreferences). */
     interface Store {
