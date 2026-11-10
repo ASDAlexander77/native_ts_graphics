@@ -415,20 +415,50 @@ if (ANDROID)
     target_include_directories(ShaderMakeBlob PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/external/Donut/ShaderMake")
 endif()
 
+# The sample repositories and RTX SDKs below are also opt-in submodules under external/ (update = none:
+# a recursive clone skips them; `git submodule update --init --checkout <path>` fetches one, see
+# README). use_external_checkout() points a *_DIR at its submodule when the submodule is checked out
+# and the variable doesn't name an existing folder (the presets' E:\ paths on another machine).
+# WHEN_EMPTY also takes an empty variable: the asset folders do, the RTX SDKs don't, since each has a
+# preset of its own and RTXPT_DIR with RTXDI_DIR is an error. SUBDIR is the folder within the checkout,
+# NEEDS a path in that folder without which the checkout is left alone (a nested submodule not fetched).
+function(use_external_checkout var submodule)
+    cmake_parse_arguments(ARG "WHEN_EMPTY" "SUBDIR;NEEDS" "" ${ARGN})
+    set(checkout "${CMAKE_CURRENT_SOURCE_DIR}/external/${submodule}")
+    if ((NOT ${var} AND NOT ARG_WHEN_EMPTY) OR (${var} AND EXISTS "${${var}}") OR NOT EXISTS "${checkout}/.git")
+        return()
+    endif()
+    if (ARG_SUBDIR)
+        set(checkout "${checkout}/${ARG_SUBDIR}")
+    endif()
+    if (ARG_NEEDS AND NOT EXISTS "${checkout}/${ARG_NEEDS}")
+        message(WARNING "external/${submodule} has no ${ARG_NEEDS}: fetch its submodules (README, Opt-in submodules)")
+        return()
+    endif()
+    if (${var})
+        message(STATUS "${var}: ${${var}} not found, using external/${submodule}")
+    endif()
+    set(${var} "${checkout}" PARENT_SCOPE)
+endfunction()
+
 # rtxcr_pathtracer (see the end of this file) builds only with RTXCR_DIR: a checkout of NVIDIA's
 # RTXCR (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets.
 set(RTXCR_DIR "" CACHE PATH "RTXCR checkout (github.com/NVIDIA-RTX/RTXCR) with its submodules and assets")
+use_external_checkout(RTXCR_DIR RTXCR)
 # rtxpt (see the end of this file) builds only with RTXPT_DIR: a checkout of NVIDIA's RTX Path
 # Tracing (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets, configured once by its own
 # CMake (which downloads the DXC its run-time shader compiler uses, External/dxc).
 set(RTXPT_DIR "" CACHE PATH "RTXPT checkout (github.com/NVIDIA-RTX/RTXPT) with its submodules and assets")
+use_external_checkout(RTXPT_DIR RTXPT)
 # rtxdi_minimal (see the end of this file) builds only with RTXDI_DIR: a checkout of NVIDIA's RTXDI
 # (github.com/NVIDIA-RTX/RTXDI, v3.0.0) with its assets. Not together with RTXPT_DIR: RTXPT carries its own
 # (older) copy of the RTXDI library, and both would define the same Rtxdi symbols in the one JIT module.
 set(RTXDI_DIR "" CACHE PATH "RTXDI checkout (github.com/NVIDIA-RTX/RTXDI) with its assets")
+use_external_checkout(RTXDI_DIR RTXDI)
 # rtxmg_demo (see the end of this file) builds only with RTXMG_DIR: a checkout of NVIDIA's RTX Mega
 # Geometry (github.com/NVIDIA-RTX/RTXMG) with its submodules (osd_lite, the assets).
 set(RTXMG_DIR "" CACHE PATH "RTXMG checkout (github.com/NVIDIA-RTX/RTXMG) with its submodules and assets")
+use_external_checkout(RTXMG_DIR RTXMG)
 
 # Opacity micromaps on D3D12 through the Agility SDK's DXR 1.2 (raytracing tier 1.2) rather than
 # NVAPI (opacity_micromaps; Vulkan has them through VK_EXT_opacity_micromap).
@@ -692,6 +722,7 @@ endif()
 # copied here. Its media folder has the scene the sample renders (sponza-plus.scene.json with its metal
 # sphere), which the parity tests load from there.
 set(STREAMLINE_SAMPLE_DIR "" CACHE PATH "Streamline Sample checkout (github.com/NVIDIA-RTX/Streamline_Sample) for streamline_demo")
+use_external_checkout(STREAMLINE_SAMPLE_DIR Streamline_Sample WHEN_EMPTY)
 
 # NVIDIA's Opacity Micro-Map SDK (github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK): its GPU baker and
 # the baker's NVRHI layer (omm-lib, omm-gpu-nvrhi), for opacity_micromaps -bake, which bakes the
@@ -1667,6 +1698,7 @@ add_custom_target(copy_media ALL
 # It renders Sponza from Khronos' glTF-Sample-Assets (52 MB, not in this repo); point this at a
 # Donut-Samples media folder to have it copied next to the executables, or pass --scene <path>.
 set(DONUT_SAMPLES_MEDIA_DIR "" CACHE PATH "Donut-Samples media folder, with glTF-Sample-Assets")
+use_external_checkout(DONUT_SAMPLES_MEDIA_DIR Donut-Samples WHEN_EMPTY SUBDIR media NEEDS glTF-Sample-Assets/Models/Sponza)
 if (DONUT_SAMPLES_MEDIA_DIR)
     file(COPY "${DONUT_SAMPLES_MEDIA_DIR}/glTF-Sample-Assets/Models/Sponza/glTF"
         DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/media/glTF-Sample-Assets/Models/Sponza")
@@ -1889,6 +1921,7 @@ add_tslang_example_test(atom_orbitals SUFFIX superposition ARGS -orbital 1 0 0 -
 # their size on screen. Its textures (Vulkan-Samples' assets, KTX 1, not in this repo) are converted
 # to DDS next to the executables; point this at a Vulkan-Samples assets folder.
 set(VULKAN_SAMPLES_ASSETS_DIR "" CACHE PATH "Vulkan-Samples assets folder, with textures/terrain_*.ktx")
+use_external_checkout(VULKAN_SAMPLES_ASSETS_DIR Vulkan-Samples-Assets WHEN_EMPTY)
 # A host tool for those assets: the mip levels the framework generates for the ASTC textures it
 # decodes, with the same stb_image_resize (Donut's copy of it), into DDS files.
 if (VULKAN_SAMPLES_ASSETS_DIR AND NOT CMAKE_CROSSCOMPILING)
@@ -3869,6 +3902,7 @@ endif()
 # errors and timings shown. Its images are the sample's, not in this repo: point
 # XBOX_ATG_SAMPLES_DIR at an Xbox-ATG-Samples checkout.
 set(XBOX_ATG_SAMPLES_DIR "" CACHE PATH "Xbox-ATG-Samples checkout (github.com/microsoft/Xbox-ATG-Samples)")
+use_external_checkout(XBOX_ATG_SAMPLES_DIR Xbox-ATG-Samples WHEN_EMPTY)
 donut_compile_shaders_all_platforms(
     TARGET fast_block_compress_shaders
     PROJECT_NAME "Fast Block Compress"
@@ -4260,6 +4294,7 @@ add_tslang_example_test(procedural_geometry_nri)
 # Copies files of a DirectX-Graphics-Samples checkout (DIRECTX_GRAPHICS_SAMPLES_DIR; paths relative
 # to it) into media/<dir> for an example, if the checkout is set.
 set(DIRECTX_GRAPHICS_SAMPLES_DIR "" CACHE PATH "DirectX-Graphics-Samples checkout (github.com/microsoft/DirectX-Graphics-Samples)")
+use_external_checkout(DIRECTX_GRAPHICS_SAMPLES_DIR DirectX-Graphics-Samples WHEN_EMPTY)
 function(add_dxgs_media target dir)
     if (NOT DIRECTX_GRAPHICS_SAMPLES_DIR)
         return()
