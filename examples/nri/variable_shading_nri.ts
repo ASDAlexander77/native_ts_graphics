@@ -905,18 +905,13 @@ namespace VariableShadingNri {
         clearTargets(commandBuffer: NriCommandBuffer) {
             const noShadowTexture = this.noShadowTexture;
             const noShadowAttachment = this.noShadowAttachment;
-            // (Nested: `flag && a && b` in a namespace throws "Can't cast from union type", TSLANG_ISSUES #44.)
-            if (!this.noShadowCleared) {
-                if (noShadowTexture) {
-                    if (noShadowAttachment) {
-                        commandBuffer.textureBarrier(noShadowTexture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
-                        commandBuffer.beginRenderingDepthOnly(noShadowAttachment);
-                        commandBuffer.clearDepth(0.0);
-                        commandBuffer.endRendering();
-                        commandBuffer.textureBarrier(noShadowTexture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
-                        this.noShadowCleared = true;
-                    }
-                }
+            if (!this.noShadowCleared && noShadowTexture && noShadowAttachment) {
+                commandBuffer.textureBarrier(noShadowTexture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);
+                commandBuffer.beginRenderingDepthOnly(noShadowAttachment);
+                commandBuffer.clearDepth(0.0);
+                commandBuffer.endRendering();
+                commandBuffer.textureBarrier(noShadowTexture, NriTextureState.DepthAttachment, NriTextureState.ShaderResource);
+                this.noShadowCleared = true;
             }
             const hdrColor = this.hdrColor;
             const hdrAttachment = this.hdrAttachment;
