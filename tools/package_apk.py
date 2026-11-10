@@ -25,6 +25,12 @@ bundletool (--bundletool, fetched if it isn't there) and signed by the JDK's jar
 --abi-libs adds another ABI's build of the same app (the list add_tslang_android_release writes in
 each Android build folder: its ABI, then lib<name>.so and the libraries it loads), so one APK and one
 bundle carry both (arm64-v8a and x86_64): the store hands each device its own.
+
+--gradle <module> packages an app with Java code (Powder Sandbox's support ads, powder_sandbox/android)
+with that Gradle module instead of aapt2: the assets and the stripped libraries are staged the same
+way, with the app's settings in build.properties, and Gradle (fetched to --gradle-home) builds the
+APK, and for --release the bundle too, signed as above. Its AdMob IDs are Google's test IDs, or for a
+release POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID's.
 """
 
 import argparse

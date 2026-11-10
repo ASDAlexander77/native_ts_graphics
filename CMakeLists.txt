@@ -1125,8 +1125,9 @@ if (ANDROID)
 endif()
 
 # GRADLE <module folder>: an app with Java code (Powder Sandbox's support ads), packaged by that Gradle
-# module (tools/package_apk.py --gradle) instead of aapt2, which also adds <name>_ads_apk: the same
-# app debug-signed with Google's test ads, as bin/<name>-ads-debug.apk (its package ID + .debug).
+# module (tools/package_apk.py --gradle) instead of aapt2, which also adds <name>_ads: the same app
+# debug-signed with Google's test ads, as bin/<name>-ads-debug.apk (its package ID + .debug). (Not
+# <name>_ads_apk: tools/android.py takes each <x>_apk target for an example's.)
 # Its release reads the real AdMob IDs from POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID.
 function(add_tslang_android_release name)
     cmake_parse_arguments(PARSE_ARGV 1 RELEASE "" "PACKAGE;LABEL;VERSION_CODE;VERSION_NAME;RES;ICON;CATEGORY;VULKAN_VERSION;TARGET_SDK;GRADLE" "")
@@ -1163,7 +1164,7 @@ function(add_tslang_android_release name)
         --version-code ${RELEASE_VERSION_CODE} --version-name ${RELEASE_VERSION_NAME} ${options})
     if (RELEASE_GRADLE)
         set(gradle --gradle "${CMAKE_CURRENT_SOURCE_DIR}/${RELEASE_GRADLE}" --gradle-home "${CMAKE_BINARY_DIR}/android/gradle")
-        add_custom_target(${name}_ads_apk
+        add_custom_target(${name}_ads
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
                 --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
                 ${assets}
@@ -1174,7 +1175,7 @@ function(add_tslang_android_release name)
                 --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-ads-debug.apk"
             COMMENT "Packaging ${name}-ads-debug.apk (Gradle)"
             VERBATIM)
-        add_dependencies(${name}_ads_apk ${name}_apk)
+        add_dependencies(${name}_ads ${name}_apk)
     endif()
     foreach(folder ${ANDROID_RELEASE_MERGE_BUILDS})
         list(APPEND options --abi-libs "${folder}/android/${name}/release-libs.txt")
