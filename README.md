@@ -247,6 +247,35 @@ build time:
 cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR=E:/Vulkan-Samples/assets
 ```
 
+### Opt-in submodules
+
+The sample repositories, and the RTX SDK checkouts below, are also submodules under `external/`, pinned
+to the commits the examples were checked against. They are marked `update = none`, so a clone with
+`--recursive` or a plain `git submodule update --init` leaves them out (several are gigabytes). Fetch the
+ones you need with `--checkout`:
+
+```
+git submodule update --init --checkout external/Vulkan-Samples-Assets
+git submodule update --init --checkout --recursive external/RTXCR
+```
+
+| Submodule | Sets, when its variable is empty or names a folder that doesn't exist |
+| --- | --- |
+| `external/Donut-Samples` | `DONUT_SAMPLES_MEDIA_DIR` (its `media`; needs `git -C external/Donut-Samples submodule update --init --depth 1 media/glTF-Sample-Assets`) |
+| `external/Vulkan-Samples-Assets` | `VULKAN_SAMPLES_ASSETS_DIR` |
+| `external/Xbox-ATG-Samples` | `XBOX_ATG_SAMPLES_DIR` |
+| `external/DirectX-Graphics-Samples` | `DIRECTX_GRAPHICS_SAMPLES_DIR` |
+| `external/Streamline_Sample` | `STREAMLINE_SAMPLE_DIR` |
+| `external/RTXCR`, `RTXPT`, `RTXDI`, `RTXMG` | `RTXCR_DIR` and the others, only when set (by their presets) to a folder that doesn't exist |
+
+The RTX SDKs are used only when their variable is set, because each has its own preset, and `RTXPT_DIR`
+together with `RTXDI_DIR` is an error. Fetch them with `--recursive`, since they need their own
+submodules and assets. RTXPT and RTXMG also need one configure with their own CMake, as described below.
+A submodule stores only a commit, so nothing of the RTX SDKs is in this repository. An explicit
+`-D<VAR>=<path>` to an existing folder always wins over the submodule. On Windows, set
+`git config --global core.longpaths true` first: some paths in RTXDI's FullSample go past 260
+characters in a checkout below a deep folder (a worktree, for example).
+
 `opacity_micromaps -bake` bakes the tree's opacity micromaps at run time instead of loading the sample's
 files, with the GPU baker of NVIDIA's [Opacity Micro-Map SDK](https://github.com/NVIDIAGameWorks/Opacity-MicroMap-SDK)
 (`core/omm_bake.cpp`, D3D12 and Vulkan). The SDK is under the NVIDIA RTX SDKs License, so it is fetched at configure
@@ -466,6 +495,19 @@ window surface after the device so that DLSS-G finds the window. Known: under `-
 plugins leave a few NGX buffers alive at `vkDestroyDevice`, as in the sample. This software contains source code
 provided by NVIDIA Corporation.
 
+| Ray traced lighting, no upscaling | DLSS Super Resolution (`-dlss 3`, 1280x720 to 1920x1080) |
+| --- | --- |
+| ![streamline_demo: Sponza-plus with ray traced lighting](docs/screenshots/streamline_demo.jpg) | ![streamline_demo: the same frame upscaled by DLSS Super Resolution](docs/screenshots/streamline_demo_dlss.jpg) |
+| **DLSS Ray Reconstruction (`-dlssRR 3`, 1280x720 to 1920x1080)** | **Deferred lighting (`-noRT`)** |
+| ![streamline_demo: the same frame denoised and upscaled by DLSS Ray Reconstruction](docs/screenshots/streamline_demo_dlssrr.jpg) | ![streamline_demo: the same frame with deferred lighting](docs/screenshots/streamline_demo_deferred.jpg) |
+
+Frame 120 of the `-test` runs above, D3D12, from a Debug build (`build-streamline`), saved at 1920x1080 and scaled
+down to 1280x720 for this page:
+
+```
+build-streamline/bin/streamline_demo.exe -dx12 -debug -test -width 1920 -height 1080 --scene E:/Gits/Streamline_Sample/media/sponza-plus.scene.json -dlss 3 -testOutput streamline_demo_dlss_dx12.png
+```
+
 Without those checkouts, `tools/fetch_media.py` gets just the files the build reads (see
 [Media without the sample checkouts](#media-without-the-sample-checkouts)).
 
@@ -483,7 +525,9 @@ native_ts_graphics/
 ├── media/                # small assets shipped with the repository
 ├── patches/              # local patches to Donut, NVRHI and GLFW
 ├── tools/                # Android build/test script, smoke test, screenshot capture, asset tools
-└── external/Donut        # NVIDIA Donut (submodule)
+└── external/
+    ├── Donut             # NVIDIA Donut (submodule)
+    └── ...               # opt-in submodules: sample repositories, RTX SDKs (see External assets)
 ```
 
 ## How the TypeScript build works

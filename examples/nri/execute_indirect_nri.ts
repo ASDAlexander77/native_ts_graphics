@@ -360,8 +360,7 @@ namespace ExecuteIndirectNri {
             return this.created();
         }
 
-        // The buffers and views createResources makes were created (early returns: tslang can't
-        // && @cpp handles, TSLANG_ISSUES #23).
+        // The buffers and views createResources makes were created.
         created(): boolean {
             if (!this.vertexBuffer || !this.indexBuffer || !this.triangleIndexBuffer || !this.constantsView || !this.commandsView) {
                 return false;

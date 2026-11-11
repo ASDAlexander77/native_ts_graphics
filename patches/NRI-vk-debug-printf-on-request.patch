@@ -1,0 +1,17 @@
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -1621,7 +1621,12 @@
+     validationFeatures.enabledValidationFeatureCount = GetCountOf(enabledValidationFeatures);
+     validationFeatures.pEnabledValidationFeatures = enabledValidationFeatures;
+ 
+-    if (enableGraphicsAPIValidation) {
++    // Debug printf (GPU-assisted validation) only when asked for: the validation layer reads
++    // VK_KHRONOS_VALIDATION_PRINTF_ENABLE, which the caller sets for shader printf. Always on, it
++    // instruments every shader, and layer 1.4.321's gpuav::CommandBufferSubState::PostSubmit
++    // dereferences null now and then in vkQueueSubmit2 (parallel test runs).
++    const char* printfEnable = getenv("VK_KHRONOS_VALIDATION_PRINTF_ENABLE");
++    if (enableGraphicsAPIValidation && printfEnable && printfEnable[0] && printfEnable[0] != '0') {
+         APPEND_STRUCT(validationFeatures);
+     }
+ 
