@@ -58,6 +58,11 @@ levels out in connected vessels. That's the U-tube test, and every change has to
   `-testStars 0` (each challenge solved, and untouched), `-stepBudget 0.01` (auto
   quality), `-roundTrip` (undo, save/load), `-regrid 1` / `-regrid 2` (the grid remade), on D3D12 and
   Vulkan, on the Android emulator and on a phone.
+- **Support ads (Android store build).** After 10 minutes of play, then every 20, the app asks
+  whether the player would watch a rewarded AdMob ad to support it. That's Java in
+  `android/java/` (a NativeActivity subclass), packaged by the Gradle module in `android/`. The
+  game itself knows nothing of it, and `powder_sandbox_nri_apk` (the tests' APK) has none of it.
+  `powder_sandbox_nri_ads` builds it with test ads; see `store/README.md`.
 
 ## Roadmap
 

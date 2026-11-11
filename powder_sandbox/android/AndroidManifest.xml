@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Powder Sandbox's Gradle-packaged app: tools/android/AndroidManifest.xml.in's NativeActivity
+     (lib${libName}.so, core/android_main.cpp) as PowderActivity, which adds the support ads.
+     The ${...} values come from build.gradle (from package_apk.py's build.properties). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.vulkan.version"
+        android:version="${vulkanVersion}" android:required="true" />
+
+    <!-- The native library is stored uncompressed and page aligned, and loaded from the APK. -->
+    <application
+        android:label="${label}"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:appCategory="${appCategory}"
+        android:allowBackup="false"
+        android:extractNativeLibs="false">
+
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${admobAppId}" />
+
+        <!-- configChanges: a rotation or a resize reaches the app as a new window size instead of
+             recreating the activity, which would end it (an example runs once per process). -->
+        <activity
+            android:name=".PowderActivity"
+            android:label="${label}"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density">
+            <meta-data android:name="android.app.lib_name" android:value="${libName}" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

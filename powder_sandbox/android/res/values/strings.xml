@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The "support the app" prompt (java/.../SupportAds.java). -->
+<resources>
+    <string name="support_title">Enjoying Powder Sandbox?</string>
+    <string name="support_message">Would you like to watch a short ad to support the app?</string>
+    <string name="support_watch">Watch ad</string>
+    <string name="support_not_now">Not now</string>
+    <string name="support_thanks">Thank you for your support!</string>
+    <string name="support_thanks_anyway">Thanks anyway!</string>
+</resources>

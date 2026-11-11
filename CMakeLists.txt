@@ -1124,8 +1124,13 @@ if (ANDROID)
         "Other Android build folders (other ABIs) whose <app>_apk libraries the <app>_release targets package too")
 endif()
 
+# GRADLE <module folder>: an app with Java code (Powder Sandbox's support ads), packaged by that Gradle
+# module (tools/package_apk.py --gradle) instead of aapt2, which also adds <name>_ads: the same app
+# debug-signed with Google's test ads, as bin/<name>-ads-debug.apk (its package ID + .debug). (Not
+# <name>_ads_apk: tools/android.py takes each <x>_apk target for an example's.)
+# Its release reads the real AdMob IDs from POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID.
 function(add_tslang_android_release name)
-    cmake_parse_arguments(PARSE_ARGV 1 RELEASE "" "PACKAGE;LABEL;VERSION_CODE;VERSION_NAME;RES;ICON;CATEGORY;VULKAN_VERSION;TARGET_SDK" "")
+    cmake_parse_arguments(PARSE_ARGV 1 RELEASE "" "PACKAGE;LABEL;VERSION_CODE;VERSION_NAME;RES;ICON;CATEGORY;VULKAN_VERSION;TARGET_SDK;GRADLE" "")
     if (NOT ANDROID OR NOT TARGET ${name}_apk)
         return()
     endif()
@@ -1155,8 +1160,26 @@ function(add_tslang_android_release name)
     list(JOIN libs "\n" libs)
     file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/android/${name}/release-libs.txt"
         CONTENT "${CMAKE_ANDROID_ARCH_ABI}\n${libs}\n")
+    set(app_options --package ${RELEASE_PACKAGE} --label "${RELEASE_LABEL}"
+        --version-code ${RELEASE_VERSION_CODE} --version-name ${RELEASE_VERSION_NAME} ${options})
+    if (RELEASE_GRADLE)
+        set(gradle --gradle "${CMAKE_CURRENT_SOURCE_DIR}/${RELEASE_GRADLE}" --gradle-home "${CMAKE_BINARY_DIR}/android/gradle")
+        add_custom_target(${name}_ads
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
+                --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
+                ${assets}
+                --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
+                --min-sdk ${TSLANG_ANDROID_MIN_SDK} --target-sdk ${RELEASE_TARGET_SDK} --strip "${CMAKE_STRIP}"
+                ${app_options} ${gradle} --gradle-test --keystore "${ANDROID_DEBUG_KEYSTORE}"
+                --work "${CMAKE_BINARY_DIR}/android/${name}/ads"
+                --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-ads-debug.apk"
+            COMMENT "Packaging ${name}-ads-debug.apk (Gradle)"
+            VERBATIM)
+        add_dependencies(${name}_ads ${name}_apk)
+    endif()
     foreach(folder ${ANDROID_RELEASE_MERGE_BUILDS})
         list(APPEND options --abi-libs "${folder}/android/${name}/release-libs.txt")
+        list(APPEND app_options --abi-libs "${folder}/android/${name}/release-libs.txt")
     endforeach()
     add_custom_target(${name}_release
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
@@ -1164,8 +1187,7 @@ function(add_tslang_android_release name)
             ${assets}
             --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
             --min-sdk ${TSLANG_ANDROID_MIN_SDK} --target-sdk ${RELEASE_TARGET_SDK} --strip "${CMAKE_STRIP}"
-            --package ${RELEASE_PACKAGE} --label "${RELEASE_LABEL}"
-            --version-code ${RELEASE_VERSION_CODE} --version-name ${RELEASE_VERSION_NAME} ${options}
+            ${app_options} ${gradle}
             --release --keystore "${ANDROID_RELEASE_KEYSTORE}" --key-alias "${ANDROID_RELEASE_KEY_ALIAS}"
             --store-pass-env ANDROID_RELEASE_STORE_PASSWORD --key-pass-env ANDROID_RELEASE_KEY_PASSWORD
             --bundle "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-release.aab"
