@@ -345,12 +345,22 @@ if (GIT_EXECUTABLE)
     # A clone without --recurse-submodules leaves external/Donut empty, which would otherwise fail
     # later with a much less obvious error. A no-op when already up to date.
     execute_process(
-        COMMAND "${GIT_EXECUTABLE}" submodule update --init --recursive
+        COMMAND "${GIT_EXECUTABLE}" submodule update --init --recursive external/Donut
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         RESULT_VARIABLE DONUT_SUBMODULE_UPDATE_RESULT)
     if (NOT DONUT_SUBMODULE_UPDATE_RESULT EQUAL 0)
-        message(FATAL_ERROR "'git submodule update --init --recursive' failed: "
+        message(FATAL_ERROR "'git submodule update --init --recursive external/Donut' failed: "
                             "cannot configure without external/Donut checked out.")
+    endif()
+    # powder_sandbox is a private repository: fetched only when missing (so commits made in its
+    # checkout aren't reset), without prompting for credentials, and skipped when that fails.
+    if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/powder_sandbox/powder_sandbox.cmake")
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never
+                    "${GIT_EXECUTABLE}" submodule update --init powder_sandbox
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            RESULT_VARIABLE POWDER_SUBMODULE_UPDATE_RESULT
+            OUTPUT_QUIET ERROR_QUIET)
     endif()
 
     apply_patches(external/Donut ${DONUT_PATCHES})
