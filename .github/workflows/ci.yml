@@ -1,0 +1,107 @@
+# Builds every example (Debug, the `default` preset) on a GitHub-hosted Windows runner, then runs a
+# few of their tests on software renderers: D3D12 on WARP (DONUT_SOFTWARE_ADAPTER) and Vulkan on
+# Mesa's lavapipe (VK_DRIVER_FILES). Hosted runners have no GPU, and the full suite needs one plus
+# the sample repositories' media: run that locally (`ctest --test-dir build`, README "Tests").
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VULKAN_SDK_VERSION: 1.4.363.1
+  MESA_VERSION: 26.2.4
+  # Tests that need no external media and run on WARP and lavapipe. The NRI examples have no
+  # software-adapter path yet, so they are left out.
+  SMOKE_TESTS: ^(basic_triangle|rt_triangle|simple_compute|nvrhi_direct|headless|headless\.donut)\.(dx12|vk)$
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-2025
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Donut and its submodules; the opt-in sample submodules (update = none) stay empty.
+          submodules: recursive
+
+      - name: Disk space
+        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, Root
+
+      - name: tslang cache
+        uses: actions/cache@v4
+        with:
+          path: tools/tslang
+          key: tslang-${{ hashFiles('cmake/CMakeDetermineTSLANGCompiler.cmake') }}
+
+      - name: Vulkan SDK
+        run: |
+          $v = $env:VULKAN_SDK_VERSION
+          $root = "C:\VulkanSDK\$v"
+          $exe = "$env:RUNNER_TEMP\vulkansdk.exe"
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/vulkansdk-windows-X64-$v.exe" -OutFile $exe
+          & $exe --root $root --accept-licenses --default-answer --confirm-command install | Out-Host
+          if (-not (Test-Path "$root\Bin\dxc.exe")) { throw "Vulkan SDK install failed: no $root\Bin\dxc.exe" }
+          "VULKAN_SDK=$root" >> $env:GITHUB_ENV
+          "$root\Bin" >> $env:GITHUB_PATH
+          # The validation layer for -debug, wherever the installer registered it.
+          "VK_ADD_LAYER_PATH=$root\Bin" >> $env:GITHUB_ENV
+          if (-not (Test-Path "$env:SystemRoot\System32\vulkan-1.dll")) {
+            Write-Host "No Vulkan loader: installing the Vulkan runtime"
+            $rt = "$env:RUNNER_TEMP\vulkanrt.exe"
+            Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/VulkanRT-X64-$v-Installer.exe" -OutFile $rt
+            Start-Process $rt -ArgumentList '/S' -Wait
+          }
+          if (-not (Test-Path "$env:SystemRoot\System32\vulkan-1.dll")) { throw "no vulkan-1.dll" }
+
+      - name: Mesa lavapipe
+        run: |
+          $v = $env:MESA_VERSION
+          $archive = "$env:RUNNER_TEMP\mesa.7z"
+          $dir = "$env:RUNNER_TEMP\mesa"
+          Invoke-WebRequest "https://github.com/pal1000/mesa-dist-win/releases/download/$v/mesa3d-$v-release-msvc.7z" -OutFile $archive
+          7z x $archive "-o$dir" -y | Out-Null
+          $icd = "$dir\x64\lvp_icd.x86_64.json"
+          if (-not (Test-Path $icd)) { throw "no $icd" }
+          "LAVAPIPE_ICD=$icd" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          "VCVARS=$vs\VC\Auxiliary\Build\vcvars64.bat" >> $env:GITHUB_ENV
+          # The sample media folders the `base` preset names are a maintainer's: none here.
+          cmd /c "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" && cmake --preset default -DVULKAN_SAMPLES_ASSETS_DIR= -DXBOX_ATG_SAMPLES_DIR= -DDIRECTX_GRAPHICS_SAMPLES_DIR="
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build
+        run: |
+          cmd /c "call `"$env:VCVARS`" && cmake --build --preset default"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Smoke tests (D3D12 on WARP)
+        env:
+          DONUT_SOFTWARE_ADAPTER: "1"
+        run: ctest --test-dir build -R "$env:SMOKE_TESTS" -L dx12 --no-tests=error --output-on-failure --timeout 600
+
+      # simple_compute and nvrhi_direct ask for a separate compute queue, and lavapipe has one queue
+      # family ("does not support the necessary queue types").
+      - name: Smoke tests (Vulkan on lavapipe)
+        run: |
+          $env:VK_DRIVER_FILES = $env:LAVAPIPE_ICD
+          ctest --test-dir build -R "$env:SMOKE_TESTS" -E '^(simple_compute|nvrhi_direct)\.vk$' -L vk --no-tests=error --output-on-failure --timeout 600
+
+      - name: Disk space after build
+        if: always()
+        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, Root
