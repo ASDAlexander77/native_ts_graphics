@@ -83,15 +83,6 @@ frames while its window isn't focused) and post to its `GLFW30` window.
 
 ## In the examples
 
-- **powder_sandbox_nri**:
-  - **One finger:** paints with the selected tool, and taps the toolbar's tiles. Dragging along
-    the toolbar scrolls it.
-  - **Two fingers:** pinch to zoom around their midpoint (up to 8x), drag to pan. A second
-    finger down within 0.3 s of the first undoes what the first had begun painting.
-  - **Inspect tile:** with it selected, a touch paints nothing and the HUD reads the cell under
-    the finger. This stands in for hover.
-  - **Desktop:** Ctrl+wheel zooms, a middle-button drag pans, and the plain wheel sizes the
-    brush.
 - **conservative_rasterization_nri** and **dynamic_uniform_buffers_nri** (ApiVulkanSample's mouse
   controls): a left drag turns the camera, a middle drag pans. Their right-button zoom has no
   touch equivalent; dynamic_uniform_buffers_nri also zooms with the wheel, so it can be pinched.

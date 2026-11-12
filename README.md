@@ -72,9 +72,6 @@ cmake --preset default
 cmake --build --preset default
 ```
 
-`powder_sandbox/` is a submodule in a private repository: without access to it, `--recursive`
-reports that it couldn't clone it, and configure skips `powder_sandbox_nri`. The rest builds as usual.
-
 `release` builds into `build-release`. The executables land in `build/bin`, next to their
 shaders and media:
 
@@ -528,7 +525,6 @@ native_ts_graphics/
 ├── media/                # small assets shipped with the repository
 ├── patches/              # local patches to Donut, NVRHI and GLFW
 ├── tools/                # Android build/test script, smoke test, screenshot capture, asset tools
-├── powder_sandbox/       # Powder Sandbox game (submodule, private repository; skipped when absent)
 └── external/
     ├── Donut             # NVIDIA Donut (submodule)
     └── ...               # opt-in submodules: sample repositories, RTX SDKs (see External assets)

@@ -1,16 +1,17 @@
+# (Paths from this file's folder, not CMAKE_SOURCE_DIR: another project may build this repository as its subdirectory.)
 # Release of tslang to install into tools/ when the compiler is not found
 set(TSLANG_VERSION "v0.0-pre-alpha125" CACHE STRING "tslang release (tag of github.com/ASDAlexander77/TypeScriptCompiler) to download")
-set(TSLANG_INSTALL_DIR "${CMAKE_SOURCE_DIR}/tools/tslang" CACHE PATH "Where the downloaded tslang is installed")
+set(TSLANG_INSTALL_DIR "${CMAKE_CURRENT_LIST_DIR}/../tools/tslang" CACHE PATH "Where the downloaded tslang is installed")
 set(TSLANG_LINUX_DISTRO "ubuntu-24.04" CACHE STRING "Linux build of tslang to download: ubuntu-22.04, ubuntu-24.04 or ubuntu-26.04")
 
 # Locate your custom compiler. Only the host's own build: under WSL the Windows PATH is searched
 # too, and a tslang.exe found there targets Windows (its default lib, gc.lib, backslash paths).
 if (CMAKE_HOST_WIN32)
     set(_tslang_names tslang tslang.exe)
-    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_SOURCE_DIR}/tools" "I:\\tslang")
+    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_CURRENT_LIST_DIR}/../tools" "I:\\tslang")
 else()
     set(_tslang_names tslang)
-    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_SOURCE_DIR}/tools")
+    set(_tslang_hints "${TSLANG_INSTALL_DIR}" "${CMAKE_CURRENT_LIST_DIR}/../tools")
 endif()
 find_program(CMAKE_TSLANG_COMPILER
     NAMES ${_tslang_names}

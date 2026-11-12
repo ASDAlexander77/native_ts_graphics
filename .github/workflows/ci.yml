@@ -35,11 +35,9 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
-
-      # Donut and its submodules only: the opt-in sample submodules (update = none) stay empty, and
-      # powder_sandbox is a private repository the workflow's token can't read (CMake skips it).
-      - name: Submodules
-        run: git submodule update --init --recursive external/Donut
+        with:
+          # Donut and its submodules; the opt-in sample submodules (update = none) stay empty.
+          submodules: recursive
 
       - name: Disk space
         run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, Root
