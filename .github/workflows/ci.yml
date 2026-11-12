@@ -20,10 +20,11 @@ concurrency:
 env:
   VULKAN_SDK_VERSION: 1.4.363.1
   MESA_VERSION: 26.2.4
-  WARP_VERSION: 1.0.22
-  # Tests that need no external media and run on WARP and lavapipe. The NRI examples have no
-  # software-adapter path yet, so they are left out.
-  SMOKE_TESTS: ^(basic_triangle|rt_triangle|simple_compute|nvrhi_direct|headless|headless\.donut)\.(dx12|vk)$
+  # Tests that need no external media and run on WARP and lavapipe. Left out: the NRI examples
+  # (no software-adapter path yet), and nvrhi_direct, whose many edge-case checks depend on the WARP
+  # version (the runner image's decoded sampler feedback differently; NuGet WARP 1.0.22 also
+  # failed a TLAS copy and crashed) and which needs a compute queue lavapipe lacks.
+  SMOKE_TESTS: ^(basic_triangle|rt_triangle|simple_compute|headless|headless\.donut)\.(dx12|vk)$
 
 jobs:
   build-and-smoke:
@@ -59,13 +60,13 @@ jobs:
           "$root\Bin" >> $env:GITHUB_PATH
           # The validation layer for -debug, wherever the installer registered it.
           "VK_ADD_LAYER_PATH=$root\Bin" >> $env:GITHUB_ENV
-          if (-not (Test-Path "$env:SystemRoot\System32\vulkan-1.dll")) {
-            Write-Host "No Vulkan loader: installing the Vulkan runtime"
-            $rt = "$env:RUNNER_TEMP\vulkanrt.exe"
-            Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/VulkanRT-X64-$v-Installer.exe" -OutFile $rt
-            Start-Process $rt -ArgumentList '/S' -Wait
-          }
-          if (-not (Test-Path "$env:SystemRoot\System32\vulkan-1.dll")) { throw "no vulkan-1.dll" }
+          # The SDK's loader: the image may have an older one, or none (no GPU driver installs it).
+          $rt = "$env:RUNNER_TEMP\vulkanrt.exe"
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/VulkanRT-X64-$v-Installer.exe" -OutFile $rt
+          Start-Process $rt -ArgumentList '/S' -Wait
+          $loader = "$env:SystemRoot\System32\vulkan-1.dll"
+          if (-not (Test-Path $loader)) { throw "no $loader" }
+          "Vulkan loader: $((Get-Item $loader).VersionInfo.FileVersion)"
 
       - name: Mesa lavapipe
         run: |
@@ -77,6 +78,12 @@ jobs:
           $icd = "$dir\x64\lvp_icd.x86_64.json"
           if (-not (Test-Path $icd)) { throw "no $icd" }
           "LAVAPIPE_ICD=$icd" >> $env:GITHUB_ENV
+          # Fail here, readably, if the loader doesn't pick lavapipe up.
+          $env:VK_DRIVER_FILES = $icd
+          $env:VK_ICD_FILENAMES = $icd
+          $summary = vulkaninfo --summary 2>&1 | Out-String
+          $summary | Out-Host
+          if ($summary -notmatch 'llvmpipe') { throw "lavapipe not found by the Vulkan loader" }
 
       - name: Configure
         run: |
@@ -91,31 +98,22 @@ jobs:
           cmd /c "call `"$env:VCVARS`" && cmake --build --preset default"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-      # A pinned WARP next to the executables, instead of the runner image's: the image's (Windows
-      # Server 2025) decoded nvrhi_direct's sampler feedback differently (8 of 64 regions).
-      - name: WARP
-        run: |
-          $v = $env:WARP_VERSION
-          $pkg = "$env:RUNNER_TEMP\warp.zip"
-          Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$v/microsoft.direct3d.warp.$v.nupkg" -OutFile $pkg
-          Expand-Archive $pkg "$env:RUNNER_TEMP\warp" -Force
-          Copy-Item "$env:RUNNER_TEMP\warp\build\native\bin\x64\d3d10warp.dll" build\bin\
-          (Get-Item build\bin\d3d10warp.dll).VersionInfo.FileVersion
-
       - name: Smoke tests (D3D12 on WARP)
         id: dx12
         env:
           DONUT_SOFTWARE_ADAPTER: "1"
         run: ctest --test-dir build -R "$env:SMOKE_TESTS" -L dx12 --no-tests=error --output-on-failure --timeout 600
 
-      # simple_compute and nvrhi_direct ask for a separate compute queue, and lavapipe has one queue
-      # family ("does not support the necessary queue types").
+      # simple_compute asks for a separate compute queue, and lavapipe has one queue family ("does
+      # not support the necessary queue types").
       - name: Smoke tests (Vulkan on lavapipe)
         # also when the D3D12 tests failed, so a run reports both APIs
         if: success() || steps.dx12.conclusion == 'failure'
         run: |
+          # VK_ICD_FILENAMES too, for a loader older than VK_DRIVER_FILES
           $env:VK_DRIVER_FILES = $env:LAVAPIPE_ICD
-          ctest --test-dir build -R "$env:SMOKE_TESTS" -E '^(simple_compute|nvrhi_direct)\.vk$' -L vk --no-tests=error --output-on-failure --timeout 600
+          $env:VK_ICD_FILENAMES = $env:LAVAPIPE_ICD
+          ctest --test-dir build -R "$env:SMOKE_TESTS" -E '^simple_compute\.vk$' -L vk --no-tests=error --output-on-failure --timeout 600
 
       - name: Disk space after build
         if: always()
