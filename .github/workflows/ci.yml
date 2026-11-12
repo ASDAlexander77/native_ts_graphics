@@ -20,6 +20,7 @@ concurrency:
 env:
   VULKAN_SDK_VERSION: 1.4.363.1
   MESA_VERSION: 26.2.4
+  WARP_VERSION: 1.0.22
   # Tests that need no external media and run on WARP and lavapipe. The NRI examples have no
   # software-adapter path yet, so they are left out.
   SMOKE_TESTS: ^(basic_triangle|rt_triangle|simple_compute|nvrhi_direct|headless|headless\.donut)\.(dx12|vk)$
@@ -89,6 +90,17 @@ jobs:
         run: |
           cmd /c "call `"$env:VCVARS`" && cmake --build --preset default"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      # A pinned WARP next to the executables, instead of the runner image's: the image's (Windows
+      # Server 2025) decoded nvrhi_direct's sampler feedback differently (8 of 64 regions).
+      - name: WARP
+        run: |
+          $v = $env:WARP_VERSION
+          $pkg = "$env:RUNNER_TEMP\warp.zip"
+          Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$v/microsoft.direct3d.warp.$v.nupkg" -OutFile $pkg
+          Expand-Archive $pkg "$env:RUNNER_TEMP\warp" -Force
+          Copy-Item "$env:RUNNER_TEMP\warp\build\native\bin\x64\d3d10warp.dll" build\bin\
+          (Get-Item build\bin\d3d10warp.dll).VersionInfo.FileVersion
 
       - name: Smoke tests (D3D12 on WARP)
         env:
