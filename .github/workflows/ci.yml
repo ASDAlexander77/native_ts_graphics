@@ -1,6 +1,6 @@
 # Builds every example (Debug, the `default` preset) on a GitHub-hosted Windows runner, then runs a
 # few of their tests on software renderers: D3D12 on WARP (DONUT_SOFTWARE_ADAPTER) and Vulkan on
-# Mesa's lavapipe (VK_DRIVER_FILES). Hosted runners have no GPU, and the full suite needs one plus
+# Mesa's lavapipe (registered as the runner's Vulkan driver). Hosted runners have no GPU, and the full suite needs one plus
 # the sample repositories' media: run that locally (`ctest --test-dir build`, README "Tests").
 name: CI
 
@@ -58,8 +58,11 @@ jobs:
           if (-not (Test-Path "$root\Bin\dxc.exe")) { throw "Vulkan SDK install failed: no $root\Bin\dxc.exe" }
           "VULKAN_SDK=$root" >> $env:GITHUB_ENV
           "$root\Bin" >> $env:GITHUB_PATH
-          # The validation layer for -debug, wherever the installer registered it.
-          "VK_ADD_LAYER_PATH=$root\Bin" >> $env:GITHUB_ENV
+          # The validation layer for -debug, in the registry: the job runs elevated, and the loader
+          # ignores its environment variables (VK_ADD_LAYER_PATH, VK_DRIVER_FILES...) then.
+          $layers = 'HKLM:\SOFTWARE\Khronos\Vulkan\ExplicitLayers'
+          if (-not (Test-Path $layers)) { New-Item -Force -Path $layers | Out-Null }
+          New-ItemProperty -Force -Path $layers -Name "$root\Bin\VkLayer_khronos_validation.json" -PropertyType DWord -Value 0 | Out-Null
           # The image's Vulkan loader (the SDK installer doesn't install one).
           $loader = "$env:SystemRoot\System32\vulkan-1.dll"
           if (-not (Test-Path $loader)) { throw "no $loader" }
@@ -74,10 +77,12 @@ jobs:
           7z x $archive "-o$dir" -y | Out-Null
           $icd = "$dir\x64\lvp_icd.x86_64.json"
           if (-not (Test-Path $icd)) { throw "no $icd" }
-          "LAVAPIPE_ICD=$icd" >> $env:GITHUB_ENV
+          # Registered as a driver: the job runs elevated, and the loader ignores VK_DRIVER_FILES
+          # then. The runner has no other Vulkan driver, so the Vulkan tests run on lavapipe.
+          $drivers = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'
+          if (-not (Test-Path $drivers)) { New-Item -Force -Path $drivers | Out-Null }
+          New-ItemProperty -Force -Path $drivers -Name $icd -PropertyType DWord -Value 0 | Out-Null
           # Fail here, readably, if the loader doesn't pick lavapipe up.
-          $env:VK_DRIVER_FILES = $icd
-          $env:VK_ICD_FILENAMES = $icd
           $env:VK_LOADER_DEBUG = 'error,warn,driver'
           $summary = vulkaninfo --summary 2>&1 | Out-String
           $summary | Out-Host
@@ -108,9 +113,6 @@ jobs:
         # also when the D3D12 tests failed, so a run reports both APIs
         if: success() || steps.dx12.conclusion == 'failure'
         run: |
-          # VK_ICD_FILENAMES too, for a loader older than VK_DRIVER_FILES
-          $env:VK_DRIVER_FILES = $env:LAVAPIPE_ICD
-          $env:VK_ICD_FILENAMES = $env:LAVAPIPE_ICD
           ctest --test-dir build -R "$env:SMOKE_TESTS" -E '^simple_compute\.vk$' -L vk --no-tests=error --output-on-failure --timeout 600
 
       - name: Disk space after build
