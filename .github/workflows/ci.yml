@@ -60,10 +60,7 @@ jobs:
           "$root\Bin" >> $env:GITHUB_PATH
           # The validation layer for -debug, wherever the installer registered it.
           "VK_ADD_LAYER_PATH=$root\Bin" >> $env:GITHUB_ENV
-          # The SDK's loader: the image may have an older one, or none (no GPU driver installs it).
-          $rt = "$env:RUNNER_TEMP\vulkanrt.exe"
-          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/VulkanRT-X64-$v-Installer.exe" -OutFile $rt
-          Start-Process $rt -ArgumentList '/S' -Wait
+          # The image's Vulkan loader (the SDK installer doesn't install one).
           $loader = "$env:SystemRoot\System32\vulkan-1.dll"
           if (-not (Test-Path $loader)) { throw "no $loader" }
           "Vulkan loader: $((Get-Item $loader).VersionInfo.FileVersion)"
@@ -81,6 +78,7 @@ jobs:
           # Fail here, readably, if the loader doesn't pick lavapipe up.
           $env:VK_DRIVER_FILES = $icd
           $env:VK_ICD_FILENAMES = $icd
+          $env:VK_LOADER_DEBUG = 'error,warn,driver'
           $summary = vulkaninfo --summary 2>&1 | Out-String
           $summary | Out-Host
           if ($summary -notmatch 'llvmpipe') { throw "lavapipe not found by the Vulkan loader" }
