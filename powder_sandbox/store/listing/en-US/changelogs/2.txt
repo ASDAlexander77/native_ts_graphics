@@ -1,8 +1,0 @@
-First test release of Powder Sandbox!
-- Nearly 40 materials and tools: water, sand, oil, lava, ice, fire, gunpowder, acid, neon, metal wires, fans, black holes and more
-- Real fluid physics: water levels out in connected vessels
-- Heat everywhere: boiling, melting, burning and freezing
-- Circuits with batteries, switches, lamps and detectors
-- Gravity off, toward a point, or tilted with your phone
-- 8 challenge levels with up to 3 stars
-- Undo, save and load; pinch to zoom

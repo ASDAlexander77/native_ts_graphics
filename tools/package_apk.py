@@ -26,11 +26,12 @@ bundletool (--bundletool, fetched if it isn't there) and signed by the JDK's jar
 each Android build folder: its ABI, then lib<name>.so and the libraries it loads), so one APK and one
 bundle carry both (arm64-v8a and x86_64): the store hands each device its own.
 
---gradle <module> packages an app with Java code (Powder Sandbox's support ads, powder_sandbox/android)
-with that Gradle module instead of aapt2: the assets and the stripped libraries are staged the same
-way, with the app's settings in build.properties, and Gradle (fetched to --gradle-home) builds the
-APK, and for --release the bundle too, signed as above. Its AdMob IDs are Google's test IDs, or for a
-release POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID's.
+--gradle <module> packages an app with Java code with that Gradle module instead of aapt2: the
+assets and the stripped libraries are staged the same way, with the app's settings in
+build.properties (release=true for --release), and Gradle (fetched to --gradle-home) builds the APK,
+and for --release the bundle too, signed as above. The module reads the staged folder from
+-PtslangInput and puts its outputs in -PtslangBuildDir; anything else it needs (its own IDs and
+keys) it reads itself, from the environment.
 """
 
 import argparse
@@ -52,11 +53,6 @@ KEY_PASSWORD = "android"
 
 GRADLE_VERSION = "8.13"
 GRADLE_URL = f"https://services.gradle.org/distributions/gradle-{GRADLE_VERSION}-bin.zip"
-
-# Google's published test IDs (https://developers.google.com/admob/android/test-ads): what the
-# Gradle-packaged debug builds always show, and a release built without the real ones.
-ADMOB_TEST_APP_ID = "ca-app-pub-3940256099942544~3347511713"
-ADMOB_TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
 
 BUNDLETOOL_VERSION = "1.18.1"
 BUNDLETOOL_URL = (f"https://github.com/google/bundletool/releases/download/{BUNDLETOOL_VERSION}/"
@@ -169,22 +165,8 @@ def fetch_gradle(folder):
     return launcher
 
 
-def admob_ids(release):
-    """The AdMob app and rewarded ad unit IDs: Google's test IDs, except for a release given the
-    real ones in POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID (never in the repository)."""
-    if not release:
-        return ADMOB_TEST_APP_ID, ADMOB_TEST_REWARDED_ID, False
-    app_id = os.environ.get("POWDER_ADMOB_APP_ID", "").strip()
-    rewarded_id = os.environ.get("POWDER_ADMOB_REWARDED_ID", "").strip()
-    if app_id and rewarded_id:
-        return app_id, rewarded_id, True
-    print("package_apk: WARNING: POWDER_ADMOB_APP_ID / POWDER_ADMOB_REWARDED_ID not set - "
-          "this release shows Google's TEST ads", flush=True)
-    return ADMOB_TEST_APP_ID, ADMOB_TEST_REWARDED_ID, False
-
-
 def build_with_gradle(args, env, package, assets_folder, libraries, work):
-    """The app packaged by the Gradle module in --gradle (powder_sandbox/android): the staged assets
+    """The app packaged by the Gradle module in --gradle: the staged assets
     and the stripped libraries in its input folder with build.properties, then Gradle's APK (and,
     for a release, its bundle) copied to --out (and --bundle)."""
     input_folder = os.path.join(work, "gradle-input")
@@ -194,13 +176,12 @@ def build_with_gradle(args, env, package, assets_folder, libraries, work):
         target = os.path.join(input_folder, "jniLibs", abi, packaged)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copyfile(library, target)
-    app_id, rewarded_id, _ = admob_ids(args.release)
     settings = {
         "package": package, "libName": args.name, "label": args.label or args.name,
         "versionCode": args.version_code, "versionName": args.version_name,
         "minSdk": args.min_sdk, "targetSdk": args.target_sdk,
         "vulkanVersion": args.vulkan_version or "0x401000", "appCategory": args.app_category or "game",
-        "admobAppId": app_id, "admobRewardedId": rewarded_id,
+        "release": "true" if args.release else "false",
         "keystore": os.path.abspath(args.keystore).replace("\\", "/"),
     }
     if args.release:
@@ -223,7 +204,7 @@ def build_with_gradle(args, env, package, assets_folder, libraries, work):
         tasks.insert(0, "testDebugUnitTest")
     run([gradle, "--no-daemon", "--console=plain", "-p", args.gradle,
          "--project-cache-dir", os.path.join(work, "gradle-cache"),
-         f"-PpowderInput={input_folder}", f"-PpowderBuildDir={build_folder}"] + tasks, env=gradle_env)
+         f"-PtslangInput={input_folder}", f"-PtslangBuildDir={build_folder}"] + tasks, env=gradle_env)
 
     variant = "release" if args.release else "debug"
     apk = os.path.join(build_folder, "outputs", "apk", variant, f"{os.path.basename(args.gradle.rstrip('/'))}-{variant}.apk")
@@ -357,8 +338,8 @@ def main():
     parser.add_argument("--symbols", help="a zip of the libraries' debug symbols (unstripped), for the store")
     parser.add_argument("--strip", help="llvm-strip, to package the library without its debug info "
                                         "(the build's copy keeps it, for symbolizing crashes)")
-    parser.add_argument("--gradle", help="package with this Gradle module instead of aapt2 (powder_sandbox/android: "
-                                         "the app with Java code, its ads)")
+    parser.add_argument("--gradle", help="package with this Gradle module instead of aapt2 (an app with "
+                                         "Java code)")
     parser.add_argument("--gradle-home", help="the folder Gradle's distribution is fetched to and kept in")
     parser.add_argument("--gradle-test", action="store_true", help="run the module's unit tests first")
     parser.add_argument("--work", help="the folder to build it in (default: next to --out)")
@@ -439,8 +420,8 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     if args.release:
         if not os.path.isfile(args.keystore):
-            fail(f"no release keystore {args.keystore}: make it with the JDK's keytool (see "
-                 "powder_sandbox/store/README.md), and keep it: every update must be signed with it")
+            fail(f"no release keystore {args.keystore}: make it with the JDK's keytool "
+                 "(keytool -genkeypair -keystore <file> -alias upload -keyalg RSA -keysize 4096 -validity 10000), and keep it: every update must be signed with it")
         run([apksigner, "sign", "--ks", args.keystore, "--ks-key-alias", args.key_alias,
              "--ks-pass", f"env:{password_env(args.store_pass_env)}",
              "--key-pass", f"env:{password_env(args.key_pass_env)}",

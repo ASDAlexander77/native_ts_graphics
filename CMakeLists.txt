@@ -394,6 +394,8 @@ if (ANDROID)
     # it (it checks for the target), which leaves out ShaderMakeBlob too, so that is built here.
     find_program(DONUT_HOST_SHADERMAKE ShaderMake
         HINTS "${CMAKE_CURRENT_SOURCE_DIR}/build-release/bin" "${CMAKE_CURRENT_SOURCE_DIR}/build/bin"
+              # (or the top-level project's, when another one builds this repository as its subdirectory)
+              "${CMAKE_SOURCE_DIR}/build-release/bin" "${CMAKE_SOURCE_DIR}/build/bin"
         DOC "ShaderMake built for the host (by a desktop build of this project)"
         NO_CMAKE_FIND_ROOT_PATH)
     if (NOT DONUT_HOST_SHADERMAKE)
@@ -1124,11 +1126,11 @@ if (ANDROID)
         "Other Android build folders (other ABIs) whose <app>_apk libraries the <app>_release targets package too")
 endif()
 
-# GRADLE <module folder>: an app with Java code (Powder Sandbox's support ads), packaged by that Gradle
-# module (tools/package_apk.py --gradle) instead of aapt2, which also adds <name>_ads: the same app
-# debug-signed with Google's test ads, as bin/<name>-ads-debug.apk (its package ID + .debug). (Not
-# <name>_ads_apk: tools/android.py takes each <x>_apk target for an example's.)
-# Its release reads the real AdMob IDs from POWDER_ADMOB_APP_ID and POWDER_ADMOB_REWARDED_ID.
+# GRADLE <module folder>: an app with Java code, packaged by that Gradle module
+# (tools/package_apk.py --gradle) instead of aapt2, which also adds <name>_gradle: the same app
+# debug-signed, its module's unit tests run first, as bin/<name>-gradle-debug.apk. (Not
+# <name>_gradle_apk: tools/android.py takes each <x>_apk target for an example's.) RES and GRADLE
+# are relative to the calling directory, or absolute.
 function(add_tslang_android_release name)
     cmake_parse_arguments(PARSE_ARGV 1 RELEASE "" "PACKAGE;LABEL;VERSION_CODE;VERSION_NAME;RES;ICON;CATEGORY;VULKAN_VERSION;TARGET_SDK;GRADLE" "")
     if (NOT ANDROID OR NOT TARGET ${name}_apk)
@@ -1138,7 +1140,8 @@ function(add_tslang_android_release name)
     get_target_property(assets ${name}_apk PACKAGE_ASSETS)
     set(options)
     if (RELEASE_RES)
-        list(APPEND options --res "${CMAKE_CURRENT_SOURCE_DIR}/${RELEASE_RES}")
+        get_filename_component(res "${RELEASE_RES}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        list(APPEND options --res "${res}")
     endif()
     foreach(option ICON CATEGORY VULKAN_VERSION)
         if (RELEASE_${option})
@@ -1163,19 +1166,20 @@ function(add_tslang_android_release name)
     set(app_options --package ${RELEASE_PACKAGE} --label "${RELEASE_LABEL}"
         --version-code ${RELEASE_VERSION_CODE} --version-name ${RELEASE_VERSION_NAME} ${options})
     if (RELEASE_GRADLE)
-        set(gradle --gradle "${CMAKE_CURRENT_SOURCE_DIR}/${RELEASE_GRADLE}" --gradle-home "${CMAKE_BINARY_DIR}/android/gradle")
-        add_custom_target(${name}_ads
+        get_filename_component(module "${RELEASE_GRADLE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        set(gradle --gradle "${module}" --gradle-home "${CMAKE_BINARY_DIR}/android/gradle")
+        add_custom_target(${name}_gradle
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_apk.py"
                 --name ${name} --lib "$<TARGET_FILE:${name}_app>" ${extra_libs} --abi ${CMAKE_ANDROID_ARCH_ABI}
                 ${assets}
                 --sdk "${ANDROID_SDK_DIR}" --java-home "${ANDROID_JAVA_HOME}"
                 --min-sdk ${TSLANG_ANDROID_MIN_SDK} --target-sdk ${RELEASE_TARGET_SDK} --strip "${CMAKE_STRIP}"
                 ${app_options} ${gradle} --gradle-test --keystore "${ANDROID_DEBUG_KEYSTORE}"
-                --work "${CMAKE_BINARY_DIR}/android/${name}/ads"
-                --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-ads-debug.apk"
-            COMMENT "Packaging ${name}-ads-debug.apk (Gradle)"
+                --work "${CMAKE_BINARY_DIR}/android/${name}/gradle-debug"
+                --out "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${name}-gradle-debug.apk"
+            COMMENT "Packaging ${name}-gradle-debug.apk (Gradle)"
             VERBATIM)
-        add_dependencies(${name}_ads ${name}_apk)
+        add_dependencies(${name}_gradle ${name}_apk)
     endif()
     foreach(folder ${ANDROID_RELEASE_MERGE_BUILDS})
         list(APPEND options --abi-libs "${folder}/android/${name}/release-libs.txt")
@@ -1281,6 +1285,11 @@ endfunction()
 # The facts object of a module (own-facts/<path>.obj), its compile added once.
 function(tslang_own_facts_object source out)
     file(RELATIVE_PATH relative "${CMAKE_CURRENT_SOURCE_DIR}" "${source}")
+    if (relative MATCHES "^\\.\\./")
+        # a project's module, outside this repository (NTG_PROJECT_FILES)
+        file(RELATIVE_PATH relative "${CMAKE_SOURCE_DIR}" "${source}")
+        set(relative "project/${relative}")
+    endif()
     set(object "${CMAKE_CURRENT_BINARY_DIR}/own-facts/${relative}.obj")
     set(${out} "${object}" PARENT_SCOPE)
     get_property(added GLOBAL PROPERTY TSLANG_OWN_FACTS_OBJECTS)
@@ -1384,11 +1393,19 @@ endfunction()
 # code, or an error line from Donut, NVRHI's validation or the API's (D3D12's, Vulkan's) layer;
 # Donut logs every message of Vulkan's validation layer as a warning, so those fail it too.
 enable_testing()
+# This repository's own tests: on when it is the top-level project, off when another project builds
+# it as a subdirectory (see NTG_PROJECT_FILES at the end), whose own tests stay.
+if (PROJECT_IS_TOP_LEVEL)
+    set(NTG_EXAMPLE_TESTS_DEFAULT ON)
+else()
+    set(NTG_EXAMPLE_TESTS_DEFAULT OFF)
+endif()
+option(NTG_EXAMPLE_TESTS "Add the examples' tests" ${NTG_EXAMPLE_TESTS_DEFAULT})
 # NO_DEBUG: without -debug (the API's debug layer and NVRHI's validation), for what the installed
 # debug layer can't handle.
 function(add_tslang_example_test name)
     cmake_parse_arguments(PARSE_ARGV 1 TEST "NO_DEBUG" "SUFFIX" "APIS;ARGS")
-    if (ANDROID)
+    if (ANDROID OR (NOT NTG_EXAMPLE_TESTS AND NOT NTG_PROJECT_FILE))
         return()
     endif()
     if (NOT TEST_APIS)
@@ -1505,17 +1522,26 @@ function(add_tslang_nri_example name)
     # say) are its sources too, listed or not.
     # (read when CMake configures: after adding an import to a module, run `cmake .` again, or
     # the link misses the module's symbols; re-running on every .ts edit would cost ~18 s each)
-    tslang_module_imports("${CMAKE_CURRENT_SOURCE_DIR}/${main}" imported)
+    # (Sources may be absolute: a project's own, from outside this repository, NTG_PROJECT_FILES.
+    # A module in this repository is named relative to it, one outside by its absolute path.)
+    get_filename_component(main_path "${main}" ABSOLUTE)
+    tslang_module_imports("${main_path}" imported)
     foreach(module IN LISTS imported)
         file(RELATIVE_PATH relative "${CMAKE_CURRENT_SOURCE_DIR}" "${module}")
+        if (relative MATCHES "^\\.\\./")
+            set(relative "${module}")
+        endif()
         if (relative MATCHES "\\.ts$" AND NOT relative IN_LIST EXAMPLE_UNPARSED_ARGUMENTS)
             list(APPEND EXAMPLE_UNPARSED_ARGUMENTS "${relative}")
         endif()
     endforeach()
     set(module_ts ${EXAMPLE_UNPARSED_ARGUMENTS})
     list(FILTER module_ts INCLUDE REGEX "\\.ts$")
-    set(module_ts_paths ${module_ts})
-    list(TRANSFORM module_ts_paths PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+    set(module_ts_paths)
+    foreach(module IN LISTS module_ts)
+        get_filename_component(module "${module}" ABSOLUTE)
+        list(APPEND module_ts_paths "${module}")
+    endforeach()
     set_source_files_properties(${main} PROPERTIES OBJECT_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/core/nri/nri_interop.d.ts;${module_ts_paths}")
     # (each module rebuilt when a module it imports changes: a class it extends, say)
@@ -1603,7 +1629,7 @@ endif()
 if (NVRHI_DIRECT_BUILDS)
     add_tslang_example(headless ${NVRHI_TS_SOURCES})
 endif()
-if (NOT ANDROID)
+if (NOT ANDROID AND NTG_EXAMPLE_TESTS)
     set(headless_result "[\r\n]+Expected result: [0-9]+, computed result: [0-9]+[\r\n]+Test PASSED")
     if (MSVC)
         set(headless_path "Calling NVRHI directly \\(core/nvrhi\\.ts\\)\\.")
@@ -1878,10 +1904,6 @@ add_tslang_example_test(compute_nbody_collisions_nri SUFFIX merge_heavy ARGS -fu
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX fragment ARGS -fullgravity -fragment 10 -room 50)
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy ARGS -fullgravity -nocool -fragment 10 -room 50)
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
-
-# A falling-sand sandbox (an original example, NRI only): powder_sandbox/, its sources, shaders,
-# media and tests together.
-include(powder_sandbox/powder_sandbox.cmake)
 
 # Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
 # through their field every frame; the same tracing from the camera lenses the sky behind them.
@@ -5729,6 +5751,9 @@ if (WITH_STREAMLINE AND WIN32 AND STREAMLINE_SAMPLE_DIR)
     # A hidden window's frames never reach the display, and DLSS-G then presents no generated frame: the frames
     # it reported at 2x are logged, not checked (the visible run is the user's).
     foreach(api dx12 vk)
+        if (NOT NTG_EXAMPLE_TESTS)
+            break()
+        endif()
         set(hidden_debug_arg -debug)
         if (api STREQUAL "vk")
             set(hidden_debug_arg)
@@ -5763,3 +5788,14 @@ if (NOT ANDROID)
         endif()
     endforeach()
 endif()
+
+# NTG_PROJECT_FILES: the .cmake files of projects built on this repository from outside it (a
+# repository with this one as its submodule, adding it with add_subdirectory and setting this list
+# first). Each is included here, after all of the above, in this directory's scope: it uses
+# add_tslang_nri_example, add_tslang_example_test, add_tslang_android_release and the rest with
+# absolute paths to its own files (CMAKE_CURRENT_LIST_DIR), and its tests are added even when
+# NTG_EXAMPLE_TESTS is off. NTG_PROJECT_FILE names the one being included.
+foreach(NTG_PROJECT_FILE IN LISTS NTG_PROJECT_FILES)
+    include("${NTG_PROJECT_FILE}")
+endforeach()
+unset(NTG_PROJECT_FILE)
