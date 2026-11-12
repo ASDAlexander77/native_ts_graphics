@@ -103,6 +103,7 @@ jobs:
           (Get-Item build\bin\d3d10warp.dll).VersionInfo.FileVersion
 
       - name: Smoke tests (D3D12 on WARP)
+        id: dx12
         env:
           DONUT_SOFTWARE_ADAPTER: "1"
         run: ctest --test-dir build -R "$env:SMOKE_TESTS" -L dx12 --no-tests=error --output-on-failure --timeout 600
@@ -110,6 +111,8 @@ jobs:
       # simple_compute and nvrhi_direct ask for a separate compute queue, and lavapipe has one queue
       # family ("does not support the necessary queue types").
       - name: Smoke tests (Vulkan on lavapipe)
+        # also when the D3D12 tests failed, so a run reports both APIs
+        if: success() || steps.dx12.conclusion == 'failure'
         run: |
           $env:VK_DRIVER_FILES = $env:LAVAPIPE_ICD
           ctest --test-dir build -R "$env:SMOKE_TESTS" -E '^(simple_compute|nvrhi_direct)\.vk$' -L vk --no-tests=error --output-on-failure --timeout 600
