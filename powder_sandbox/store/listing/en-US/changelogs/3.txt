@@ -1,2 +1,0 @@
-- Icons on the game buttons: gravity, pause and play, view, clear, undo, save, load and levels
-- The brush buttons show the brush's shape and size

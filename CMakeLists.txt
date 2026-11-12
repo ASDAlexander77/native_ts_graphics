@@ -1880,8 +1880,13 @@ add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy ARGS -fullgra
 add_tslang_example_test(compute_nbody_collisions_nri SUFFIX energy_merge ARGS -fullgravity -nocool -merge 2)
 
 # A falling-sand sandbox (an original example, NRI only): powder_sandbox/, its sources, shaders,
-# media and tests together.
-include(powder_sandbox/powder_sandbox.cmake)
+# media and tests together. It is a submodule of its own (a private repository): without it, the
+# rest still builds.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/powder_sandbox/powder_sandbox.cmake)
+    include(powder_sandbox/powder_sandbox.cmake)
+else()
+    message(STATUS "powder_sandbox submodule not checked out (git submodule update --init powder_sandbox): skipping powder_sandbox_nri")
+endif()
 
 # Light bent by gravity: massive bodies orbit each other, and a compute pass traces light rays
 # through their field every frame; the same tracing from the camera lenses the sky behind them.

@@ -46,3 +46,6 @@
 	url = https://github.com/NVIDIA-RTX/RTXMG.git
 	update = none
 	shallow = true
+[submodule "powder_sandbox"]
+	path = powder_sandbox
+	url = https://github.com/ASDAlexander77/powder_sandbox.git

@@ -1,1 +1,0 @@
-- Optional: after a while of play the app asks whether you'd like to watch an ad to support it. You can always say no.
