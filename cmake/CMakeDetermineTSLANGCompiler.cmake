@@ -1,6 +1,6 @@
 # (Paths from this file's folder, not CMAKE_SOURCE_DIR: another project may build this repository as its subdirectory.)
 # Release of tslang to install into tools/ when the compiler is not found
-set(TSLANG_VERSION "v0.0-pre-alpha125" CACHE STRING "tslang release (tag of github.com/ASDAlexander77/TypeScriptCompiler) to download")
+set(TSLANG_VERSION "v0.0-pre-alpha127" CACHE STRING "tslang release (tag of github.com/ASDAlexander77/TypeScriptCompiler) to download")
 set(TSLANG_INSTALL_DIR "${CMAKE_CURRENT_LIST_DIR}/../tools/tslang" CACHE PATH "Where the downloaded tslang is installed")
 set(TSLANG_LINUX_DISTRO "ubuntu-24.04" CACHE STRING "Linux build of tslang to download: ubuntu-22.04, ubuntu-24.04 or ubuntu-26.04")
 
