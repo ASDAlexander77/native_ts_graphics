@@ -59,6 +59,15 @@ export class NriComputeKernels {
         return this.profiler;
     }
 
+    // The profiler given up to the caller, who owns it then (and gives it back with setProfiler):
+    // under -mm=own its begin, end and destroy, which overwrite its fields, can't run on a borrow
+    // of it, as getProfiler's is.
+    takeProfiler(): NriGpuProfiler | null {
+        let profiler: NriGpuProfiler | null = null;
+        [profiler, this.profiler] = [this.profiler, profiler];
+        return profiler;
+    }
+
     setFloat(index: int, value: number) {
         this.constants[index] = value;
     }
