@@ -11,9 +11,11 @@
 #define MA_NO_ENGINE
 #include <miniaudio.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 #ifdef _WIN32
 #define NRI_INTEROP_API __declspec(dllexport)
@@ -61,6 +63,11 @@ namespace
         // (each voice's noise its own)
         uint32_t seeds = 0;
     };
+
+    // The devices made (Nri_CreateAudio), and whether the app is in the background, where they're
+    // stopped (NriAudio_SetBackground). On the app's thread only.
+    std::vector<Audio*> g_Audios;
+    bool g_Background = false;
 
     // White noise, -1 .. 1.
     float Noise(uint32_t& seed)
@@ -181,12 +188,13 @@ extern "C"
             delete audio;
             return nullptr;
         }
-        if (ma_device_start(&audio->device) != MA_SUCCESS)
+        if (!g_Background && ma_device_start(&audio->device) != MA_SUCCESS)
         {
             ma_device_uninit(&audio->device);
             delete audio;
             return nullptr;
         }
+        g_Audios.push_back(audio);
         return audio;
     }
 
@@ -213,7 +221,35 @@ extern "C"
 
     NRI_INTEROP_API void Nri_DestroyAudio(Audio* audio)
     {
+        g_Audios.erase(std::remove(g_Audios.begin(), g_Audios.end(), audio), g_Audios.end());
         ma_device_uninit(&audio->device);
         delete audio;
+    }
+}
+
+// The app went to the background (true: an Android activity stopped, its window gone) or came
+// back: the devices are stopped, with what they were playing, or started again. Not exported:
+// nri_interop.cpp calls it from the activity's commands.
+void NriAudio_SetBackground(bool background)
+{
+    if (background == g_Background)
+    {
+        return;
+    }
+    g_Background = background;
+    for (Audio* audio : g_Audios)
+    {
+        if (background)
+        {
+            ma_device_stop(&audio->device);
+            for (Voice& voice : audio->voices)
+            {
+                voice.sound = -1;
+            }
+        }
+        else
+        {
+            ma_device_start(&audio->device);
+        }
     }
 }
