@@ -2001,10 +2001,8 @@ namespace RaytracingAoNri {
             // Acquire a swap chain texture
             const index = this.swapChain.acquire(frameIndex);
             if (index >= 0) {
-                // Wrappers of their own (destroying nothing): the passes below may release targets, which
-                // -mm=own can't tell from the swap chain's texture and the ring's command buffer.
-                const texture = new NriTexture(this.swapChain.texture(index).handle);
-                const commandBuffer = new NriCommandBuffer(this.frames.commandBuffer(frameIndex).handle);
+                const texture = this.swapChain.texture(index);
+                const commandBuffer = this.frames.commandBuffer(frameIndex);
 
                 commandBuffer.begin();
                 if (this.imgui) {

@@ -908,7 +908,7 @@ namespace RtParticlesNri {
                     }
                 }
                 // Last: the frame keeps the sets, views and buffers.
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), set, bindlessSet,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), set, bindlessSet,
                     constantView, vertexBuffer, vertexView, indexBuffer, indexView, particleInfoBuffer, particleInfoView));
             }
             if (!this.vulkan) {

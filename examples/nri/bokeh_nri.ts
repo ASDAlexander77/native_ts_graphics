@@ -683,7 +683,7 @@ namespace BokehNri {
             for (let q = 0; q < queuedFrameNum; q++) {
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                const queuedFrame = new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(q).handle), timestampBuffer);
+                const queuedFrame = new QueuedFrame(this.frames.commandBuffer(q), timestampBuffer);
                 this.queuedFrames.push(queuedFrame);
                 const base = q * FRAME_CONSTANTS_SIZE;
                 for (let o = 0; o < OBJECT_COUNT; o++) {

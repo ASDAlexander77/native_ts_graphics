@@ -487,7 +487,7 @@ namespace TimestampQueriesNri {
                 const modelsSet = descriptorPool.allocateDescriptorSet(modelsLayout, 0, 0);
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), modelsSet, matricesView,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), modelsSet, matricesView,
                     paramsView, timestampBuffer));
                 if (!matricesView || !paramsView || !modelsSet || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");

@@ -569,7 +569,7 @@ namespace MouseCursorNri {
             const height = this.frameHeight;
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle)));
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i)));
             }
 
             // Model::Draw's LinearWrap (Donut's: trilinear, wrapped); SpriteBatch's LinearClamp (the

@@ -834,7 +834,7 @@ namespace VariableShadingNri {
                 resolveSet.updateDescriptor(2, 3, hdrView);
                 resolveSet.updateDescriptor(3, 0, resolvedStorage);
                 resolveSet.updateDescriptor(3, 1, feedbackOutputStorage);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), viewSet,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet,
                     motionVectorsSet, resolveSet));
             }
 

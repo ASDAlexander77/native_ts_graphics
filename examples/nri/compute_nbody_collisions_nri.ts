@@ -545,7 +545,7 @@ namespace ComputeNBodyCollisionsNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle)));
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i)));
             }
 
             // NRI's D3D11 backend makes every buffer of 4-byte structures a raw buffer, which the
