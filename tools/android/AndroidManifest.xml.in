@@ -15,15 +15,18 @@
         android:hasCode="false"
         android:extractNativeLibs="false">
 
-        <!-- configChanges: a rotation or a resize reaches the app as a new window size instead of
-             recreating the activity, which would end it (an example runs once per process). -->
+        <!-- configChanges: a rotation, a resize or a settings change (font size, language, ...)
+             reaches the app as a new window size or nothing, instead of recreating the activity.
+             Every change an app can declare at API 29 is listed. Android still recreates the
+             activity for one it can't (CONFIG_ASSETS_PATHS: Play services, WebView or theme
+             overlay updates), which the example lives through (core/android_app_glue.c). -->
         <activity
             android:name="android.app.NativeActivity"
             android:label="@LABEL@"
             android:exported="true"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density">
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|density|layoutDirection|colorMode|fontScale">
             <meta-data android:name="android.app.lib_name" android:value="@NAME@" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
