@@ -162,13 +162,13 @@ namespace ClusteredGeometry {
             return this.indices.length / 3;
         }
 
-        // A copy sharing the vertex and index data (which nothing changes).
+        // A copy, with its own vertex and index data (-mm=own: an array has one owner).
         clone(): Cluster {
             const c = new Cluster();
             c.clusterID = this.clusterID;
-            c.positions = this.positions;
-            c.normals = this.normals;
-            c.indices = this.indices;
+            c.positions = this.positions.slice();
+            c.normals = this.normals.slice();
+            c.indices = this.indices.slice();
             c.gridU = this.gridU;
             c.gridV = this.gridV;
             c.matchedColorCid = this.matchedColorCid;
@@ -605,6 +605,15 @@ namespace ClusteredGeometry {
         overrideRefr: number = -1.0;
         overrideIor: number = -1.0;
         baseColorScale: number = 1.0;
+
+        copy(): CheckerOverride {
+            const o = new CheckerOverride();
+            o.overrideRefl = this.overrideRefl;
+            o.overrideRefr = this.overrideRefr;
+            o.overrideIor = this.overrideIor;
+            o.baseColorScale = this.baseColorScale;
+            return o;
+        }
     }
 
     // One object of the scene, a cluster BLAS in the TLAS.
@@ -634,18 +643,18 @@ namespace ClusteredGeometry {
         copy(): SceneObject {
             const o = new SceneObject();
             o.mesh = this.mesh.clone();
-            o.pos = this.pos;
-            o.rotEuler = this.rotEuler;
+            o.pos = this.pos.slice();
+            o.rotEuler = this.rotEuler.slice();
             o.scale = this.scale;
             o.instanceID = this.instanceID;
             o.checkerEnabled = this.checkerEnabled;
-            o.evenParity = this.evenParity;
-            o.oddParity = this.oddParity;
+            o.evenParity = this.evenParity.copy();
+            o.oddParity = this.oddParity.copy();
             o.surfTintMul = this.surfTintMul;
             o.refrTintMul = this.refrTintMul;
             o.reflTintMul = this.reflTintMul;
             o.nonOrientable = this.nonOrientable;
-            o.perRegionMaterialSlot = this.perRegionMaterialSlot;
+            o.perRegionMaterialSlot = this.perRegionMaterialSlot.slice();
             return o;
         }
     }

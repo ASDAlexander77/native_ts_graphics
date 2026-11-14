@@ -615,7 +615,6 @@ namespace RaytracingAoNri {
         // Made for the output's size (the frame's, half its width when split).
         private outputWidth: int = 0;
         private outputHeight: int = 0;
-        private targets: Target[] = [];
         private aoOutput: Target | null = null;
         private ssaoOutput: Target | null = null;
         private gbufferNormals: Target | null = null;
@@ -1315,7 +1314,6 @@ namespace RaytracingAoNri {
             const target = new Target(texture, NriTextureState.Storage);
             target.storageView = texture.createStorageView(format);
             target.readView = texture.createView(format);
-            this.targets.push(target);
             return target;
         }
 
@@ -1328,7 +1326,6 @@ namespace RaytracingAoNri {
             const target = new Target(texture, NriTextureState.Storage);
             target.storageView = texture.createStorageArrayView(format);
             target.readView = texture.createArrayView(format);
-            this.targets.push(target);
             return target;
         }
 
@@ -1342,7 +1339,6 @@ namespace RaytracingAoNri {
             const target = new Target(texture, NriTextureState.ShaderResource);
             target.attachment = texture.createColorAttachmentView(format);
             target.readView = texture.createView(format);
-            this.targets.push(target);
             return target;
         }
 
@@ -1374,10 +1370,19 @@ namespace RaytracingAoNri {
                 descriptorPool.destroy();
             }
             this.descriptorPool = null;
-            for (const target of this.targets) {
-                target.destroy();
+            // each target in the one field or array that holds it (-mm=own: one owner each)
+            for (const target of [this.aoOutput, this.ssaoOutput, this.gbufferNormals, this.gbufferDiffuse,
+                                  this.gbufferDepth, this.linearDepth, this.ssao]) {
+                if (target) {
+                    target.destroy();
+                }
             }
-            this.targets = [];
+            for (const targets of [this.depthDownsize, this.depthTiled, this.normalDownsize, this.normalTiled,
+                                   this.merged, this.smooth, this.highQuality]) {
+                for (const target of targets) {
+                    target.destroy();
+                }
+            }
             this.aoSets = [];
             this.gbufferSets = [];
             this.render1Sets = [];
@@ -1457,7 +1462,6 @@ namespace RaytracingAoNri {
                 const depth = new Target(depthTexture, NriTextureState.ShaderResource);
                 depth.attachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
                 depth.readView = depthTexture.createView(NriFormat.D32_SFLOAT);
-                this.targets.push(depth);
                 this.gbufferDepth = depth;
             }
 
