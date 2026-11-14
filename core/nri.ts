@@ -3309,6 +3309,15 @@ export class NriSample {
         return Nri_GetQueuedFrameNum(this.handle);
     }
 
+    // Counts the times the window was replaced by another (0 at first): on Android, the activity's
+    // window, which goes when the activity goes to the background or is made again (a change of
+    // configuration or theme), and comes back as another. A swap chain made over the window before
+    // presents nowhere: the example makes it again (NriSwapChain.resized() tells it to).
+    // (Nri_GetWindowSerial)
+    getWindowSerial(): int {
+        return Nri_GetWindowSerial(this.handle);
+    }
+
     // (Nri_ImguiEndFrame)
     imguiEndFrame() {
         Nri_ImguiEndFrame(this.handle);

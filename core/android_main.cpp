@@ -1,4 +1,5 @@
-// An example as an Android app: a NativeActivity (android_native_app_glue) running the example's
+// An example as an Android app: a NativeActivity (core/android_app_glue.c, the NDK's
+// android_native_app_glue changed to keep its thread across activities) running the example's
 // TypeScript main on the glue's thread, with GLFW's Android platform giving Donut the activity's
 // window (patches/glfw-android-platform.patch). Built into lib<example>.so with the example, and
 // packaged with its shaders and media by tools/package_apk.py (the <example>_apk targets).
@@ -42,15 +43,13 @@ extern "C" int main(int argc, char** argv);
 // core/nri/nri_interop.cpp
 extern "C" void Nri_SetDataDirectory(const char* directory);
 extern "C" void Nri_SetAndroidApp(struct android_app* app);
-extern "C" void Nri_SetAndroidActivity(ANativeActivity* activity);
 #else
 // core/donut_interop.cpp
 extern "C" void Donut_SetExecutablePath(const char* path);
 #endif
 
-// android_native_app_glue.c is compiled with its ANativeActivity_onCreate renamed to this (see
-// add_tslang_example in CMakeLists.txt), so that the one below runs first
-extern "C" void glue_ANativeActivity_onCreate(ANativeActivity* activity, void* savedState, size_t savedStateSize);
+// core/android_app_glue.c's ANativeActivity_onCreate, which the one below calls (it runs first)
+extern "C" void android_app_glue_onCreate(ANativeActivity* activity, void* savedState, size_t savedStateSize);
 
 #if TSLANG_MEMORY_MODEL_GC
 // Boehm's thread registration (gc.h, which tslang doesn't install); the stack base is one
@@ -306,7 +305,9 @@ namespace
     }
 }
 
-// The activity's UI thread, which is the process's main thread.
+// The activity's UI thread, which is the process's main thread. Called for each activity: the
+// first starts the app's thread (android_main), the next ones - the activity made again for a
+// configuration change, or a theme or Play services update - take the running app over.
 //
 // GC_init takes the thread it runs on for the main thread and scans that one's stack up to the
 // main stack's bottom, which it finds from /proc; on the glue's thread that would be a stack the
@@ -329,7 +330,7 @@ extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, vo
     }
 #endif
 
-    glue_ANativeActivity_onCreate(activity, savedState, savedStateSize);
+    android_app_glue_onCreate(activity, savedState, savedStateSize);
 #if TSLANG_ANDROID_IMMERSIVE
     HideSystemBars(activity);
 #endif
@@ -348,7 +349,6 @@ extern "C" void android_main(struct android_app* app)
 #if TSLANG_ANDROID_NRI
         Nri_SetDataDirectory(folder.c_str());
         Nri_SetAndroidApp(app);
-        Nri_SetAndroidActivity(app->activity);
 #else
         Donut_SetExecutablePath((folder / name).c_str());
         glfwSetAndroidApp(app);
@@ -376,11 +376,20 @@ extern "C" void android_main(struct android_app* app)
 
     // An example runs once: when it returns, the activity finishes and the process ends with it,
     // as the same TypeScript program can't run again in it (its globals and the collector stay
-    // as they are). Waits a while for the activity to be destroyed, so that it isn't restarted.
+    // as they are). Waits a while for the activity to be destroyed, so that it isn't restarted;
+    // between two activities (app->activity is NULL then: one destroyed to be made again), for
+    // the next one, which is finished as well.
     printf("%s exited with %d\n", name.c_str(), result);
-    ANativeActivity_finish(app->activity);
+    bool finishing = false;
     for (int i = 0; i < 50 && !app->destroyRequested; ++i)
+    {
+        if (!finishing && app->activity)
+        {
+            ANativeActivity_finish(app->activity);
+            finishing = true;
+        }
         PumpEvents(app, 100);
+    }
 
     // the last lines, through the pipe to logcat
     fflush(stdout);

@@ -1,0 +1,111 @@
+diff --git a/include/donut/app/DeviceManager.h b/include/donut/app/DeviceManager.h
+--- a/include/donut/app/DeviceManager.h
++++ b/include/donut/app/DeviceManager.h
+@@ -78,6 +78,9 @@ freely, subject to the following restrictions:
+ #ifdef _WIN32
+ #define GLFW_EXPOSE_NATIVE_WIN32
+ #endif // _WIN32
++#ifdef __ANDROID__
++#define GLFW_EXPOSE_NATIVE_ANDROID
++#endif
+ #include <GLFW/glfw3native.h>
+ #include <nvrhi/nvrhi.h>
+ #include <donut/core/log.h>
+@@ -336,6 +339,12 @@ namespace donut::app
+ 
+         DeviceCreationParameters m_DeviceParams;
+         GLFWwindow *m_Window = nullptr;
++#ifdef __ANDROID__
++        // The activity's window the swap chain presents to (glfwGetAndroidWindow): it goes when the
++        // activity goes to the background or is made again, and comes back as another
++        // (UpdateWindowSize makes the surface and the swap chain again for it).
++        ANativeWindow* m_AndroidWindow = nullptr;
++#endif
+         bool m_EnableRenderDuringWindowMovement = false;
+         // set to true if running on NV GPU
+         bool m_IsNvidia = false;
+@@ -388,6 +397,10 @@ namespace donut::app
+         virtual bool CreateSwapChain() = 0;
+         virtual void DestroyDeviceAndSwapChain() = 0;
+         virtual void ResizeSwapChain() = 0;
++        // The window's surface made again, and the swap chain over it: the window was replaced by
++        // another (an Android activity's). Where the swap chain isn't over a surface of its own,
++        // as ResizeSwapChain.
++        virtual void RecreateWindowSurface() { ResizeSwapChain(); }
+         virtual bool BeginFrame() = 0;
+         virtual bool Present() = 0;
+         void ToggleFullscreen();
+diff --git a/include/donut/app/DeviceManager_VK.h b/include/donut/app/DeviceManager_VK.h
+--- a/include/donut/app/DeviceManager_VK.h
++++ b/include/donut/app/DeviceManager_VK.h
+@@ -90,6 +90,8 @@ protected:
+     bool CreateSwapChain() override;
+     void DestroyDeviceAndSwapChain() override;
+ 
++    void RecreateWindowSurface() override;
++
+     void ResizeSwapChain() override
+     {
+         if (m_VulkanDevice)
+diff --git a/src/app/DeviceManager.cpp b/src/app/DeviceManager.cpp
+--- a/src/app/DeviceManager.cpp
++++ b/src/app/DeviceManager.cpp
+@@ -803,6 +803,31 @@ void DeviceManager::UpdateWindowSize()
+ 
+     m_windowIsInFocus = glfwGetWindowAttrib(m_Window, GLFW_FOCUSED) == 1;
+ 
++#ifdef __ANDROID__
++    // The activity's window, another one since the last frame when the activity was in the
++    // background or made again for a configuration change (GLFW's event pump waited for it): the
++    // old surface presents nowhere, so the surface and the swap chain are made again for it.
++    ANativeWindow* androidWindow = glfwGetAndroidWindow(m_Window);
++    if (androidWindow && androidWindow != m_AndroidWindow)
++    {
++        const bool replaced = m_AndroidWindow != nullptr;
++        m_AndroidWindow = androidWindow;
++        if (replaced && m_SwapChainFramebuffers.size() > 0)
++        {
++            BackBufferResizing();
++
++            m_DeviceParams.backBufferWidth = width;
++            m_DeviceParams.backBufferHeight = height;
++            m_DeviceParams.vsyncEnabled = m_RequestedVSync;
++            m_DeviceParams.swapChainColorSpace = m_RequestedSwapChainColorSpace;
++
++            RecreateWindowSurface();
++            BackBufferResized();
++            return;
++        }
++    }
++#endif
++
+     if (int(m_DeviceParams.backBufferWidth) != width || 
+         int(m_DeviceParams.backBufferHeight) != height ||
+         (m_DeviceParams.vsyncEnabled != m_RequestedVSync && GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN) ||
+diff --git a/src/app/vulkan/DeviceManager_VK.cpp b/src/app/vulkan/DeviceManager_VK.cpp
+--- a/src/app/vulkan/DeviceManager_VK.cpp
++++ b/src/app/vulkan/DeviceManager_VK.cpp
+@@ -947,6 +947,23 @@ bool DeviceManager_VK::createWindowSurface()
+     return true;
+ }
+ 
++void DeviceManager_VK::RecreateWindowSurface()
++{
++    if (!m_VulkanDevice)
++        return;
++
++    // The old surface goes first: a window takes one surface at a time
++    destroySwapChain();
++    if (m_WindowSurface)
++    {
++        m_VulkanInstance.destroySurfaceKHR(m_WindowSurface);
++        m_WindowSurface = nullptr;
++    }
++
++    if (createWindowSurface())
++        createSwapChain();
++}
++
+ void DeviceManager_VK::destroySwapChain()
+ {
+     if (m_VulkanDevice)

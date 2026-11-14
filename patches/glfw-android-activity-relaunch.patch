@@ -1,0 +1,107 @@
+diff --git a/src/android_window.c b/src/android_window.c
+--- a/src/android_window.c
++++ b/src/android_window.c
+@@ -124,6 +124,8 @@ static void updateWindowSize(void)
+     }
+ }
+ 
++static void releaseInput(_GLFWwindow* window);
++
+ static void handleCommand(struct android_app* app, int32_t cmd)
+ {
+     _GLFWwindow* window = _glfwAndroid.window;
+@@ -142,10 +144,20 @@ static void handleCommand(struct android_app* app, int32_t cmd)
+             break;
+ 
+         case APP_CMD_TERM_WINDOW:
++            // The native window goes away when the activity stops (sent to the background, or
++            // destroyed to be made again for a configuration change), and a Vulkan surface can't
++            // present to it any more. The application waits for the next one: the event pump
++            // blocks until it comes (see pumpEvents), and glfwGetAndroidWindow returns it then,
++            // which the application makes a new surface for. Touches and keys down are let go.
++            if (window)
++            {
++                releaseInput(window);
++                _glfwInputWindowFocus(window, GLFW_FALSE);
++            }
++            break;
++
+         case APP_CMD_DESTROY:
+-            // The native window goes away when the activity stops (sent to the background or
+-            // finishing), and a Vulkan surface can't present to it any more. Rather than wait
+-            // for another one, the application is asked to close.
++            // The activity finishes (Back, or finish()): the application is asked to close.
+             if (window)
+                 _glfwInputWindowCloseRequest(window);
+             break;
+@@ -283,9 +295,13 @@ static int32_t handleKeyEvent(_GLFWwindow* window, const AInputEvent* event)
+             _glfwInputChar(window, codepoint, mods, GLFW_TRUE);
+     }
+ 
+-    // Back is left to the system as well, so it also finishes the activity: an application
+-    // that doesn't close on Escape still closes, through APP_CMD_TERM_WINDOW
+-    return keycode == AKEYCODE_BACK ? 0 : 1;
++    // Back (Escape to the application) also finishes the activity, when it is let go: an
++    // application that doesn't close on Escape still closes, through APP_CMD_DESTROY. Not left to
++    // the system, which since Android 12 only moves a task's first activity to the background,
++    // where the application would go on running (the activity's window going no longer closes it).
++    if (keycode == AKEYCODE_BACK && action == GLFW_RELEASE && _glfwAndroid.app->activity)
++        ANativeActivity_finish(_glfwAndroid.app->activity);
++    return 1;
+ }
+ 
+ static int32_t findPointer(const AInputEvent* event, int32_t pointerId)
+@@ -513,6 +529,20 @@ static int32_t handleMotionEvent(_GLFWwindow* window, const AInputEvent* event)
+     }
+ }
+ 
++// The pointer and the gesture's keys, let go when the window goes (their up events would go to
++// a window that is no more)
++//
++static void releaseInput(_GLFWwindow* window)
++{
++    endGesture(window);
++    _glfwAndroid.ignoreTouch = GLFW_FALSE;
++    if (_glfwAndroid.pointerId >= 0)
++    {
++        _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
++        _glfwAndroid.pointerId = -1;
++    }
++}
++
+ static int32_t handleInput(struct android_app* app, AInputEvent* event)
+ {
+     _GLFWwindow* window = _glfwAndroid.window;
+@@ -534,6 +564,10 @@ static int32_t handleInput(struct android_app* app, AInputEvent* event)
+ // Waits up to timeoutMillis (-1: indefinitely) for the first event, then takes whatever else is
+ // already there.
+ //
++// While a GLFW window exists but the activity has no native window (it is in the background, or
++// being made again: core/android_app_glue.c keeps the app's thread across activities), this
++// blocks until it has one again, or finishes: the application never runs a frame without one.
++//
+ static void pumpEvents(int timeoutMillis)
+ {
+     struct android_app* app = _glfwAndroid.app;
+@@ -542,7 +576,8 @@ static void pumpEvents(int timeoutMillis)
+     {
+         int events;
+         struct android_poll_source* source = NULL;
+-        const int id = ALooper_pollOnce(timeoutMillis, NULL, &events, (void**) &source);
++        const GLFWbool windowless = _glfwAndroid.window && !app->window && !app->destroyRequested;
++        const int id = ALooper_pollOnce(windowless ? -1 : timeoutMillis, NULL, &events, (void**) &source);
+ 
+         if (id == ALOOPER_POLL_CALLBACK)
+         {
+@@ -552,7 +587,11 @@ static void pumpEvents(int timeoutMillis)
+ 
+         // timed out, woken (glfwPostEmptyEvent) or failed
+         if (id < 0)
++        {
++            if (windowless && id != ALOOPER_POLL_ERROR)
++                continue;
+             break;
++        }
+ 
+         if (source)
+             source->process(app, source);

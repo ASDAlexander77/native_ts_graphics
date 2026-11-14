@@ -1022,7 +1022,8 @@ namespace SimplePbrNri {
             if (!device) {
                 return;
             }
-            if (this.sample.getOutputWidth() == this.width && this.sample.getOutputHeight() == this.height) {
+            // (resized(): also an Android activity's window replaced, after the background or a relaunch)
+            if (this.sample.getOutputWidth() == this.width && this.sample.getOutputHeight() == this.height && !this.swapChain.resized()) {
                 return;
             }
             device.waitIdle();

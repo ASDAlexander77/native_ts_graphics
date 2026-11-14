@@ -32,6 +32,7 @@
 #include <android/looper.h>
 #include <android/native_activity.h>
 #include <android/sensor.h>
+#include <android_native_app_glue.h>
 #include <jni.h>
 #endif
 
@@ -212,7 +213,6 @@ namespace
     // ROTATION_0 .. ROTATION_270), looked up now and then.
     struct GravitySensor
     {
-        ANativeActivity* activity = nullptr;
         ASensorManager* manager = nullptr;
         const ASensor* sensor = nullptr;
         ASensorEventQueue* queue = nullptr;
@@ -224,6 +224,10 @@ namespace
         std::chrono::steady_clock::time_point rotationTime;
     };
     GravitySensor g_Gravity;
+
+    // The app (core/android_app_glue.c's android_app), which outlives the activities it runs with:
+    // its activity is the current one, NULL between two (one destroyed to be made again).
+    struct android_app* g_AndroidApp = nullptr;
 
     int OnGravityEvents(int, int, void*)
     {
@@ -860,6 +864,9 @@ public:
     // Nri_InitImgui's streamer, which uploads ImGui's geometry.
     nri::StreamerInterface m_StreamerInterface = {};
     nri::Streamer* m_Streamer = nullptr;
+    // Nri_GetWindowSerial's, and the activity's window it counted last (Android).
+    int m_WindowSerial = 0;
+    void* m_AndroidWindow = nullptr;
 
     bool Initialize(nri::GraphicsAPI graphicsAPI, bool) override
     {
@@ -891,9 +898,45 @@ public:
             if (width > 0 && height > 0)
                 m_OutputResolution = uint2((uint32_t)width, (uint32_t)height);
         }
+#if defined(__ANDROID__)
+        // The activity's window, another one since the last frame when the activity was in the
+        // background or made again (GLFW's event pump waited for it): a swap chain over the old
+        // one presents nowhere, so the example makes its swap chain again (NriSwapChain.resized()
+        // is true while Nri_GetWindowSerial differs from the swap chain's).
+        if (m_Window)
+        {
+            ANativeWindow* window = glfwGetAndroidWindow(m_Window);
+            if (window && window != m_AndroidWindow)
+            {
+                if (m_AndroidWindow)
+                    m_WindowSerial++;
+                m_AndroidWindow = window;
+                int width = 0;
+                int height = 0;
+                glfwGetFramebufferSize(m_Window, &width, &height);
+                if (m_Resizable && width > 0 && height > 0)
+                    m_OutputResolution = uint2((uint32_t)width, (uint32_t)height);
+            }
+        }
+#endif
         if (m_RenderFrame)
             m_RenderFrame.method(m_RenderFrame.thisVal, (int)frameIndex);
     }
+
+    // The window the swap chains are made over: the sample's, on Android the activity's current one
+    // (SampleBase keeps the one it was made with).
+    nri::Window SwapChainWindow() const
+    {
+        nri::Window window = GetWindow();
+#if defined(__ANDROID__)
+        if (m_Window)
+            window.android.window = glfwGetAndroidWindow(m_Window);
+#endif
+        return window;
+    }
+
+    // Counts the windows the activity had after its first (Nri_GetWindowSerial).
+    int WindowSerial() const { return m_WindowSerial; }
 
     void SetResizable(bool resizable) { m_Resizable = resizable; }
     void SetHiddenWindow(bool hidden) { m_HiddenWindow = hidden; }
@@ -933,17 +976,13 @@ extern "C"
     }
 
 #if defined(__ANDROID__)
-    // The NativeActivity's android_app (android_native_app_glue's), which GLFW's Android platform
-    // takes the window and the input from; before Nri_RunSample, on android_main's thread.
+    // The NativeActivity's android_app (core/android_app_glue.c's), which GLFW's Android platform
+    // takes the window and the input from, and Nri_GetGravity the activity (the display's rotation,
+    // from Java); before Nri_RunSample, on android_main's thread.
     NRI_INTEROP_API void Nri_SetAndroidApp(struct android_app* app)
     {
+        g_AndroidApp = app;
         glfwSetAndroidApp(app);
-    }
-
-    // Its activity, for Nri_GetGravity (the display's rotation, from Java).
-    NRI_INTEROP_API void Nri_SetAndroidActivity(ANativeActivity* activity)
-    {
-        g_Gravity.activity = activity;
     }
 #endif
 
@@ -1085,6 +1124,16 @@ extern "C"
         return (int)sample->GetOutputResolution().y;
     }
 
+    // Counts the times the window was replaced by another (0 at first): on Android, the activity's
+    // window, which goes when the activity goes to the background or is made again (a change of
+    // configuration or theme), and comes back as another. A swap chain made over the window before
+    // presents nowhere: the example makes it again (NriSwapChain.resized() tells it to). Always 0
+    // elsewhere.
+    NRI_INTEROP_API int Nri_GetWindowSerial(TsSample* sample)
+    {
+        return sample->WindowSerial();
+    }
+
     // The frames in flight (2 with v-sync).
     // 1 if the key (an NriKey: GLFW's key code) was pressed since the last call, else 0.
     NRI_INTEROP_API int Nri_IsKeyToggled(TsSample* sample, int key)
@@ -1196,9 +1245,10 @@ extern "C"
             g.rotationTime = {};
         }
         const auto now = std::chrono::steady_clock::now();
-        if (g.activity && now - g.rotationTime > std::chrono::milliseconds(500))
+        ANativeActivity* activity = g_AndroidApp ? g_AndroidApp->activity : nullptr;
+        if (activity && now - g.rotationTime > std::chrono::milliseconds(500))
         {
-            g.rotation = DisplayRotation(g.activity);
+            g.rotation = DisplayRotation(activity);
             g.rotationTime = now;
         }
         if (!g.has)
@@ -1752,7 +1802,7 @@ extern "C"
         int format)
     {
         nri::SwapChainDesc desc = {};
-        desc.window = sample->GetWindow();
+        desc.window = sample->SwapChainWindow();
         desc.queue = queue;
         desc.format = (nri::SwapChainFormat)format;
         desc.flags = (sample->Vsync() ? nri::SwapChainBits::VSYNC : nri::SwapChainBits::NONE) | nri::SwapChainBits::ALLOW_TEARING;

@@ -1,6 +1,7 @@
 // The swap chain of an NRI app: made at the window's size (NriSample.getQueuedFrameNum + 1 textures), a
 // color attachment view and a pair of semaphores for each texture, made again when the window's
-// resized, and the acquire, submit and present of a frame.
+// resized (or replaced: an Android activity's, after the background or a relaunch), and the
+// acquire, submit and present of a frame.
 //
 // Imported with `import { NriSwapChain } from "../core/nri_swap_chain";` (add_tslang_nri_example
 // adds it, and core/nri.ts, to the app's sources). Each frame: resized() (and recreate() when it
@@ -19,6 +20,8 @@ export class NriSwapChain {
     private srgb: boolean = false;
     private outputWidth: int = 0;
     private outputHeight: int = 0;
+    // The window it was made over (NriSample.getWindowSerial).
+    private windowSerial: int = 0;
     private textureFormat: NriFormat = NriFormat.Unknown;
     private attachmentFormat: NriFormat = NriFormat.Unknown;
     private textures: NriTexture[] = [];
@@ -58,6 +61,7 @@ export class NriSwapChain {
     private create() {
         this.outputWidth = this.sample.getOutputWidth();
         this.outputHeight = this.sample.getOutputHeight();
+        this.windowSerial = this.sample.getWindowSerial();
         const wanted = this.sample.getQueuedFrameNum() + 1;
         this.swapChain = this.chainFormat >= 0
             ? this.sample.createSwapChainWithFormat(this.device, this.queue, wanted, this.chainFormat)
@@ -109,9 +113,12 @@ export class NriSwapChain {
         return this.swapChain;
     }
 
-    // Whether the window's size is no longer the swap chain's.
+    // Whether the window's size is no longer the swap chain's, or the window isn't the one it was made
+    // over (an Android activity's window, gone in the background or with the activity made again,
+    // and back as another).
     resized(): boolean {
-        return this.sample.getOutputWidth() != this.outputWidth || this.sample.getOutputHeight() != this.outputHeight;
+        return this.sample.getOutputWidth() != this.outputWidth || this.sample.getOutputHeight() != this.outputHeight
+            || this.sample.getWindowSerial() != this.windowSerial;
     }
 
     // Made again in format (NriSwapChainFormat), at the window's size, once the GPU's done with the
