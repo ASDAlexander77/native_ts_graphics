@@ -34,9 +34,7 @@ export class NriSwapChain {
     // srgb: the views are the texture format's sRGB form (the GPU encodes the colors); else the
     // texture's own format (the app writes its colors as they are).
     init(sample: NriSample, device: NriDevice, queue: NriQueue, srgb: boolean) {
-        this.sample = sample;
-        this.device = device;
-        this.queue = queue;
+        this.keep(sample, device, queue);
         this.srgb = srgb;
         this.create();
     }
@@ -44,12 +42,17 @@ export class NriSwapChain {
     // A swap chain of format (NriSwapChainFormat: BT709_G22_10BIT, BT2020_G2084_10BIT, ...), its
     // views in its textures' format.
     initWithFormat(sample: NriSample, device: NriDevice, queue: NriQueue, format: NriSwapChainFormat) {
-        this.sample = sample;
-        this.device = device;
-        this.queue = queue;
+        this.keep(sample, device, queue);
         this.srgb = false;
         this.chainFormat = format;
         this.create();
+    }
+
+    // Wrappers of its own of the caller's sample, device and queue (handles; the caller keeps theirs).
+    private keep(sample: NriSample, device: NriDevice, queue: NriQueue) {
+        this.sample = new NriSample(sample.handle);
+        this.device = new NriDevice(device.handle);
+        this.queue = new NriQueue(queue.handle);
     }
 
     private create() {
@@ -64,8 +67,9 @@ export class NriSwapChain {
         this.attachmentFormat = this.srgb ? Nri.getSrgbFormat(this.textureFormat) : this.textureFormat;
         for (let i = 0; i < textureNum; i++) {
             const texture = this.swapChain.getTexture(i);
-            this.textures.push(texture);
+            // The view before the texture is pushed: pushing it moves it into the array.
             this.views.push(texture.createColorAttachmentView(this.attachmentFormat));
+            this.textures.push(texture);
             this.acquireSemaphores.push(this.device.createSwapChainSemaphore());
             this.releaseSemaphores.push(this.device.createSwapChainSemaphore());
         }
@@ -100,6 +104,7 @@ export class NriSwapChain {
     }
 
     // The NRI swap chain itself (for isDisplayHdr, say).
+    @lends("this")
     object(): NriSwapChainObject {
         return this.swapChain;
     }
@@ -129,10 +134,12 @@ export class NriSwapChain {
         return this.swapChain.acquireNextTexture(this.acquireSemaphores[this.acquired]);
     }
 
+    @lends("this")
     texture(index: int): NriTexture {
         return this.textures[index];
     }
 
+    @lends("this")
     colorAttachment(index: int): NriDescriptor {
         return this.views[index];
     }

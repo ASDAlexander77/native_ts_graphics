@@ -1193,9 +1193,6 @@ export class NriDescriptorSet {
 // A NriDeviceHandle.
 @final
 export class NriDevice {
-    // The cached getters' results (made at the first call).
-    private cachedGraphicsQueue: NriQueue | null = null;
-
     constructor(public readonly handle: NriDeviceHandle) {
     }
 
@@ -1897,12 +1894,7 @@ export class NriDevice {
 
     // (Nri_GetGraphicsQueue)
     getGraphicsQueue(): NriQueue {
-        let result = this.cachedGraphicsQueue;
-        if (!result) {
-            result = new NriQueue(Nri_GetGraphicsQueue(this.handle));
-            this.cachedGraphicsQueue = result;
-        }
-        return result;
+        return new NriQueue(Nri_GetGraphicsQueue(this.handle));
     }
 
     // The line rasterization modes pipelines can have: NriLineRasterizationBits (Vulkan's line rasterization
@@ -2110,13 +2102,12 @@ export class NriDonutAnimatedScene {
     }
 
     // (Nri_GetDonutAnimatedSceneScene)
+    @lends("this")
     getScene(): NriDonutScene {
-        let result = this.cachedScene;
-        if (!result) {
-            result = new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
-            this.cachedScene = result;
+        if (!this.cachedScene) {
+            this.cachedScene = new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
         }
-        return result;
+        return this.cachedScene;
     }
 
     // The skinned instances, each's joint count and joint matrices (float4x4 each: Donut's skinning shader's
@@ -2194,13 +2185,12 @@ export class NriDonutAnimatedSceneAccelStructs {
     }
 
     // (Nri_GetDonutAnimatedSceneTopLevelAS)
+    @lends("this")
     getTopLevelAS(): NriTopLevelAS {
-        let result = this.cachedTopLevelAS;
-        if (!result) {
-            result = new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
-            this.cachedTopLevelAS = result;
+        if (!this.cachedTopLevelAS) {
+            this.cachedTopLevelAS = new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
         }
-        return result;
+        return this.cachedTopLevelAS;
     }
 }
 
@@ -2365,13 +2355,12 @@ export class NriDonutSceneAccelStructs {
     }
 
     // (Nri_GetDonutSceneTopLevelAS)
+    @lends("this")
     getTopLevelAS(): NriTopLevelAS {
-        let result = this.cachedTopLevelAS;
-        if (!result) {
-            result = new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
-            this.cachedTopLevelAS = result;
+        if (!this.cachedTopLevelAS) {
+            this.cachedTopLevelAS = new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
         }
-        return result;
+        return this.cachedTopLevelAS;
     }
 }
 
@@ -2573,13 +2562,12 @@ export class NriGltfMesh {
     }
 
     // (Nri_GetGltfMeshIndexBuffer)
+    @lends("this")
     getIndexBuffer(): NriBuffer {
-        let result = this.cachedIndexBuffer;
-        if (!result) {
-            result = new NriBuffer(Nri_GetGltfMeshIndexBuffer(this.handle));
-            this.cachedIndexBuffer = result;
+        if (!this.cachedIndexBuffer) {
+            this.cachedIndexBuffer = new NriBuffer(Nri_GetGltfMeshIndexBuffer(this.handle));
         }
-        return result;
+        return this.cachedIndexBuffer;
     }
 
     // (Nri_GetGltfMeshIndexCount)
@@ -2589,13 +2577,12 @@ export class NriGltfMesh {
 
     // Valid as long as the mesh.
     // (Nri_GetGltfMeshVertexBuffer)
+    @lends("this")
     getVertexBuffer(): NriBuffer {
-        let result = this.cachedVertexBuffer;
-        if (!result) {
-            result = new NriBuffer(Nri_GetGltfMeshVertexBuffer(this.handle));
-            this.cachedVertexBuffer = result;
+        if (!this.cachedVertexBuffer) {
+            this.cachedVertexBuffer = new NriBuffer(Nri_GetGltfMeshVertexBuffer(this.handle));
         }
-        return result;
+        return this.cachedVertexBuffer;
     }
 }
 
@@ -3684,13 +3671,12 @@ export class NriTopLevelAS {
     }
 
     // (Nri_GetTopLevelAccelerationStructure)
+    @lends("this")
     getTopLevelAccelerationStructure(): NriAccelerationStructure {
-        let result = this.cachedTopLevelAccelerationStructure;
-        if (!result) {
-            result = new NriAccelerationStructure(Nri_GetTopLevelAccelerationStructure(this.handle));
-            this.cachedTopLevelAccelerationStructure = result;
+        if (!this.cachedTopLevelAccelerationStructure) {
+            this.cachedTopLevelAccelerationStructure = new NriAccelerationStructure(Nri_GetTopLevelAccelerationStructure(this.handle));
         }
-        return result;
+        return this.cachedTopLevelAccelerationStructure;
     }
 }
 
@@ -3710,12 +3696,11 @@ export class NriUpdatableBlas {
 
     // The structure (for Nri_TopLevelASAddInstance).
     // (Nri_GetUpdatableBlasAccelerationStructure)
+    @lends("this")
     getAccelerationStructure(): NriAccelerationStructure {
-        let result = this.cachedAccelerationStructure;
-        if (!result) {
-            result = new NriAccelerationStructure(Nri_GetUpdatableBlasAccelerationStructure(this.handle));
-            this.cachedAccelerationStructure = result;
+        if (!this.cachedAccelerationStructure) {
+            this.cachedAccelerationStructure = new NriAccelerationStructure(Nri_GetUpdatableBlasAccelerationStructure(this.handle));
         }
-        return result;
+        return this.cachedAccelerationStructure;
     }
 }

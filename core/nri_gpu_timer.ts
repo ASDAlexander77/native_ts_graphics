@@ -24,7 +24,8 @@ export class NriGpuTimer {
         if (!queryPool) {
             return false;
         }
-        this.device = device;
+        // A wrapper of its own of the caller's device (a handle; the caller keeps theirs).
+        this.device = new NriDevice(device.handle);
         this.queryPool = queryPool;
         this.querySize = queryPool.getQuerySize();
         for (let i = 0; i < count; i++) {

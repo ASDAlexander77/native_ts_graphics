@@ -48,7 +48,8 @@ export class NriGpuProfiler {
         if (!this.readback) {
             return false;
         }
-        this.device = device;
+        // A wrapper of its own of the caller's device (a handle; the caller keeps theirs).
+        this.device = new NriDevice(device.handle);
         this.capacity = capacity;
         this.every = Math.max(every, 1);
         this.reportFrames = Math.max(reportFrames, 1);
