@@ -444,9 +444,9 @@ namespace AsyncComputeBloom {
             }
 
             // The scene's camera, as the sample's free camera starts.
-            const q = CAMERA_ROTATION;
+            const q = CAMERA_ROTATION.slice();
             const forward = [-2.0 * (q[0] * q[2] + q[3] * q[1]), -2.0 * (q[1] * q[2] - q[3] * q[0]), -(1.0 - 2.0 * (q[0] * q[0] + q[1] * q[1]))];
-            const p = CAMERA_POSITION;
+            const p = CAMERA_POSITION.slice();
             this.camera = this.app.createFirstPersonCamera();
             this.camera.lookAt(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2]);
             this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);

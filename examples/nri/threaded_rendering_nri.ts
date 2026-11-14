@@ -560,8 +560,9 @@ namespace ThreadedRenderingNri {
                     commandAllocator.createCommandBuffer(), viewSets, views);
                 for (let face = 0; face < NUM_FACES; face++) {
                     const faceAllocator = this.queue.createCommandAllocator();
+                    const faceCommandBuffer = faceAllocator.createCommandBuffer();
                     queuedFrame.faceAllocators.push(faceAllocator);
-                    queuedFrame.faceCommandBuffers.push(faceAllocator.createCommandBuffer());
+                    queuedFrame.faceCommandBuffers.push(faceCommandBuffer);
                 }
                 this.queuedFrames.push(queuedFrame);
             }

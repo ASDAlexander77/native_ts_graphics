@@ -506,10 +506,10 @@ namespace MultithreadingNri {
                     // allocator each.
                     const shadowAllocator = this.queue.createCommandAllocator();
                     const sceneAllocator = this.queue.createCommandAllocator();
-                    workerAllocators.push(shadowAllocator);
-                    workerAllocators.push(sceneAllocator);
                     shadowCommandBuffers.push(shadowAllocator.createCommandBuffer());
                     sceneCommandBuffers.push(sceneAllocator.createCommandBuffer());
+                    workerAllocators.push(shadowAllocator);
+                    workerAllocators.push(sceneAllocator);
                 }
                 this.queuedFrames.push(new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(),
                     commandAllocator.createCommandBuffer(), commandAllocator.createCommandBuffer(), workerAllocators,

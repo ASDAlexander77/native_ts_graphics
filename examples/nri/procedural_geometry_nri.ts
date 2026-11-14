@@ -415,14 +415,12 @@ namespace ProceduralGeometryNri {
             for (let i = 0; i < queuedFrameNum; i++) {
                 const queuedFrame = this.queuedFrames[i];
                 const sceneConstantsView = sceneConstantBuffer.createConstantView(i * SCENE_CB_SIZE, SCENE_CB_SIZE);
-                queuedFrame.sceneConstantsView = sceneConstantsView;
                 const aabbAttributeBuffer = device.createHostBufferWithStride(this.aabbAttributes.length * 4,
                     NriBufferUsage.StructuredBuffer, AABB_ATTRIBUTE_FLOATS * 4);
-                queuedFrame.aabbAttributeBuffer = aabbAttributeBuffer;
                 const aabbAttributeView = aabbAttributeBuffer ? aabbAttributeBuffer.createStructuredView(0) : null;
-                queuedFrame.aabbAttributeView = aabbAttributeView;
                 const set = descriptorPool.allocateDescriptorSet(layout, 0, 0);
-                queuedFrame.set = set;
+                // The frame keeps the buffer (destroyed with it) whether or not the rest was made.
+                queuedFrame.aabbAttributeBuffer = aabbAttributeBuffer;
                 if (!set || !sceneConstantsView || !aabbAttributeView) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -435,6 +433,10 @@ namespace ProceduralGeometryNri {
                 set.updateDescriptor(3, 2, aabbAttributeView);
                 set.updateDescriptor(3, 3, this.bufferViews[2]);
                 set.updateDescriptor(3, 4, this.bufferViews[3]);
+                // Last: the frame keeps its views and set.
+                queuedFrame.sceneConstantsView = sceneConstantsView;
+                queuedFrame.aabbAttributeView = aabbAttributeView;
+                queuedFrame.set = set;
             }
 
             if (this.test) {
@@ -619,19 +621,18 @@ namespace ProceduralGeometryNri {
                 console.log("Cannot create the scene's buffers");
                 return false;
             }
-            const views = [
-                indexBuffer.createStructuredView(0),
-                vertexBuffer.createStructuredView(0),
-                materialBuffer.createStructuredView(0),
-                aabbConstantBuffer.createStructuredView(0),
-            ];
-            for (const view of views) {
-                if (!view) {
-                    console.log("Cannot create the scene's buffer views");
-                    return false;
-                }
-                this.bufferViews.push(view);
+            const indexView = indexBuffer.createStructuredView(0);
+            const vertexView = vertexBuffer.createStructuredView(0);
+            const materialView = materialBuffer.createStructuredView(0);
+            const aabbConstantView = aabbConstantBuffer.createStructuredView(0);
+            if (!indexView || !vertexView || !materialView || !aabbConstantView) {
+                console.log("Cannot create the scene's buffer views");
+                return false;
             }
+            this.bufferViews.push(indexView);
+            this.bufferViews.push(vertexView);
+            this.bufferViews.push(materialView);
+            this.bufferViews.push(aabbConstantView);
             return true;
         }
 

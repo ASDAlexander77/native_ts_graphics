@@ -309,8 +309,9 @@ namespace BokehNri {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
                     ok = false;
                 } else {
+                    const view = texture.createView(texture.getFormat());
                     this.materialTextures.push(texture);
-                    this.materialViews.push(texture.createView(texture.getFormat()));
+                    this.materialViews.push(view);
                 }
             }
 
@@ -1650,7 +1651,8 @@ namespace BokehNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = NriSample.create();
-        const bokeh = new Bokeh(sample);
+        // The example keeps a wrapper of its own (destroying nothing): main configures the sample after.
+        const bokeh = new Bokeh(new NriSample(sample.handle));
         // -preset N: start with preset scene N (0..3; Down cycles them); -slow: start with the full
         // (not the fast) bokeh geometry shader (Up toggles it); -noUI: no HUD.
         sample.addExampleOptionWithValues("-preset", 1);

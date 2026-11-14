@@ -2062,9 +2062,6 @@ export class NriDevice {
 // A NriDonutAnimatedSceneHandle.
 @final
 export class NriDonutAnimatedScene {
-    // The cached getters' results (made at the first call).
-    private cachedScene: NriDonutScene | null = null;
-
     constructor(public readonly handle: NriDonutAnimatedSceneHandle) {
     }
 
@@ -2102,12 +2099,8 @@ export class NriDonutAnimatedScene {
     }
 
     // (Nri_GetDonutAnimatedSceneScene)
-    @lends("this")
     getScene(): NriDonutScene {
-        if (!this.cachedScene) {
-            this.cachedScene = new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
-        }
-        return this.cachedScene;
+        return new NriDonutScene(Nri_GetDonutAnimatedSceneScene(this.handle));
     }
 
     // The skinned instances, each's joint count and joint matrices (float4x4 each: Donut's skinning shader's
@@ -2173,9 +2166,6 @@ export class NriDonutAnimatedScene {
 // A NriDonutAnimatedSceneAccelStructsHandle.
 @final
 export class NriDonutAnimatedSceneAccelStructs {
-    // The cached getters' results (made at the first call).
-    private cachedTopLevelAS: NriTopLevelAS | null = null;
-
     constructor(public readonly handle: NriDonutAnimatedSceneAccelStructsHandle) {
     }
 
@@ -2185,12 +2175,8 @@ export class NriDonutAnimatedSceneAccelStructs {
     }
 
     // (Nri_GetDonutAnimatedSceneTopLevelAS)
-    @lends("this")
     getTopLevelAS(): NriTopLevelAS {
-        if (!this.cachedTopLevelAS) {
-            this.cachedTopLevelAS = new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
-        }
-        return this.cachedTopLevelAS;
+        return new NriTopLevelAS(Nri_GetDonutAnimatedSceneTopLevelAS(this.handle));
     }
 }
 
@@ -2343,9 +2329,6 @@ export class NriDonutScene {
 // A NriDonutSceneAccelStructsHandle.
 @final
 export class NriDonutSceneAccelStructs {
-    // The cached getters' results (made at the first call).
-    private cachedTopLevelAS: NriTopLevelAS | null = null;
-
     constructor(public readonly handle: NriDonutSceneAccelStructsHandle) {
     }
 
@@ -2355,12 +2338,8 @@ export class NriDonutSceneAccelStructs {
     }
 
     // (Nri_GetDonutSceneTopLevelAS)
-    @lends("this")
     getTopLevelAS(): NriTopLevelAS {
-        if (!this.cachedTopLevelAS) {
-            this.cachedTopLevelAS = new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
-        }
-        return this.cachedTopLevelAS;
+        return new NriTopLevelAS(Nri_GetDonutSceneTopLevelAS(this.handle));
     }
 }
 
@@ -3692,9 +3671,6 @@ export class NriTopLevelAS {
 // An NriUpdatableBlasHandle.
 @final
 export class NriUpdatableBlas {
-    // The cached getters' results (made at the first call).
-    private cachedAccelerationStructure: NriAccelerationStructure | null = null;
-
     constructor(public readonly handle: NriUpdatableBlasHandle) {
     }
 
@@ -3705,11 +3681,7 @@ export class NriUpdatableBlas {
 
     // The structure (for Nri_TopLevelASAddInstance).
     // (Nri_GetUpdatableBlasAccelerationStructure)
-    @lends("this")
     getAccelerationStructure(): NriAccelerationStructure {
-        if (!this.cachedAccelerationStructure) {
-            this.cachedAccelerationStructure = new NriAccelerationStructure(Nri_GetUpdatableBlasAccelerationStructure(this.handle));
-        }
-        return this.cachedAccelerationStructure;
+        return new NriAccelerationStructure(Nri_GetUpdatableBlasAccelerationStructure(this.handle));
     }
 }

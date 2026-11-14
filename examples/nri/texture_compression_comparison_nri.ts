@@ -354,7 +354,6 @@ namespace TextureCompressionComparisonNri {
             for (let i = 0; i < queuedFrameNum; i++) {
                 const sceneView = sceneBuffer.createConstantView(i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
                 const sceneSets: NriDescriptorSet[] = [];
-                this.queuedFrames.push(new QueuedFrame(sceneView, sceneSets));
                 if (!sceneView) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
@@ -369,13 +368,15 @@ namespace TextureCompressionComparisonNri {
                     sceneSet.updateDescriptor(2, 0, linearWrap);
                     sceneSets.push(sceneSet);
                 }
+                // Last: the frame keeps the view and the sets.
+                this.queuedFrames.push(new QueuedFrame(sceneView, sceneSets));
             }
 
             // The scene's camera, as the sample's free camera starts: looking down its node's -z,
             // its up its node's y.
             const forward = rotateByQuaternion(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
             const up = rotateByQuaternion(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
-            const p = CAMERA_POSITION;
+            const p = CAMERA_POSITION.slice();
             this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
 
             // The sample's options window.

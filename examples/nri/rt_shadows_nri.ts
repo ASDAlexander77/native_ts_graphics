@@ -565,7 +565,7 @@ namespace RtShadowsNri {
             }
             const view = constantBuffer.createConstantView(offset, size);
             if (view) {
-                this.constantViews.push(view);
+                this.constantViews.push(new NriDescriptor(view.handle));
             }
             return view;
         }
@@ -633,7 +633,6 @@ namespace RtShadowsNri {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), viewSet, rayTracingSet));
                 viewSet.updateDescriptor(0, 0, viewView);
                 viewSet.updateDescriptor(1, 0, anisotropicWrap);
                 rayTracingSet.updateDescriptor(0, 0, lightingView);
@@ -643,6 +642,8 @@ namespace RtShadowsNri {
                     rayTracingSet.updateDescriptor(2, 1 + k, this.gbuffer[k].view);
                 }
                 rayTracingSet.updateDescriptor(3, 0, shadedColorStorage);
+                // Last: the frame keeps the sets.
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet, rayTracingSet));
             }
 
             // A material's set: its constants, its textures, black for the slots it doesn't use.

@@ -48,9 +48,9 @@ export class NriFrameRing {
         this.allocators[frameIndex % count].reset();
     }
 
-    @lends("this")
+    // A wrapper of its own (destroying nothing): the caller keeps it across calls that may change this.
     commandBuffer(frameIndex: int): NriCommandBuffer {
-        return this.commandBuffers[frameIndex % this.commandBuffers.length];
+        return new NriCommandBuffer(this.commandBuffers[frameIndex % this.commandBuffers.length].handle);
     }
 
     // The fence: frame frameIndex done at 1 + frameIndex (for other work to wait on, a compute

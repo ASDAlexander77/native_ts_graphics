@@ -1647,14 +1647,15 @@ namespace ComputeNBodyCollisionsNri {
             const computePool = device.createDescriptorPoolWithBuffers(1, 0, 0, 0, 0, 0, 4, 0);
             this.computePool = computePool;
             const computeSet = computePool ? computePool.allocateDescriptorSet(computeLayout, 0, 0) : null;
-            this.computeSet = computeSet;
             if (!computeSet) {
+                this.computeSet = null;
                 return false;
             }
             computeSet.updateDescriptor(0, 0, particlesStorage);
             computeSet.updateDescriptor(0, 1, contactsStorage);
             computeSet.updateDescriptor(0, 2, freeStorage);
             computeSet.updateDescriptor(0, 3, pendingStorage);
+            this.computeSet = computeSet;
             Nri.storeInt32(Ref(this.simulationConstants[1]), this.numParticles);
             this.aliveCount = this.placedCount;
             return true;
@@ -2367,7 +2368,8 @@ namespace ComputeNBodyCollisionsNri {
 
     export function main(argc: int, argv: Ref<string>) {
         const sample = NriSample.create();
-        const nbody = new NBodyCollisions(sample);
+        // The example keeps a wrapper of its own (destroying nothing): main configures the sample after.
+        const nbody = new NBodyCollisions(new NriSample(sample.handle));
         // -attractors <n>: heavy centers, 1 to MAX_ATTRACTORS (6 by default), each with its group of
         // particles; -particles <n>: particles per attractor, the heavy center first (1024 by
         // default); -merge <speed>: particles touching slower than this merge (0, off, by default);

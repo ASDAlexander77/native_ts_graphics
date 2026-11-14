@@ -134,11 +134,10 @@ namespace DepthBoundsTestNri {
                     desc.setDepth(NriFormat.D32_SFLOAT, NriCompareOp.None, 0, this.depthBoundsTestSupported ? 1 : 0);
                 }
                 if (loaded) {
-                    const pipeline = device.createPipelineFromDesc(this.pipelineLayout, desc);
                     if (i == 0) {
-                        this.depthOnlyPipeline = pipeline;
+                        this.depthOnlyPipeline = device.createPipelineFromDesc(this.pipelineLayout, desc);
                     } else {
-                        this.boundsPipeline = pipeline;
+                        this.boundsPipeline = device.createPipelineFromDesc(this.pipelineLayout, desc);
                     }
                 }
                 desc.destroy();

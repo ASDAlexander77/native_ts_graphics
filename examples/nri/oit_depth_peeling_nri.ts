@@ -304,9 +304,6 @@ namespace OitDepthPeelingNri {
                 const constantBufferView = constantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
                 const gatherSets: NriDescriptorSet[] = [];
                 const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
-                const queuedFrame = new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), gatherSets, combineSet,
-                    constantBufferView);
-                this.queuedFrames.push(queuedFrame);
                 if (!constantBufferView || !combineSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -329,6 +326,8 @@ namespace OitDepthPeelingNri {
                     combineSet.updateDescriptor(3, l, this.layers[l].shaderResource);
                 }
                 combineSet.updateDescriptor(4, 0, pointSampler);
+                // Last: the frame keeps the sets and the view.
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), gatherSets, combineSet, constantBufferView));
             }
 
             // The sample's overlay.

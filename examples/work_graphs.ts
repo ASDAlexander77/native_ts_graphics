@@ -148,7 +148,7 @@ namespace WorkGraphs {
     // srand(0) / rand() of the MSVC runtime the sample is built with, so that the scene comes out the
     // same. (A function named rand would clash with the CRT's.)
     const RAND_MAX = 32767.0;
-    let g_Random = new MsvcRandom(0);
+    const g_Random = new MsvcRandom(0);
     function msvcRand(): int {
         return g_Random.next();
     }
@@ -188,7 +188,10 @@ namespace WorkGraphs {
         const g = msvcRand() / RAND_MAX;
         const b = msvcRand() / RAND_MAX;
         const color = new Float3(r, g, b);
-        return normalized ? color.normalized() : color;
+        if (normalized) {
+            return color.normalized();
+        }
+        return color;
     }
 
     function random01() {
@@ -610,7 +613,9 @@ namespace WorkGraphs {
         }
 
         populateWorld() {
-            g_Random = new MsvcRandom(0); // srand(0): deterministic world content.
+            // srand(0): deterministic world content. (The generator seeded again, not replaced: under
+            // -mm=own assigning a global may release anything.)
+            g_Random.seed(0);
 
             // Generate materials.
             const groundColor = new Float3(SCENE_GROUND_COLOR, SCENE_GROUND_COLOR, SCENE_GROUND_COLOR);
@@ -769,7 +774,7 @@ namespace WorkGraphs {
     // dispatches (tiled light culling, then an uber shader).
     class WorkGraphsPass {
         private app: App;
-        private ui: UIData;
+        ui: UIData;
         private scene: Scene;
 
         private bindingLayout: BindingLayoutHandle;
@@ -1321,10 +1326,11 @@ namespace WorkGraphs {
 
     // The options and stats window (the sample's UIRenderer).
     class UserInterface {
-        private ui: UIData;
+        // The pass, whose settings the window edits (under -mm=own the settings have one owner: the pass).
+        private pass: WorkGraphsPass;
 
-        constructor(ui: UIData) {
-            this.ui = ui;
+        constructor(pass: WorkGraphsPass) {
+            this.pass = pass;
         }
 
         init(app: App) {
@@ -1332,7 +1338,7 @@ namespace WorkGraphs {
         }
 
         buildUI() {
-            const ui = this.ui;
+            const ui = this.pass.ui;
 
             ImGui.setNextWindowPos(10.0, 10.0);
             ImGui.begin("Options/Stats", true);
@@ -1383,7 +1389,7 @@ namespace WorkGraphs {
         }
 
         // Drawn after (over) the scene.
-        const gui = new UserInterface(uiData);
+        const gui = new UserInterface(example);
         if (!gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();

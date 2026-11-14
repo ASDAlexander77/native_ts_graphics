@@ -78,7 +78,7 @@ namespace TerrainTessellation {
     // under a sky sphere.
     class TerrainPass {
         private app: App;
-        private ui: UIData;
+        ui: UIData;
         private camera: Camera;
 
         private terrainVS: ShaderHandle;
@@ -388,10 +388,11 @@ namespace TerrainTessellation {
 
     // The sample's settings window.
     class UserInterface {
-        private ui: UIData;
+        // The pass, whose settings the window edits (under -mm=own the settings have one owner: the pass).
+        private pass: TerrainPass;
 
-        constructor(ui: UIData) {
-            this.ui = ui;
+        constructor(pass: TerrainPass) {
+            this.pass = pass;
         }
 
         init(app: App) {
@@ -403,7 +404,7 @@ namespace TerrainTessellation {
         }
 
         buildUI() {
-            const ui = this.ui;
+            const ui = this.pass.ui;
 
             ImGui.setNextWindowPos(10.0, 10.0);
             ImGui.begin("Settings", true);
@@ -437,7 +438,7 @@ namespace TerrainTessellation {
         }
 
         // Drawn after (over) the terrain, and sees the mouse first.
-        const gui = new UserInterface(uiData);
+        const gui = new UserInterface(terrain);
         if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();

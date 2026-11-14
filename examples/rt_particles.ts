@@ -189,7 +189,7 @@ namespace RtParticles {
     // multi-layer alpha blending (MLAB, 1-8 fragments), including in reflections.
     class RayTracedParticlesPass {
         private app: App;
-        private ui: UIData;
+        ui: UIData;
         private scene: Scene;
         private camera: Camera;
         private view: View;
@@ -702,10 +702,11 @@ namespace RtParticles {
 
     // The settings window (the sample's UserInterface, an ImGui_Renderer).
     class UserInterface {
-        private ui: UIData;
+        // The pass, whose settings the window edits (under -mm=own the settings have one owner: the pass).
+        private pass: RayTracedParticlesPass;
 
-        constructor(ui: UIData) {
-            this.ui = ui;
+        constructor(pass: RayTracedParticlesPass) {
+            this.pass = pass;
         }
 
         init(app: App) {
@@ -717,7 +718,7 @@ namespace RtParticles {
         }
 
         buildUI() {
-            const ui = this.ui;
+            const ui = this.pass.ui;
 
             ImGui.setNextWindowPos(10.0, 10.0);
             ImGui.begin("Settings", true);
@@ -801,7 +802,7 @@ namespace RtParticles {
         }
 
         // Drawn after (over) the particles, and sees the mouse first.
-        const gui = new UserInterface(uiData);
+        const gui = new UserInterface(particles);
         if (!args.noUI && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();

@@ -366,7 +366,7 @@ namespace ConservativeRasterization {
             return !app.addImGuiPass(this.buildUI).isNull();
         }
 
-        yesNo(value: number) {
+        yesNo(value: number): string {
             return value != 0.0 ? "yes" : "no";
         }
 

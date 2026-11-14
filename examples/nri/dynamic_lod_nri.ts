@@ -545,10 +545,10 @@ namespace DynamicLodNri {
                     buffer.destroy();
                     return false;
                 }
-                this.instanceBuffer = new ShaderBuffer(buffer, view);
                 for (const set of this.descriptorSets) {
                     set.updateDescriptor(RANGE_INSTANCES, 0, view);
                 }
+                this.instanceBuffer = new ShaderBuffer(buffer, view);
             }
 
             const data: f32[] = [];

@@ -345,8 +345,9 @@ namespace MouseCursorNri {
                     console.log(`${file}: cannot load the material's texture ${textureName}`);
                     ok = false;
                 } else {
+                    const view = texture.createView(texture.getFormat());
                     this.materialTextures.push(texture);
-                    this.materialViews.push(texture.createView(texture.getFormat()));
+                    this.materialViews.push(view);
                 }
                 if (dualTexture) {
                     // The SDKMESH material's specular texture (Donut_GetSdkMeshMaterialTexture's 2).
@@ -356,8 +357,9 @@ namespace MouseCursorNri {
                         console.log(`${file}: cannot load the material's second texture ${texture2Name}`);
                         ok = false;
                     } else {
+                        const view2 = texture2.createView(texture2.getFormat());
                         this.materialTextures2.push(texture2);
-                        this.materialViews2.push(texture2.createView(texture2.getFormat()));
+                        this.materialViews2.push(view2);
                     }
                 }
             }

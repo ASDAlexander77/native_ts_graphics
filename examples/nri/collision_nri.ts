@@ -996,13 +996,14 @@ namespace CollisionNri {
             if (group >= 3 && c > 0) {
                 c = Containment.Contains;
             }
+            // Copies of their own (a global can't be returned).
             if (c == Containment.Disjoint) {
-                return GREEN;
+                return GREEN.slice();
             }
             if (c == Containment.Intersects) {
-                return ORANGE;
+                return ORANGE.slice();
             }
-            return WHITE;
+            return WHITE.slice();
         }
 
         // --- Rendering ----------------------------------------------------------------------------
@@ -1239,7 +1240,8 @@ namespace CollisionNri {
     export function main(argc: int, argv: Ref<string>) {
         const sample = NriSample.create();
         sample.useResizableWindow();
-        const collision = new Collision(sample);
+        // The example keeps a wrapper of its own (destroying nothing): main configures the sample after.
+        const collision = new Collision(new NriSample(sample.handle));
         // -group <1..4>: the group looked at first; -time <seconds>: the objects frozen at that time;
         // -help: start with the help screen; -noUI: no HUD.
         sample.addExampleOptionWithValues("-group", 1);

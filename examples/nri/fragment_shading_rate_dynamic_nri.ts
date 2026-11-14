@@ -388,25 +388,26 @@ namespace FragmentShadingRateDynamicNri {
             this.setShadingRateSize();
             for (let i = 0; i < textureNum; i++) {
                 const computeSet = descriptorPool.allocateDescriptorSet(computeLayout, 0, 0);
+                if (computeSet) {
+                    computeSet.updateDescriptor(1, 0, paramsView);
+                }
+                const made = computeSet != null;
                 const targets = this.createTargets(device, computeSet);
                 if (!targets) {
                     console.log("Cannot create the shading rate attachments and the frequency content");
                     return 0;
                 }
                 this.targets.push(targets);
-                if (!computeSet) {
+                if (!made) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                computeSet.updateDescriptor(1, 0, paramsView);
             }
 
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let q = 0; q < queuedFrameNum; q++) {
                 const constantBufferView = constantBuffer.createConstantView(q * UBO_STRIDE, UBO_STRIDE);
                 const renderSets: NriDescriptorSet[] = [];
-                this.queuedFrames.push(new QueuedFrame(constantBufferView,
-                    renderSets));
                 if (!constantBufferView) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
@@ -417,7 +418,6 @@ namespace FragmentShadingRateDynamicNri {
                         console.log("Cannot create the descriptor sets");
                         return 0;
                     }
-                    renderSets.push(renderSet);
                     // Set i shows swap chain texture i's frequency content: the set of the texture
                     // the frame before rendered into (recordScene).
                     const previous = this.targets[i];
@@ -427,7 +427,10 @@ namespace FragmentShadingRateDynamicNri {
                     renderSet.updateDescriptor(2, 0, sampler);
                     renderSet.updateDescriptor(2, 1, sampler);
                     renderSet.updateDescriptor(3, 0, previous.frequencyStorage);
+                    renderSets.push(renderSet);
                 }
+                // Last: the frame keeps the view and the sets.
+                this.queuedFrames.push(new QueuedFrame(constantBufferView, renderSets));
             }
 
             // The sample's overlay.
@@ -742,7 +745,13 @@ namespace FragmentShadingRateDynamicNri {
             this.setShadingRateSize();
             const targetsList: Targets[] = [];
             for (const old of this.targets) {
-                const targets = this.createTargets(device, old.computeSet);
+                // The new targets keep a wrapper of their own (destroying nothing) of the old ones' set.
+                const oldSet = old.computeSet;
+                let computeSet: NriDescriptorSet | null = null;
+                if (oldSet) {
+                    computeSet = new NriDescriptorSet(oldSet.handle);
+                }
+                const targets = this.createTargets(device, computeSet);
                 if (!targets) {
                     console.log("Cannot create the shading rate attachments and the frequency content");
                     this.targets = targetsList;
@@ -809,9 +818,10 @@ namespace FragmentShadingRateDynamicNri {
                 shadingRate.createStorageView(NriFormat.R8_UINT), frequency,
                 frequency.createColorAttachmentView(NriFormat.RG8_UINT), frequency.createStorageView(NriFormat.RG8_UINT),
                 computeSet);
-            if (computeSet) {
-                computeSet.updateDescriptor(0, 0, targets.frequencyStorage);
-                computeSet.updateDescriptor(0, 1, targets.shadingRateStorage);
+            const set = targets.computeSet;
+            if (set) {
+                set.updateDescriptor(0, 0, targets.frequencyStorage);
+                set.updateDescriptor(0, 1, targets.shadingRateStorage);
             }
             return targets;
         }

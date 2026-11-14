@@ -231,12 +231,11 @@ namespace PushDescriptorsNri {
             // sampler: trilinear, repeating, all the levels, the device's widest anisotropic
             // filtering.
             this.cube = device.loadGltfMesh(this.queue, CUBE_PATH);
-            const textures: NriTexture[] = [];
             for (let i = 0; i < 2; i++) {
                 const texture = device.loadDdsTexture(this.queue, TEXTURE_PATHS[i], 1);
                 if (texture) {
-                    textures.push(texture);
-                    this.cubeTextures.push(new CubeTexture(texture, texture.createView(NriFormat.RGBA8_SRGB), null));
+                    const view = texture.createView(NriFormat.RGBA8_SRGB);
+                    this.cubeTextures.push(new CubeTexture(texture, view, null));
                 }
             }
             if (!this.cube || this.cubeTextures.length != 2) {

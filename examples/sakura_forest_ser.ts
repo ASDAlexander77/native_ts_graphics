@@ -27,9 +27,13 @@ namespace SakuraForestSER {
     const LINE_SPACING = 31.9;
 
     // The state object's shaders and subobjects, from the library (shaders/sakura_forest_ser.hlsl).
-    const LIBRARY_EXPORTS = "MyRaygenShader,FloorClosestHitShader,TrunkClosestHitShader,LeavesClosestHitShader,BushClosestHitShader," +
-        "TCubeClosestHitShader,MyMissShader,MyGlobalRootSignature,MyLocalRootSignature,MyLocalRootSignatureAssociation,MyShaderConfig," +
-        "MyPipelineConfig,MyHitGroup,TrunkHitGroup,LeavesHitGroup,BushHitGroup,TCubeHitGroup";
+    // (A function: a global string made by concatenation is a second reference under -mm=own.)
+    function libraryExports(): string {
+        return "MyRaygenShader,FloorClosestHitShader,TrunkClosestHitShader,LeavesClosestHitShader,BushClosestHitShader," +
+            "TCubeClosestHitShader,MyMissShader,MyGlobalRootSignature,MyLocalRootSignature,MyLocalRootSignatureAssociation,MyShaderConfig," +
+            "MyPipelineConfig,MyHitGroup,TrunkHitGroup,LeavesHitGroup,BushHitGroup,TCubeHitGroup";
+    }
+
     // The hit groups by material ID (ObjectConstantBuffer.materialID): floor cubes, reflective cubes,
     // trunks, leaves, bushes.
     const HIT_GROUPS = "MyHitGroup,TCubeHitGroup,TrunkHitGroup,LeavesHitGroup,BushHitGroup";
@@ -232,7 +236,7 @@ namespace SakuraForestSER {
             if (!shaderLibrary) {
                 return false;
             }
-            const pipeline = this.app.createD3D12LibraryRtPipeline(shaderLibrary, LIBRARY_EXPORTS, DESCRIPTOR_COUNT);
+            const pipeline = this.app.createD3D12LibraryRtPipeline(shaderLibrary, libraryExports(), DESCRIPTOR_COUNT);
             if (pipeline.isNull()) {
                 return false;
             }
@@ -380,7 +384,7 @@ namespace SakuraForestSER {
         // Pitch (about the camera's right vector) or yaw (about up), by angle radians.
         turn(pitch: boolean, angle: number) {
             const forward = normalize3(vsub(this.at, this.eye));
-            let axis = this.up;
+            let axis = this.up.slice(); // a copy of its own (assigned below)
             if (pitch) {
                 axis = normalize3(cross3(this.up, forward));
             }

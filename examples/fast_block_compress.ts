@@ -118,7 +118,7 @@ namespace FastBlockCompress {
         return `${sign}${whole}.${fractionText}`;
     }
 
-    function formatName(format: Format) {
+    function formatName(format: Format): string {
         return format == Format.BC1_UNORM ? "BC1" : format == Format.BC3_UNORM ? "BC3" : "BC5";
     }
 
@@ -732,7 +732,8 @@ namespace FastBlockCompress {
 
     // The sample's controls (gamepad buttons there) and text.
     class UserInterface {
-        private sample: FastBlockCompressPass;
+        // The pass, whose settings the window edits (main reads it through here at the end).
+        readonly sample: FastBlockCompressPass;
 
         constructor(sample: FastBlockCompressPass) {
             this.sample = sample;
@@ -918,12 +919,11 @@ namespace FastBlockCompress {
         pass.colorDiffs = args.diffs == 1;
         pass.alphaDiffs = args.diffs == 2;
 
-        if (!args.noUI) {
-            const ui = new UserInterface(pass);
-            if (!ui.init(app)) {
-                app.destroy();
-                return 1;
-            }
+        // The window (when shown) edits the pass's settings: it holds the pass.
+        const ui = new UserInterface(pass);
+        if (!args.noUI && !ui.init(app)) {
+            app.destroy();
+            return 1;
         }
 
         const input = new InputPass(app.handle);
@@ -931,7 +931,7 @@ namespace FastBlockCompress {
         app.run();
         let result = 0;
         if (args.test) {
-            result = app.finishTest(checkFrame(app, pass));
+            result = app.finishTest(checkFrame(app, ui.sample));
         }
         app.destroy();
         return result;
