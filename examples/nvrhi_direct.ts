@@ -3094,7 +3094,7 @@ namespace NvrhiDirect {
         // the builds: the bottom level structure, then the top level one of an InstanceDesc and its
         // copy; the one from the buffer once the bottom level one's address is known
         const indices: u32[] = [0, 1, 2];
-        let vertices = RT_VERTICES.slice(); // a copy of its own: a global isn't kept across calls
+        let vertices = RT_VERTICES;
         buildList.open();
         buildList.writeBuffer(indexBuffer, <Opaque>Ref(indices[0]), 3 * 4, 0);
         buildList.writeBuffer(vertexBuffer, <Opaque>Ref(vertices[0]), 9 * 4, 0);
@@ -3248,7 +3248,7 @@ namespace NvrhiDirect {
         }
 
         const indices: u32[] = [0, 1, 2, 3, 4, 5];
-        let vertices = OMM_VERTICES.slice(); // a copy of its own: a global isn't kept across calls
+        let vertices = OMM_VERTICES;
         const states: u8[] = [0, 0, 0, 0, 1, 0, 0, 0];
         const descs = [0, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000, 4, nvrhi.OPACITY_MICROMAP_FORMAT_OC1_2_STATE * 0x10000];
         const triangleOmms: u32[] = [0, 1];
@@ -3433,7 +3433,7 @@ namespace NvrhiDirect {
         const header = [0, 0, 1 + 3 * 0x200 + nvrhi.CLUSTER_INDEX_FORMAT_32BIT * 0x1000000, 0, 4 + 12 * 0x10000, 0];
         const addresses = [indexBuffer.getGpuVirtualAddress(), vertexBuffer.getGpuVirtualAddress(), 0, 0, 0];
         const indices: u32[] = [0, 1, 2];
-        let vertices = RT_VERTICES.slice(); // a copy of its own: a global isn't kept across calls
+        let vertices = RT_VERTICES;
         const count: u32[] = [1];
         const noSize: u32[] = [0];
         let desc: nvrhi.OperationDesc = [params, sizeInfo.scratchSizeInBytes, countBuffer, 0, argsBuffer, 0, null, 0,

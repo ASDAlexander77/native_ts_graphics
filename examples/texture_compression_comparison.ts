@@ -226,7 +226,7 @@ namespace TextureCompressionComparison {
             // its up its node's y.
             const forward = rotate(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
             const up = rotate(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
-            const p = CAMERA_POSITION.slice();
+            const p = CAMERA_POSITION;
             this.camera = this.app.createFirstPersonCamera();
             this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
             this.camera.setMoveSpeed(CAMERA_MOVE_SPEED);

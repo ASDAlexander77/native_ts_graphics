@@ -199,13 +199,6 @@ namespace RaytracingMiniEngine {
         return values;
     }
 
-    // 1 / x as MiniEngine's /fp:fast build computes it: the SSE reciprocal estimate (Donut_ApproxRcpf)
-    // refined by a Newton-Raphson step, in floats.
-    function refinedReciprocal(x: number): number {
-        const r = Math.fround(Donut_ApproxRcpf(x));
-        return Math.fround(Math.fround(r + r) - Math.fround(Math.fround(r * r) * x));
-    }
-
     // Appends m's values to values.
     function appendAll(values: f32[], m: number[]) {
         for (const v of m) {
@@ -1012,7 +1005,7 @@ namespace RaytracingMiniEngine {
         // SetCameraToPredefinedPosition.
         private setCameraPosition(index: int) {
             this.cameraPosition = index;
-            const p = CAMERA_POSITIONS[index].slice(); // a copy: under -mm=own a global row bound to a local is freed at its end (TSLANG_ISSUES 63)
+            const p = CAMERA_POSITIONS[index];
             this.camera.setHeadingPitchAndPosition(p[3], p[4], [p[0], p[1], p[2]]);
         }
 
@@ -1275,6 +1268,11 @@ namespace RaytracingMiniEngine {
         private computeAO(commandList: CommandList, compute: MiniEngineCompute | null, destination: TextureHandle,
             depth: TextureHandle, w: int, h: int, arrayCount: int, tanHalfFovH: number) {
             const f = (x: number): number => Math.fround(x);
+            const reciprocal = (x: number): number => {
+                const r = f(Donut_ApproxRcpf(x));
+                return f(f(r + r) - f(f(r * r) * x));
+            };
+            const thickness = SSAO_SAMPLE_THICKNESS;
             let thicknessMultiplier = f(f(tanHalfFovH * 20.0) / w);
             if (arrayCount == 1) {
                 thicknessMultiplier = f(thicknessMultiplier + thicknessMultiplier);
@@ -1282,17 +1280,17 @@ namespace RaytracingMiniEngine {
             const inverseRangeFactor = f(1.0 / thicknessMultiplier);
             const cb: number[] = [];
             for (let i = 0; i < 12; i++) {
-                cb.push(f(refinedReciprocal(SSAO_SAMPLE_THICKNESS[i]) * inverseRangeFactor));
+                cb.push(f(reciprocal(thickness[i]) * inverseRangeFactor));
             }
             // Axial, diagonal and L-shaped weights; the unsampled ones (not SAMPLE_EXHAUSTIVELY) zero.
             const counts = [0.0, 4.0, 0.0, 4.0, 4.0, 0.0, 8.0, 0.0, 4.0, 0.0, 8.0, 4.0];
             const weights: number[] = [];
             for (let i = 0; i < 12; i++) {
-                weights.push(f(counts[i] * SSAO_SAMPLE_THICKNESS[i]));
+                weights.push(f(counts[i] * thickness[i]));
             }
             const totalWeight = f(f(f(f(f(weights[1] + weights[3]) + f(weights[4] + weights[6])) + weights[8]) + weights[10])
                 + weights[11]);
-            const rcpTotal = refinedReciprocal(totalWeight);
+            const rcpTotal = reciprocal(totalWeight);
             for (let i = 0; i < 12; i++) {
                 cb.push(f(rcpTotal * weights[i]));
             }

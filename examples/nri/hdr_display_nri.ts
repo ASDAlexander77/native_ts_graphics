@@ -640,7 +640,7 @@ namespace HdrDisplayNri {
             const h = this.height;
             const fontSize = h / 30.0;
             const smallFontSize = h / 40.0;
-            const meta = META_DATA_POOL[this.metaDataIndex].slice(); // a copy: under -mm=own a global row bound to a local is freed at its end (TSLANG_ISSUES 63)
+            const meta = META_DATA_POOL[this.metaDataIndex];
             font.pushFontSized(FONT_SCALE * h / 30.0);
             this.drawLabel(`Back Buffer Format = ${FORMAT_NAMES[this.bitDepth]}`, 0.0, w, 0.0, true);
             this.drawLabel(`Output Signal = ${CURVE_NAMES[this.displayCurve]}`, 0.0, w, fontSize, true);

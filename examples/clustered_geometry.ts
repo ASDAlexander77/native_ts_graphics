@@ -85,11 +85,7 @@ namespace ClusteredGeometry {
     // Test mode: the frames rendered (the sample's --screenshot 3: its fourth frame).
     const TEST_FRAMES = 4;
 
-    // Rounded to float (a function, not Math.fround's value: under -mm=own a call through a function value
-    // may release anything).
-    function f(x: number): number {
-        return Math.fround(x);
-    }
+    const f = Math.fround;
 
     // The C runtime's float sinf / cosf (the sample's std::sin / std::cos of floats), which aren't always
     // correctly rounded; sqrtf (which is).

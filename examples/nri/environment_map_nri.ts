@@ -594,12 +594,13 @@ namespace EnvironmentMapNri {
                 computeDesc.addRange(0, 0, 1, NriDescriptorType.ConstantBuffer, NriStage.Compute, NriRangeFlags.None);
                 computeDesc.addRange(0, 0, 1, computeTypes[k], NriStage.Compute, NriRangeFlags.None);
                 computeDesc.addRange(0, 0, 1, NriDescriptorType.StorageBuffer, NriStage.Compute, NriRangeFlags.None);
-                if (k == 0) {
-                    this.histogramLayout = device.createPipelineLayoutFromDesc(computeDesc);
-                } else {
-                    this.exposureLayout = device.createPipelineLayoutFromDesc(computeDesc);
-                }
+                const computeLayout = device.createPipelineLayoutFromDesc(computeDesc);
                 computeDesc.destroy();
+                if (k == 0) {
+                    this.histogramLayout = computeLayout;
+                } else {
+                    this.exposureLayout = computeLayout;
+                }
             }
 
             // The tone mapping draw: b0, t0 (the HDR color), t1 (the exposure), t2 (the color LUT),
