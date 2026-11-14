@@ -431,9 +431,9 @@ class KeyframeAnimation {
         for (let i = 0; i < count; i++) {
             const key = new Pose();
             key.read(world, json, joinPath(path, `${i}`));
-            this.keys.push(key);
             this.keyTimeMin = minD(this.keyTimeMin, key.keyTime);
             this.keyTimeMax = maxD(this.keyTimeMax, key.keyTime);
+            this.keys.push(key);
         }
         // std::sort by key time (insertion: the files' keys are already in order)
         for (let i = 1; i < this.keys.length; i++) {
