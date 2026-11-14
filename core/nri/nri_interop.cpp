@@ -55,6 +55,9 @@
 #define NRI_INTEROP_API __attribute__((visibility("default")))
 #endif
 
+// nri_audio.cpp: its devices stopped while the app is in the background, started again after.
+void NriAudio_SetBackground(bool background);
+
 namespace
 {
     template <typename Fn>
@@ -228,6 +231,22 @@ namespace
     // The app (core/android_app_glue.c's android_app), which outlives the activities it runs with:
     // its activity is the current one, NULL between two (one destroyed to be made again).
     struct android_app* g_AndroidApp = nullptr;
+
+    // GLFW's handler of the activity's commands, which OnAppCommand runs first.
+    void (*g_GlfwAppCommand)(struct android_app* app, int32_t cmd) = nullptr;
+
+    // The activity's commands, on the app's thread: GLFW's, then the sound stopped while the
+    // activity is (in the background: its window gone, the app's thread waiting for another)
+    // and started again with it.
+    void OnAppCommand(struct android_app* app, int32_t cmd)
+    {
+        if (g_GlfwAppCommand)
+            g_GlfwAppCommand(app, cmd);
+        if (cmd == APP_CMD_STOP)
+            NriAudio_SetBackground(true);
+        else if (cmd == APP_CMD_START)
+            NriAudio_SetBackground(false);
+    }
 
     int OnGravityEvents(int, int, void*)
     {
@@ -870,6 +889,14 @@ public:
 
     bool Initialize(nri::GraphicsAPI graphicsAPI, bool) override
     {
+#if defined(__ANDROID__)
+        // (GLFW, initialized by now, set its own handler)
+        if (g_AndroidApp && g_AndroidApp->onAppCmd != OnAppCommand)
+        {
+            g_GlfwAppCommand = g_AndroidApp->onAppCmd;
+            g_AndroidApp->onAppCmd = OnAppCommand;
+        }
+#endif
         return m_Initialize && m_Initialize.method(m_Initialize.thisVal, (int)graphicsAPI) != 0;
     }
 
