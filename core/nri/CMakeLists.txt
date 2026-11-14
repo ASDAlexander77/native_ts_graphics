@@ -244,6 +244,11 @@ endif()
 # Donut's header-only math and its shaders' constant structs (nri_donut_constants.cpp,
 # nri_donut_scene.cpp), for the ports of the Donut examples that draw with Donut's passes or scenes.
 target_include_directories(nri_interop PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../external/Donut/include")
+if (ANDROID)
+    # struct android_app (the NDK's android_native_app_glue.h, which core/android_app_glue.c
+    # implements): Nri_GetGravity reads the app's current activity from it.
+    target_include_directories(nri_interop PRIVATE "${ANDROID_NDK}/sources/android/native_app_glue")
+endif()
 # cgltf, which NRIFramework compiles (and keeps its include directory to itself): Nri_LoadGltfMesh
 # reads glTF files with it, as core/vulkan_samples_gltf.h does for Donut's interop.
 FetchContent_GetProperties(cgltf)

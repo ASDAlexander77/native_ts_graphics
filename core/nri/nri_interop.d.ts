@@ -544,6 +544,11 @@ declare function Nri_RunSample(sample: NriSampleHandle, argc: int, argv: Ref<str
 // The output's size: the window's (its framebuffer's this frame, with Nri_UseResizableWindow).
 @nodrops declare function Nri_GetOutputWidth(sample: NriSampleHandle): int;
 @nodrops declare function Nri_GetOutputHeight(sample: NriSampleHandle): int;
+// Counts the times the window was replaced by another (0 at first): on Android, the activity's
+// window, which goes when the activity goes to the background or is made again (a change of
+// configuration or theme), and comes back as another. A swap chain made over the window before
+// presents nowhere: the example makes it again (NriSwapChain.resized() tells it to).
+@nodrops declare function Nri_GetWindowSerial(sample: NriSampleHandle): int;
 // 1 if the key was pressed since the last call (for this key), else 0.
 @nodrops declare function Nri_IsKeyToggled(sample: NriSampleHandle, key: NriKey): int;
 @nodrops declare function Nri_SetWindowTitle(sample: NriSampleHandle, title: string): void;

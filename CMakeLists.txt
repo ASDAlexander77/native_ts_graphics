@@ -198,12 +198,19 @@ set(DONUT_PATCHES
     # device exists, as Streamline's interposer passes surface creation to its plugins (DLSS-G learns the window
     # a swap chain presents to there) only once it has a device (core/streamline.cpp).
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-vulkan-surface-after-device.patch"
+    # Android: the activity's window replaced by another (after the background, or the activity made
+    # again for a configuration or theme change, which core/android_app_glue.c lives through): the
+    # Vulkan surface and the swap chain made again for it (DeviceManager::RecreateWindowSurface).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/Donut-android-activity-relaunch.patch"
 )
 
 # The same for Donut's GLFW submodule (external/Donut/thirdparty/glfw), which is a repository of
 # its own: an Android platform, a NativeActivity's window through android_native_app_glue.
 set(DONUT_GLFW_PATCHES
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/glfw-android-platform.patch"
+    # The activity's window gone (background, or the activity made again) no longer closes the
+    # window: the event pump waits for the next one; only a finishing activity does (APP_CMD_DESTROY).
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/glfw-android-activity-relaunch.patch"
 )
 
 # And for NVRHI's (external/Donut/nvrhi).
@@ -953,18 +960,18 @@ endif()
 # executable.
 if (ANDROID)
     # On Android each example is an app as well: <name>_app builds lib<name>.so, the example with
-    # core/android_main.cpp and the NDK's android_native_app_glue (a NativeActivity), and <name>_apk
+    # core/android_main.cpp and core/android_app_glue.c (a NativeActivity), and <name>_apk
     # packages it as bin/<name>.apk with its shaders and media (tools/package_apk.py). Neither is
     # built by default:
     #   cmake --build --preset android-x86_64 --target basic_triangle_apk
     # The executables stay, for the examples that need no window (headless, run through adb shell).
-    # The glue is C.
+    # The glue is C: the NDK's android_native_app_glue changed to keep the app's thread (the
+    # example) across activities, as Android destroys and makes the activity again for some
+    # changes (core/android_app_glue.c); its header is the NDK's. core/android_main.cpp's
+    # ANativeActivity_onCreate runs first (it starts the collector on the activity's main thread)
+    # and calls the glue's.
     enable_language(C)
     set(ANDROID_NATIVE_APP_GLUE_DIR "${ANDROID_NDK}/sources/android/native_app_glue")
-    # Renamed, so that core/android_main.cpp's ANativeActivity_onCreate runs first (it starts the
-    # collector on the activity's main thread) and calls the glue's.
-    set_source_files_properties("${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c" PROPERTIES
-        COMPILE_DEFINITIONS "ANativeActivity_onCreate=glue_ANativeActivity_onCreate")
     if (TSLANG_MEMORY_MODEL STREQUAL "gc")
         set_property(SOURCE core/android_main.cpp APPEND PROPERTY COMPILE_DEFINITIONS "TSLANG_MEMORY_MODEL_GC=1")
     endif()
@@ -1043,7 +1050,7 @@ function(add_tslang_android_app name media)
     string(REGEX REPLACE "_shaders$" "" shader_folder "${APP_SHADERS}")
 
     add_library(${name}_app SHARED EXCLUDE_FROM_ALL ${source} ${APP_UNPARSED_ARGUMENTS}
-        core/android_main.cpp "${ANDROID_NATIVE_APP_GLUE_DIR}/android_native_app_glue.c")
+        core/android_main.cpp core/android_app_glue.c)
     set_target_properties(${name}_app PROPERTIES
         OUTPUT_NAME ${name}
         LINKER_LANGUAGE CXX
