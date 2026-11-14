@@ -951,7 +951,7 @@ namespace EnvironmentMapNri {
                 toneMappingSet.updateDescriptor(2, 0, exposureView);
                 toneMappingSet.updateDescriptor(3, 0, blackView);
                 toneMappingSet.updateDescriptor(4, 0, linearClamp);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), viewSet, skySet,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet, skySet,
                     histogramSet, exposureSet, toneMappingSet));
             }
 

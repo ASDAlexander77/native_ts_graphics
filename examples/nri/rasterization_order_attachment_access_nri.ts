@@ -377,7 +377,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                 const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
                 const blendSet = descriptorPool.allocateDescriptorSet(blendLayout, 0, 0);
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), backgroundSet, blendSet,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), backgroundSet, blendSet,
                     sceneView, timestampBuffer));
                 if (!sceneView || !backgroundSet || !blendSet || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");

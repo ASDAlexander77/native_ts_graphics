@@ -447,7 +447,7 @@ namespace HdrNri {
                 const matricesView = constantBuffer.createConstantView(i * CONST_STRIDE, MATRICES_VIEW_SIZE);
                 const paramsView = constantBuffer.createConstantView(i * CONST_STRIDE + MATRICES_VIEW_SIZE, PARAMS_VIEW_SIZE);
                 const modelsSet = descriptorPool.allocateDescriptorSet(modelsLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), modelsSet, matricesView,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), modelsSet, matricesView,
                     paramsView));
                 if (!matricesView || !paramsView || !modelsSet) {
                     console.log("Cannot create the descriptor sets");

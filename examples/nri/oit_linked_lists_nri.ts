@@ -367,7 +367,7 @@ namespace OitLinkedListsNri {
                 const gatherSet = descriptorPool.allocateDescriptorSet(gatherLayout, 0, 0);
                 const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
                 const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), gatherSet, backgroundSet,
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), gatherSet, backgroundSet,
                     combineSet, sceneView));
                 if (!sceneView || !gatherSet || !backgroundSet || !combineSet) {
                     console.log("Cannot create the descriptor sets");

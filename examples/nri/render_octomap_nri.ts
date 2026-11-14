@@ -329,7 +329,7 @@ namespace RenderOctomapNri {
             for (let i = 0; i < queuedFrameNum; i++) {
                 const uboView = uniformBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
                 const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), descriptorSet, uboView));
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), descriptorSet, uboView));
                 if (!uboView || !descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
