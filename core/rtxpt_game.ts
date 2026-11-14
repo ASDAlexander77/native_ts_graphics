@@ -23,6 +23,7 @@ function f32(x: number): number {
 // the app that owns the game's JSON files, and what the host knows of it: whether the scene has game settings (an
 // RTXPT GameSettings node), and whether its renderer reads a spot light's negative outer angle as the minimum
 // falloff past it (RTXPT's kUseMinSpotlightFalloff, as SampleGame sets it). Nodes and JSON files are handles.
+@final
 export class GameWorld {
     constructor(private app: AppHandle | null, private scene: SceneHandle | null, public hasGameSettings: boolean,
         private minSpotFalloff: boolean) {

@@ -15,6 +15,7 @@ export function randomFloat() {
 
 // MSVC's rand() after srand(seed) (the C runtime the samples are built with: srand(1) unless they
 // seed it), RAND_MAX 32767, so that what the samples draw from it comes out the same.
+@final
 export class MsvcRandom {
     private state: number;
 
