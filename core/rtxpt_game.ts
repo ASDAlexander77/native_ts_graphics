@@ -434,15 +434,12 @@ class KeyframeAnimation {
             this.keyTimeMin = minD(this.keyTimeMin, key.keyTime);
             this.keyTimeMax = maxD(this.keyTimeMax, key.keyTime);
         }
-        // std::sort by key time (insertion: the files' keys are already in order)
+        // std::sort by key time (insertion by adjacent swaps, stable: the files' keys are already in
+        // order; a swap keeps each key one owner under -mm=own)
         for (let i = 1; i < this.keys.length; i++) {
-            const key = this.keys[i];
-            let j = i - 1;
-            while (j >= 0 && key.keyTime < this.keys[j].keyTime) {
-                this.keys[j + 1] = this.keys[j];
-                j--;
+            for (let j = i; j > 0 && this.keys[j].keyTime < this.keys[j - 1].keyTime; j--) {
+                [this.keys[j - 1], this.keys[j]] = [this.keys[j], this.keys[j - 1]];
             }
-            this.keys[j + 1] = key;
         }
     }
 
