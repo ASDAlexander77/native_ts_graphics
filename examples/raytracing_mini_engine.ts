@@ -1012,7 +1012,7 @@ namespace RaytracingMiniEngine {
         // SetCameraToPredefinedPosition.
         private setCameraPosition(index: int) {
             this.cameraPosition = index;
-            const p = CAMERA_POSITIONS[index];
+            const p = CAMERA_POSITIONS[index].slice(); // a copy: under -mm=own a global row bound to a local is freed at its end (TSLANG_ISSUES 63)
             this.camera.setHeadingPitchAndPosition(p[3], p[4], [p[0], p[1], p[2]]);
         }
 
