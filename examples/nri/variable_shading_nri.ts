@@ -675,7 +675,7 @@ namespace VariableShadingNri {
             }
             const view = constantBuffer.createConstantView(offset, size);
             if (view) {
-                this.constantViews.push(view);
+                this.constantViews.push(new NriDescriptor(view.handle));
             }
             return view;
         }

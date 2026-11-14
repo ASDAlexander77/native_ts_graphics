@@ -440,7 +440,6 @@ namespace MsaaNri {
             for (let i = 0; i < queuedFrameNum; i++) {
                 const sceneView = sceneBuffer.createConstantView(i * CONST_VIEW_SIZE, CONST_VIEW_SIZE);
                 const sceneSets: NriDescriptorSet[] = [];
-                this.queuedFrames.push(new QueuedFrame(sceneView, sceneSets));
                 if (!sceneView) {
                     console.log("Cannot create the constant buffer views");
                     return 0;
@@ -456,13 +455,15 @@ namespace MsaaNri {
                     sceneSet.updateDescriptor(2, 0, linearWrap);
                     sceneSets.push(sceneSet);
                 }
+                // Last: the frame keeps the view and the sets.
+                this.queuedFrames.push(new QueuedFrame(sceneView, sceneSets));
             }
 
             // The scene's camera, as the sample's free camera starts: looking down its node's -z,
             // its up its node's y (the node rolls it a little).
             const forward = rotateByQuaternion(CAMERA_ROTATION, [0.0, 0.0, -1.0]);
             const up = rotateByQuaternion(CAMERA_ROTATION, [0.0, 1.0, 0.0]);
-            const p = CAMERA_POSITION;
+            const p = CAMERA_POSITION.slice();
             this.camera.lookAtWithUp(p[0], p[1], p[2], p[0] + forward[0], p[1] + forward[1], p[2] + forward[2], up[0], up[1], up[2]);
 
             // The sample's overlay.
@@ -593,7 +594,7 @@ namespace MsaaNri {
         getDepthResolvePipeline(mode: int): NriPipeline | null {
             for (let i = 0; i < this.depthResolveModeOfPipeline.length; i++) {
                 if (this.depthResolveModeOfPipeline[i] == mode) {
-                    return this.depthResolvePipelines[i];
+                    return new NriPipeline(this.depthResolvePipelines[i].handle);
                 }
             }
             const device = this.device;
@@ -606,7 +607,7 @@ namespace MsaaNri {
                 `${this.resolveShaders}_${entry}.bin`, entry, "", NriFormat.R32_SFLOAT);
             if (pipeline) {
                 this.depthResolveModeOfPipeline.push(mode);
-                this.depthResolvePipelines.push(pipeline);
+                this.depthResolvePipelines.push(new NriPipeline(pipeline.handle));
             }
             return pipeline;
         }
@@ -619,7 +620,7 @@ namespace MsaaNri {
             const key = sampleCount * VARIANT_COUNT + variant;
             for (let i = 0; i < this.scenePipelineKeys.length; i++) {
                 if (this.scenePipelineKeys[i] == key) {
-                    return this.scenePipelines[i];
+                    return new NriPipeline(this.scenePipelines[i].handle);
                 }
             }
             const device = this.device;
@@ -651,7 +652,7 @@ namespace MsaaNri {
             desc.destroy();
             if (pipeline) {
                 this.scenePipelineKeys.push(key);
-                this.scenePipelines.push(pipeline);
+                this.scenePipelines.push(new NriPipeline(pipeline.handle));
             }
             return pipeline;
         }
@@ -988,9 +989,9 @@ namespace MsaaNri {
             // The scene pass.
             let sceneAttachment = this.swapChain.colorAttachment(index);
             if (msColor) {
-                sceneAttachment = msColor.attachment;
+                sceneAttachment = new NriDescriptor(msColor.attachment.handle);
             } else if (resolvedColor) {
-                sceneAttachment = resolvedColor.attachment;
+                sceneAttachment = new NriDescriptor(resolvedColor.attachment.handle);
                 commandBuffer.textureBarrier(resolvedColor.texture, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
             }
             commandBuffer.textureBarrier(depth.texture, NriTextureState.ShaderResource, NriTextureState.DepthAttachment);

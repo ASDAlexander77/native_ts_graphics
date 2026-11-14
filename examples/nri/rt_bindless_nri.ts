@@ -332,18 +332,16 @@ namespace RtBindlessNri {
                 console.log("Cannot create the scene's buffers");
                 return false;
             }
-            const views = [
-                vertexBuffer.createStructuredView(0),
-                indexBuffer.createStructuredView(0),
-                skinnedVertexBuffer.createStructuredView(0),
-            ];
-            for (const view of views) {
-                if (!view) {
-                    console.log("Cannot create the scene's buffer views");
-                    return false;
-                }
-                this.bindlessViews.push(view);
+            const vertexView = vertexBuffer.createStructuredView(0);
+            const indexView = indexBuffer.createStructuredView(0);
+            const skinnedVertexView = skinnedVertexBuffer.createStructuredView(0);
+            if (!vertexView || !indexView || !skinnedVertexView) {
+                console.log("Cannot create the scene's buffer views");
+                return false;
             }
+            this.bindlessViews.push(vertexView);
+            this.bindlessViews.push(indexView);
+            this.bindlessViews.push(skinnedVertexView);
             this.skinnedStorageView = skinnedVertexBuffer.createStructuredView(1);
             this.geometryView = geometryBuffer.createStructuredView(0);
             this.materialView = materialBuffer.createStructuredView(0);
@@ -529,7 +527,8 @@ namespace RtBindlessNri {
         // A view kept for destruction (null passes through).
         keepView(view: NriDescriptor | null): NriDescriptor | null {
             if (view) {
-                this.perFrameViews.push(view);
+                // A wrapper of its own (destroying nothing) kept for destruction; the caller gets the view.
+                this.perFrameViews.push(new NriDescriptor(view.handle));
             }
             return view;
         }
@@ -639,7 +638,7 @@ namespace RtBindlessNri {
                     set.updateDescriptor(1, 0, skinnedStorageView);
                     skinningSets.push(set);
                 }
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), traceSet, skinningSets));
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), traceSet, skinningSets));
             }
 
             // The bindless arrays: the buffers by GeometryData's numbers; the textures by number.

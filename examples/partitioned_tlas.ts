@@ -167,7 +167,7 @@ namespace PartitionedTlas {
     class PartitionedTlasPass {
         private app: App;
         private ptlas: Ptlas;
-        private settings: Settings;
+        settings: Settings;
         private dominoBlas: TriangleBlas;
         private inputBuffers: BufferHandle[];
 
@@ -1037,12 +1037,11 @@ namespace PartitionedTlas {
 
     // The sample's settings, as an ImGui window: what its keys toggle, and its stats.
     class UserInterface {
-        private sample: PartitionedTlasPass;
-        private settings: Settings;
+        // The pass, whose settings the window edits (they are the pass's).
+        readonly sample: PartitionedTlasPass;
 
-        constructor(sample: PartitionedTlasPass, settings: Settings) {
+        constructor(sample: PartitionedTlasPass) {
             this.sample = sample;
-            this.settings = settings;
         }
 
         init(app: App) {
@@ -1050,7 +1049,7 @@ namespace PartitionedTlas {
         }
 
         buildUI() {
-            const settings = this.settings;
+            const settings = this.sample.settings;
             ImGui.setNextWindowPos(10.0, 10.0);
             ImGui.begin("Partitioned TLAS", true);
             settings.usePtlas = ImGui.checkbox("Partitioned TLAS (P)", settings.usePtlas);
@@ -1173,7 +1172,9 @@ namespace PartitionedTlas {
 
         const args = new PartitionedTlasArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
-        const settings = args.settings;
+        // The settings (the pass's, then: under -mm=own they have one owner), swapped out of the arguments.
+        let settings = new Settings();
+        [settings, args.settings] = [args.settings, settings];
         settings.api = args.api;
         if (args.test && settings.stateDumpPath != "") {
             settings.stateDumpFrame = TEST_FRAMES - 1;
@@ -1213,7 +1214,7 @@ namespace PartitionedTlas {
         }
 
         // Drawn after (over) the scene, and sees the mouse first.
-        const gui = new UserInterface(pass, settings);
+        const gui = new UserInterface(pass);
         if (!args.noUI && !args.test && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             ptlas.destroy();
@@ -1226,31 +1227,31 @@ namespace PartitionedTlas {
         app.run();
         let result = 0;
         if (args.test) {
-            result = app.finishTest(checkFrame(app, settings, pass.writeCounts));
+            result = app.finishTest(checkFrame(app, gui.sample.settings, gui.sample.writeCounts));
         }
         app.waitForIdle();
-        const stateDump = pass.stateDump;
+        const stateDump = gui.sample.stateDump;
         if (stateDump) {
             const state: int[] = [];
             for (let i = 0; i < DOMINO_COUNT * MOTION_SIZE / 4; i++) {
                 state.push(0);
             }
             if (!app.readBuffer(stateDump, Ref(state[0]), state.length * 4)
-                || Donut_WriteBinaryFile(settings.stateDumpPath, Ref(state[0]), state.length * 4) == 0) {
-                console.log(`Cannot write ${settings.stateDumpPath}`);
+                || Donut_WriteBinaryFile(gui.sample.settings.stateDumpPath, Ref(state[0]), state.length * 4) == 0) {
+                console.log(`Cannot write ${gui.sample.settings.stateDumpPath}`);
                 result = 1;
             }
         }
-        const renderOutput = pass.getRenderOutput();
-        if (args.test && settings.imagePath != "" && renderOutput) {
-            const scale = settings.renderScale;
+        const renderOutput = gui.sample.getRenderOutput();
+        if (args.test && gui.sample.settings.imagePath != "" && renderOutput) {
+            const scale = gui.sample.settings.renderScale;
             const pixels: int[] = [];
             for (let i = 0; i < app.getWindowWidth() * scale * app.getWindowHeight() * scale; i++) {
                 pixels.push(0);
             }
             const bytes = app.readTextureLevel(renderOutput, 0, Ref(pixels[0]), pixels.length * 4);
-            if (bytes == 0 || Donut_WriteBinaryFile(settings.imagePath, Ref(pixels[0]), bytes) == 0) {
-                console.log(`Cannot write ${settings.imagePath}`);
+            if (bytes == 0 || Donut_WriteBinaryFile(gui.sample.settings.imagePath, Ref(pixels[0]), bytes) == 0) {
+                console.log(`Cannot write ${gui.sample.settings.imagePath}`);
                 result = 1;
             }
         }

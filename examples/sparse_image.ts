@@ -178,37 +178,51 @@ namespace SparseImage {
         return a.newMipLevel < b.newMipLevel;
     }
 
-    // In the set's order: a merge sort.
+    // In the set's order: a merge sort (stable) of the blocks' numbers, then the blocks swapped into that
+    // order in place (under -mm=own a block has one owner: swaps move none out of the list).
     function sortBlocks(blocks: TextureBlock[]) {
-        let source = blocks;
-        for (let width = 1; width < source.length; width *= 2) {
-            const merged: TextureBlock[] = [];
-            for (let start = 0; start < source.length; start += 2 * width) {
-                const middle = Math.min(start + width, source.length);
-                const end = Math.min(start + 2 * width, source.length);
+        let order: int[] = [];
+        for (let k = 0; k < blocks.length; k++) {
+            order.push(k);
+        }
+        for (let width = 1; width < order.length; width *= 2) {
+            const merged: int[] = [];
+            for (let start = 0; start < order.length; start += 2 * width) {
+                const middle = Math.min(start + width, order.length);
+                const end = Math.min(start + 2 * width, order.length);
                 let i = start;
                 let j = middle;
                 while (i < middle && j < end) {
-                    if (blockLess(source[j], source[i])) {
-                        merged.push(source[j]);
+                    if (blockLess(blocks[order[j]], blocks[order[i]])) {
+                        merged.push(order[j]);
                         j++;
                     } else {
-                        merged.push(source[i]);
+                        merged.push(order[i]);
                         i++;
                     }
                 }
                 while (i < middle) {
-                    merged.push(source[i]);
+                    merged.push(order[i]);
                     i++;
                 }
                 while (j < end) {
-                    merged.push(source[j]);
+                    merged.push(order[j]);
                     j++;
                 }
             }
-            source = merged;
+            order = merged;
         }
-        return source;
+        // Place k gets block order[k]: if that block was swapped away by an earlier place, it is where
+        // that place's block came from (follow the chain to a place not yet filled).
+        for (let k = 0; k < blocks.length; k++) {
+            let from = order[k];
+            while (from < k) {
+                from = order[from];
+            }
+            if (from != k) {
+                [blocks[k], blocks[from]] = [blocks[from], blocks[k]];
+            }
+        }
     }
 
     // A sector: one allocation of PAGES_PER_ALLOC pages (a heap). The sample's shared_ptr: the
@@ -873,7 +887,8 @@ namespace SparseImage {
                     }
                 }
             }
-            this.updateBlocks = sortBlocks(blocks);
+            sortBlocks(blocks);
+            this.updateBlocks = blocks;
             this.updateBlocksStart = 0;
         }
 

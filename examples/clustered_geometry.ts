@@ -85,7 +85,11 @@ namespace ClusteredGeometry {
     // Test mode: the frames rendered (the sample's --screenshot 3: its fourth frame).
     const TEST_FRAMES = 4;
 
-    const f = Math.fround;
+    // Rounded to float (a function, not Math.fround's value: under -mm=own a call through a function value
+    // may release anything).
+    function f(x: number): number {
+        return Math.fround(x);
+    }
 
     // The C runtime's float sinf / cosf (the sample's std::sin / std::cos of floats), which aren't always
     // correctly rounded; sqrtf (which is).
@@ -689,39 +693,45 @@ namespace ClusteredGeometry {
     // SceneData::BuildSceneDefinition and BuildScene: four spheres and a torus and a cube on a hexagon
     // around the origin, the glass slab floor, the Klein bottle; the smallest sphere split into a chrome
     // upper and a glass lower region.
-    function buildSceneObjects(): SceneObject[] {
+    // The objects' places on the hexagon around the origin: corner i, at height y.
+    function hexPosition(i: int, y: number): number[] {
         const R = f(2.55);
         const hexStep = f(f(2.0 * K_PI) / 6.0);
-        const hex = (i: int, y: number): number[] => {
-            const th = f(i * hexStep);
-            return [f(R * fcos(th)), f(y), f(R * fsin(th))];
-        };
-        const objects: SceneObject[] = [];
-        const add = (mesh: Mesh, pos: number[], instanceID: int): SceneObject => {
-            const o = new SceneObject();
-            o.mesh = mesh;
-            o.pos = pos;
-            o.instanceID = instanceID;
-            objects.push(o);
-            return o;
-        };
+        const th = f(i * hexStep);
+        return [f(R * fcos(th)), f(y), f(R * fsin(th))];
+    }
 
-        add(generateUVSphere(0.85, 64, 128, 8, 16, 0), hex(0, 0.40), 0);
-        const s1 = add(generateUVSphere(0.60, 48, 96, 8, 12, 100), hex(1, 0.4), 1);
+    // An object of mesh at pos (its instance ID instanceID), the rest default.
+    function sceneObject(mesh: Mesh, pos: number[], instanceID: int): SceneObject {
+        const o = new SceneObject();
+        o.mesh = mesh;
+        o.pos = pos;
+        o.instanceID = instanceID;
+        return o;
+    }
+
+    function buildSceneObjects(): SceneObject[] {
+        // Each object set up, then pushed (in the sample's order: the instances' order).
+        const objects: SceneObject[] = [];
+        objects.push(sceneObject(generateUVSphere(0.85, 64, 128, 8, 16, 0), hexPosition(0, 0.40), 0));
+        const s1 = sceneObject(generateUVSphere(0.60, 48, 96, 8, 12, 100), hexPosition(1, 0.4), 1);
         s1.checkerEnabled = true;
         s1.oddParity.overrideRefl = f(0.90);
         s1.oddParity.overrideRefr = 0.0;
         s1.oddParity.overrideIor = 0.0;
-        const s2 = add(generateUVSphere(0.55, 32, 64, 8, 8, 200), hex(2, -0.1), 2);
+        objects.push(s1);
+        const s2 = sceneObject(generateUVSphere(0.55, 32, 64, 8, 8, 200), hexPosition(2, -0.1), 2);
         s2.checkerEnabled = true;
         s2.oddParity.overrideRefr = f(0.85);
         s2.oddParity.overrideIor = f(1.50);
         s2.evenParity.baseColorScale = f(1.45);
-        add(generateUVSphere(0.45, 24, 48, 6, 8, 300), hex(3, 0.3), 3);
-        const torus = add(generateTorus(0.55, 0.18, 64, 32, 8, 8, 400), hex(4, 0.2), 4);
+        objects.push(s2);
+        objects.push(sceneObject(generateUVSphere(0.45, 24, 48, 6, 8, 300), hexPosition(3, 0.3), 3));
+        const torus = sceneObject(generateTorus(0.55, 0.18, 64, 32, 8, 8, 400), hexPosition(4, 0.2), 4);
         torus.rotEuler = [f(1.0472), 0.0, 0.0];
-        add(generateCube(0.45, 1, 1, 500), hex(5, 0.0), 5);
-        const floor = add(generatePlane(3.5, 3.5, 6, 6, 1, 1, 600, 0.28), [0.0, f(-0.7), 0.0], 6);
+        objects.push(torus);
+        objects.push(sceneObject(generateCube(0.45, 1, 1, 500), hexPosition(5, 0.0), 5));
+        const floor = sceneObject(generatePlane(3.5, 3.5, 6, 6, 1, 1, 600, 0.28), [0.0, f(-0.7), 0.0], 6);
         floor.surfTintMul = f(0.25);
         floor.refrTintMul = f(0.35);
         floor.reflTintMul = f(0.31);
@@ -729,9 +739,11 @@ namespace ClusteredGeometry {
         floor.oddParity.overrideRefl = f(0.85);
         floor.oddParity.overrideRefr = 0.0;
         floor.oddParity.overrideIor = 0.0;
-        const klein = add(generateKleinBottle(0.65, 64, 32, 8, 8, 700), [f(-1.55), f(1.55), f(-1.00)], 8);
+        objects.push(floor);
+        const klein = sceneObject(generateKleinBottle(0.65, 64, 32, 8, 8, 700), [f(-1.55), f(1.55), f(-1.00)], 8);
         klein.rotEuler = [f(0.90), f(0.55), f(-0.55)];
         klein.nonOrientable = true;
+        objects.push(klein);
 
         // The mixed sphere (sphere3): clusters whose centroid is above the equator chrome (region 0,
         // material 0), the others its amethyst glass (region 1, material 3).
@@ -988,10 +1000,13 @@ namespace ClusteredGeometry {
         totalClusterCount: int = 0;
 
         build(app: App, extraInstances: int, lowDetail: boolean) {
-            this.objects = buildSceneObjects();
-            this.sourceCount = this.objects.length;
-            this.animatedClones = [];
-            addClones(app, this.objects, this.animatedClones, extraInstances);
+            // Built in locals, then kept (under -mm=own addClones can't add to this's fields in place).
+            const objects = buildSceneObjects();
+            this.sourceCount = objects.length;
+            const animatedClones: AnimatedClone[] = [];
+            addClones(app, objects, animatedClones, extraInstances);
+            this.objects = objects;
+            this.animatedClones = animatedClones;
             // BuildAnimatedObjectSetup: a unit sphere of 96 x 192 quads (low detail: 64 x 144) in 4 x 6 tiles.
             this.animated = generateUVSphere(ANIMATED_REST_RADIUS, lowDetail ? 64 : 96, lowDetail ? 144 : 192, 4, 6, 0);
 
@@ -1592,7 +1607,7 @@ namespace ClusteredGeometry {
         private app: App;
         private clas: Clas;
         private scene: Scene;
-        private settings: Settings;
+        settings: Settings;
         stats: BuildStats = new BuildStats();
 
         private fillClasArgs: ComputePass | null = null;
@@ -1906,7 +1921,11 @@ namespace ClusteredGeometry {
             this.app.waitForIdle();
             this.release();
             if (this.regenerateScene) {
-                this.scene.build(this.app, this.settings.extraInstances, this.settings.lowDetail);
+                // A new scene (build sets all of it), then kept: under -mm=own building this.scene in place
+                // could release it.
+                const scene = new Scene();
+                scene.build(this.app, this.settings.extraInstances, this.settings.lowDetail);
+                this.scene = scene;
                 this.regenerateScene = false;
             }
             this.build();
@@ -2017,6 +2036,8 @@ namespace ClusteredGeometry {
             } else {
                 commandList = this.buildClasImplicit(commandList, clasOp, sizesBuffer, settings.clasAllocMode == 2);
             }
+            // The operation kept for the refits (each build borrowed it).
+            this.staticClasOp = clasOp;
             this.buildStaticBlases(commandList);
             return commandList;
         }
@@ -2033,7 +2054,6 @@ namespace ClusteredGeometry {
             const addresses = clas.createBuffer(clusterCount * 8, "CLAS address array");
             clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, clasArgsSize(this.settings), null,
                 storage, scratch, addresses, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
-            this.staticClasOp = clasOp;
             this.staticClasStorage = storage;
             this.staticClasScratch = scratch;
             this.staticClasAddresses = addresses;
@@ -2111,7 +2131,6 @@ namespace ClusteredGeometry {
             const scratch = clas.createBuffer(fmax(buildSizes[1], 256.0), "CLAS scratch (explicit-build phase)");
             clas.executeOperation(commandList.handle, Ref(clasOp[0]), this.staticClasArgs as BufferHandle, 0.0, clasArgsSize(this.settings), null,
                 storage, scratch, addresses, 0.0, sizesBuffer, 0.0, this.staticClusterInput, null);
-            this.staticClasOp = clasOp;
             this.staticClasStorage = storage;
             this.staticClasScratch = scratch;
             this.staticClasAddresses = addresses;
@@ -2810,13 +2829,12 @@ namespace ClusteredGeometry {
 
     // The overlay: the settings with their keys, the last build's sizes.
     class UserInterface {
-        private pass: ClusteredGeometryPass;
-        private settings: Settings;
+        // The pass, whose settings the window edits (they are the pass's; main reads it through here).
+        readonly pass: ClusteredGeometryPass;
         private fps: number = 0.0;
 
-        constructor(pass: ClusteredGeometryPass, settings: Settings) {
+        constructor(pass: ClusteredGeometryPass) {
             this.pass = pass;
-            this.settings = settings;
         }
 
         init(app: App) {
@@ -2824,7 +2842,7 @@ namespace ClusteredGeometry {
         }
 
         buildUI() {
-            const s = this.settings;
+            const s = this.pass.settings;
             const stats = this.pass.stats;
             ImGui.setNextWindowPos(10.0, 10.0);
             ImGui.begin("Clustered Geometry", true);
@@ -2976,7 +2994,9 @@ namespace ClusteredGeometry {
 
         const args = new ClusteredGeometryArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
-        const settings = args.settings;
+        // The settings (the pass's, then: under -mm=own they have one owner), swapped out of the arguments.
+        let settings = new Settings();
+        [settings, args.settings] = [args.settings, settings];
         if (args.test) {
             settings.cameraPaused = true;
             settings.animationPaused = true;
@@ -3019,14 +3039,15 @@ namespace ClusteredGeometry {
         console.log(`${scene.objects.length} objects (${scene.sourceCount} + clones), ${scene.totalClusterCount} static clusters, `
             + `${scene.animated.clusters.length} animated clusters, ${scene.animatedClones.length} animated clones`);
 
+        const overlay = settings.overlay;
         const pass = new ClusteredGeometryPass(app, Clas.create(app.getNvrhiDevice()), scene, settings);
         if (!pass.init()) {
             app.destroy();
             return 1;
         }
         // Drawn after (over) the scene.
-        const gui = new UserInterface(pass, settings);
-        if (!args.noUI && (!args.test || settings.overlay) && !gui.init(app)) {
+        const gui = new UserInterface(pass);
+        if (!args.noUI && (!args.test || overlay) && !gui.init(app)) {
             console.log("Cannot initialize the user interface");
             app.destroy();
             return 1;
@@ -3036,10 +3057,10 @@ namespace ClusteredGeometry {
         app.run();
         let result = 0;
         if (args.test) {
-            result = app.finishTest(checkFrame(app, settings));
+            result = app.finishTest(checkFrame(app, gui.pass.settings));
         }
         app.waitForIdle();
-        pass.destroy();
+        gui.pass.destroy();
         app.destroy();
         return result;
     }

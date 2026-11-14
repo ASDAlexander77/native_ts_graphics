@@ -545,6 +545,7 @@ namespace AtomOrbitalsNri {
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
+        @keeps("sample")
         constructor(private sample: NriSample) {
             for (let i = 0; i < SIMULATION_FLOATS; i++) {
                 this.simulationConstants.push(0.0);

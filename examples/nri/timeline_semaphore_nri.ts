@@ -313,12 +313,15 @@ namespace TimelineSemaphoreNri {
         // queue, into one of its own.
         createQueuedFrame(commandAllocator: NriCommandAllocator): QueuedFrame {
             const computeQueue = this.computeQueue;
-            if (!computeQueue) {
-                return new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(), null, null);
+            const commandBuffer = commandAllocator.createCommandBuffer();
+            let computeCommandAllocator: NriCommandAllocator | null = null;
+            let computeCommandBuffer: NriCommandBuffer | null = null;
+            if (computeQueue) {
+                const allocator = computeQueue.createCommandAllocator();
+                computeCommandBuffer = allocator.createCommandBuffer();
+                computeCommandAllocator = allocator;
             }
-            const computeCommandAllocator = computeQueue.createCommandAllocator();
-            return new QueuedFrame(commandAllocator, commandAllocator.createCommandBuffer(), computeCommandAllocator,
-                computeCommandAllocator.createCommandBuffer());
+            return new QueuedFrame(commandAllocator, commandBuffer, computeCommandAllocator, computeCommandBuffer);
         }
 
         // The compute pipeline set, on the image numbered index (reading the previous one), with the

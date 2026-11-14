@@ -485,20 +485,23 @@ namespace ExtendedDynamicState2Nri {
                         for (let i = 0; i < 16; i++) {
                             t.push(transform[i]);
                         }
+                        // The values read before the node keeps t.
+                        const translationX = t[12];
+                        const scaleX = t[0];
                         const node = new SceneNode(SCENE_ORDER[o], firstIndex[p], indexCounts[p], baseVertex[p], t,
                             [color[0], color[1], color[2], color[3]]);
                         if (SCENE_ORDER[o] == TESSELLATED) {
                             this.tessNodes.push(node);
-                        } else {
-                            if (SCENE_ORDER[o] == MOVING) {
-                                this.movingNode = this.baselineNodes.length;
-                                this.movingX = t[12];
-                            } else if (o == 0) {
-                                // Sphere_1, the moving cube's parent: its x scale.
-                                this.parentScaleX = t[0];
-                            }
-                            this.baselineNodes.push(node);
+                            continue;
                         }
+                        if (SCENE_ORDER[o] == MOVING) {
+                            this.movingNode = this.baselineNodes.length;
+                            this.movingX = translationX;
+                        } else if (o == 0) {
+                            // Sphere_1, the moving cube's parent: its x scale.
+                            this.parentScaleX = scaleX;
+                        }
+                        this.baselineNodes.push(node);
                     }
                 }
             }

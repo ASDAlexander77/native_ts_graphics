@@ -377,12 +377,16 @@ namespace SimpleHdrNri {
                     lineView = lineBuffer.createStructuredView(0);
                 }
                 const sceneSet = descriptorPool.allocateDescriptorSet(sceneLayout, 0, 0);
+                if (lineView && sceneSet) {
+                    sceneSet.updateDescriptor(0, 0, lineView);
+                }
+                const made = lineView != null && sceneSet != null;
+                // The frame keeps the buffer, view and set (whatever was made, destroyed with it).
                 this.queuedFrames.push(new QueuedFrame(lineBuffer, lineView, sceneSet));
-                if (!lineView || !sceneSet) {
+                if (!made) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
                 }
-                sceneSet.updateDescriptor(0, 0, lineView);
             }
             const convertSet = descriptorPool.allocateDescriptorSet(convertLayout, 0, 0);
             this.convertSet = convertSet;
@@ -497,7 +501,9 @@ namespace SimpleHdrNri {
             if (this.swapChain.exists()) {
                 this.swapChain.recreateWithFormat(format);
             } else {
-                this.swapChain.initWithFormat(this.sample, device, this.queue, format);
+                // A wrapper of its own (destroying nothing) of the queue: -mm=own can't tell the swap chain's
+                // setup leaves this.queue alone.
+                this.swapChain.initWithFormat(this.sample, device, new NriQueue(this.queue.handle), format);
             }
             this.hdr10 = format == NriSwapChainFormat.BT2020_G2084_10BIT;
             this.swapChainFormat = this.swapChain.format();

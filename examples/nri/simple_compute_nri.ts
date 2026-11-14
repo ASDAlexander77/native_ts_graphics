@@ -833,7 +833,8 @@ namespace SimpleComputeNri {
     export function main(argc: int, argv: Ref<string>) {
         const sample = NriSample.create();
         sample.useResizableWindow();
-        const simpleCompute = new SimpleCompute(sample);
+        // The example keeps a wrapper of its own (destroying nothing): main configures the sample after.
+        const simpleCompute = new SimpleCompute(new NriSample(sample.handle));
         // -async: start with asynchronous compute (Space toggles it); -window X Y CX CY: the fractal
         // window's size and center instead of the default (Home); -noUI: no HUD.
         sample.addExampleOption("-async");

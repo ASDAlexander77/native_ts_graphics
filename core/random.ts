@@ -23,6 +23,11 @@ export class MsvcRandom {
         this.state = seed;
     }
 
+    // srand(seed): the sequence again from seed.
+    seed(seed: number) {
+        this.state = seed;
+    }
+
     next(): int {
         this.state = (this.state * 214013 + 2531011) % 4294967296;
         return Math.floor(this.state / 65536) % 32768;

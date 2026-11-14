@@ -338,8 +338,8 @@ namespace MeshletRenderNri {
             if (!buffer) {
                 return;
             }
-            mesh.buffers.push(buffer);
             const view = buffer.createStructuredView(0);
+            mesh.buffers.push(buffer);
             if (view) {
                 mesh.views.push(view);
             }

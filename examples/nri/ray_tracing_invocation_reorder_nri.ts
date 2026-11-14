@@ -506,9 +506,10 @@ namespace RayTracingInvocationReorderNri {
                 if (dynamicVertexBuffer) {
                     dynamicVertexView = dynamicVertexBuffer.createStructuredView(0);
                 }
+                const made = constantsView != null && dynamicVertexView != null;
                 this.queuedFrames.push(new QueuedFrame(constantsView,
                     dynamicVertexBuffer, dynamicVertexView, null));
-                if (!constantsView || !dynamicVertexView) {
+                if (!made) {
                     console.log("Cannot create the dynamic buffers");
                     return 0;
                 }
@@ -617,9 +618,10 @@ namespace RayTracingInvocationReorderNri {
             if (!texture) {
                 return -1;
             }
+            const view = texture.createView(texture.getFormat());
             this.textures.push(texture);
-            this.textureViews.push(texture.createView(texture.getFormat()));
-            this.textureNames.push(path);
+            this.textureViews.push(view);
+            this.textureNames.push(path + ""); // a copy of its own: path may be a global
             return this.textures.length - 1;
         }
 

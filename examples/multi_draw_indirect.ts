@@ -664,7 +664,7 @@ namespace MultiDrawIndirect {
         }
     }
 
-    function supportText(supported: boolean) {
+    function supportText(supported: boolean): string {
         return supported ? "Supported" : "Not supported";
     }
 

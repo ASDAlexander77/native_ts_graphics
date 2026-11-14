@@ -92,6 +92,30 @@ namespace PtlasExample {
 
     // --- Passes -----------------------------------------------------------------------------
 
+    // The meshes appended to one vertex array (float3s) and one index array, each's first vertex and
+    // index and its counts.
+    class MeshArrays {
+        vertices: f32[] = [];
+        indices: int[] = [];
+        vertexStarts: int[] = [];
+        indexStarts: int[] = [];
+        vertexCounts: int[] = [];
+        indexCounts: int[] = [];
+
+        add(meshVertices: number[], meshIndices: int[]) {
+            this.vertexStarts.push(this.vertices.length / 3);
+            this.indexStarts.push(this.indices.length);
+            this.vertexCounts.push(meshVertices.length / 3);
+            this.indexCounts.push(meshIndices.length);
+            for (const coordinate of meshVertices) {
+                this.vertices.push(coordinate);
+            }
+            for (const index of meshIndices) {
+                this.indices.push(index);
+            }
+        }
+    }
+
     // A partitioned TLAS (VK_NV_partitioned_acceleration_structure, D3D12's preview PTLAS) of 265
     // instance slots, kept up to date by sparse operations a compute shader writes each frame:
     // instance writes for what moved (the orbiters, the spinning tile - half of it moved into the
@@ -254,22 +278,12 @@ namespace PtlasExample {
 
         // The cube's, the octahedron's and the ground's BLASes.
         createBlases(commandList: CommandList) {
-            const vertices: f32[] = [];
-            const indices: int[] = [];
-            const meshes = [CUBE_VERTICES, OCTAHEDRON_VERTICES, GROUND_VERTICES];
-            const meshIndices = [CUBE_INDICES, OCTAHEDRON_INDICES, GROUND_INDICES];
-            const vertexStarts: int[] = [];
-            const indexStarts: int[] = [];
-            for (let m = 0; m < 3; m++) {
-                vertexStarts.push(vertices.length / 3);
-                indexStarts.push(indices.length);
-                for (const coordinate of meshes[m]) {
-                    vertices.push(coordinate);
-                }
-                for (const index of meshIndices[m]) {
-                    indices.push(index);
-                }
-            }
+            const meshes = new MeshArrays();
+            meshes.add(CUBE_VERTICES, CUBE_INDICES);
+            meshes.add(OCTAHEDRON_VERTICES, OCTAHEDRON_INDICES);
+            meshes.add(GROUND_VERTICES, GROUND_INDICES);
+            const vertices = meshes.vertices;
+            const indices = meshes.indices;
 
             const vertexBuffer = this.app.createAccelStructInputBuffer(vertices.length * 4, "VertexBuffer");
             const indexBuffer = this.app.createAccelStructInputBuffer(indices.length * UINT_SIZE, "IndexBuffer");
@@ -281,8 +295,8 @@ namespace PtlasExample {
             const names = ["Cube", "Octahedron", "Ground"];
             for (let m = 0; m < 3; m++) {
                 const blas = this.app.createEmptyTriangleBlas(names[m]);
-                blas.addGeometry(indexBuffer, indexStarts[m] * UINT_SIZE, meshIndices[m].length, vertexBuffer,
-                    vertexStarts[m] * FLOAT3_SIZE, meshes[m].length / 3, FLOAT3_SIZE, null);
+                blas.addGeometry(indexBuffer, meshes.indexStarts[m] * UINT_SIZE, meshes.indexCounts[m], vertexBuffer,
+                    meshes.vertexStarts[m] * FLOAT3_SIZE, meshes.vertexCounts[m], FLOAT3_SIZE, null);
                 if (blas.build(this.app, commandList, AccelStructBuildFlags.None) == 0) {
                     return false;
                 }

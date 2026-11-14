@@ -1158,12 +1158,10 @@ namespace DenoisedRtao {
                     return i + 1;
                 }
             }
-            let path = name;
-            if (name.indexOf(":") < 0) {
-                path = ASSETS + name;
-            }
+            // Copies of their own (strings made here): the caller keeps name.
+            const path = name.indexOf(":") < 0 ? ASSETS + name : name + "";
             this.materialTextures.push(this.app.loadTexture(commandList, path, sRGB));
-            names.push(name);
+            names.push(name + "");
             return names.length;
         }
 

@@ -141,14 +141,14 @@ export class NriSwapChain {
         return this.swapChain.acquireNextTexture(this.acquireSemaphores[this.acquired]);
     }
 
-    @lends("this")
+    // A wrapper of its own (destroying nothing): the caller keeps it across calls that may change this.
     texture(index: int): NriTexture {
-        return this.textures[index];
+        return new NriTexture(this.textures[index].handle);
     }
 
-    @lends("this")
+    // A wrapper of its own (destroying nothing): the caller keeps it across calls that may change this.
     colorAttachment(index: int): NriDescriptor {
-        return this.views[index];
+        return new NriDescriptor(this.views[index].handle);
     }
 
     // The command buffer submitted, waiting for the acquired texture and signaling its present.

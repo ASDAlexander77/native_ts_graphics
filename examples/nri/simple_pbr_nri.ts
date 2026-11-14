@@ -869,14 +869,10 @@ namespace SimplePbrNri {
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
                 const queuedFrame = new QueuedFrame();
-                this.queuedFrames.push(queuedFrame);
                 const base = i * FRAME_CONSTANTS_STRIDE;
                 const pbrView = constantBuffer.createConstantView(base + PBR_OFFSET, PBR_FLOATS * 4);
                 const skyView = constantBuffer.createConstantView(base + SKY_OFFSET, 256);
                 const toneMapView = constantBuffer.createConstantView(base + TONE_MAP_OFFSET, 256);
-                queuedFrame.pbrView = pbrView;
-                queuedFrame.skyView = skyView;
-                queuedFrame.toneMapView = toneMapView;
                 if (!pbrView || !skyView || !toneMapView) {
                     console.log("Cannot create the descriptors");
                     return 0;
@@ -902,8 +898,6 @@ namespace SimplePbrNri {
                 }
                 const skySet = descriptorPool.allocateDescriptorSet(skyLayout, 0, 0);
                 const toneMapSet = descriptorPool.allocateDescriptorSet(toneMapLayout, 0, 0);
-                queuedFrame.skySet = skySet;
-                queuedFrame.toneMapSet = toneMapSet;
                 if (!skySet || !toneMapSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -914,6 +908,13 @@ namespace SimplePbrNri {
                 toneMapSet.updateDescriptor(0, 0, toneMapView);
                 toneMapSet.updateDescriptor(1, 0, hdrSceneView);
                 toneMapSet.updateDescriptor(2, 0, pointClampSampler);
+                // Last: the frame keeps its views and sets.
+                queuedFrame.pbrView = pbrView;
+                queuedFrame.skyView = skyView;
+                queuedFrame.toneMapView = toneMapView;
+                queuedFrame.skySet = skySet;
+                queuedFrame.toneMapSet = toneMapSet;
+                this.queuedFrames.push(queuedFrame);
             }
 
             // The HUD's text.

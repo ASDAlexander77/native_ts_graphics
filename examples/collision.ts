@@ -918,13 +918,14 @@ namespace Collision {
             if (group >= 3 && c > 0) {
                 c = Containment.Contains;
             }
+            // Copies of their own (a global can't be returned).
             if (c == Containment.Disjoint) {
-                return GREEN;
+                return GREEN.slice();
             }
             if (c == Containment.Intersects) {
-                return ORANGE;
+                return ORANGE.slice();
             }
-            return WHITE;
+            return WHITE.slice();
         }
 
         // --- Rendering ----------------------------------------------------------------------------

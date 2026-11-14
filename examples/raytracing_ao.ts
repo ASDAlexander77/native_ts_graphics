@@ -128,6 +128,16 @@ namespace RaytracingAo {
 
     // --- Menus.h's Option ---------------------------------------------------------------------
 
+    // The options' numbers in the menu (and in RaytracingAoSample.options).
+    const OPTION_AO_DISTANCE = 0;
+    const OPTION_AO_FALLOFF = 1;
+    const OPTION_AO_NUM_SAMPLES = 2;
+    const OPTION_AO_SAMPLE_TYPE = 3;
+    const OPTION_SSAO_NOISE_FILTER_TOLERANCE = 4;
+    const OPTION_SSAO_BLUR_TOLERANCE = 5;
+    const OPTION_SSAO_UPSAMPLE_TOLERANCE = 6;
+    const OPTION_SSAO_NORMAL_MULTIPLY = 7;
+
     // A menu value, its bounds and step (the sample's float literals, held as doubles).
     class Option {
         start: number;
@@ -437,14 +447,7 @@ namespace RaytracingAo {
         selection: int;
         private delta: number;
         private updateOptions: boolean;
-        aoDistance: Option;
-        aoFalloff: Option;
-        aoNumSamples: Option;
-        aoSampleType: Option;
-        ssaoNoiseFilterTolerance: Option;
-        ssaoBlurTolerance: Option;
-        ssaoUpsampleTolerance: Option;
-        ssaoNormalMultiply: Option;
+        // Menus.h's options, by their OPTION_* numbers.
         options: Option[];
         private aHeld: boolean;
         private dHeld: boolean;
@@ -521,16 +524,16 @@ namespace RaytracingAo {
             this.delta = 0.0;
             this.updateOptions = true;
             // Menus.h
-            this.aoDistance = new Option(10.0, 0.1, 10000.0, 0.1, false);
-            this.aoFalloff = new Option(0.0, -10.0, 10.0, 0.1, false);
-            this.aoNumSamples = new Option(12.0, 1.0, 15.0, 1.0, true);
-            this.aoSampleType = new Option(0.0, 0.0, 1.0, 1.0, true);
-            this.ssaoNoiseFilterTolerance = new Option(-3.0, -8.0, 0.0, 0.1, false);
-            this.ssaoBlurTolerance = new Option(-5.0, -8.0, -1.0, 0.1, false);
-            this.ssaoUpsampleTolerance = new Option(-7.0, -12.0, -1.0, 0.1, false);
-            this.ssaoNormalMultiply = new Option(1.0, 0.0, 5.0, 0.125, false);
-            this.options = [this.aoDistance, this.aoFalloff, this.aoNumSamples, this.aoSampleType, this.ssaoNoiseFilterTolerance,
-                this.ssaoBlurTolerance, this.ssaoUpsampleTolerance, this.ssaoNormalMultiply];
+            this.options = [
+                new Option(10.0, 0.1, 10000.0, 0.1, false), // OPTION_AO_DISTANCE
+                new Option(0.0, -10.0, 10.0, 0.1, false), // OPTION_AO_FALLOFF
+                new Option(12.0, 1.0, 15.0, 1.0, true), // OPTION_AO_NUM_SAMPLES
+                new Option(0.0, 0.0, 1.0, 1.0, true), // OPTION_AO_SAMPLE_TYPE
+                new Option(-3.0, -8.0, 0.0, 0.1, false), // OPTION_SSAO_NOISE_FILTER_TOLERANCE
+                new Option(-5.0, -8.0, -1.0, 0.1, false), // OPTION_SSAO_BLUR_TOLERANCE
+                new Option(-7.0, -12.0, -1.0, 0.1, false), // OPTION_SSAO_UPSAMPLE_TOLERANCE
+                new Option(1.0, 0.0, 5.0, 0.125, false), // OPTION_SSAO_NORMAL_MULTIPLY
+            ];
             this.aHeld = false;
             this.dHeld = false;
         }
@@ -795,10 +798,10 @@ namespace RaytracingAo {
         // AO::OnOptionUpdate and SSAO::OnOptionUpdate: the AO options and its sample table
         // (Sampler::SetSeed(0), then a stratified sampler of numSamples x numSamples cells).
         applyOptions(commandList: CommandList) {
-            const numSamples: int = this.aoNumSamples.value();
-            const sampleType: int = this.aoSampleType.value();
-            this.aoOptions[0] = this.aoDistance.value();
-            this.aoOptions[1] = this.aoFalloff.value();
+            const numSamples: int = this.options[OPTION_AO_NUM_SAMPLES].value();
+            const sampleType: int = this.options[OPTION_AO_SAMPLE_TYPE].value();
+            this.aoOptions[0] = this.options[OPTION_AO_DISTANCE].value();
+            this.aoOptions[1] = this.options[OPTION_AO_FALLOFF].value();
             RawMemory.storeInt32(Ref(this.aoOptions[2]), numSamples);
             RawMemory.storeInt32(Ref(this.aoOptions[3]), sampleType);
             commandList.writeBuffer(this.aoOptionsBuffer, Ref(this.aoOptions[0]), 16);
@@ -939,7 +942,7 @@ namespace RaytracingAo {
             c[base + 24] = Math.fround(1.0 / width);
             c[base + 25] = Math.fround(1.0 / height);
             const normalToDepthBrightnessEqualize = 2.0;
-            c[base + 26] = Math.fround(normalToDepthBrightnessEqualize * Math.fround(this.ssaoNormalMultiply.value()));
+            c[base + 26] = Math.fround(normalToDepthBrightnessEqualize * Math.fround(this.options[OPTION_SSAO_NORMAL_MULTIPLY].value()));
         }
 
         // SSAO::UpdateBlurAndUpsampleConstant into a slice of the SSAO constants.
@@ -947,12 +950,12 @@ namespace RaytracingAo {
             const base = slice * SSAO_SLICE_FLOATS;
             const c = this.ssaoConstants;
             const screenWidth = this.outputWidth;
-            let blurTolerance = Math.fround(1.0 - Math.fround(Math.fround(Math.pow(10.0, Math.fround(this.ssaoBlurTolerance.value())))
+            let blurTolerance = Math.fround(1.0 - Math.fround(Math.fround(Math.pow(10.0, Math.fround(this.options[OPTION_SSAO_BLUR_TOLERANCE].value())))
                 * screenWidth) / lowWidth);
             blurTolerance = Math.fround(blurTolerance * blurTolerance);
-            const upsampleTolerance = Math.fround(Math.pow(10.0, Math.fround(this.ssaoUpsampleTolerance.value())));
+            const upsampleTolerance = Math.fround(Math.pow(10.0, Math.fround(this.options[OPTION_SSAO_UPSAMPLE_TOLERANCE].value())));
             const noiseFilterWeight = Math.fround(1.0 / Math.fround(Math.fround(Math.pow(10.0,
-                Math.fround(this.ssaoNoiseFilterTolerance.value()))) + upsampleTolerance));
+                Math.fround(this.options[OPTION_SSAO_NOISE_FILTER_TOLERANCE].value()))) + upsampleTolerance));
             c[base] = Math.fround(1.0 / lowWidth);
             c[base + 1] = Math.fround(1.0 / lowHeight);
             c[base + 2] = Math.fround(1.0 / highWidth);
@@ -1359,7 +1362,7 @@ namespace RaytracingAo {
             this.addMenuLine(`      Falloff: ${this.optionValue(1)}`, true, 1);
             this.addMenuLine("  Sampling: ", false, -1);
             this.addMenuLine(`      Num Samples (n^2): ${this.optionValue(2)}`, true, 2);
-            this.addMenuLine(`      Type: ${sample.aoSampleType.value() == 0.0 ? "Uniform" : "Cosine"}`, true, -1);
+            this.addMenuLine(`      Type: ${sample.options[OPTION_AO_SAMPLE_TYPE].value() == 0.0 ? "Uniform" : "Cosine"}`, true, -1);
             // SSAO
             this.addMenuLine("SSAO:", false, -1);
             this.addMenuLine("  Tolerance:", false, -1);

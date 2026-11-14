@@ -373,20 +373,20 @@ namespace RtReflectionsNri {
                 console.log("Cannot create the scene's buffers");
                 return false;
             }
-            const views = [
-                geometryBuffer.createStructuredView(0),
-                materialConstantsBuffer.createStructuredView(0),
-                sceneIndexBuffer.createTypedView(NriFormat.R32_UINT, 0),
-                sceneVertexBuffer.createTypedView(NriFormat.R32_SFLOAT, 0),
-                sceneVertexBuffer.createTypedView(NriFormat.RGBA8_SNORM, 0),
-            ];
-            for (const view of views) {
-                if (!view) {
-                    console.log("Cannot create the scene's buffer views");
-                    return false;
-                }
-                this.sceneViews.push(view);
+            const geometryView = geometryBuffer.createStructuredView(0);
+            const materialConstantsView = materialConstantsBuffer.createStructuredView(0);
+            const sceneIndexView = sceneIndexBuffer.createTypedView(NriFormat.R32_UINT, 0);
+            const scenePositionView = sceneVertexBuffer.createTypedView(NriFormat.R32_SFLOAT, 0);
+            const sceneNormalView = sceneVertexBuffer.createTypedView(NriFormat.RGBA8_SNORM, 0);
+            if (!geometryView || !materialConstantsView || !sceneIndexView || !scenePositionView || !sceneNormalView) {
+                console.log("Cannot create the scene's buffer views");
+                return false;
             }
+            this.sceneViews.push(geometryView);
+            this.sceneViews.push(materialConstantsView);
+            this.sceneViews.push(sceneIndexView);
+            this.sceneViews.push(scenePositionView);
+            this.sceneViews.push(sceneNormalView);
 
             return this.textures.load(device, this.queue, scene, folder);
         }
@@ -622,7 +622,7 @@ namespace RtReflectionsNri {
             }
             const view = constantBuffer.createConstantView(offset, size);
             if (view) {
-                this.constantViews.push(view);
+                this.constantViews.push(new NriDescriptor(view.handle));
             }
             return view;
         }
@@ -693,7 +693,6 @@ namespace RtReflectionsNri {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), viewSet, rayTracingSet));
                 viewSet.updateDescriptor(0, 0, viewView);
                 viewSet.updateDescriptor(1, 0, anisotropicWrap);
                 rayTracingSet.updateDescriptor(0, 0, lightingView);
@@ -707,6 +706,8 @@ namespace RtReflectionsNri {
                 for (let k = 0; k < this.sceneViews.length; k++) {
                     rayTracingSet.updateDescriptor(k < 2 ? 5 : 6, k < 2 ? k : k - 2, this.sceneViews[k]);
                 }
+                // Last: the frame keeps the sets.
+                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet, rayTracingSet));
             }
 
             // The scene's textures, by number.

@@ -53,14 +53,12 @@ EXTRA_NOUNS = {
 # after the first call. Under -mm=own a cached getter's result is a borrow of its owner's field, so it
 # can be passed on (cmd.setIndexBuffer(mesh.getIndexBuffer(), ...)) but not kept in another object:
 # a getter whose result callers keep (device.getGraphicsQueue(), stored once at start-up) is not cached.
+# Nor is one whose result callers use across calls that may change its owner (accelStructs.getTopLevelAS(),
+# scene.getScene() at load): each call makes a wrapper of the caller's own (destroying nothing).
 CACHED = {
     'Nri_GetGltfMeshIndexBuffer',
     'Nri_GetGltfMeshVertexBuffer',
-    'Nri_GetUpdatableBlasAccelerationStructure',
     'Nri_GetTopLevelAccelerationStructure',
-    'Nri_GetDonutSceneTopLevelAS',
-    'Nri_GetDonutAnimatedSceneTopLevelAS',
-    'Nri_GetDonutAnimatedSceneScene',
 }
 
 
