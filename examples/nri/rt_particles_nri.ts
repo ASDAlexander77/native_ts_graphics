@@ -890,9 +890,6 @@ namespace RtParticlesNri {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), set, bindlessSet,
-                    constantView, vertexBuffer, vertexView, indexBuffer, indexView, particleInfoBuffer, particleInfoView));
-
                 set.updateDescriptor(0, 0, constantView);
                 set.updateDescriptor(1, 0, topLevelASView);
                 for (let k = 0; k < 3; k++) {
@@ -910,6 +907,9 @@ namespace RtParticlesNri {
                         bindlessSet.updateDescriptor(1, t, this.textureViews[t]);
                     }
                 }
+                // Last: the frame keeps the sets, views and buffers.
+                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), set, bindlessSet,
+                    constantView, vertexBuffer, vertexView, indexBuffer, indexView, particleInfoBuffer, particleInfoView));
             }
             if (!this.vulkan) {
                 const textureSet = descriptorPool.allocateDescriptorSet(layout, 2, 0);
