@@ -41,8 +41,8 @@ else()
 	set(TSLANG_DEFAULTLIB_BUILD_FLAG "--di")
 endif()
 
-set(TSLANG_MEMORY_MODEL "gc" CACHE STRING "Memory model of compiled code: gc, rc or none")
-set_property(CACHE TSLANG_MEMORY_MODEL PROPERTY STRINGS gc rc none)
+set(TSLANG_MEMORY_MODEL "gc" CACHE STRING "Memory model of compiled code: gc, rc, own or none")
+set_property(CACHE TSLANG_MEMORY_MODEL PROPERTY STRINGS gc rc own none)
 
 # Android (the NDK's toolchain file, see the android-* presets): the TypeScript is compiled for the
 # toolchain's ABI and API level, the same triple the C++ is compiled for, and that triple also picks

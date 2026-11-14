@@ -118,3 +118,47 @@ jobs:
       - name: Disk space after build
         if: always()
         run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, Root
+
+  # Every example built again under tslang's single-owner memory model (-mm=own, the `default-own`
+  # preset), where an ownership mistake is a compile error: a change that breaks it fails here. Its
+  # tests need a GPU (run them locally: `ctest --test-dir build-own`).
+  build-own:
+    runs-on: windows-2025
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: tslang cache
+        uses: actions/cache@v4
+        with:
+          path: tools/tslang
+          key: tslang-${{ hashFiles('cmake/CMakeDetermineTSLANGCompiler.cmake') }}
+
+      # DXC with SPIR-V output, for the Vulkan shaders.
+      - name: Vulkan SDK
+        run: |
+          $v = $env:VULKAN_SDK_VERSION
+          $root = "C:\VulkanSDK\$v"
+          $exe = "$env:RUNNER_TEMP\vulkansdk.exe"
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$v/windows/vulkansdk-windows-X64-$v.exe" -OutFile $exe
+          & $exe --root $root --accept-licenses --default-answer --confirm-command install | Out-Host
+          if (-not (Test-Path "$root\Bin\dxc.exe")) { throw "Vulkan SDK install failed: no $root\Bin\dxc.exe" }
+          "VULKAN_SDK=$root" >> $env:GITHUB_ENV
+          "$root\Bin" >> $env:GITHUB_PATH
+
+      - name: Configure (-mm=own)
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          "VCVARS=$vs\VC\Auxiliary\Build\vcvars64.bat" >> $env:GITHUB_ENV
+          cmd /c "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" && cmake --preset default-own -DVULKAN_SAMPLES_ASSETS_DIR= -DXBOX_ATG_SAMPLES_DIR= -DDIRECTX_GRAPHICS_SAMPLES_DIR="
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build (-mm=own)
+        run: |
+          cmd /c "call `"$env:VCVARS`" && cmake --build --preset default-own"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
