@@ -50,7 +50,9 @@ EXTRA_NOUNS = {
 
 # Getters of an object fixed for the object's life (set when it's made): the class keeps the first
 # result, so a getter called each frame (mesh.getIndexBuffer() in a draw loop) makes no object
-# after the first call.
+# after the first call. Under -mm=own a cached getter's result is a borrow of its owner's field, so it
+# can be passed on (cmd.setIndexBuffer(mesh.getIndexBuffer(), ...)) but not kept in another object:
+# a getter whose result callers keep (device.getGraphicsQueue(), stored once at start-up) is not cached.
 CACHED = {
     'Nri_GetGltfMeshIndexBuffer',
     'Nri_GetGltfMeshVertexBuffer',
@@ -59,7 +61,6 @@ CACHED = {
     'Nri_GetDonutSceneTopLevelAS',
     'Nri_GetDonutAnimatedSceneTopLevelAS',
     'Nri_GetDonutAnimatedSceneScene',
-    'Nri_GetGraphicsQueue',
 }
 
 
@@ -301,13 +302,16 @@ def generate(handles, functions, cls_of):
                 if f.static or params or ret.endswith(' | null'):
                     sys.exit(f"{f.name}: only a method without parameters and a non-null result is cached")
                 field = 'cached' + f.method[3:] if f.method.startswith('get') else 'cached' + f.method[:1].upper() + f.method[1:]
+                # The result is a borrow of this object's field, which a method other modules call has to
+                # say in its signature under -mm=own.
+                body.append('    @lends("this")')
                 body.append(f'    {f.method}(): {cls_of[rb]} {{')
-                body.append(f'        let result = this.{field};')
-                body.append('        if (!result) {')
-                body.append(f'            result = new {cls_of[rb]}({call});')
-                body.append(f'            this.{field} = result;')
+                # The field itself, not a local: tslang's -mm=own refuses to return a local that was read
+                # from the field or moved into it (TypeScriptCompiler's TSLANG_ISSUES.md, item 47).
+                body.append(f'        if (!this.{field}) {{')
+                body.append(f'            this.{field} = new {cls_of[rb]}({call});')
                 body.append('        }')
-                body.append('        return result;')
+                body.append(f'        return this.{field};')
                 cached_fields.append(f'    private {field}: {cls_of[rb]} | null = null;')
             elif rb in cls_of:
                 body.append(f'    {static}{f.method}({sig}): {cls_of[rb]} {{')

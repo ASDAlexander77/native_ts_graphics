@@ -32,22 +32,31 @@ export class NriComputeKernels {
         this.groupSize = Math.max(groupSize, 1);
     }
 
-    // The kernels' pipelines, their descriptor set, and the buffers barrier masks name, in order.
+    // The kernels' pipelines, their descriptor set, and the buffers barrier masks name, in order. It
+    // keeps wrappers of its own of them (handles; the caller keeps theirs, and destroys the objects).
     bind(pipelines: NriPipeline[], set: NriDescriptorSet, buffers: NriBuffer[]) {
         this.pipelines = [];
         for (const pipeline of pipelines) {
-            this.pipelines.push(pipeline);
+            this.pipelines.push(new NriPipeline(pipeline.handle));
         }
-        this.set = set;
+        this.set = new NriDescriptorSet(set.handle);
         this.buffers = [];
         for (const buffer of buffers) {
-            this.buffers.push(buffer);
+            this.buffers.push(new NriBuffer(buffer.handle));
         }
     }
 
     // A timestamp after each dispatch, marked with its kernel (when the profiler's timing a frame).
+    // The kernels keep the profiler (under -mm=own an object has one owner); the app reaches it
+    // through getProfiler(), to begin, end, read and destroy it.
+    @keeps("profiler")
     setProfiler(profiler: NriGpuProfiler | null) {
         this.profiler = profiler;
+    }
+
+    @lends("this")
+    getProfiler(): NriGpuProfiler | null {
+        return this.profiler;
     }
 
     setFloat(index: int, value: number) {
