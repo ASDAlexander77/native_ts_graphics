@@ -60,6 +60,18 @@
       }
     },
     {
+      "name": "default-own",
+      "displayName": "Default, -mm=own (Ninja)",
+      "description": "The single-owner memory model (tslang -mm=own): ownership errors are compile errors.",
+      "inherits": "base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-own",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TSLANG_MEMORY_MODEL": "own"
+      }
+    },
+    {
       "name": "dlss",
       "displayName": "Default with DLSS (Ninja)",
       "description": "Debug with NVIDIA DLSS (DONUT_WITH_DLSS): Donut fetches the DLSS SDK from GitHub at configure time, and this project the DLSS-NR (DLSS 5) SDK (DONUT_WITH_DLSS_NR, ~370 MB).",
@@ -257,6 +269,10 @@
     {
       "name": "release-rc",
       "configurePreset": "release-rc"
+    },
+    {
+      "name": "default-own",
+      "configurePreset": "default-own"
     },
     {
       "name": "dlss",

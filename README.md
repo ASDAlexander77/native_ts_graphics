@@ -803,7 +803,10 @@ cmake --preset default -DTSLANG_MEMORY_MODEL=rc
 It selects `defaultlib/lib/<target>/<debug|release>/<model>` (on Windows
 `defaultlib/lib/x86_64/pc/windows/msvc/release/gc`, as `tslang --print-default-lib-dir=lib` names
 it) as the link directory and adds `-mm=<model>` to the compile flags, so the two cannot disagree.
-Valid values are `gc` (default), `rc` and `none`; only `gc` links Boehm.
+Valid values are `gc` (default), `rc`, `own` and `none`; only `gc` links Boehm. `own` is the
+single-owner model: each value has one owner and ownership mistakes are compile errors. Every
+example builds and passes its tests under it (the `default-own` preset, `build-own`), and CI builds
+it on each pull request so a change that breaks it fails there.
 
 ## Android
 
