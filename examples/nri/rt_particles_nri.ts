@@ -344,7 +344,7 @@ namespace RtParticlesNri {
                     const sourceView = texture.createMipView(NriFormat.RGBA8_SRGB, mip - 1);
                     set.updateDescriptor(0, 0, sourceView);
                     set.updateDescriptor(1, 0, linearClamp);
-                    this.blits.push(new MipBlit(texture, mip, Math.max(width >> mip, 1), Math.max(height >> mip, 1),
+                    this.blits.push(new MipBlit(new NriTexture(texture.handle), mip, Math.max(width >> mip, 1), Math.max(height >> mip, 1),
                         texture.createColorAttachmentMipView(NriFormat.RGBA8_SRGB, mip), sourceView, set));
                 }
             }
@@ -536,7 +536,8 @@ namespace RtParticlesNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
@@ -670,18 +671,19 @@ namespace RtParticlesNri {
             if (!this.sceneTextures.load(device, this.queue, scene, this.folder)) {
                 return false;
             }
+            // Wrappers of their own (destroying nothing): the views stay sceneTextures' and particleTextures'.
             for (const view of this.sceneTextures.views) {
-                this.textureViews.push(view);
+                this.textureViews.push(new NriDescriptor(view.handle));
             }
             const environmentMapView = this.environmentMapView;
             if (!environmentMapView) {
                 return false;
             }
             this.environmentMapIndex = this.textureViews.length;
-            this.textureViews.push(environmentMapView);
+            this.textureViews.push(new NriDescriptor(environmentMapView.handle));
             for (const view of this.particleTextures.views) {
                 this.particleTextureIndices.push(this.textureViews.length);
-                this.textureViews.push(view);
+                this.textureViews.push(new NriDescriptor(view.handle));
             }
 
             // Its texture set before the scene's buffers are made (Donut's first onRender, before the
@@ -888,7 +890,7 @@ namespace RtParticlesNri {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), set, bindlessSet,
+                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), set, bindlessSet,
                     constantView, vertexBuffer, vertexView, indexBuffer, indexView, particleInfoBuffer, particleInfoView));
 
                 set.updateDescriptor(0, 0, constantView);

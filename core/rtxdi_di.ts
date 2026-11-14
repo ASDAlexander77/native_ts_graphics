@@ -28,6 +28,7 @@ const RTXDI_SCREEN_SPACE_GROUP_SIZE = 8;
 // ReSTIRDIContext and RtxdiResources): the light buffers PrepareLightsPass fills, the neighbor offsets, the
 // reservoirs and the resampling constant buffer. Made again on resize (dispose, then a new one), as the
 // sample drops both in BackBufferResized. isNull() when the resources couldn't be made (logged).
+@final
 export class RtxdiDI {
     readonly context: RtxdiDIContextHandle;
     readonly resources: RtxdiResourcesHandle;
@@ -93,6 +94,7 @@ export class RtxdiDI {
 // The G-buffer the sample's RenderTargets keeps a current and a previous one of (swapped every frame): depth
 // (R32_FLOAT), normals, geometry normals, diffuse albedo and specular / roughness (R32_UINT, packed). UAV
 // textures resting at UnorderedAccess, as the sample's.
+@final
 export class RtxdiGBuffer {
     readonly depth: TextureHandle;
     readonly normals: TextureHandle;
@@ -120,6 +122,7 @@ export class RtxdiGBuffer {
 
 // The sample's RenderTargets: the G-buffers of this frame and the last (swap() after each frame, its
 // NextFrame) and the HDR color the shading writes (RGBA16_FLOAT, one: it isn't kept across frames).
+@final
 export class RtxdiRenderTargets {
     current: RtxdiGBuffer;
     previous: RtxdiGBuffer;
@@ -151,6 +154,7 @@ export class RtxdiRenderTargets {
 // descriptor table the scene was loaded with, its vertex and index buffers and emissive textures.
 // Registers as PrepareLights.hlsl's: b0 the push constants (numTasks), u0 the light data, t0 the tasks,
 // t2 / t3 / t4 the instance, geometry and material buffers, s0 the anisotropic wrap sampler.
+@final
 export class PrepareLightsPass {
     private bindingLayout: BindingLayoutHandle;
     private pipeline: ComputePipelineHandle | null = null;
@@ -228,6 +232,7 @@ export class PrepareLightsPass {
 // The Minimal Sample's RenderPass::Settings, which its UI changes: resampling on or off, unbiased mode (ray traced
 // bias correction in the spatio-temporal resampling, else basic), the initial local light and BRDF samples, the
 // BRDF cutoff and the spatial samples. The four numbers default to the sample's (Rtxdi_GetDefaultSettings).
+@final
 export class RtxdiMinimalSettings {
     enableResampling: boolean = true;
     unbiasedMode: boolean = false;
@@ -255,6 +260,7 @@ export class RtxdiMinimalSettings {
 // geometries and materials, t20 the light data, t21 the neighbor offsets (typed), t22 the geometry instance to
 // light map, u0 the light reservoirs, u1 the HDR color, b0 the resampling constants (volatile), s0 and s1
 // linear wrap samplers (the sample binds both; the shader reads s0).
+@final
 export class RenderPass {
     private bindingLayout: BindingLayoutHandle;
     private pipeline: ComputePipelineHandle | null = null;

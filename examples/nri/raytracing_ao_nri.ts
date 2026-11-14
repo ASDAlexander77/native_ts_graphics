@@ -290,8 +290,10 @@ namespace RaytracingAoNri {
         // A material texture (DirectXTK's EffectTextureFactory: DDS files as they are), or the
         // placeholder for none; null if it can't be loaded.
         loadTexture(device: NriDevice, queue: NriQueue, name: string, placeholder: NriDescriptor): NriDescriptor | null {
+            // (Wrappers of their own, destroying nothing: the views stay the placeholder's owner's and
+            // textureViews'.)
             if (name == "") {
-                return placeholder;
+                return new NriDescriptor(placeholder.handle);
             }
             const texture = device.loadDdsTexture(queue, MEDIA_DIR + name, 0);
             if (!texture) {
@@ -300,8 +302,9 @@ namespace RaytracingAoNri {
             }
             this.textures.push(texture);
             const view = texture.createView(texture.getFormat());
+            const result = new NriDescriptor(view.handle);
             this.textureViews.push(view);
-            return view;
+            return result;
         }
 
         // False (after printing why) on failure.
@@ -615,22 +618,24 @@ namespace RaytracingAoNri {
         // Made for the output's size (the frame's, half its width when split).
         private outputWidth: int = 0;
         private outputHeight: int = 0;
-        private targets: Target[] = [];
-        private aoOutput: Target | null = null;
-        private ssaoOutput: Target | null = null;
-        private gbufferNormals: Target | null = null;
-        private gbufferDiffuse: Target | null = null;
-        private gbufferDepth: Target | null = null;
+        // Shared handles: targets (which destroys them) and the fields and lists below name the same
+        // targets, whose state the barriers keep track of.
+        private targets: Shared<Target>[] = [];
+        private aoOutput: Shared<Target> | null = null;
+        private ssaoOutput: Shared<Target> | null = null;
+        private gbufferNormals: Shared<Target> | null = null;
+        private gbufferDiffuse: Shared<Target> | null = null;
+        private gbufferDepth: Shared<Target> | null = null;
         private clearGBuffer: boolean = false;
-        private linearDepth: Target | null = null;
-        private depthDownsize: Target[] = [];
-        private depthTiled: Target[] = [];
-        private normalDownsize: Target[] = [];
-        private normalTiled: Target[] = [];
-        private merged: Target[] = [];
-        private smooth: Target[] = [];
-        private highQuality: Target[] = [];
-        private ssao: Target | null = null;
+        private linearDepth: Shared<Target> | null = null;
+        private depthDownsize: Shared<Target>[] = [];
+        private depthTiled: Shared<Target>[] = [];
+        private normalDownsize: Shared<Target>[] = [];
+        private normalTiled: Shared<Target>[] = [];
+        private merged: Shared<Target>[] = [];
+        private smooth: Shared<Target>[] = [];
+        private highQuality: Shared<Target>[] = [];
+        private ssao: Shared<Target> | null = null;
         private bufferWidth: int[] = [];
         private bufferHeight: int[] = [];
         private descriptorPool: NriDescriptorPool | null = null;
@@ -735,7 +740,8 @@ namespace RaytracingAoNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
@@ -1307,41 +1313,48 @@ namespace RaytracingAoNri {
         // --- The output-sized resources ---------------------------------------------------------
 
         // A storage texture (in NriTextureState.Storage) with a storage view and a view to read.
-        storageTarget(device: NriDevice, width: int, height: int, format: NriFormat): Target | null {
+        storageTarget(device: NriDevice, width: int, height: int, format: NriFormat): Shared<Target> | null {
             const texture = device.createStorageTexture(this.queue, width, height, format);
             if (!texture) {
                 return null;
             }
-            const target = new Target(texture, NriTextureState.Storage);
-            target.storageView = texture.createStorageView(format);
-            target.readView = texture.createView(format);
+            // (The views before the texture moves into its target.)
+            const storageView = texture.createStorageView(format);
+            const readView = texture.createView(format);
+            const target = new Shared(new Target(texture, NriTextureState.Storage));
+            target.value.storageView = storageView;
+            target.value.readView = readView;
             this.targets.push(target);
             return target;
         }
 
         // A storage texture array of 16 layers (a deinterleaved atlas), in NriTextureState.Storage.
-        storageArrayTarget(device: NriDevice, width: int, height: int, format: NriFormat): Target | null {
+        storageArrayTarget(device: NriDevice, width: int, height: int, format: NriFormat): Shared<Target> | null {
             const texture = device.createStorageTextureArray(this.queue, width, height, 16, format);
             if (!texture) {
                 return null;
             }
-            const target = new Target(texture, NriTextureState.Storage);
-            target.storageView = texture.createStorageArrayView(format);
-            target.readView = texture.createArrayView(format);
+            const storageView = texture.createStorageArrayView(format);
+            const readView = texture.createArrayView(format);
+            const target = new Shared(new Target(texture, NriTextureState.Storage));
+            target.value.storageView = storageView;
+            target.value.readView = readView;
             this.targets.push(target);
             return target;
         }
 
         // A render target (in NriTextureState.ShaderResource) with its attachment view and a view
         // to read.
-        renderTarget(device: NriDevice, width: int, height: int, format: NriFormat): Target | null {
+        renderTarget(device: NriDevice, width: int, height: int, format: NriFormat): Shared<Target> | null {
             const texture = device.createRenderTargetTexture(this.queue, width, height, format);
             if (!texture) {
                 return null;
             }
-            const target = new Target(texture, NriTextureState.ShaderResource);
-            target.attachment = texture.createColorAttachmentView(format);
-            target.readView = texture.createView(format);
+            const attachment = texture.createColorAttachmentView(format);
+            const readView = texture.createView(format);
+            const target = new Shared(new Target(texture, NriTextureState.ShaderResource));
+            target.value.attachment = attachment;
+            target.value.readView = readView;
             this.targets.push(target);
             return target;
         }
@@ -1375,7 +1388,7 @@ namespace RaytracingAoNri {
             }
             this.descriptorPool = null;
             for (const target of this.targets) {
-                target.destroy();
+                target.value.destroy();
             }
             this.targets = [];
             this.aoSets = [];
@@ -1444,7 +1457,7 @@ namespace RaytracingAoNri {
             // the same layout: no barrier between them, which D3D12 would take as the same state).
             const aoOutputCreated = this.aoOutput;
             if (aoOutputCreated) {
-                aoOutputCreated.state = NriTextureState.RayTracingStorage;
+                aoOutputCreated.value.state = NriTextureState.RayTracingStorage;
             }
 
             // The G-buffer: normals and diffuse color (the sample's two R11G11B10 slices), depth;
@@ -1454,9 +1467,11 @@ namespace RaytracingAoNri {
             this.clearGBuffer = true;
             const depthTexture = device.createSampledDepthTexture(this.queue, width, height, NriFormat.D32_SFLOAT);
             if (depthTexture) {
-                const depth = new Target(depthTexture, NriTextureState.ShaderResource);
-                depth.attachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
-                depth.readView = depthTexture.createView(NriFormat.D32_SFLOAT);
+                const attachment = depthTexture.createDepthAttachmentView(NriFormat.D32_SFLOAT);
+                const readView = depthTexture.createView(NriFormat.D32_SFLOAT);
+                const depth = new Shared(new Target(depthTexture, NriTextureState.ShaderResource));
+                depth.value.attachment = attachment;
+                depth.value.readView = readView;
                 this.targets.push(depth);
                 this.gbufferDepth = depth;
             }
@@ -1486,19 +1501,19 @@ namespace RaytracingAoNri {
                     ok = false;
                     break;
                 }
-                this.depthDownsize.push(depthDownsize as Target);
-                this.depthTiled.push(depthTiled as Target);
-                this.normalDownsize.push(normalDownsize as Target);
-                this.normalTiled.push(normalTiled as Target);
-                this.merged.push(merged as Target);
-                this.highQuality.push(highQuality as Target);
+                this.depthDownsize.push(depthDownsize as Shared<Target>);
+                this.depthTiled.push(depthTiled as Shared<Target>);
+                this.normalDownsize.push(normalDownsize as Shared<Target>);
+                this.normalTiled.push(normalTiled as Shared<Target>);
+                this.merged.push(merged as Shared<Target>);
+                this.highQuality.push(highQuality as Shared<Target>);
                 if (i < NUM_BUFFERS - 1) {
                     const smooth = this.storageTarget(device, w, h, NriFormat.R8_UNORM);
                     if (!smooth) {
                         ok = false;
                         break;
                     }
-                    this.smooth.push(smooth as Target);
+                    this.smooth.push(smooth as Shared<Target>);
                 }
             }
             this.ssao = this.storageTarget(device, width, height, NriFormat.R8_UNORM);
@@ -1539,7 +1554,7 @@ namespace RaytracingAoNri {
                     if (!set) {
                         return false;
                     }
-                    this.updateRange(set, 0, [aoOutput.storageView]);
+                    this.updateRange(set, 0, [aoOutput.value.storageView]);
                     this.updateRange(set, 1, [mesh.topLevelASView]);
                     this.updateRange(set, 2, [queuedFrame.sceneView, queuedFrame.aoRaysView, queuedFrame.aoOptionsView, mesh.materialView]);
                     this.updateRange(set, 3, [this.pointWrapSampler, this.linearClampSampler]);
@@ -1568,13 +1583,13 @@ namespace RaytracingAoNri {
                         return false;
                     }
                     this.updateRange(tiled, 0, [queuedFrame.sceneView, queuedFrame.ssaoViews[SSAO_TILED_SLICE + i]]);
-                    this.updateRange(tiled, 1, [this.depthTiled[i].readView, this.normalTiled[i].readView]);
-                    this.updateRange(tiled, 2, [this.merged[i].storageView]);
+                    this.updateRange(tiled, 1, [this.depthTiled[i].value.readView, this.normalTiled[i].value.readView]);
+                    this.updateRange(tiled, 2, [this.merged[i].value.storageView]);
                     this.updateRange(tiled, 3, [this.pointClampSampler]);
                     this.render1Sets.push(tiled as NriDescriptorSet);
                     this.updateRange(downsized, 0, [queuedFrame.sceneView, queuedFrame.ssaoViews[SSAO_HIGH_QUALITY_SLICE + i]]);
-                    this.updateRange(downsized, 1, [this.depthDownsize[i].readView, this.normalDownsize[i].readView]);
-                    this.updateRange(downsized, 2, [this.highQuality[i].storageView]);
+                    this.updateRange(downsized, 1, [this.depthDownsize[i].value.readView, this.normalDownsize[i].value.readView]);
+                    this.updateRange(downsized, 2, [this.highQuality[i].value.storageView]);
                     this.updateRange(downsized, 3, [this.pointClampSampler]);
                     this.render2Sets.push(downsized as NriDescriptorSet);
                 }
@@ -1588,14 +1603,14 @@ namespace RaytracingAoNri {
                     this.updateRange(blur, 0, [queuedFrame.ssaoViews[SSAO_BLUR_SLICE + i]]);
                     this.updateRange(blur, 1, [this.linearClampSampler]);
                     if (i == 0) {
-                        this.updateRange(blur, 2, [this.depthDownsize[0].readView, linearDepth.readView, this.smooth[0].readView,
-                            this.highQuality[0].readView]);
-                        this.updateRange(blur, 3, [ssao.storageView]);
+                        this.updateRange(blur, 2, [this.depthDownsize[0].value.readView, linearDepth.value.readView, this.smooth[0].value.readView,
+                            this.highQuality[0].value.readView]);
+                        this.updateRange(blur, 3, [ssao.value.storageView]);
                     } else {
                         const lower = i == NUM_BUFFERS - 1 ? this.merged[i] : this.smooth[i];
-                        this.updateRange(blur, 2, [this.depthDownsize[i].readView, this.depthDownsize[i - 1].readView, lower.readView,
-                            this.highQuality[i].readView, this.merged[i - 1].readView]);
-                        this.updateRange(blur, 3, [this.smooth[i - 1].storageView]);
+                        this.updateRange(blur, 2, [this.depthDownsize[i].value.readView, this.depthDownsize[i - 1].value.readView, lower.value.readView,
+                            this.highQuality[i].value.readView, this.merged[i - 1].value.readView]);
+                        this.updateRange(blur, 3, [this.smooth[i - 1].value.storageView]);
                     }
                     this.blurSets.push(blur as NriDescriptorSet);
                 }
@@ -1610,25 +1625,25 @@ namespace RaytracingAoNri {
             if (!prepare1 || !prepare2 || !composite || !blitSsao || !blitAo) {
                 return false;
             }
-            this.updateRange(prepare1, 0, [gbufferDepth.readView, gbufferNormals.readView]);
-            this.updateRange(prepare1, 1, [linearDepth.storageView, this.depthDownsize[0].storageView, this.depthTiled[0].storageView,
-                this.depthDownsize[1].storageView, this.depthTiled[1].storageView, this.normalDownsize[0].storageView,
-                this.normalTiled[0].storageView, this.normalDownsize[1].storageView, this.normalTiled[1].storageView]);
+            this.updateRange(prepare1, 0, [gbufferDepth.value.readView, gbufferNormals.value.readView]);
+            this.updateRange(prepare1, 1, [linearDepth.value.storageView, this.depthDownsize[0].value.storageView, this.depthTiled[0].value.storageView,
+                this.depthDownsize[1].value.storageView, this.depthTiled[1].value.storageView, this.normalDownsize[0].value.storageView,
+                this.normalTiled[0].value.storageView, this.normalDownsize[1].value.storageView, this.normalTiled[1].value.storageView]);
             this.prepare1Set = prepare1;
-            this.updateRange(prepare2, 0, [this.depthDownsize[1].readView, this.normalDownsize[1].readView]);
-            this.updateRange(prepare2, 1, [this.depthDownsize[2].storageView, this.depthTiled[2].storageView, this.depthDownsize[3].storageView,
-                this.depthTiled[3].storageView, this.normalDownsize[2].storageView, this.normalTiled[2].storageView,
-                this.normalDownsize[3].storageView, this.normalTiled[3].storageView]);
+            this.updateRange(prepare2, 0, [this.depthDownsize[1].value.readView, this.normalDownsize[1].value.readView]);
+            this.updateRange(prepare2, 1, [this.depthDownsize[2].value.storageView, this.depthTiled[2].value.storageView, this.depthDownsize[3].value.storageView,
+                this.depthTiled[3].value.storageView, this.normalDownsize[2].value.storageView, this.normalTiled[2].value.storageView,
+                this.normalDownsize[3].value.storageView, this.normalTiled[3].value.storageView]);
             this.prepare2Set = prepare2;
             // Phase 5: the SSAO times the diffuse color.
-            this.updateRange(composite, 0, [ssao.readView, gbufferDiffuse.readView, gbufferDepth.readView]);
-            this.updateRange(composite, 1, [ssaoOutput.storageView]);
+            this.updateRange(composite, 0, [ssao.value.readView, gbufferDiffuse.value.readView, gbufferDepth.value.readView]);
+            this.updateRange(composite, 1, [ssaoOutput.value.storageView]);
             this.compositeSet = composite;
             // The blits of the outputs into the swap chain texture.
-            this.updateRange(blitSsao, 0, [ssaoOutput.readView]);
+            this.updateRange(blitSsao, 0, [ssaoOutput.value.readView]);
             this.updateRange(blitSsao, 1, [this.linearClampSampler]);
             this.blitSsaoSet = blitSsao;
-            this.updateRange(blitAo, 0, [aoOutput.readView]);
+            this.updateRange(blitAo, 0, [aoOutput.value.readView]);
             this.updateRange(blitAo, 1, [this.linearClampSampler]);
             this.blitAoSet = blitAo;
             return true;
@@ -1639,15 +1654,15 @@ namespace RaytracingAoNri {
         // A compute dispatch of pipeline with set (its textures moved to the states it needs first:
         // reads to ComputeShaderResource, writes to Storage).
         dispatch(commandBuffer: NriCommandBuffer, layout: NriPipelineLayout | null, pipeline: NriPipeline | null,
-            set: NriDescriptorSet | null, reads: Target[], writes: Target[], x: int, y: int, z: int) {
+            set: NriDescriptorSet | null, reads: Shared<Target>[], writes: Shared<Target>[], x: int, y: int, z: int) {
             if (!layout || !pipeline || !set) {
                 return;
             }
             for (const target of reads) {
-                target.use(commandBuffer, NriTextureState.ComputeShaderResource);
+                target.value.use(commandBuffer, NriTextureState.ComputeShaderResource);
             }
             for (const target of writes) {
-                target.use(commandBuffer, NriTextureState.Storage);
+                target.value.use(commandBuffer, NriTextureState.Storage);
             }
             commandBuffer.setComputePipelineLayout(layout);
             commandBuffer.setPipeline(pipeline);
@@ -1664,7 +1679,7 @@ namespace RaytracingAoNri {
             if (!aoLayout || !aoPipeline || !shaderTable || !aoOutput) {
                 return;
             }
-            aoOutput.use(commandBuffer, NriTextureState.RayTracingStorage);
+            aoOutput.value.use(commandBuffer, NriTextureState.RayTracingStorage);
             commandBuffer.setRayTracingPipelineLayout(aoLayout);
             commandBuffer.setPipeline(aoPipeline);
             commandBuffer.setRayTracingDescriptorSet(0, this.aoSets[queuedFrameIndex * this.meshes.length + this.meshIndex]);
@@ -1688,17 +1703,17 @@ namespace RaytracingAoNri {
                 || !linearDepth || !ssao || !ssaoOutput) {
                 return;
             }
-            const normalsAttachment = gbufferNormals.attachment;
-            const diffuseAttachment = gbufferDiffuse.attachment;
-            const depthAttachment = gbufferDepth.attachment;
+            const normalsAttachment = gbufferNormals.value.attachment;
+            const diffuseAttachment = gbufferDiffuse.value.attachment;
+            const depthAttachment = gbufferDepth.value.attachment;
             if (!normalsAttachment || !diffuseAttachment || !depthAttachment) {
                 return;
             }
 
             // Phase 1: Render GBuffer.
-            gbufferNormals.use(commandBuffer, NriTextureState.ColorAttachment);
-            gbufferDiffuse.use(commandBuffer, NriTextureState.ColorAttachment);
-            gbufferDepth.use(commandBuffer, NriTextureState.DepthAttachment);
+            gbufferNormals.value.use(commandBuffer, NriTextureState.ColorAttachment);
+            gbufferDiffuse.value.use(commandBuffer, NriTextureState.ColorAttachment);
+            gbufferDepth.value.use(commandBuffer, NriTextureState.DepthAttachment);
             if (this.clearGBuffer) {
                 commandBuffer.beginRendering(normalsAttachment);
                 commandBuffer.clearColor(0.0, 0.0, 0.0, 0.0);
@@ -2000,10 +2015,10 @@ namespace RaytracingAoNri {
 
                 // The outputs blitted into the swap chain texture, the HUD over them.
                 if (runAo) {
-                    aoOutput.use(commandBuffer, NriTextureState.ShaderResource);
+                    aoOutput.value.use(commandBuffer, NriTextureState.ShaderResource);
                 }
                 if (runSsao) {
-                    ssaoOutput.use(commandBuffer, NriTextureState.ShaderResource);
+                    ssaoOutput.value.use(commandBuffer, NriTextureState.ShaderResource);
                 }
                 commandBuffer.textureBarrier(texture, NriTextureState.Undefined, NriTextureState.ColorAttachment);
                 commandBuffer.beginRendering(this.swapChain.colorAttachment(index));

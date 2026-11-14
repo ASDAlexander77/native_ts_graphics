@@ -109,9 +109,7 @@ namespace GshaderToMshader {
                     pivot = row;
                 }
             }
-            const swap = rows[column];
-            rows[column] = rows[pivot];
-            rows[pivot] = swap;
+            [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
             const scale = 1.0 / rows[column][column];
             for (let k = 0; k < 8; k++) {
                 rows[column][k] *= scale;

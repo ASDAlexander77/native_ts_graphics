@@ -255,16 +255,16 @@ namespace RayTracingExtended {
         // normals averaged from the faces'. As in the sample, its index array has room for
         // 2 x GRID_SIZE^2 triangles but uses 2 x (GRID_SIZE - 1)^2: the rest are (0, 0, 0).
         createDynamicObjectBuffers(time: number) {
-            const model = this.refractionModel;
-            const indices = this.refractionIndices;
-            if (model.length == 0) {
+            if (this.refractionModel.length == 0) {
                 for (let i = 0; i < GRID_SIZE * GRID_SIZE * VERTEX_FLOATS; i++) {
-                    model.push(0.0);
+                    this.refractionModel.push(0.0);
                 }
                 for (let i = 0; i < 2 * GRID_SIZE * GRID_SIZE * 3; i++) {
-                    indices.push(0);
+                    this.refractionIndices.push(0);
                 }
             }
+            const model = this.refractionModel;
+            const indices = this.refractionIndices;
 
             for (let i = 0; i < GRID_SIZE; i++) {
                 for (let j = 0; j < GRID_SIZE; j++) {
@@ -362,7 +362,7 @@ namespace RayTracingExtended {
             const flame = this.modelBuffers[flameIndex];
             const particles = this.flameGenerator.particles;
             for (const particle of particles) {
-                this.calculateRotation(particle.position, 0.25, true);
+                this.calculateRotation(particle.value.position, 0.25, true);
                 tlas.addInstanceWithTransform(flame.blas.getAccelStruct(), 0xFF, flameIndex, INSTANCE_FLAGS_CULL_DISABLE,
                     Ref(this.transform[0]));
             }

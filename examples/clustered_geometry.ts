@@ -145,9 +145,10 @@ namespace ClusteredGeometry {
     // whose color it shows, its flags and material region.
     class Cluster {
         clusterID: int = 0;
-        positions: number[] = [];
-        normals: number[] = [];
-        indices: int[] = [];
+        // Shared handles: a clone shares the vertex and index data (which nothing changes once built).
+        positions: Shared<number[]> = new Shared<number[]>([]);
+        normals: Shared<number[]> = new Shared<number[]>([]);
+        indices: Shared<int[]> = new Shared<int[]>([]);
         gridU: int = 0;
         gridV: int = 0;
         matchedColorCid: int = 0;
@@ -155,14 +156,14 @@ namespace ClusteredGeometry {
         matRegionIdx: int = 0;
 
         vertexCount(): int {
-            return this.positions.length / 3;
+            return this.positions.value.length / 3;
         }
 
         triangleCount(): int {
-            return this.indices.length / 3;
+            return this.indices.value.length / 3;
         }
 
-        // A copy sharing the vertex and index data (which nothing changes).
+        // A copy sharing the vertex and index data (copies of the handles).
         clone(): Cluster {
             const c = new Cluster();
             c.clusterID = this.clusterID;
@@ -203,12 +204,12 @@ namespace ClusteredGeometry {
                 const i01 = li * rowSize + lj + 1;
                 const i10 = (li + 1) * rowSize + lj;
                 const i11 = (li + 1) * rowSize + lj + 1;
-                c.indices.push(i00);
-                c.indices.push(i11);
-                c.indices.push(i10);
-                c.indices.push(i00);
-                c.indices.push(i01);
-                c.indices.push(i11);
+                c.indices.value.push(i00);
+                c.indices.value.push(i11);
+                c.indices.value.push(i10);
+                c.indices.value.push(i00);
+                c.indices.value.push(i01);
+                c.indices.value.push(i11);
             }
         }
     }
@@ -244,12 +245,12 @@ namespace ClusteredGeometry {
                         const nx = f(sinT * cosP);
                         const ny = cosT;
                         const nz = f(sinT * sinP);
-                        c.positions.push(f(r * nx));
-                        c.positions.push(f(r * ny));
-                        c.positions.push(f(r * nz));
-                        c.normals.push(nx);
-                        c.normals.push(ny);
-                        c.normals.push(nz);
+                        c.positions.value.push(f(r * nx));
+                        c.positions.value.push(f(r * ny));
+                        c.positions.value.push(f(r * nz));
+                        c.normals.value.push(nx);
+                        c.normals.value.push(ny);
+                        c.normals.value.push(nz);
                     }
                 }
                 gridTriangles(c, tileLat, tileLong);
@@ -295,12 +296,12 @@ namespace ClusteredGeometry {
                         const cv = fcos(v);
                         const sv = fsin(v);
                         const r = f(major + f(minor * cv));
-                        c.positions.push(f(r * cu));
-                        c.positions.push(f(minor * sv));
-                        c.positions.push(f(r * su));
-                        c.normals.push(f(cv * cu));
-                        c.normals.push(sv);
-                        c.normals.push(f(cv * su));
+                        c.positions.value.push(f(r * cu));
+                        c.positions.value.push(f(minor * sv));
+                        c.positions.value.push(f(r * su));
+                        c.normals.value.push(f(cv * cu));
+                        c.normals.value.push(sv);
+                        c.normals.value.push(f(cv * su));
                     }
                 }
                 gridTriangles(c, tileRing, tileSide);
@@ -344,11 +345,11 @@ namespace ClusteredGeometry {
                             const u = f(du * (tu * tileSize + lj));
                             const v = f(du * (tv * tileSize + li));
                             for (let k = 0; k < 3; k++) {
-                                c.positions.push(f(f(faces[o + k] + f(faces[o + 3 + k] * u)) + f(faces[o + 6 + k] * v)));
+                                c.positions.value.push(f(f(faces[o + k] + f(faces[o + 3 + k] * u)) + f(faces[o + 6 + k] * v)));
                             }
-                            c.normals.push(nx);
-                            c.normals.push(ny);
-                            c.normals.push(nz);
+                            c.normals.value.push(nx);
+                            c.normals.value.push(ny);
+                            c.normals.value.push(nz);
                         }
                     }
                     gridTriangles(c, tileSize, tileSize);
@@ -394,12 +395,12 @@ namespace ClusteredGeometry {
                     }
                     for (let li = 0; li <= tileQuadsU; li++) {
                         for (let lj = 0; lj <= tileQuadsV; lj++) {
-                            c.positions.push(x[tu * tileQuadsU + li]);
-                            c.positions.push(side == 0 ? 0.0 : -thickness);
-                            c.positions.push(z[tv * tileQuadsV + lj]);
-                            c.normals.push(0.0);
-                            c.normals.push(side == 0 ? 1.0 : -1.0);
-                            c.normals.push(0.0);
+                            c.positions.value.push(x[tu * tileQuadsU + li]);
+                            c.positions.value.push(side == 0 ? 0.0 : -thickness);
+                            c.positions.value.push(z[tv * tileQuadsV + lj]);
+                            c.normals.value.push(0.0);
+                            c.normals.value.push(side == 0 ? 1.0 : -1.0);
+                            c.normals.value.push(0.0);
                         }
                     }
                     for (let li = 0; li < tileQuadsU; li++) {
@@ -409,19 +410,19 @@ namespace ClusteredGeometry {
                             const i10 = (li + 1) * rowSize + lj;
                             const i11 = (li + 1) * rowSize + lj + 1;
                             if (side == 0) {
-                                c.indices.push(i00);
-                                c.indices.push(i01);
-                                c.indices.push(i11);
-                                c.indices.push(i00);
-                                c.indices.push(i11);
-                                c.indices.push(i10);
+                                c.indices.value.push(i00);
+                                c.indices.value.push(i01);
+                                c.indices.value.push(i11);
+                                c.indices.value.push(i00);
+                                c.indices.value.push(i11);
+                                c.indices.value.push(i10);
                             } else {
-                                c.indices.push(i00);
-                                c.indices.push(i11);
-                                c.indices.push(i01);
-                                c.indices.push(i00);
-                                c.indices.push(i10);
-                                c.indices.push(i11);
+                                c.indices.value.push(i00);
+                                c.indices.value.push(i11);
+                                c.indices.value.push(i01);
+                                c.indices.value.push(i00);
+                                c.indices.value.push(i10);
+                                c.indices.value.push(i11);
                             }
                         }
                     }
@@ -450,23 +451,23 @@ namespace ClusteredGeometry {
                 const px = alongZ ? fixed : x[index];
                 const pz = alongZ ? z[index] : fixed;
                 for (let k = 0; k < 2; k++) {
-                    c.positions.push(px);
-                    c.positions.push(k == 0 ? 0.0 : -thickness);
-                    c.positions.push(pz);
-                    c.normals.push(nx);
-                    c.normals.push(0.0);
-                    c.normals.push(nz);
+                    c.positions.value.push(px);
+                    c.positions.value.push(k == 0 ? 0.0 : -thickness);
+                    c.positions.value.push(pz);
+                    c.normals.value.push(nx);
+                    c.normals.value.push(0.0);
+                    c.normals.value.push(nz);
                 }
             }
             for (let i = 0; i < quads; i++) {
                 const a = 2 * i;
                 const b = 2 * (i + 1);
-                c.indices.push(a);
-                c.indices.push(a + 1);
-                c.indices.push(b + 1);
-                c.indices.push(a);
-                c.indices.push(b + 1);
-                c.indices.push(b);
+                c.indices.value.push(a);
+                c.indices.value.push(a + 1);
+                c.indices.value.push(b + 1);
+                c.indices.value.push(a);
+                c.indices.value.push(b + 1);
+                c.indices.value.push(b);
             }
             m.totalTriangles += 2 * quads;
             m.totalVertices += 2 * (quads + 1);
@@ -580,12 +581,12 @@ namespace ClusteredGeometry {
                         }
                         n = [f(n[0] / length), f(n[1] / length), f(n[2] / length)];
                         // World X: the bottle's wide axis; Y: its height (z); Z: its depth (y).
-                        c.positions.push(f(invSpan * p[0]));
-                        c.positions.push(f(invSpan * p[2]));
-                        c.positions.push(f(invSpan * p[1]));
-                        c.normals.push(n[0]);
-                        c.normals.push(n[2]);
-                        c.normals.push(n[1]);
+                        c.positions.value.push(f(invSpan * p[0]));
+                        c.positions.value.push(f(invSpan * p[2]));
+                        c.positions.value.push(f(invSpan * p[1]));
+                        c.normals.value.push(n[0]);
+                        c.normals.value.push(n[2]);
+                        c.normals.value.push(n[1]);
                     }
                 }
                 gridTriangles(c, tileUSize, tileVSize);
@@ -605,6 +606,15 @@ namespace ClusteredGeometry {
         overrideRefr: number = -1.0;
         overrideIor: number = -1.0;
         baseColorScale: number = 1.0;
+
+        copy(): CheckerOverride {
+            const o = new CheckerOverride();
+            o.overrideRefl = this.overrideRefl;
+            o.overrideRefr = this.overrideRefr;
+            o.overrideIor = this.overrideIor;
+            o.baseColorScale = this.baseColorScale;
+            return o;
+        }
     }
 
     // One object of the scene, a cluster BLAS in the TLAS.
@@ -634,18 +644,18 @@ namespace ClusteredGeometry {
         copy(): SceneObject {
             const o = new SceneObject();
             o.mesh = this.mesh.clone();
-            o.pos = this.pos;
-            o.rotEuler = this.rotEuler;
+            o.pos = this.pos.slice();
+            o.rotEuler = this.rotEuler.slice();
             o.scale = this.scale;
             o.instanceID = this.instanceID;
             o.checkerEnabled = this.checkerEnabled;
-            o.evenParity = this.evenParity;
-            o.oddParity = this.oddParity;
+            o.evenParity = this.evenParity.copy();
+            o.oddParity = this.oddParity.copy();
             o.surfTintMul = this.surfTintMul;
             o.refrTintMul = this.refrTintMul;
             o.reflTintMul = this.reflTintMul;
             o.nonOrientable = this.nonOrientable;
-            o.perRegionMaterialSlot = this.perRegionMaterialSlot;
+            o.perRegionMaterialSlot = this.perRegionMaterialSlot.slice();
             return o;
         }
     }
@@ -731,8 +741,8 @@ namespace ClusteredGeometry {
             }
             for (const c of obj.mesh.clusters) {
                 let centroidY = 0.0;
-                for (let v = 1; v < c.positions.length; v += 3) {
-                    centroidY = f(centroidY + c.positions[v]);
+                for (let v = 1; v < c.positions.value.length; v += 3) {
+                    centroidY = f(centroidY + c.positions.value[v]);
                 }
                 centroidY = f(centroidY / c.vertexCount());
                 c.matRegionIdx = centroidY >= 0.0 ? 0 : 1;
@@ -1253,13 +1263,13 @@ namespace ClusteredGeometry {
     function appendSideData(c: Cluster, cid: int, normals: f32[], indices: int[], offsets: int[]) {
         offsets[cid * 2] = normals.length / 4;
         offsets[cid * 2 + 1] = indices.length;
-        for (let v = 0; v < c.normals.length; v += 3) {
-            normals.push(c.normals[v]);
-            normals.push(c.normals[v + 1]);
-            normals.push(c.normals[v + 2]);
+        for (let v = 0; v < c.normals.value.length; v += 3) {
+            normals.push(c.normals.value[v]);
+            normals.push(c.normals.value[v + 1]);
+            normals.push(c.normals.value[v + 2]);
             normals.push(0.0);
         }
-        for (const index of c.indices) {
+        for (const index of c.indices.value) {
             indices.push(index);
         }
     }
@@ -1438,9 +1448,9 @@ namespace ClusteredGeometry {
                 for (let axis = 0; axis < 3; axis++) {
                     let lo = 3.4028234663852886e38;
                     let hi = -3.4028234663852886e38;
-                    for (let k = axis; k < c.positions.length; k += 3) {
-                        lo = fmin(lo, c.positions[k]);
-                        hi = fmax(hi, c.positions[k]);
+                    for (let k = axis; k < c.positions.value.length; k += 3) {
+                        lo = fmin(lo, c.positions.value[k]);
+                        hi = fmax(hi, c.positions.value[k]);
                     }
                     maxExtent = fmax(maxExtent, f(hi - lo));
                 }
@@ -1452,7 +1462,7 @@ namespace ClusteredGeometry {
         const encoded: EncodedCluster[] = [];
         for (const obj of scene.objects) {
             for (const c of obj.mesh.clusters) {
-                encoded.push(encodeCompressed1(c.positions, bits, exponent));
+                encoded.push(encodeCompressed1(c.positions.value, bits, exponent));
             }
         }
         return encoded;
@@ -1469,9 +1479,9 @@ namespace ClusteredGeometry {
             for (let axis = 0; axis < 3; axis++) {
                 let lo = 3.4028234663852886e38;
                 let hi = -3.4028234663852886e38;
-                for (let k = axis; k < c.positions.length; k += 3) {
-                    const a = f(c.positions[k] * minScale);
-                    const b = f(c.positions[k] * maxScale);
+                for (let k = axis; k < c.positions.value.length; k += 3) {
+                    const a = f(c.positions.value[k] * minScale);
+                    const b = f(c.positions.value[k] * maxScale);
                     lo = fmin(lo, fmin(a, b));
                     hi = fmax(hi, fmax(a, b));
                 }
@@ -1489,8 +1499,8 @@ namespace ClusteredGeometry {
                 for (let axis = 0; axis < 3 && fits; axis++) {
                     let qMin = 1e300;
                     let qMax = -1e300;
-                    for (let k = axis; k < c.positions.length; k += 3) {
-                        const ends = [c.positions[k] * minScale, c.positions[k] * maxScale];
+                    for (let k = axis; k < c.positions.value.length; k += 3) {
+                        const ends = [c.positions.value[k] * minScale, c.positions.value[k] * maxScale];
                         for (const v of ends) {
                             const q = Math.floor(v * invScale + 0.5);
                             qMin = q < qMin ? q : qMin;
@@ -1934,7 +1944,7 @@ namespace ClusteredGeometry {
                     cursor += vbSize;
                     cursor = alignUp(cursor, align);
                     offsets.push(cursor);
-                    cursor += c.indices.length;
+                    cursor += c.indices.value.length;
                     if (c.triangleCount() > maxTriangles) {
                         maxTriangles = c.triangleCount();
                     }
@@ -1965,11 +1975,11 @@ namespace ClusteredGeometry {
                         }
                         storeBytes(input, offsets[g * 2] + 12, e.bytes);
                     } else {
-                        for (let k = 0; k < c.positions.length; k++) {
-                            input[vb + k] = c.positions[k];
+                        for (let k = 0; k < c.positions.value.length; k++) {
+                            input[vb + k] = c.positions.value[k];
                         }
                     }
-                    storeBytes(input, offsets[g * 2 + 1], c.indices);
+                    storeBytes(input, offsets[g * 2 + 1], c.indices.value);
                     // ClasArgsMeta: clusterID, triangles, vertices, vertex and index offsets, the OPAQUE
                     // flag (no translucency or refraction in its material or the object's checker), region.
                     const m = g * CLAS_ARGS_META_SIZE / 4;
@@ -2222,10 +2232,10 @@ namespace ClusteredGeometry {
                     }
                     const r = regions[regions.length - 1];
                     const baseInRegion = vertices.length / 3 - r.firstVertex;
-                    for (const p of cluster.positions) {
+                    for (const p of cluster.positions.value) {
                         vertices.push(p);
                     }
-                    for (const index of cluster.indices) {
+                    for (const index of cluster.indices.value) {
                         indices.push(index + baseInRegion);
                     }
                     r.vertexCount += cluster.vertexCount();
@@ -2295,7 +2305,7 @@ namespace ClusteredGeometry {
             }
             const rest: f32[] = [];
             for (const c of mesh.clusters) {
-                for (const p of c.positions) {
+                for (const p of c.positions.value) {
                     rest.push(p);
                 }
             }
@@ -2314,7 +2324,7 @@ namespace ClusteredGeometry {
                 const flat: int[] = [];
                 let vertexBase = 0;
                 for (const c of mesh.clusters) {
-                    for (const index of c.indices) {
+                    for (const index of c.indices.value) {
                         flat.push(index + vertexBase);
                     }
                     vertexBase += c.vertexCount();
@@ -2345,7 +2355,7 @@ namespace ClusteredGeometry {
                 cursor += c.vertexCount() * 12;
                 cursor = alignUp(cursor, 16);
                 offsets.push(cursor);
-                cursor += c.indices.length;
+                cursor += c.indices.value.length;
             }
             const inputSize = alignUp(cursor, 256);
             const input = zeros(inputSize / 4);
@@ -2356,10 +2366,10 @@ namespace ClusteredGeometry {
             for (let c = 0; c < clusterCount; c++) {
                 const cluster = mesh.clusters[c];
                 const vb = offsets[c * 2] / 4;
-                for (let k = 0; k < cluster.positions.length; k++) {
-                    input[vb + k] = f(cluster.positions[k] * envelope);
+                for (let k = 0; k < cluster.positions.value.length; k++) {
+                    input[vb + k] = f(cluster.positions.value[k] * envelope);
                 }
-                storeBytes(input, offsets[c * 2 + 1], cluster.indices);
+                storeBytes(input, offsets[c * 2 + 1], cluster.indices.value);
                 meta.push(cluster.triangleCount());
                 meta.push(cluster.vertexCount());
                 meta.push(offsets[c * 2]);
@@ -2533,7 +2543,7 @@ namespace ClusteredGeometry {
             const clasArgs: int[] = [];
             for (const obj of scene.objects) {
                 for (const c of obj.mesh.clusters) {
-                    for (const p of c.positions) {
+                    for (const p of c.positions.value) {
                         positions.push(p);
                     }
                     clasArgs.push(c.clusterID);
@@ -2545,7 +2555,7 @@ namespace ClusteredGeometry {
             }
             const rest: f32[] = [];
             for (const c of scene.animated.clusters) {
-                for (const p of c.positions) {
+                for (const p of c.positions.value) {
                     rest.push(p);
                 }
             }

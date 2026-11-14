@@ -27,9 +27,10 @@ class FlameParticle {
     }
 }
 
+// Shared handles, so updateParticles can filter them.
 @final
 export class FlameParticleGenerator {
-    particles: FlameParticle[];
+    particles: Shared<FlameParticle>[];
     private origin: number[];
     private direction: number[];
     private u: number[];
@@ -38,6 +39,7 @@ export class FlameParticleGenerator {
     private radius: number;
     private nParticles: int;
 
+    @keeps("origin", "direction")
     constructor(origin: number[], direction: number[], radius: number, nParticles: int) {
         this.particles = [];
         this.origin = origin;
@@ -74,7 +76,7 @@ export class FlameParticleGenerator {
             position.push(this.origin[i] + R * (s * this.u[i] + c * this.v[i]));
             velocity.push(speed * velocityDirection[i]);
         }
-        return new FlameParticle(position, velocity, lifetime);
+        return new Shared(new FlameParticle(position, velocity, lifetime));
     }
 
     // The sample's constructor's particles, at random points of their lifetimes.
@@ -86,9 +88,10 @@ export class FlameParticleGenerator {
     }
 
     updateParticles(timeDelta: number) {
-        const remaining = this.particles.filter((particle) => !(particle.duration > randomFloat() * this.lifetime));
+        const remaining = this.particles.filter((particle) => !(particle.value.duration > randomFloat() * this.lifetime));
 
-        for (const particle of remaining) {
+        for (const handle of remaining) {
+            const particle = handle.value;
             for (let k = 0; k < 3; k++) {
                 particle.position[k] += timeDelta * particle.velocity[k];
             }
@@ -110,6 +113,7 @@ export class Model {
     textureIndex: int;
     objectType: int;
 
+    @keeps("vertices", "triangles")
     constructor(vertices: f32[], triangles: int[], textureIndex: int, objectType: int) {
         this.vertices = vertices;
         this.triangles = triangles;

@@ -192,7 +192,8 @@ namespace OitDepthPeelingNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -303,7 +304,7 @@ namespace OitDepthPeelingNri {
                 const constantBufferView = constantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
                 const gatherSets: NriDescriptorSet[] = [];
                 const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
-                const queuedFrame = new QueuedFrame(this.frames.commandBuffer(i), gatherSets, combineSet,
+                const queuedFrame = new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), gatherSets, combineSet,
                     constantBufferView);
                 this.queuedFrames.push(queuedFrame);
                 if (!constantBufferView || !combineSet) {

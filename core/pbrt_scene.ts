@@ -80,6 +80,7 @@ export class PbrtScene {
     }
 }
 
+@final
 export class Images {
     // Decodes an image file with WIC into 8-bit RGBA, as DirectXTK's WIC texture loader does (its JPEG
     // decoder differs a little from Donut's): width x height x 4 bytes into dst (Ref of a `let` int
@@ -89,6 +90,7 @@ export class Images {
     }
 }
 
+@final
 export class Rtao {
     // The sample's RTAO sample sets: numSampleSets sets of samplesPerSet multi-jittered samples on the
     // cosine-weighted hemisphere (its Samplers::MultiJittered, seeded with 1729), in the order the

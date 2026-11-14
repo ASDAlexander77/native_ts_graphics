@@ -251,7 +251,8 @@ namespace DynamicBlendingNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -372,7 +373,7 @@ namespace DynamicBlendingNri {
             const key = this.pipelineKey(face);
             for (const keyed of this.pipelines) {
                 if (keyed.key == key) {
-                    return keyed.pipeline;
+                    return new NriPipeline(keyed.pipeline.handle);
                 }
             }
             const desc = NriPipelineDesc.create();
@@ -404,8 +405,10 @@ namespace DynamicBlendingNri {
             if (!pipeline) {
                 return null;
             }
+            // A wrapper of its own (destroying nothing) for the caller: the list keeps the pipeline.
+            const result = new NriPipeline(pipeline.handle);
             this.pipelines.push(new KeyedPipeline(key, pipeline));
-            return pipeline;
+            return result;
         }
 
         // Keep a handful of pipelines: drop them all now and then (once the GPU is done with them).

@@ -234,7 +234,8 @@ namespace LogicOpDynamicStateNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
@@ -487,7 +488,7 @@ namespace LogicOpDynamicStateNri {
         getBaselinePipeline(logicOp: int): NriPipeline | null {
             const existing = this.baselinePipelines[logicOp];
             if (existing) {
-                return existing;
+                return new NriPipeline(existing.handle);
             }
             const device = this.device;
             const layout = this.layout;
@@ -512,8 +513,13 @@ namespace LogicOpDynamicStateNri {
                 pipeline = device.createPipelineFromDesc(layout, desc);
             }
             desc.destroy();
+            if (!pipeline) {
+                return null;
+            }
+            // A wrapper of its own (destroying nothing) for the caller: the list keeps the pipeline.
+            const result = new NriPipeline(pipeline.handle);
             this.baselinePipelines[logicOp] = pipeline;
-            return pipeline;
+            return result;
         }
 
         // Donut's blit pipeline: rect_vs's quad (a triangle strip), blit_ps without texture arrays,

@@ -8,6 +8,7 @@
 
 /// <reference path="donut_interop.d.ts" />
 
+@final
 export class DirectXCollision {
     // container.Contains(shape), a Containment; containers are spheres, boxes, oriented boxes and
     // frustums.
@@ -33,6 +34,7 @@ export class DirectXCollision {
     }
 }
 
+@final
 export class Rotation {
     // XMQuaternionRotationRollPitchYaw into quaternion (x, y, z, w).
     static quaternionRollPitchYaw(pitch: number, yaw: number, roll: number, quaternion: Ref<f32>): void {

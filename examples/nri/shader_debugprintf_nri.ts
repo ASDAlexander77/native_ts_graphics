@@ -226,7 +226,8 @@ namespace ShaderDebugPrintfNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.notVulkan) {
                 // printf in shaders is the Vulkan validation layer's (the Donut example's exit code).
                 console.log("The Shader debugprintf example can only run on Vulkan API.");

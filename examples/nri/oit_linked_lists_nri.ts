@@ -218,7 +218,8 @@ namespace OitLinkedListsNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
@@ -366,7 +367,7 @@ namespace OitLinkedListsNri {
                 const gatherSet = descriptorPool.allocateDescriptorSet(gatherLayout, 0, 0);
                 const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
                 const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), gatherSet, backgroundSet,
+                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), gatherSet, backgroundSet,
                     combineSet, sceneView));
                 if (!sceneView || !gatherSet || !backgroundSet || !combineSet) {
                     console.log("Cannot create the descriptor sets");

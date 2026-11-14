@@ -706,7 +706,7 @@ namespace WorkGraphs {
                             const innerAngle = Math.min(angle1, angle2);
                             const outerAngle = Math.max(angle1, angle2) + randomAngle() * 0.1;
 
-                            this.lights.push(new Light(ballPos, target, randomColor(true), innerAngle, outerAngle));
+                            this.lights.push(new Light(new Float3(ballPos.x, ballPos.y, ballPos.z), target, randomColor(true), innerAngle, outerAngle));
                         }
                     }
                 }

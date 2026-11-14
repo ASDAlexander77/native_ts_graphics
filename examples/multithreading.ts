@@ -168,7 +168,7 @@ namespace Multithreading {
                 const light = new Light();
                 this.lights.push(light);
                 const lightCamera = new Camera();
-                const eye = light.position;
+                const eye = light.position.slice(); // the camera keeps its own
                 const at = [eye[0] + light.direction[0], eye[1] + light.direction[1], eye[2] + light.direction[2], eye[3] + light.direction[3]];
                 lightCamera.set(eye, at, [0.0, 1.0, 0.0, 0.0]);
                 this.lightCameras.push(lightCamera);
@@ -315,7 +315,7 @@ namespace Multithreading {
                     const light = this.lights[i];
                     const direction = i % 2 == 0 ? frameChange : -frameChange;
                     light.position = transform4(light.position, matrixRotationY(direction));
-                    const eye = light.position;
+                    const eye = light.position.slice(); // the camera keeps its own
                     const at = [0.0, 8.0, 0.0, 0.0];
                     light.direction = normalize3(vsub(at, eye));
                     const lightCamera = this.lightCameras[i];

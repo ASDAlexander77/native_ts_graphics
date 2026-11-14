@@ -104,16 +104,20 @@ export class DonutFirstPersonCamera {
     animate(sample: NriSample, elapsedSeconds: number, mouseFree: boolean) {
         let changed = false;
         const dragging = mouseFree && sample.isButtonPressed(0) != 0;
-        let dir = this.dir;
-        let up = this.up;
+        // The turned direction and up (fresh arrays, while this.dir and this.up stay as they are for
+        // the keys' moves below).
+        let rotated = false;
+        let rotatedDir: number[] = [];
+        let rotatedUp: number[] = [];
         if (dragging && this.dragging) {
             const yaw = f(this.rotateSpeed * sample.getMouseDeltaX());
             const pitch = f(this.rotateSpeed * sample.getMouseDeltaY());
             if (yaw != 0.0 || pitch != 0.0) {
                 // rotation(right, -pitch) * rotation(up, -yaw): pitch first.
                 const worldUp = [0.0, 1.0, 0.0];
-                dir = rotateAround(rotateAround(dir, this.right, -pitch), worldUp, -yaw);
-                up = rotateAround(rotateAround(up, this.right, -pitch), worldUp, -yaw);
+                rotatedDir = rotateAround(rotateAround(this.dir, this.right, -pitch), worldUp, -yaw);
+                rotatedUp = rotateAround(rotateAround(this.up, this.right, -pitch), worldUp, -yaw);
+                rotated = true;
                 changed = true;
             }
         }
@@ -144,8 +148,13 @@ export class DonutFirstPersonCamera {
             for (let i = 0; i < 3; i++) {
                 this.position[i] = f(this.position[i] + move[i]);
             }
-            this.dir = normalize(dir);
-            this.up = normalize(up);
+            if (rotated) {
+                this.dir = normalize(rotatedDir);
+                this.up = normalize(rotatedUp);
+            } else {
+                this.dir = normalize(this.dir);
+                this.up = normalize(this.up);
+            }
             this.right = normalize(cross(this.dir, this.up));
         }
     }

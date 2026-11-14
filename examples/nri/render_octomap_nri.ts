@@ -229,7 +229,8 @@ namespace RenderOctomapNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -328,7 +329,7 @@ namespace RenderOctomapNri {
             for (let i = 0; i < queuedFrameNum; i++) {
                 const uboView = uniformBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
                 const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), descriptorSet, uboView));
+                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), descriptorSet, uboView));
                 if (!uboView || !descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;

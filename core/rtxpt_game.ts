@@ -23,6 +23,7 @@ function f32(x: number): number {
 // the app that owns the game's JSON files, and what the host knows of it: whether the scene has game settings (an
 // RTXPT GameSettings node), and whether its renderer reads a spot light's negative outer angle as the minimum
 // falloff past it (RTXPT's kUseMinSpotlightFalloff, as SampleGame sets it). Nodes and JSON files are handles.
+@final
 export class GameWorld {
     constructor(private app: AppHandle | null, private scene: SceneHandle | null, public hasGameSettings: boolean,
         private minSpotFalloff: boolean) {
@@ -321,6 +322,7 @@ function catmullRom1(v0: number, v1: number, v2: number, v3: number, s: number):
 }
 
 // game::Pose: a transform (doubles) at a key time.
+@final
 export class Pose {
     tx = 0.0;
     ty = 0.0;
@@ -866,6 +868,7 @@ class Prop {
 }
 
 // GameScene: the props, the game's time and play speed, and the prop camera.
+@final
 export class RtxptGame {
     // GameScene::IsInitialized: the scene has a GameSettings node.
     initialized = false;

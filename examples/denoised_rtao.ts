@@ -169,7 +169,7 @@ namespace DenoisedRtao {
         update(yaw: number, pitch: number, strafe: number, ascent: number, forward: number) {
             // RotateAroundYAxis.
             const rotation = matrixRotationY(yaw);
-            let eye = vadd(this.at, transformCoord3(vsub(this.eye, this.at), rotation));
+            const eye = vadd(this.at, transformCoord3(vsub(this.eye, this.at), rotation));
             const up = transformNormal3(this.up, rotation);
             this.eye = eye;
             this.up = up;
@@ -186,12 +186,9 @@ namespace DenoisedRtao {
             this.eye = vadd(this.eye, translation);
             this.at = vadd(this.at, translation);
             // The boundaries: y >= 0.
-            eye = this.eye;
-            const eyeToAt = vsub(this.at, eye);
-            if (eye[1] < 0.0) {
-                eye = [eye[0], 0.0, eye[2], eye[3]];
-            }
-            this.set(eye, vadd(eye, eyeToAt), this.up);
+            const eyeToAt = vsub(this.at, this.eye);
+            const bounded = [this.eye[0], this.eye[1] < 0.0 ? 0.0 : this.eye[1], this.eye[2], this.eye[3]];
+            this.set(bounded, vadd(bounded, eyeToAt), this.up.slice());
         }
     }
 
