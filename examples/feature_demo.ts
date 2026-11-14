@@ -290,7 +290,8 @@ namespace FeatureDemoExample {
     // renders it with Donut's passes, as the UI configures them.
     class FeatureDemo {
         private app: App;
-        private ui: UIData;
+        // The UI's settings (UserInterface reads them through the demo it owns).
+        ui: UIData;
 
         public sceneFilesAvailable: StringList;
         public currentSceneName: string;
@@ -1515,17 +1516,16 @@ namespace FeatureDemoExample {
     // a loading message while a scene loads.
     class UserInterface {
         private app: App;
+        // Owned: main gives it up; its ui is the settings this UI edits.
         private demo: FeatureDemo;
-        private ui: UIData;
         private imguiPass: ImGuiPass;
         private fontOpenSans: ImGuiFont;
         private fontDroidMono: ImGuiFont;
         private loadingStats: int[];
 
-        constructor(app: App, demo: FeatureDemo, ui: UIData) {
+        constructor(app: App, demo: FeatureDemo) {
             this.app = app;
             this.demo = demo;
-            this.ui = ui;
             this.loadingStats = [];
             for (let i = 0; i < 4; i++) {
                 this.loadingStats.push(0);
@@ -1555,8 +1555,8 @@ namespace FeatureDemoExample {
         }
 
         buildUI() {
-            const ui = this.ui;
             const demo = this.demo;
+            const ui = demo.ui;
             const app = this.app;
 
             if (!ui.showUI) {
@@ -1595,14 +1595,15 @@ namespace FeatureDemoExample {
                 ImGui.text(`${formatFixed(frameTime * 1e3, 3)} ms/frame (${formatFixed(1.0 / frameTime, 1)} FPS)`);
             }
 
-            const currentScene = demo.currentSceneName;
+            // A copy: selecting a scene replaces demo.currentSceneName.
+            const currentScene = demo.currentSceneName + "";
             if (ImGui.beginCombo("Scene", this.getRelativePath(currentScene))) {
                 const sceneCount = demo.sceneFilesAvailable.getCount();
                 for (let i = 0; i < sceneCount; i++) {
                     const scene = demo.sceneFilesAvailable.getItem(i);
                     const isSelected = scene == currentScene;
                     if (ImGui.selectable(this.getRelativePath(scene), isSelected)) {
-                        demo.setCurrentSceneName(scene);
+                        demo.setCurrentSceneName(scene + ""); // a fresh name for it to keep
                     }
                     if (isSelected) {
                         ImGui.setItemDefaultFocus();
@@ -1954,7 +1955,7 @@ namespace FeatureDemoExample {
         }
 
         // Drawn after (over) the scene, and sees the input first.
-        const gui = new UserInterface(app, demo, uiData);
+        const gui = new UserInterface(app, demo);
         if (!gui.init()) {
             console.log("Cannot initialize the user interface");
             app.destroy();
