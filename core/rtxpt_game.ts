@@ -550,7 +550,7 @@ class ModelType {
             const lightPath = `lights/${i}`;
             const lightName = world.getGameJsonString(json, joinPath(lightPath, "name"), "");
             if (lightName == "" || this.findLight(lightName) >= 0) {
-                console.log(`malformed or repeated light name in ${name}.model.json`);
+                console.log(`malformed or repeated light name in ${this.name}.model.json`);
                 continue;
             }
             this.lightNames.push(lightName);
@@ -603,7 +603,7 @@ class ModelInstance {
             const lightName = world.getGameNodeName(handles[i]);
             const index = modelType.findLight(lightName);
             if (index < 0) {
-                console.log(`Model instance '${instanceName}', light '${lightName}' has no controller`);
+                console.log(`Model instance '${this.instanceName}', light '${lightName}' has no controller`);
                 continue;
             }
             const controller = new LightController();
