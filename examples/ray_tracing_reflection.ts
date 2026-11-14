@@ -116,6 +116,46 @@ namespace RayTracingReflection {
     // Mirror Slightly blue
     const MAT_MIRROR = [0.3, 0.9, 1.0, 0.9, 0.9, 0.9, 0.9];
 
+    // The models appended to one array of each (create_model): each model's offsets in them (its scene
+    // description: first vertex, index, material index, material), vertices, indices, material indices
+    // (clamped to its materials), then its materials.
+    class ModelArrays {
+        vertices: f32[] = [];
+        indices: int[] = [];
+        matIndices: int[] = [];
+        materials: f32[] = [];
+        objDesc: int[] = [];
+        // Each model's vertex and index counts.
+        vertexCounts: int[] = [];
+        indexCounts: int[] = [];
+
+        // A model with materialCount materials (added next, with addMaterial).
+        addModel(vertexList: number[], indexList: int[], matIndexList: int[], materialCount: int) {
+            this.vertexCounts.push(vertexList.length / VERTEX_FLOATS);
+            this.indexCounts.push(indexList.length);
+            this.objDesc.push(this.vertices.length / VERTEX_FLOATS);
+            this.objDesc.push(this.indices.length);
+            this.objDesc.push(this.matIndices.length);
+            this.objDesc.push(this.materials.length / MATERIAL_FLOATS);
+            for (const coordinate of vertexList) {
+                this.vertices.push(coordinate);
+            }
+            for (const index of indexList) {
+                this.indices.push(index);
+            }
+            const maxIndex = materialCount - 1;
+            for (const matIndex of matIndexList) {
+                this.matIndices.push(Math.min(maxIndex, matIndex));
+            }
+        }
+
+        addMaterial(material: number[]) {
+            for (let i = 0; i < MATERIAL_FLOATS; i++) {
+                this.materials.push(material[i]);
+            }
+        }
+    }
+
     // --- Math (glm's layout: 4 x 4 matrices by columns) ---------------------------------------
 
     // glm::scale(glm::translate(mat4(1), t), s): columns scaled, translation t.
@@ -321,45 +361,24 @@ namespace RayTracingReflection {
         // its vertices, indices, material indices (clamped to its materials) and materials,
         // appended to one buffer of each, and a BLAS of its triangles.
         createModels(commandList: CommandList) {
-            const vertexLists = [CUBE_VERTICES, PLANE_VERTICES, CUBE_VERTICES];
-            const indexLists = [CUBE_INDICES, PLANE_INDICES, CUBE_INDICES];
-            const matIndexLists = [CUBE_MAT_INDEX, PLANE_MAT_INDEX, CUBE_MAT_INDEX];
-            const materialLists = [
-                [MAT_RED, MAT_GREEN, MAT_BLUE, MAT_YELLOW, MAT_CYAN, MAT_MAGENTA],        // 6 color faces
-                [MAT_GREY],
-                [MAT_MIRROR],
-            ];
-
-            const vertices: f32[] = [];
-            const indices: int[] = [];
-            const matIndices: int[] = [];
-            const materials: f32[] = [];
-            const objDesc: int[] = [];
-            for (let o = 0; o < vertexLists.length; o++) {
-                objDesc.push(vertices.length / VERTEX_FLOATS);
-                objDesc.push(indices.length);
-                objDesc.push(matIndices.length);
-                objDesc.push(materials.length / MATERIAL_FLOATS);
-                const vertexList = vertexLists[o];
-                for (const coordinate of vertexList) {
-                    vertices.push(coordinate);
-                }
-                const indexList = indexLists[o];
-                for (const index of indexList) {
-                    indices.push(index);
-                }
-                const materialList = materialLists[o];
-                const maxIndex = materialList.length - 1;
-                const matIndexList = matIndexLists[o];
-                for (const matIndex of matIndexList) {
-                    matIndices.push(Math.min(maxIndex, matIndex));
-                }
-                for (const material of materialList) {
-                    for (let i = 0; i < MATERIAL_FLOATS; i++) {
-                        materials.push(material[i]);
-                    }
-                }
-            }
+            // The cube with its 6 color faces, the plane (slightly reflective), the mirror cube.
+            const arrays = new ModelArrays();
+            arrays.addModel(CUBE_VERTICES, CUBE_INDICES, CUBE_MAT_INDEX, 6);
+            arrays.addMaterial(MAT_RED);
+            arrays.addMaterial(MAT_GREEN);
+            arrays.addMaterial(MAT_BLUE);
+            arrays.addMaterial(MAT_YELLOW);
+            arrays.addMaterial(MAT_CYAN);
+            arrays.addMaterial(MAT_MAGENTA);
+            arrays.addModel(PLANE_VERTICES, PLANE_INDICES, PLANE_MAT_INDEX, 1);
+            arrays.addMaterial(MAT_GREY);
+            arrays.addModel(CUBE_VERTICES, CUBE_INDICES, CUBE_MAT_INDEX, 1);
+            arrays.addMaterial(MAT_MIRROR);
+            const vertices = arrays.vertices;
+            const indices = arrays.indices;
+            const matIndices = arrays.matIndices;
+            const materials = arrays.materials;
+            const objDesc = arrays.objDesc;
 
             const vertexCount = vertices.length / VERTEX_FLOATS;
             this.vertexBuffer = this.app.createAccelStructInputStructuredBuffer(4, vertices.length, "Vertices");
@@ -373,12 +392,12 @@ namespace RayTracingReflection {
             commandList.writeBuffer(this.materialBuffer, Ref(materials[0]), materials.length * 4);
             commandList.writeBuffer(this.objDescBuffer, Ref(objDesc[0]), objDesc.length * 4);
 
-            for (let o = 0; o < vertexLists.length; o++) {
+            for (let o = 0; o < arrays.vertexCounts.length; o++) {
                 const firstVertex = objDesc[o * 4];
                 const firstIndex = objDesc[o * 4 + 1];
                 const blas = this.app.createEmptyTriangleBlas(`BLAS ${o}`);
-                blas.addGeometry(this.indexBuffer, firstIndex * 4, indexLists[o].length, this.vertexBuffer,
-                    firstVertex * VERTEX_FLOATS * 4, vertexLists[o].length / VERTEX_FLOATS, VERTEX_FLOATS * 4, null);
+                blas.addGeometry(this.indexBuffer, firstIndex * 4, arrays.indexCounts[o], this.vertexBuffer,
+                    firstVertex * VERTEX_FLOATS * 4, arrays.vertexCounts[o], VERTEX_FLOATS * 4, null);
                 if (blas.build(this.app, commandList, AccelStructBuildFlags.PreferFastTrace) == 0) {
                     return false;
                 }
