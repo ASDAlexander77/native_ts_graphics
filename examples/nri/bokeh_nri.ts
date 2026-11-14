@@ -126,8 +126,7 @@ namespace BokehNri {
         recombineSet: NriDescriptorSet | null = null;
         timestampsPending: boolean = false;
 
-        constructor(public commandBuffer: NriCommandBuffer,
-            public timestampBuffer: NriBuffer | null) {
+        constructor(public timestampBuffer: NriBuffer | null) {
         }
     }
 
@@ -681,7 +680,7 @@ namespace BokehNri {
             for (let q = 0; q < queuedFrameNum; q++) {
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                const queuedFrame = new QueuedFrame(this.frames.commandBuffer(q), timestampBuffer);
+                const queuedFrame = new QueuedFrame(timestampBuffer);
                 this.queuedFrames.push(queuedFrame);
                 const base = q * FRAME_CONSTANTS_SIZE;
                 for (let o = 0; o < OBJECT_COUNT; o++) {
@@ -1457,7 +1456,7 @@ namespace BokehNri {
             constantBuffer.write(base, Ref(this.parameters[0]), PARAMETERS_SLICE_SIZE * OBJECT_COUNT);
             constantBuffer.write(base + OBJECT_COUNT * PARAMETERS_SLICE_SIZE, Ref(this.bokehConstants[0]), BOKEH_CB_SIZE);
 
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             commandBuffer.begin();
             if (this.imgui) {
                 this.sample.copyImguiData(commandBuffer);

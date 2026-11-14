@@ -322,6 +322,7 @@ function catmullRom1(v0: number, v1: number, v2: number, v3: number, s: number):
 }
 
 // game::Pose: a transform (doubles) at a key time.
+@final
 export class Pose {
     tx = 0.0;
     ty = 0.0;
@@ -867,6 +868,7 @@ class Prop {
 }
 
 // GameScene: the props, the game's time and play speed, and the prop camera.
+@final
 export class RtxptGame {
     // GameScene::IsInitialized: the scene has a GameSettings node.
     initialized = false;

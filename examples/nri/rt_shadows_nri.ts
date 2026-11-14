@@ -94,8 +94,7 @@ namespace RtShadowsNri {
 
     // What a frame in flight records into, and its sets (its copies of the per-frame constants).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public viewSet: NriDescriptorSet, public rayTracingSet: NriDescriptorSet) {
+        constructor(public viewSet: NriDescriptorSet, public rayTracingSet: NriDescriptorSet) {
         }
     }
 
@@ -632,7 +631,7 @@ namespace RtShadowsNri {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet, rayTracingSet));
+                this.queuedFrames.push(new QueuedFrame(viewSet, rayTracingSet));
                 viewSet.updateDescriptor(0, 0, viewView);
                 viewSet.updateDescriptor(1, 0, anisotropicWrap);
                 rayTracingSet.updateDescriptor(0, 0, lightingView);
@@ -811,7 +810,7 @@ namespace RtShadowsNri {
             if (!descriptorPool) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(frameIndex);
             commandBuffer.begin();
             commandBuffer.setDescriptorPool(descriptorPool);
             // The first frame: the mip chains.

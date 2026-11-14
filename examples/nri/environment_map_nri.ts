@@ -125,8 +125,7 @@ namespace EnvironmentMapNri {
 
     // What a frame in flight records into, and its sets (its copies of the per-frame constants).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public viewSet: NriDescriptorSet, public skySet: NriDescriptorSet,
+        constructor(public viewSet: NriDescriptorSet, public skySet: NriDescriptorSet,
             public histogramSet: NriDescriptorSet, public exposureSet: NriDescriptorSet,
             public toneMappingSet: NriDescriptorSet) {
         }
@@ -951,7 +950,7 @@ namespace EnvironmentMapNri {
                 toneMappingSet.updateDescriptor(2, 0, exposureView);
                 toneMappingSet.updateDescriptor(3, 0, blackView);
                 toneMappingSet.updateDescriptor(4, 0, linearClamp);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet, skySet,
+                this.queuedFrames.push(new QueuedFrame(viewSet, skySet,
                     histogramSet, exposureSet, toneMappingSet));
             }
 
@@ -1213,7 +1212,7 @@ namespace EnvironmentMapNri {
             if (!descriptorPool) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(frameIndex);
             commandBuffer.begin();
             commandBuffer.setDescriptorPool(descriptorPool);
             // The first frame: the mip chains, the fallback, the shadow map.

@@ -62,8 +62,7 @@ namespace TimestampQueriesNri {
         timestampsPending: boolean = false;
         timestampsBloom: boolean = false;
 
-        constructor(public commandBuffer: NriCommandBuffer,
-            public modelsSet: NriDescriptorSet | null, public matricesView: NriDescriptor | null,
+        constructor(public modelsSet: NriDescriptorSet | null, public matricesView: NriDescriptor | null,
             public paramsView: NriDescriptor | null, public timestampBuffer: NriBuffer | null) {
         }
     }
@@ -486,7 +485,7 @@ namespace TimestampQueriesNri {
                 const modelsSet = descriptorPool.allocateDescriptorSet(modelsLayout, 0, 0);
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), modelsSet, matricesView,
+                this.queuedFrames.push(new QueuedFrame(modelsSet, matricesView,
                     paramsView, timestampBuffer));
                 if (!matricesView || !paramsView || !modelsSet || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");
@@ -902,7 +901,7 @@ namespace TimestampQueriesNri {
             if (!descriptorPool || !constantBuffer) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             this.updateConstants(constantBuffer, queuedFrameIndex * CONST_STRIDE);
 
             commandBuffer.begin();

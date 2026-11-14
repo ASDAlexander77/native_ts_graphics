@@ -87,8 +87,7 @@ namespace OitLinkedListsNri {
     // pass's, the background's, the combine pass's) and the view of its slice of the scene
     // constants.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public gatherSet: NriDescriptorSet | null, public backgroundSet: NriDescriptorSet | null,
+        constructor(public gatherSet: NriDescriptorSet | null, public backgroundSet: NriDescriptorSet | null,
             public combineSet: NriDescriptorSet | null, public sceneView: NriDescriptor | null) {
         }
     }
@@ -366,7 +365,7 @@ namespace OitLinkedListsNri {
                 const gatherSet = descriptorPool.allocateDescriptorSet(gatherLayout, 0, 0);
                 const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
                 const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), gatherSet, backgroundSet,
+                this.queuedFrames.push(new QueuedFrame(gatherSet, backgroundSet,
                     combineSet, sceneView));
                 if (!sceneView || !gatherSet || !backgroundSet || !combineSet) {
                     console.log("Cannot create the descriptor sets");
@@ -715,7 +714,7 @@ namespace OitLinkedListsNri {
             if (!descriptorPool || !sceneConstantBuffer) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             this.updateSceneConstants(sceneConstantBuffer, queuedFrameIndex * CONST_STRIDE);
 
             commandBuffer.begin();

@@ -274,7 +274,7 @@ namespace ComputeNBodyCollisionsNri {
 
     // What a frame in flight records into.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer) {
+        constructor() {
         }
     }
 
@@ -544,7 +544,7 @@ namespace ComputeNBodyCollisionsNri {
             // Queued frames
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i)));
+                this.queuedFrames.push(new QueuedFrame());
             }
 
             // NRI's D3D11 backend makes every buffer of 4-byte structures a raw buffer, which the
@@ -1245,7 +1245,7 @@ namespace ComputeNBodyCollisionsNri {
             if (!descriptorPool) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             const offset = queuedFrameIndex * this.frameStride;
             this.writeConstants(offset);
 

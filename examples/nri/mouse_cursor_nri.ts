@@ -88,7 +88,7 @@ namespace MouseCursorNri {
         materialSets: NriDescriptorSet[] = [];
         materialViews: NriDescriptor[] = [];
 
-        constructor(public commandBuffer: NriCommandBuffer) {
+        constructor() {
         }
     }
 
@@ -566,7 +566,7 @@ namespace MouseCursorNri {
             const height = this.frameHeight;
             this.frames.init(device, this.queue, queuedFrameNum);
             for (let i = 0; i < queuedFrameNum; i++) {
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i)));
+                this.queuedFrames.push(new QueuedFrame());
             }
 
             // Model::Draw's LinearWrap (Donut's: trilinear, wrapped); SpriteBatch's LinearClamp (the
@@ -1274,7 +1274,7 @@ namespace MouseCursorNri {
             }
             const width = this.frameWidth;
             const height = this.frameHeight;
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
 
             commandBuffer.begin();
             if (this.imgui) {

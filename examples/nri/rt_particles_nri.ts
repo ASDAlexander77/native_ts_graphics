@@ -245,8 +245,7 @@ namespace RtParticlesNri {
     // What a frame in flight records into, its sets and its copies of what the CPU writes every frame:
     // the constants' view, the particle mesh's buffers and the ParticleInfo buffer (with their views).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public set: NriDescriptorSet, public bindlessSet: NriDescriptorSet, public constantView: NriDescriptor,
+        constructor(public set: NriDescriptorSet, public bindlessSet: NriDescriptorSet, public constantView: NriDescriptor,
             public vertexBuffer: NriBuffer, public vertexView: NriDescriptor, public indexBuffer: NriBuffer,
             public indexView: NriDescriptor, public particleInfoBuffer: NriBuffer,
             public particleInfoView: NriDescriptor) {
@@ -888,7 +887,7 @@ namespace RtParticlesNri {
                     console.log("Cannot create the descriptor sets");
                     return false;
                 }
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), set, bindlessSet,
+                this.queuedFrames.push(new QueuedFrame(set, bindlessSet,
                     constantView, vertexBuffer, vertexView, indexBuffer, indexView, particleInfoBuffer, particleInfoView));
 
                 set.updateDescriptor(0, 0, constantView);
@@ -1366,7 +1365,7 @@ namespace RtParticlesNri {
                 return;
             }
             const queuedFrame = this.queuedFrames[queuedFrameIndex];
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             commandBuffer.begin();
             commandBuffer.setDescriptorPool(descriptorPool);
             // The first frame: the mip chains.

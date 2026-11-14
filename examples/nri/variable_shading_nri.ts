@@ -98,8 +98,7 @@ namespace VariableShadingNri {
 
     // What a frame in flight records into, and its sets (its copies of the per-frame constants).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public viewSet: NriDescriptorSet, public motionVectorsSet: NriDescriptorSet,
+        constructor(public viewSet: NriDescriptorSet, public motionVectorsSet: NriDescriptorSet,
             public resolveSet: NriDescriptorSet) {
         }
     }
@@ -833,7 +832,7 @@ namespace VariableShadingNri {
                 resolveSet.updateDescriptor(2, 3, hdrView);
                 resolveSet.updateDescriptor(3, 0, resolvedStorage);
                 resolveSet.updateDescriptor(3, 1, feedbackOutputStorage);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet,
+                this.queuedFrames.push(new QueuedFrame(viewSet,
                     motionVectorsSet, resolveSet));
             }
 
@@ -1116,7 +1115,7 @@ namespace VariableShadingNri {
             if (!descriptorPool || !blitSet) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(frameIndex);
             commandBuffer.begin();
             commandBuffer.setDescriptorPool(descriptorPool);
             // The first frame: the mip chains, the cleared targets.

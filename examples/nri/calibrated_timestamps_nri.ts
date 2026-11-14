@@ -64,8 +64,7 @@ namespace CalibratedTimestampsNri {
     // What a frame in flight records into: its command buffer, the models' descriptor set (its
     // slices of the constants, the cube map and its sampler) and the views of its slices.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public modelsSet: NriDescriptorSet | null, public matricesView: NriDescriptor | null,
+        constructor(public modelsSet: NriDescriptorSet | null, public matricesView: NriDescriptor | null,
             public paramsView: NriDescriptor | null) {
         }
     }
@@ -588,7 +587,7 @@ namespace CalibratedTimestampsNri {
                 const matricesView = constantBuffer.createConstantView(i * CONST_STRIDE, MATRICES_VIEW_SIZE);
                 const paramsView = constantBuffer.createConstantView(i * CONST_STRIDE + MATRICES_VIEW_SIZE, PARAMS_VIEW_SIZE);
                 const modelsSet = descriptorPool.allocateDescriptorSet(modelsLayout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), modelsSet, matricesView,
+                this.queuedFrames.push(new QueuedFrame(modelsSet, matricesView,
                     paramsView));
                 if (!matricesView || !paramsView || !modelsSet) {
                     console.log("Cannot create the descriptor sets");
@@ -991,7 +990,7 @@ namespace CalibratedTimestampsNri {
             if (!descriptorPool || !constantBuffer) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             this.timestamps.begin(TAG_UPDATE_UBO);
             this.updateConstants(constantBuffer, queuedFrameIndex * CONST_STRIDE);
             this.timestamps.end(TAG_UPDATE_UBO);

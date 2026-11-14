@@ -88,8 +88,7 @@ namespace RenderOctomapNri {
     class QueuedFrame {
         splatBuffer: NriBuffer | null = null;
 
-        constructor(public commandBuffer: NriCommandBuffer,
-            public descriptorSet: NriDescriptorSet | null, public uboView: NriDescriptor | null) {
+        constructor(public descriptorSet: NriDescriptorSet | null, public uboView: NriDescriptor | null) {
         }
     }
 
@@ -328,7 +327,7 @@ namespace RenderOctomapNri {
             for (let i = 0; i < queuedFrameNum; i++) {
                 const uboView = uniformBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
                 const descriptorSet = descriptorPool.allocateDescriptorSet(layout, 0, 0);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), descriptorSet, uboView));
+                this.queuedFrames.push(new QueuedFrame(descriptorSet, uboView));
                 if (!uboView || !descriptorSet) {
                     console.log("Cannot create the descriptor sets");
                     return 0;
@@ -957,7 +956,7 @@ namespace RenderOctomapNri {
             if (!descriptorPool || !uniformBuffer || !depthAttachment || !layout || !descriptorSet) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             this.updateConstants(uniformBuffer, queuedFrameIndex * CONST_STRIDE);
             const splatBuffer = queuedFrame.splatBuffer;
             if (this.viewState == ViewKind.Splats) {

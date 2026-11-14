@@ -465,6 +465,7 @@ namespace AtomOrbitalsNri {
     // states, the share of the second and the particles: a change draws them anew. Space pauses;
     // left alone for IDLE_SECONDS, the camera orbits slowly. The camera: the left mouse button turns
     // it, the wheel zooms (the Donut example's ThirdPersonCamera also pans and takes keys).
+    @final
     export class AtomOrbitals {
         private device: NriDevice | null = null;
         private queue: NriQueue;
@@ -544,6 +545,7 @@ namespace AtomOrbitalsNri {
         private rowPitch: int = 0;
         private readbackFormat: NriFormat = NriFormat.Unknown;
 
+        @keeps("sample")
         constructor(private sample: NriSample) {
             for (let i = 0; i < SIMULATION_FLOATS; i++) {
                 this.simulationConstants.push(0.0);
@@ -699,7 +701,7 @@ namespace AtomOrbitalsNri {
             this.weight = this.superposed ? this.uiWeight : 0.0;
             if (this.superposed && this.weight >= 1.0) {
                 // B alone.
-                this.orbitalA = this.orbitalB;
+                this.orbitalA = new Orbital(this.orbitalB.n, this.orbitalB.l, this.orbitalB.m);
                 this.superposed = false;
                 this.weight = 0.0;
             }

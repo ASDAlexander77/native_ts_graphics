@@ -63,8 +63,7 @@ namespace OitDepthPeelingNri {
     // passes', one per depth target drawn into, reading the other; the background and combine
     // passes') and the view of its slice of the constants.
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public gatherSets: NriDescriptorSet[], public combineSet: NriDescriptorSet | null,
+        constructor(public gatherSets: NriDescriptorSet[], public combineSet: NriDescriptorSet | null,
             public constantBufferView: NriDescriptor | null) {
         }
     }
@@ -303,7 +302,7 @@ namespace OitDepthPeelingNri {
                 const constantBufferView = constantBuffer.createConstantView(i * CONST_STRIDE, CONST_STRIDE);
                 const gatherSets: NriDescriptorSet[] = [];
                 const combineSet = descriptorPool.allocateDescriptorSet(combineLayout, 0, 0);
-                const queuedFrame = new QueuedFrame(this.frames.commandBuffer(i), gatherSets, combineSet,
+                const queuedFrame = new QueuedFrame(gatherSets, combineSet,
                     constantBufferView);
                 this.queuedFrames.push(queuedFrame);
                 if (!constantBufferView || !combineSet) {
@@ -642,7 +641,7 @@ namespace OitDepthPeelingNri {
             if (!descriptorPool || !constantBuffer) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             this.updateConstants(constantBuffer, queuedFrameIndex * CONST_STRIDE);
 
             commandBuffer.begin();

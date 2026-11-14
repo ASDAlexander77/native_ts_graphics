@@ -75,8 +75,7 @@ namespace RasterizationOrderAttachmentAccessNri {
     class QueuedFrame {
         timestampsPending: boolean = false;
 
-        constructor(public commandBuffer: NriCommandBuffer,
-            public backgroundSet: NriDescriptorSet | null, public blendSet: NriDescriptorSet | null,
+        constructor(public backgroundSet: NriDescriptorSet | null, public blendSet: NriDescriptorSet | null,
             public sceneView: NriDescriptor | null, public timestampBuffer: NriBuffer | null) {
         }
     }
@@ -376,7 +375,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                 const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
                 const blendSet = descriptorPool.allocateDescriptorSet(blendLayout, 0, 0);
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), backgroundSet, blendSet,
+                this.queuedFrames.push(new QueuedFrame(backgroundSet, blendSet,
                     sceneView, timestampBuffer));
                 if (!sceneView || !backgroundSet || !blendSet || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");
@@ -748,7 +747,7 @@ namespace RasterizationOrderAttachmentAccessNri {
             if (!descriptorPool || !sceneConstantBuffer || !colorTexture || !displayLayout || !displayPipeline || !displaySet || !queryPool) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             this.updateSceneConstants(sceneConstantBuffer, queuedFrameIndex * CONST_STRIDE);
 
             commandBuffer.begin();

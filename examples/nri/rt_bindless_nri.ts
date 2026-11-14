@@ -119,8 +119,7 @@ namespace RtBindlessNri {
     // lighting constants and the instances in the trace's set, the joint matrices in the skinning
     // sets, one per skinned instance).
     class QueuedFrame {
-        constructor(public commandBuffer: NriCommandBuffer,
-            public traceSet: NriDescriptorSet, public skinningSets: NriDescriptorSet[]) {
+        constructor(public traceSet: NriDescriptorSet, public skinningSets: NriDescriptorSet[]) {
         }
     }
 
@@ -638,7 +637,7 @@ namespace RtBindlessNri {
                     set.updateDescriptor(1, 0, skinnedStorageView);
                     skinningSets.push(set);
                 }
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), traceSet, skinningSets));
+                this.queuedFrames.push(new QueuedFrame(traceSet, skinningSets));
             }
 
             // The bindless arrays: the buffers by GeometryData's numbers; the textures by number.
@@ -838,7 +837,7 @@ namespace RtBindlessNri {
             if (!descriptorPool || !scene || !accelStructs || !skinnedVertexBuffer) {
                 return;
             }
-            const commandBuffer = queuedFrame.commandBuffer;
+            const commandBuffer = this.frames.commandBuffer(queuedFrameIndex);
             commandBuffer.begin();
             commandBuffer.setDescriptorPool(descriptorPool);
             this.textures.recordBlits(commandBuffer);
