@@ -199,6 +199,20 @@ namespace RaytracingMiniEngine {
         return values;
     }
 
+    // 1 / x as MiniEngine's /fp:fast build computes it: the SSE reciprocal estimate (Donut_ApproxRcpf)
+    // refined by a Newton-Raphson step, in floats.
+    function refinedReciprocal(x: number): number {
+        const r = Math.fround(Donut_ApproxRcpf(x));
+        return Math.fround(Math.fround(r + r) - Math.fround(Math.fround(r * r) * x));
+    }
+
+    // Appends m's values to values.
+    function appendAll(values: f32[], m: number[]) {
+        for (const v of m) {
+            values.push(v);
+        }
+    }
+
     function splat4(v: number): number[] {
         return [v, v, v, v];
     }
@@ -310,7 +324,12 @@ namespace RaytracingMiniEngine {
             this.view = viewMatrix(rotation, this.position);
             // m_ProjMatrix * m_ViewMatrix is XMMatrixMultiply(view, proj).
             const viewProj = matrixMultiply(this.view, this.proj);
-            this.previousViewProj = this.viewProj.length == 16 ? this.viewProj : viewProj;
+            // (Copies: the camera keeps both.)
+            if (this.viewProj.length == 16) {
+                this.previousViewProj = this.viewProj.slice();
+            } else {
+                this.previousViewProj = viewProj.slice();
+            }
             this.viewProj = viewProj;
             this.cameraToWorld = matrixTranspose(matrixInverse(viewProj));
             this.reprojection = matrixMultiply(matrixInverse(viewProj), this.previousViewProj);
@@ -458,7 +477,8 @@ namespace RaytracingMiniEngine {
     // MiniEngine's FlyingFPSCamera; F freezes the camera.
     class RaytracingMiniEnginePass {
         private app: App;
-        private settings: Settings;
+        // Its own (main gives them up and reads them here after the run).
+        settings: Settings;
         private model: H3dModel = new H3dModel();
         private camera: MiniEngineCamera = new MiniEngineCamera();
 
@@ -833,14 +853,12 @@ namespace RaytracingMiniEngine {
             // Both constant buffers are rewritten before every dispatch (zeros where the shader has none);
             // the command list orders each write before the dispatch that reads it.
             const constants = this.computeConstants;
-            const values0: number[] = cb0 ? cb0 as number[] : [];
             for (let i = 0; i < constants.length; i++) {
-                constants[i] = i < values0.length ? values0[i] : 0.0;
+                constants[i] = cb0 && i < cb0.length ? cb0[i] : 0.0;
             }
             commandList.writeBuffer(this.computeCB0 as BufferHandle, Ref(constants[0]), COMPUTE_CONSTANTS_SIZE);
-            const values1: number[] = cb1 ? cb1 as number[] : [];
             for (let i = 0; i < constants.length; i++) {
-                constants[i] = i < values1.length ? values1[i] : 0.0;
+                constants[i] = cb1 && i < cb1.length ? cb1[i] : 0.0;
             }
             commandList.writeBuffer(this.computeCB1 as BufferHandle, Ref(constants[0]), COMPUTE_CONSTANTS_SIZE);
             const desc = BindingSetDesc.create();
@@ -980,12 +998,14 @@ namespace RaytracingMiniEngine {
         cameraMatrices(): f32[] {
             const c = this.camera;
             const values: f32[] = [];
-            for (const m of [c.view, c.proj, c.viewProj, c.cameraToWorld, c.position, this.sunShadow.shadowMatrix,
-                this.sunShadow.viewProj, this.sunDirection()]) {
-                for (const v of m) {
-                    values.push(v);
-                }
-            }
+            appendAll(values, c.view);
+            appendAll(values, c.proj);
+            appendAll(values, c.viewProj);
+            appendAll(values, c.cameraToWorld);
+            appendAll(values, c.position);
+            appendAll(values, this.sunShadow.shadowMatrix);
+            appendAll(values, this.sunShadow.viewProj);
+            appendAll(values, this.sunDirection());
             return values;
         }
 
@@ -1255,11 +1275,6 @@ namespace RaytracingMiniEngine {
         private computeAO(commandList: CommandList, compute: MiniEngineCompute | null, destination: TextureHandle,
             depth: TextureHandle, w: int, h: int, arrayCount: int, tanHalfFovH: number) {
             const f = (x: number): number => Math.fround(x);
-            const reciprocal = (x: number): number => {
-                const r = f(Donut_ApproxRcpf(x));
-                return f(f(r + r) - f(f(r * r) * x));
-            };
-            const thickness = SSAO_SAMPLE_THICKNESS;
             let thicknessMultiplier = f(f(tanHalfFovH * 20.0) / w);
             if (arrayCount == 1) {
                 thicknessMultiplier = f(thicknessMultiplier + thicknessMultiplier);
@@ -1267,17 +1282,17 @@ namespace RaytracingMiniEngine {
             const inverseRangeFactor = f(1.0 / thicknessMultiplier);
             const cb: number[] = [];
             for (let i = 0; i < 12; i++) {
-                cb.push(f(reciprocal(thickness[i]) * inverseRangeFactor));
+                cb.push(f(refinedReciprocal(SSAO_SAMPLE_THICKNESS[i]) * inverseRangeFactor));
             }
             // Axial, diagonal and L-shaped weights; the unsampled ones (not SAMPLE_EXHAUSTIVELY) zero.
             const counts = [0.0, 4.0, 0.0, 4.0, 4.0, 0.0, 8.0, 0.0, 4.0, 0.0, 8.0, 4.0];
             const weights: number[] = [];
             for (let i = 0; i < 12; i++) {
-                weights.push(f(counts[i] * thickness[i]));
+                weights.push(f(counts[i] * SSAO_SAMPLE_THICKNESS[i]));
             }
             const totalWeight = f(f(f(f(f(weights[1] + weights[3]) + f(weights[4] + weights[6])) + weights[8]) + weights[10])
                 + weights[11]);
-            const rcpTotal = reciprocal(totalWeight);
+            const rcpTotal = refinedReciprocal(totalWeight);
             for (let i = 0; i < 12; i++) {
                 cb.push(f(rcpTotal * weights[i]));
             }
@@ -1401,9 +1416,15 @@ namespace RaytracingMiniEngine {
                     c[8 + i] = ambient;
                 }
                 c[12] = Math.fround(1.0 / SHADOW_MAP_SIZE);
-                const shadow = transposeShadow ? matrixTranspose(this.sunShadow.shadowMatrix) : this.sunShadow.shadowMatrix;
-                for (let i = 0; i < 16; i++) {
-                    c[16 + i] = shadow[i];
+                if (transposeShadow) {
+                    const shadow = matrixTranspose(this.sunShadow.shadowMatrix);
+                    for (let i = 0; i < 16; i++) {
+                        c[16 + i] = shadow[i];
+                    }
+                } else {
+                    for (let i = 0; i < 16; i++) {
+                        c[16 + i] = this.sunShadow.shadowMatrix[i];
+                    }
                 }
             }
             commandList.writeBuffer(this.hitConstantBuffer as BufferHandle, Ref(c[0]), HIT_CONSTANTS_SIZE);
@@ -1635,7 +1656,9 @@ namespace RaytracingMiniEngine {
 
         const args = new RaytracingMiniEngineArgs(argc, argv, TEST_FRAMES);
         args.parseArgs();
-        const settings = args.settings;
+        // Taken out of args (the pass keeps them).
+        let settings = new Settings();
+        [settings, args.settings] = [args.settings, settings];
         if (args.test && settings.camera < 0) {
             settings.camera = 3;
         }
@@ -1665,11 +1688,11 @@ namespace RaytracingMiniEngine {
         app.run();
         let result = 0;
         if (args.test) {
-            result = app.finishTest(checkFrame(app, settings));
+            result = app.finishTest(checkFrame(app, pass.settings));
         }
         app.waitForIdle();
         const sceneColor = pass.sceneColor;
-        if (settings.dumpScenePath != "" && sceneColor) {
+        if (pass.settings.dumpScenePath != "" && sceneColor) {
             const w = app.getWindowWidth();
             const h = app.getWindowHeight();
             const pixels: int[] = [];
@@ -1677,12 +1700,12 @@ namespace RaytracingMiniEngine {
                 pixels.push(0);
             }
             const size = app.readTextureLevel(sceneColor, 0, Ref(pixels[0]), pixels.length * 4);
-            if (size == 0 || Donut_WriteBinaryFile(`${settings.dumpScenePath}/color.raw`, Ref(pixels[0]), pixels.length * 4) == 0) {
-                console.log(`Cannot write ${settings.dumpScenePath}/color.raw`);
+            if (size == 0 || Donut_WriteBinaryFile(`${pass.settings.dumpScenePath}/color.raw`, Ref(pixels[0]), pixels.length * 4) == 0) {
+                console.log(`Cannot write ${pass.settings.dumpScenePath}/color.raw`);
                 result = 1;
             }
         }
-        if (settings.dumpScenePath != "") {
+        if (pass.settings.dumpScenePath != "") {
             const textures = pass.dumpedTextures();
             const names = ["normals", "ssao", "temporal", "depth"];
             // Bytes a pixel: RGBA16_FLOAT, R8_UNORM, RGBA16_FLOAT, D32.
@@ -1693,16 +1716,16 @@ namespace RaytracingMiniEngine {
                     pixels.push(0);
                 }
                 app.readTextureLevel(textures[t], 0, Ref(pixels[0]), pixels.length * 4);
-                Donut_WriteBinaryFile(`${settings.dumpScenePath}/${names[t]}.raw`, Ref(pixels[0]), pixels.length * 4);
+                Donut_WriteBinaryFile(`${pass.settings.dumpScenePath}/${names[t]}.raw`, Ref(pixels[0]), pixels.length * 4);
             }
         }
-        if (settings.dumpScenePath != "") {
+        if (pass.settings.dumpScenePath != "") {
             const ssaoConstants = pass.ssaoConstants;
             if (ssaoConstants.length > 0) {
-                Donut_WriteBinaryFile(`${settings.dumpScenePath}/ssaocb.raw`, Ref(ssaoConstants[0]), ssaoConstants.length * 4);
+                Donut_WriteBinaryFile(`${pass.settings.dumpScenePath}/ssaocb.raw`, Ref(ssaoConstants[0]), ssaoConstants.length * 4);
             }
             const matrices = pass.cameraMatrices();
-            Donut_WriteBinaryFile(`${settings.dumpScenePath}/matrices.raw`, Ref(matrices[0]), matrices.length * 4);
+            Donut_WriteBinaryFile(`${pass.settings.dumpScenePath}/matrices.raw`, Ref(matrices[0]), matrices.length * 4);
         }
         app.destroy();
         return result;
