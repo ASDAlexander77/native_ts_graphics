@@ -486,7 +486,8 @@ namespace BokehNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
@@ -681,7 +682,7 @@ namespace BokehNri {
             for (let q = 0; q < queuedFrameNum; q++) {
                 // (A buffer each: on D3D11 a buffer holds only its last copy of queries.)
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                const queuedFrame = new QueuedFrame(this.frames.commandBuffer(q), timestampBuffer);
+                const queuedFrame = new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(q).handle), timestampBuffer);
                 this.queuedFrames.push(queuedFrame);
                 const base = q * FRAME_CONSTANTS_SIZE;
                 for (let o = 0; o < OBJECT_COUNT; o++) {

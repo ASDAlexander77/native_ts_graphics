@@ -216,7 +216,8 @@ namespace DynamicLineRasterizationNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -375,15 +376,18 @@ namespace DynamicLineRasterizationNri {
             const key = `${this.rasterizationMode} ${this.lineWidth} ${stipple ? 1 : 0} ${this.stippleFactor} ${this.pattern()}`;
             for (let i = 0; i < this.edgeKeys.length; i++) {
                 if (this.edgeKeys[i] == key) {
-                    return this.edgePipelines[i];
+                    return new NriPipeline(this.edgePipelines[i].handle);
                 }
             }
             const pipeline = this.createPipeline(device, layout, "base", NriTopology.LineList, true, stipple ? 1 : 0);
-            if (pipeline) {
-                this.edgeKeys.push(key);
-                this.edgePipelines.push(pipeline);
+            if (!pipeline) {
+                return null;
             }
-            return pipeline;
+            // A wrapper of its own (destroying nothing) for the caller: the list keeps the pipeline.
+            const result = new NriPipeline(pipeline.handle);
+            this.edgeKeys.push(key);
+            this.edgePipelines.push(pipeline);
+            return result;
         }
 
         // Keeps a handful of edge pipelines: drops them all now and then (after the frames in flight

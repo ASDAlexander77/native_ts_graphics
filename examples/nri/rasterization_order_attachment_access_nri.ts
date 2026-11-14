@@ -218,7 +218,8 @@ namespace RasterizationOrderAttachmentAccessNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -376,7 +377,7 @@ namespace RasterizationOrderAttachmentAccessNri {
                 const backgroundSet = descriptorPool.allocateDescriptorSet(backgroundLayout, 0, 0);
                 const blendSet = descriptorPool.allocateDescriptorSet(blendLayout, 0, 0);
                 const timestampBuffer = device.createReadbackBuffer(TIMESTAMPS * this.querySize);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), backgroundSet, blendSet,
+                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), backgroundSet, blendSet,
                     sceneView, timestampBuffer));
                 if (!sceneView || !backgroundSet || !blendSet || !timestampBuffer) {
                     console.log("Cannot create the descriptor sets");

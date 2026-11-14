@@ -290,8 +290,10 @@ namespace RaytracingAoNri {
         // A material texture (DirectXTK's EffectTextureFactory: DDS files as they are), or the
         // placeholder for none; null if it can't be loaded.
         loadTexture(device: NriDevice, queue: NriQueue, name: string, placeholder: NriDescriptor): NriDescriptor | null {
+            // (Wrappers of their own, destroying nothing: the views stay the placeholder's owner's and
+            // textureViews'.)
             if (name == "") {
-                return placeholder;
+                return new NriDescriptor(placeholder.handle);
             }
             const texture = device.loadDdsTexture(queue, MEDIA_DIR + name, 0);
             if (!texture) {
@@ -300,8 +302,9 @@ namespace RaytracingAoNri {
             }
             this.textures.push(texture);
             const view = texture.createView(texture.getFormat());
+            const result = new NriDescriptor(view.handle);
             this.textureViews.push(view);
-            return view;
+            return result;
         }
 
         // False (after printing why) on failure.
@@ -735,7 +738,8 @@ namespace RaytracingAoNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);

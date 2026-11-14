@@ -218,50 +218,54 @@ export class OctomapReader {
     }
 }
 
+// One pass of sortDescending: the runs of width in src's first n merged into runs of twice that in dst.
+function mergePass(src: int[], dst: int[], key: number[], n: int, width: int) {
+    for (let left = 0; left < n; left += 2 * width) {
+        const mid = Math.min(left + width, n);
+        const right = Math.min(left + 2 * width, n);
+        let i = left;
+        let j = mid;
+        let k = left;
+        while (i < mid && j < right) {
+            if (key[src[j]] > key[src[i]]) {
+                dst[k] = src[j];
+                j++;
+            } else {
+                dst[k] = src[i];
+                i++;
+            }
+            k++;
+        }
+        while (i < mid) {
+            dst[k] = src[i];
+            i++;
+            k++;
+        }
+        while (j < right) {
+            dst[k] = src[j];
+            j++;
+            k++;
+        }
+    }
+}
+
 // Sorts order[] by key[] descending (merge sort, stable), with scratch[] as large as order.
 export function sortDescending(order: int[], key: number[], scratch: int[]) {
     const n = order.length;
     let width = 1;
-    let src = order;
-    let dst = scratch;
     let inScratch = false;
     while (width < n) {
-        for (let left = 0; left < n; left += 2 * width) {
-            const mid = Math.min(left + width, n);
-            const right = Math.min(left + 2 * width, n);
-            let i = left;
-            let j = mid;
-            let k = left;
-            while (i < mid && j < right) {
-                if (key[src[j]] > key[src[i]]) {
-                    dst[k] = src[j];
-                    j++;
-                } else {
-                    dst[k] = src[i];
-                    i++;
-                }
-                k++;
-            }
-            while (i < mid) {
-                dst[k] = src[i];
-                i++;
-                k++;
-            }
-            while (j < right) {
-                dst[k] = src[j];
-                j++;
-                k++;
-            }
+        if (inScratch) {
+            mergePass(scratch, order, key, n, width);
+        } else {
+            mergePass(order, scratch, key, n, width);
         }
-        const swap = src;
-        src = dst;
-        dst = swap;
         inScratch = !inScratch;
         width *= 2;
     }
     if (inScratch) {
         for (let i = 0; i < n; i++) {
-            order[i] = src[i];
+            order[i] = scratch[i];
         }
     }
 }

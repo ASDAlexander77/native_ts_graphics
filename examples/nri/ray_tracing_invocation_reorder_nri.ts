@@ -160,7 +160,7 @@ namespace RayTracingInvocationReorderNri {
     }
 
     class FlameParticleGenerator {
-        particles: FlameParticle[];
+        particles: Shared<FlameParticle>[]; // shared handles, so updateParticles can filter them
         private origin: number[];
         private direction: number[];
         private u: number[];
@@ -205,7 +205,7 @@ namespace RayTracingInvocationReorderNri {
                 position.push(this.origin[i] + R * (s * this.u[i] + c * this.v[i]));
                 velocity.push(speed * velocityDirection[i]);
             }
-            return new FlameParticle(position, velocity, lifetime);
+            return new Shared(new FlameParticle(position, velocity, lifetime));
         }
 
         // The sample's constructor's particles, at random points of their lifetimes.
@@ -217,9 +217,10 @@ namespace RayTracingInvocationReorderNri {
         }
 
         updateParticles(timeDelta: number) {
-            const remaining = this.particles.filter((particle) => !(particle.duration > randomFloat() * this.lifetime));
+            const remaining = this.particles.filter((particle) => !(particle.value.duration > randomFloat() * this.lifetime));
 
-            for (const particle of remaining) {
+            for (const handle of remaining) {
+                const particle = handle.value;
                 for (let k = 0; k < 3; k++) {
                     particle.position[k] += timeDelta * particle.velocity[k];
                 }
@@ -386,7 +387,8 @@ namespace RayTracingInvocationReorderNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 const test = this.sample.isTest() != 0;
                 console.log(test ? `Test SKIPPED: ${this.unsupportedReason}` : this.unsupportedReason);
@@ -709,16 +711,16 @@ namespace RayTracingInvocationReorderNri {
         // normals averaged from the faces'. As in the sample, its index array has room for
         // 2 x GRID_SIZE^2 triangles but uses 2 x (GRID_SIZE - 1)^2: the rest are (0, 0, 0).
         createDynamicObjectBuffers(time: number) {
-            const model = this.refractionModel;
-            const indices = this.refractionIndices;
-            if (model.length == 0) {
+            if (this.refractionModel.length == 0) {
                 for (let i = 0; i < GRID_SIZE * GRID_SIZE * VERTEX_FLOATS; i++) {
-                    model.push(0.0);
+                    this.refractionModel.push(0.0);
                 }
                 for (let i = 0; i < 2 * GRID_SIZE * GRID_SIZE * 3; i++) {
-                    indices.push(0);
+                    this.refractionIndices.push(0);
                 }
             }
+            const model = this.refractionModel;
+            const indices = this.refractionIndices;
 
             for (let i = 0; i < GRID_SIZE; i++) {
                 for (let j = 0; j < GRID_SIZE; j++) {
@@ -946,7 +948,7 @@ namespace RayTracingInvocationReorderNri {
             if (flameBlas) {
                 const particles = this.flameGenerator.particles;
                 for (const particle of particles) {
-                    this.calculateRotation(particle.position, 0.25, true);
+                    this.calculateRotation(particle.value.position, 0.25, true);
                     topLevelAS.addInstance(flameBlas, Ref(this.transform[0]), flameIndex, 0xFF, ObjectType.Flame,
                         INSTANCE_FLAGS_CULL_DISABLE);
                 }

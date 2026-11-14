@@ -336,6 +336,7 @@ namespace AtomOrbitals {
     // The particles are drawn as additive sprites colored by the phase of psi at them (or their speed).
     // The UI (top right, off with -noui) picks the states, the share of the second and the particles:
     // a change draws them anew. Space pauses; left alone for IDLE_SECONDS, the camera orbits slowly.
+    @final
     export class OrbitalsPass {
         private app: App;
         private camera: Camera;
@@ -424,7 +425,7 @@ namespace AtomOrbitals {
             this.superposed = false;
             this.weight = 0.0;
             this.orbitalA = new Orbital(1, 0, 0);
-            this.orbitalB = this.orbitalA;
+            this.orbitalB = new Orbital(1, 0, 0);
             this.graphicsPipeline = null;
             this.viewConstantsSize = 0;
             this.px = 0.0;
@@ -656,7 +657,7 @@ namespace AtomOrbitals {
             this.weight = this.superposed ? this.uiWeight : 0.0;
             if (this.superposed && this.weight >= 1.0) {
                 // B alone.
-                this.orbitalA = this.orbitalB;
+                this.orbitalA = new Orbital(this.uiB[0], this.uiB[1], this.uiB[2]);
                 this.superposed = false;
                 this.weight = 0.0;
             }

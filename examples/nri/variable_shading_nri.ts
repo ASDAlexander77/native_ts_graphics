@@ -260,7 +260,8 @@ namespace VariableShadingNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.d3d11) {
                 console.log("The Variable Rate Shading example does not support D3D11.");
                 result = 1;
@@ -833,7 +834,7 @@ namespace VariableShadingNri {
                 resolveSet.updateDescriptor(2, 3, hdrView);
                 resolveSet.updateDescriptor(3, 0, resolvedStorage);
                 resolveSet.updateDescriptor(3, 1, feedbackOutputStorage);
-                this.queuedFrames.push(new QueuedFrame(this.frames.commandBuffer(i), viewSet,
+                this.queuedFrames.push(new QueuedFrame(new NriCommandBuffer(this.frames.commandBuffer(i).handle), viewSet,
                     motionVectorsSet, resolveSet));
             }
 

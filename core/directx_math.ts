@@ -508,8 +508,11 @@ export function quaternionRotationMatrix(m: number[]): number[] {
     const tensor2 = shuffle(t2, t1, 2, 0, 1, 0);
     const tensor3 = shuffle(t2, t1, 1, 2, 3, 2);
 
-    const selected = x2py2gez2pw2 ? (x2gey2 ? tensor0 : tensor1) : (z2gew2 ? tensor2 : tensor3);
-    return vdiv(selected, length4(selected));
+    // Each branch returns its own tensor (a ?: of the four would leave -mm=own unsure which owns it).
+    if (x2py2gez2pw2) {
+        return x2gey2 ? vdiv(tensor0, length4(tensor0)) : vdiv(tensor1, length4(tensor1));
+    }
+    return z2gew2 ? vdiv(tensor2, length4(tensor2)) : vdiv(tensor3, length4(tensor3));
 }
 
 // Whether a float's sign bit is set (-0 included), as the SSE code's masks see it.

@@ -220,7 +220,7 @@ namespace DynamicPrimitiveClipping {
                 desc.addBindingLayout(this.bindingLayout);
                 desc.setDepthState(1, 1, ComparisonFunc.Less);
                 desc.setRasterState(CullMode.None, FillMode.Solid, 0);
-                desc.setDepthClip(clip);
+                desc.setDepthClip(clip != 0);
                 this.pipelines.push(this.app.createGraphicsPipelineFromDesc(desc, this.framebuffers[0]));
             }
             this.targetWidth = width;

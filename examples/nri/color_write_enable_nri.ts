@@ -121,7 +121,8 @@ namespace ColorWriteEnableNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (this.unsupportedReason != "") {
                 console.log(this.unsupportedReason);
                 result = 1;
@@ -242,7 +243,7 @@ namespace ColorWriteEnableNri {
             }
             const made = this.trianglePipelines[enabled];
             if (made) {
-                return made;
+                return new NriPipeline(made.handle);
             }
             const desc = NriPipelineDesc.create();
             let loaded = desc.addShader(NriShaderStage.Vertex, `${this.shaders}_triangle_vs.bin`, "triangle_vs") != 0;
@@ -258,8 +259,13 @@ namespace ColorWriteEnableNri {
                 pipeline = device.createPipelineFromDesc(triangleLayout, desc);
             }
             desc.destroy();
+            if (!pipeline) {
+                return null;
+            }
+            // A wrapper of its own (destroying nothing) for the caller: the list keeps the pipeline.
+            const result = new NriPipeline(pipeline.handle);
             this.trianglePipelines[enabled] = pipeline;
-            return pipeline;
+            return result;
         }
 
         // Waits for the frame that last used this frame's command allocator.

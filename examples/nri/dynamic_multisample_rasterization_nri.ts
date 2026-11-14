@@ -252,7 +252,8 @@ namespace DynamicMultisampleRasterizationNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = checkFrame(this.readBack(), this.width, this.height);
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -545,7 +546,7 @@ namespace DynamicMultisampleRasterizationNri {
             const key = sampleCount * GROUP_COUNT + group;
             for (let i = 0; i < this.pipelineKeys.length; i++) {
                 if (this.pipelineKeys[i] == key) {
-                    return this.pipelines[i];
+                    return new NriPipeline(this.pipelines[i].handle);
                 }
             }
             const device = this.device;
@@ -577,11 +578,14 @@ namespace DynamicMultisampleRasterizationNri {
                 pipeline = device.createPipelineFromDesc(layout, desc);
             }
             desc.destroy();
-            if (pipeline) {
-                this.pipelineKeys.push(key);
-                this.pipelines.push(pipeline);
+            if (!pipeline) {
+                return null;
             }
-            return pipeline;
+            // A wrapper of its own (destroying nothing) for the caller: the list keeps the pipeline.
+            const result = new NriPipeline(pipeline.handle);
+            this.pipelineKeys.push(key);
+            this.pipelines.push(pipeline);
+            return result;
         }
 
         // The swap chain's size and formats (its views sRGB, as Donut's back buffers).

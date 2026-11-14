@@ -14,10 +14,10 @@ import { NriCommandBuffer, NriDescriptor, NriDescriptorPool, NriDescriptorSet, N
 // { float2 sourceOrigin, sourceSize, targetOrigin, targetSize; float sharpenFactor; }.
 const BLIT_CONSTANTS: f32[] = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0];
 
-// A blit of a texture's level into the next: the level's attachment view, the set of the level
-// above's view, whether the texture is sRGB.
+// A blit of a texture's level into the next: the texture's number (DonutSceneTextures.textures owns
+// it), the level's attachment view, the set of the level above's view, whether the texture is sRGB.
 class MipBlit {
-    constructor(public texture: NriTexture, public mip: int, public width: int, public height: int, public srgb: boolean,
+    constructor(public textureIndex: int, public mip: int, public width: int, public height: int, public srgb: boolean,
         public attachment: NriDescriptor, public sourceView: NriDescriptor, public set: NriDescriptorSet) {
     }
 }
@@ -121,7 +121,7 @@ export class DonutSceneTextures {
                 const sourceView = texture.createMipView(format, mip - 1);
                 set.updateDescriptor(0, 0, sourceView);
                 set.updateDescriptor(1, 0, linearClamp);
-                this.blits.push(new MipBlit(texture, mip, Math.max(width >> mip, 1), Math.max(height >> mip, 1), srgb,
+                this.blits.push(new MipBlit(t, mip, Math.max(width >> mip, 1), Math.max(height >> mip, 1), srgb,
                     texture.createColorAttachmentMipView(format, mip), sourceView, set));
             }
         }
@@ -135,7 +135,8 @@ export class DonutSceneTextures {
             return;
         }
         for (const blit of this.blits) {
-            commandBuffer.textureMipBarrier(blit.texture, blit.mip, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
+            const texture = this.textures[blit.textureIndex];
+            commandBuffer.textureMipBarrier(texture, blit.mip, NriTextureState.ShaderResource, NriTextureState.ColorAttachment);
             commandBuffer.beginRendering(blit.attachment);
             commandBuffer.setViewport(0.0, 0.0, blit.width, blit.height);
             commandBuffer.setScissor(0, 0, blit.width, blit.height);
@@ -145,7 +146,7 @@ export class DonutSceneTextures {
             commandBuffer.setDescriptorSet(0, blit.set);
             commandBuffer.draw(4, 1, 0, 0);
             commandBuffer.endRendering();
-            commandBuffer.textureMipBarrier(blit.texture, blit.mip, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
+            commandBuffer.textureMipBarrier(texture, blit.mip, NriTextureState.ColorAttachment, NriTextureState.ShaderResource);
         }
         this.blitted = true;
     }

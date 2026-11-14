@@ -309,7 +309,8 @@ namespace GravityLightBendingNri {
             this.sample.setLatencySleepCallback(latencySleep);
             this.sample.setRenderFrameCallback(renderFrame);
 
-            let result = this.sample.run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
+            // On a wrapper of its own: the callbacks Nri_RunSample runs may overwrite this.sample.
+            let result = new NriSample(this.sample.handle).run(argc, argv, WINDOW_TITLE, TEST_FRAMES);
             if (result == 0 && this.test) {
                 const failure = this.checkTest();
                 console.log(failure == "" ? "Test PASSED" : `Test FAILED: ${failure}`);
@@ -417,9 +418,10 @@ namespace GravityLightBendingNri {
                     console.log("Cannot create the constant buffer views");
                     return 0;
                 }
+                // The frame's wrappers of its own (destroying nothing): constantViews keeps the views.
+                this.queuedFrames.push(new QueuedFrame(new NriDescriptor(sceneView.handle), new NriDescriptor(viewView.handle)));
                 this.constantViews.push(sceneView);
                 this.constantViews.push(viewView);
-                this.queuedFrames.push(new QueuedFrame(sceneView, viewView));
             }
 
             // A look-at camera over the XZ plane, where the bodies orbit and the sheet of rays lies.
