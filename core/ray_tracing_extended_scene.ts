@@ -38,6 +38,7 @@ export class FlameParticleGenerator {
     private radius: number;
     private nParticles: int;
 
+    @keeps("origin", "direction")
     constructor(origin: number[], direction: number[], radius: number, nParticles: int) {
         this.particles = [];
         this.origin = origin;
@@ -86,7 +87,18 @@ export class FlameParticleGenerator {
     }
 
     updateParticles(timeDelta: number) {
-        const remaining = this.particles.filter((particle) => !(particle.duration > randomFloat() * this.lifetime));
+        // The expired particles dropped in place (as filter would keep the others, in order, with the
+        // same random draws): under -mm=own a filtered copy would give each kept particle a second owner.
+        const keep: boolean[] = [];
+        for (const particle of this.particles) {
+            keep.push(!(particle.duration > randomFloat() * this.lifetime));
+        }
+        for (let i = keep.length - 1; i >= 0; i--) {
+            if (!keep[i]) {
+                this.particles.splice(i, 1);
+            }
+        }
+        const remaining = this.particles;
 
         for (const particle of remaining) {
             for (let k = 0; k < 3; k++) {
@@ -95,10 +107,9 @@ export class FlameParticleGenerator {
             particle.duration += timeDelta;
         }
 
-        while (remaining.length < this.nParticles) {
-            remaining.push(this.generateParticle(0.0));
+        while (this.particles.length < this.nParticles) {
+            this.particles.push(this.generateParticle(0.0));
         }
-        this.particles = remaining;
     }
 }
 
@@ -110,6 +121,7 @@ export class Model {
     textureIndex: int;
     objectType: int;
 
+    @keeps("vertices", "triangles")
     constructor(vertices: f32[], triangles: int[], textureIndex: int, objectType: int) {
         this.vertices = vertices;
         this.triangles = triangles;
