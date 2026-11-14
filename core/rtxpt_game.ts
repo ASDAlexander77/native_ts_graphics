@@ -23,10 +23,11 @@ function f32(x: number): number {
 // the app that owns the game's JSON files, and what the host knows of it: whether the scene has game settings (an
 // RTXPT GameSettings node), and whether its renderer reads a spot light's negative outer angle as the minimum
 // falloff past it (RTXPT's kUseMinSpotlightFalloff, as SampleGame sets it). Nodes and JSON files are handles.
-@final
+// A value (copied, as it never changes), so the game and each of its props keep one of their own.
+@value
 export class GameWorld {
-    constructor(private app: AppHandle | null, private scene: SceneHandle | null, public hasGameSettings: boolean,
-        private minSpotFalloff: boolean) {
+    constructor(private readonly app: AppHandle | null, private readonly scene: SceneHandle | null,
+        public readonly hasGameSettings: boolean, private readonly minSpotFalloff: boolean) {
     }
 
     private graph(): SceneGraphHandle {
@@ -436,13 +437,9 @@ class KeyframeAnimation {
         }
         // std::sort by key time (insertion: the files' keys are already in order)
         for (let i = 1; i < this.keys.length; i++) {
-            const key = this.keys[i];
-            let j = i - 1;
-            while (j >= 0 && key.keyTime < this.keys[j].keyTime) {
-                this.keys[j + 1] = this.keys[j];
-                j--;
+            for (let j = i; j > 0 && this.keys[j].keyTime < this.keys[j - 1].keyTime; j--) {
+                [this.keys[j - 1], this.keys[j]] = [this.keys[j], this.keys[j - 1]];
             }
-            this.keys[j + 1] = key;
         }
     }
 
@@ -553,7 +550,7 @@ class ModelType {
             const lightPath = `lights/${i}`;
             const lightName = world.getGameJsonString(json, joinPath(lightPath, "name"), "");
             if (lightName == "" || this.findLight(lightName) >= 0) {
-                console.log(`malformed or repeated light name in ${name}.model.json`);
+                console.log(`malformed or repeated light name in ${this.name}.model.json`);
                 continue;
             }
             this.lightNames.push(lightName);
@@ -577,7 +574,7 @@ class ModelType {
         const q = p.rotation;
         world.setSceneModelTransform(modelIndex, p.tx, p.ty, p.tz, q.x, q.y, q.z, q.w, p.sx, p.sy, p.sz);
         this.modelIndex = modelIndex;
-        this.valid = name != "";
+        this.valid = this.name != "";
     }
 
     findLight(name: string): int {
@@ -593,7 +590,8 @@ class ModelType {
 // game::ModelInstance: a node of its own with the model type's model under it, and its lights' controllers.
 class ModelInstance {
     node: NodeHandle;
-    lights: LightController[] = [];
+    // Shared handles: a prop's components (PoliceLights) drive some of them too.
+    lights: Shared<LightController>[] = [];
 
     constructor(world: GameWorld, public instanceName: string, modelType: ModelType, parentNode: NodeHandle) {
         this.node = world.createGameNode(parentNode, instanceName);
@@ -606,22 +604,25 @@ class ModelInstance {
             const lightName = world.getGameNodeName(handles[i]);
             const index = modelType.findLight(lightName);
             if (index < 0) {
-                console.log(`Model instance '${instanceName}', light '${lightName}' has no controller`);
+                console.log(`Model instance '${this.instanceName}', light '${lightName}' has no controller`);
+                continue;
+            }
+            // (LightController::Read fails only without the JSON object.)
+            if (!world.hasGameJson(modelType.json, modelType.lightPaths[index])) {
                 continue;
             }
             const controller = new LightController();
-            if (controller.read(world, modelType.json, modelType.lightPaths[index])) {
-                controller.node = handles[i];
-                controller.nodeName = lightName;
-                this.lights.push(controller);
-            }
+            controller.read(world, modelType.json, modelType.lightPaths[index]);
+            controller.node = handles[i];
+            controller.nodeName = lightName;
+            this.lights.push(new Shared(controller));
         }
     }
 
     // ModelInstance::UpdateLightFromControllers
     updateLightFromControllers(world: GameWorld, gameTime: number) {
         for (let i = 0; i < this.lights.length; i++) {
-            const c = this.lights[i];
+            const c = this.lights[i].value;
             let enabled = c.enabled;
             if (c.autoOffTime != 0.0 && c.autoOnTime != 0.0) {
                 const periodLength = f32(c.autoOffTime + c.autoOnTime);
@@ -640,10 +641,10 @@ class ModelInstance {
 class PoliceLights {
     start = 0.0;
     stop = 0.0;
-    spotLeft: LightController = new LightController();
-    spotRight: LightController = new LightController();
-    blobLeft: LightController = new LightController();
-    blobRight: LightController = new LightController();
+    spotLeft: Shared<LightController> = new Shared(new LightController());
+    spotRight: Shared<LightController> = new Shared(new LightController());
+    blobLeft: Shared<LightController> = new Shared(new LightController());
+    blobRight: Shared<LightController> = new Shared(new LightController());
     spotLeftIntensity = 0.0;
     spotRightIntensity = 0.0;
     blobLeftIntensity = 0.0;
@@ -658,23 +659,24 @@ class PoliceLights {
             const lights = models[m].lights;
             for (let i = 0; i < lights.length; i++) {
                 const light = lights[i];
-                if (light.nodeName == "SpotLeft") {
+                const controller = light.value;
+                if (controller.nodeName == "SpotLeft") {
                     this.spotLeft = light;
-                    this.spotLeftIntensity = light.intensity;
+                    this.spotLeftIntensity = controller.intensity;
                 }
-                if (light.nodeName == "SpotRight") {
+                if (controller.nodeName == "SpotRight") {
                     this.spotRight = light;
-                    this.spotRightIntensity = light.intensity;
+                    this.spotRightIntensity = controller.intensity;
                 }
-                if (light.nodeName == "BlobLeft") {
+                if (controller.nodeName == "BlobLeft") {
                     this.blobLeft = light;
-                    this.blobLeftRot = nodeRotation(world, light.node);
-                    this.blobLeftIntensity = light.intensity;
+                    this.blobLeftRot = nodeRotation(world, controller.node);
+                    this.blobLeftIntensity = controller.intensity;
                 }
-                if (light.nodeName == "BlobRight") {
+                if (controller.nodeName == "BlobRight") {
                     this.blobRight = light;
-                    this.blobRightRot = nodeRotation(world, light.node);
-                    this.blobRightIntensity = light.intensity;
+                    this.blobRightRot = nodeRotation(world, controller.node);
+                    this.blobRightIntensity = controller.intensity;
                 }
             }
         }
@@ -706,19 +708,19 @@ class PoliceLights {
                 blobLeftI = this.blobLeftIntensity;
                 blobRightI = this.blobRightIntensity;
             }
-            this.spotLeft.intensity = spotLeftI;
-            this.spotRight.intensity = spotRightI;
-            this.blobLeft.intensity = blobLeftI;
-            this.blobRight.intensity = blobRightI;
+            this.spotLeft.value.intensity = spotLeftI;
+            this.spotRight.value.intensity = spotRightI;
+            this.blobLeft.value.intensity = blobLeftI;
+            this.blobRight.value.intensity = blobRightI;
         } else {
-            this.spotLeft.intensity = 0.0;
-            this.spotRight.intensity = 0.0;
-            this.blobLeft.intensity = 0.0;
-            this.blobRight.intensity = 0.0;
+            this.spotLeft.value.intensity = 0.0;
+            this.spotRight.value.intensity = 0.0;
+            this.blobLeft.value.intensity = 0.0;
+            this.blobRight.value.intensity = 0.0;
         }
         const rot = Quat.fromEuler(blobRotAngle, 0.0, 0.0);
-        setNodeRotation(world, this.blobLeft.node, this.blobLeftRot.mul(rot));
-        setNodeRotation(world, this.blobRight.node, this.blobRightRot.mul(rot));
+        setNodeRotation(world, this.blobLeft.value.node, this.blobLeftRot.mul(rot));
+        setNodeRotation(world, this.blobRight.value.node, this.blobRightRot.mul(rot));
     }
 }
 
@@ -801,17 +803,18 @@ class Prop {
         for (let m = 0; m < overrideCount; m++) {
             const path = `modelsLightsOverrides/${m}`;
             const modelName = world.getGameJsonString(json, joinPath(path, "modelInstanceName"), "");
-            let model: ModelInstance | null = null;
+            let modelIndex = -1;
             for (let i = 0; i < this.models.length; i++) {
                 if (this.models[i].instanceName == modelName) {
-                    model = this.models[i];
+                    modelIndex = i;
                     break;
                 }
             }
-            if (model == null) {
+            if (modelIndex < 0) {
                 console.log(`Bad light override, prop ${this.name}, model ${modelName}`);
                 continue;
             }
+            const model = this.models[modelIndex];
             const lightOverrides = joinPath(path, "lightOverrides");
             const lightCount = world.getGameJsonSize(json, lightOverrides);
             for (let l = 0; l < lightCount; l++) {
@@ -819,8 +822,8 @@ class Prop {
                 const lightName = world.getGameJsonString(json, joinPath(lightPath, "name"), "");
                 let found = false;
                 for (let i = 0; i < model.lights.length; i++) {
-                    if (model.lights[i].nodeName == lightName) {
-                        model.lights[i].read(world, json, lightPath);
+                    if (model.lights[i].value.nodeName == lightName) {
+                        model.lights[i].value.read(world, json, lightPath);
                         found = true;
                         break;
                     }
@@ -956,7 +959,7 @@ export class RtxptGame {
                 continue;
             }
             const prop = new Prop(world, fileStem(propFiles[i], 2));
-            prop.load(json, this.propShowTags, this.modelTypes);
+            prop.load(json, propShowTags, this.modelTypes);
             prop.postLoadSetup(json);
             prop.reset();
             this.props.push(prop);
