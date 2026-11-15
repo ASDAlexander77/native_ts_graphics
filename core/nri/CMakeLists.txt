@@ -186,6 +186,11 @@ if (ANDROID)
     set(FETCHCONTENT_SOURCE_DIR_GLFW "${NRI_GLFW_SOURCE_DIR}")
 endif()
 FetchContent_MakeAvailable(nriframework)
+# MathLib's ml.h drops frexp's result (it only wants the exponent), which MSVC 14.52's headers mark
+# [[nodiscard]]: warning C4834, an error under NRIFramework's /WX.
+if (MSVC)
+    target_compile_options(NRIFramework PRIVATE /wd4834)
+endif()
 
 # Donut's math sources (vectorToSnorm8, orthoProjD3DStyle...) with the header-only rest.
 set(DONUT_MATH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../external/Donut/src/core/math")
