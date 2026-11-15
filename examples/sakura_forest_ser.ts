@@ -27,12 +27,9 @@ namespace SakuraForestSER {
     const LINE_SPACING = 31.9;
 
     // The state object's shaders and subobjects, from the library (shaders/sakura_forest_ser.hlsl).
-    // (A function: a global string made by concatenation is a second reference under -mm=own.)
-    function libraryExports(): string {
-        return "MyRaygenShader,FloorClosestHitShader,TrunkClosestHitShader,LeavesClosestHitShader,BushClosestHitShader," +
-            "TCubeClosestHitShader,MyMissShader,MyGlobalRootSignature,MyLocalRootSignature,MyLocalRootSignatureAssociation,MyShaderConfig," +
-            "MyPipelineConfig,MyHitGroup,TrunkHitGroup,LeavesHitGroup,BushHitGroup,TCubeHitGroup";
-    }
+    const LIBRARY_EXPORTS = "MyRaygenShader,FloorClosestHitShader,TrunkClosestHitShader,LeavesClosestHitShader,BushClosestHitShader," +
+        "TCubeClosestHitShader,MyMissShader,MyGlobalRootSignature,MyLocalRootSignature,MyLocalRootSignatureAssociation,MyShaderConfig," +
+        "MyPipelineConfig,MyHitGroup,TrunkHitGroup,LeavesHitGroup,BushHitGroup,TCubeHitGroup";
 
     // The hit groups by material ID (ObjectConstantBuffer.materialID): floor cubes, reflective cubes,
     // trunks, leaves, bushes.
@@ -236,7 +233,7 @@ namespace SakuraForestSER {
             if (!shaderLibrary) {
                 return false;
             }
-            const pipeline = this.app.createD3D12LibraryRtPipeline(shaderLibrary, libraryExports(), DESCRIPTOR_COUNT);
+            const pipeline = this.app.createD3D12LibraryRtPipeline(shaderLibrary, LIBRARY_EXPORTS, DESCRIPTOR_COUNT);
             if (pipeline.isNull()) {
                 return false;
             }
