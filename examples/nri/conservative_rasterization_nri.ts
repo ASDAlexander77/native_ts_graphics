@@ -72,7 +72,7 @@ namespace ConservativeRasterizationNri {
         return `${whole}.${fraction}`;
     }
 
-    function yesNo(value: number): string {
+    function yesNo(value: number) {
         return value != 0.0 ? "yes" : "no";
     }
 

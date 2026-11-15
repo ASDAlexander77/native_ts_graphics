@@ -148,7 +148,7 @@ namespace WorkGraphs {
     // srand(0) / rand() of the MSVC runtime the sample is built with, so that the scene comes out the
     // same. (A function named rand would clash with the CRT's.)
     const RAND_MAX = 32767.0;
-    const g_Random = new MsvcRandom(0);
+    let g_Random = new MsvcRandom(0);
     function msvcRand(): int {
         return g_Random.next();
     }
@@ -188,10 +188,7 @@ namespace WorkGraphs {
         const g = msvcRand() / RAND_MAX;
         const b = msvcRand() / RAND_MAX;
         const color = new Float3(r, g, b);
-        if (normalized) {
-            return color.normalized();
-        }
-        return color;
+        return normalized ? color.normalized() : color;
     }
 
     function random01() {
@@ -613,9 +610,7 @@ namespace WorkGraphs {
         }
 
         populateWorld() {
-            // srand(0): deterministic world content. (The generator seeded again, not replaced: under
-            // -mm=own assigning a global may release anything.)
-            g_Random.seed(0);
+            g_Random = new MsvcRandom(0); // srand(0): deterministic world content.
 
             // Generate materials.
             const groundColor = new Float3(SCENE_GROUND_COLOR, SCENE_GROUND_COLOR, SCENE_GROUND_COLOR);

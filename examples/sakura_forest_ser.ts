@@ -384,7 +384,7 @@ namespace SakuraForestSER {
         // Pitch (about the camera's right vector) or yaw (about up), by angle radians.
         turn(pitch: boolean, angle: number) {
             const forward = normalize3(vsub(this.at, this.eye));
-            let axis = this.up.slice(); // a copy of its own (assigned below)
+            let axis = this.up;
             if (pitch) {
                 axis = normalize3(cross3(this.up, forward));
             }

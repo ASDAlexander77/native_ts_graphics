@@ -118,7 +118,7 @@ namespace FastBlockCompress {
         return `${sign}${whole}.${fractionText}`;
     }
 
-    function formatName(format: Format): string {
+    function formatName(format: Format) {
         return format == Format.BC1_UNORM ? "BC1" : format == Format.BC3_UNORM ? "BC3" : "BC5";
     }
 
