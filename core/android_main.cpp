@@ -43,6 +43,7 @@ extern "C" int main(int argc, char** argv);
 // core/nri/nri_interop.cpp
 extern "C" void Nri_SetDataDirectory(const char* directory);
 extern "C" void Nri_SetAndroidApp(struct android_app* app);
+extern "C" const char* Nri_GetDeviceError();
 #else
 // core/donut_interop.cpp
 extern "C" void Donut_SetExecutablePath(const char* path);
@@ -303,6 +304,34 @@ namespace
         if (ALooper_pollOnce(timeoutMillis, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0 && source)
             source->process(app, source);
     }
+
+#if TSLANG_ANDROID_NRI
+    // The activity's onGraphicsUnsupported(String), if its class has one (the store build's
+    // PowderActivity: a message that finishes the activity when the player closes it), told why
+    // the graphics device couldn't be made. False if it has none (a plain NativeActivity).
+    bool ShowGraphicsUnsupported(ANativeActivity* activity, const char* reason)
+    {
+        JNIEnv* env = nullptr;
+        if (activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env)
+            return false;
+
+        bool shown = false;
+        jclass activityClass = env->GetObjectClass(activity->clazz);
+        jmethodID method = env->GetMethodID(activityClass, "onGraphicsUnsupported", "(Ljava/lang/String;)V");
+        if (env->ExceptionCheck()) // NoSuchMethodError
+            env->ExceptionClear();
+        else if (method)
+        {
+            jstring text = env->NewStringUTF(reason);
+            env->CallVoidMethod(activity->clazz, method, text);
+            shown = !env->ExceptionCheck();
+        }
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        activity->vm->DetachCurrentThread();
+        return shown;
+    }
+#endif
 }
 
 // The activity's UI thread, which is the process's main thread. Called for each activity: the
@@ -380,6 +409,28 @@ extern "C" void android_main(struct android_app* app)
     // between two activities (app->activity is NULL then: one destroyed to be made again), for
     // the next one, which is finished as well.
     printf("%s exited with %d\n", name.c_str(), result);
+
+#if TSLANG_ANDROID_NRI
+    // No graphics device (a driver without what NRI needs, as Google Play Games on PC's Vulkan):
+    // the activity says why, if it can, and finishes when the player closes its message. Until
+    // then the app waits, and shows it again on an activity made again (a rotation) meanwhile.
+    const char* deviceError = Nri_GetDeviceError();
+    if (deviceError && *deviceError)
+    {
+        ANativeActivity* shownOn = nullptr;
+        bool shown = true;
+        while (shown && !app->destroyRequested)
+        {
+            if (app->activity && app->activity != shownOn)
+            {
+                shownOn = app->activity;
+                shown = ShowGraphicsUnsupported(app->activity, deviceError);
+            }
+            PumpEvents(app, 100);
+        }
+    }
+#endif
+
     bool finishing = false;
     for (int i = 0; i < 50 && !app->destroyRequested; ++i)
     {
@@ -395,5 +446,10 @@ extern "C" void android_main(struct android_app* app)
     fflush(stdout);
     fflush(stderr);
     usleep(100 * 1000);
-    exit(result);
+    // _exit, not exit: exit runs the libraries' static destructors (__cxa_finalize) while the
+    // framework's threads still run - the UI's RenderThread, AdMob's WebView - and the emulator's
+    // libEGL_emulation, destroying its display, aborts on a context's destroyed mutex (seen after
+    // the consent form or a dialog: "pthread_mutex_lock called on a destroyed mutex"). Nothing
+    // needs them: files are written and closed when saved, and stdout was flushed above.
+    _exit(result);
 }
