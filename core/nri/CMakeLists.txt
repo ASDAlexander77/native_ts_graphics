@@ -194,7 +194,7 @@ endif()
 
 # Donut's math sources (vectorToSnorm8, orthoProjD3DStyle...) with the header-only rest.
 set(DONUT_MATH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../external/Donut/src/core/math")
-add_library(nri_interop SHARED nri_interop.cpp nri_donut_constants.cpp nri_donut_scene.cpp "${DONUT_MATH_DIR}/matrix.cpp"
+add_library(nri_interop SHARED nri_interop.cpp vulkan_report.cpp nri_donut_constants.cpp nri_donut_scene.cpp "${DONUT_MATH_DIR}/matrix.cpp"
     "${DONUT_MATH_DIR}/vector.cpp" ../sdkmesh.cpp)
 # The SDKMESH reader (core/sdk_mesh.ts's Donut_*SdkMesh* functions), exported as donut_interop_shared
 # exports it, for the ports of the Xbox ATG examples.

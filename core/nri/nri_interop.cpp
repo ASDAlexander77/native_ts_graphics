@@ -10,6 +10,10 @@
 // NRI's functions are reached through interface tables (nri::CoreInterface, ...) filled for a device:
 // Nri_CreateDevice fills the one table here, so there is one device at a time.
 
+// vulkan_report.cpp: the Vulkan driver's extensions and features, logged when the device can't be
+// made (Android; nothing elsewhere)
+void ReportVulkanDevice();
+
 #if defined(_WIN32)
 // Before GLFW's header (in NRIFramework.h), which defines APIENTRY otherwise; without its ERROR
 // macro, which nri::Message::ERROR would be.
@@ -1534,6 +1538,9 @@ extern "C"
         {
             if (g_DeviceError.empty())
                 g_DeviceError = std::string("nriCreateDevice failed (") + nri::nriGetGraphicsAPIString(desc.graphicsAPI) + ")";
+            // What else the driver lacks (vulkan_report.cpp; Android only)
+            if (desc.graphicsAPI == nri::GraphicsAPI::VK)
+                ReportVulkanDevice();
             return nullptr;
         }
 
