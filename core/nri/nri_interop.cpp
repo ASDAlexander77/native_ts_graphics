@@ -45,6 +45,7 @@
 #include <mutex>
 #include <random>
 #include <thread>
+#include <csignal>
 #include <cstring>
 #include <unordered_map>
 
@@ -391,6 +392,11 @@ namespace
         return false;
     }
 
+    // Nri_CreateDevice is making the device (see AbortExecution), and the first error NRI reported
+    // while it did (Nri_GetDeviceError; empty if none).
+    bool g_CreatingDevice = false;
+    std::string g_DeviceError;
+
     // Shader printf (Nri_UseShaderPrintf, Vulkan): the messenger the interop made on NRI's instance
     // (a VkDebugUtilsMessengerEXT; 0 without printf), how to destroy it, the messages it received
     // since Nri_UpdateShaderPrintfOutput last took them, and the ones that call took.
@@ -438,6 +444,24 @@ namespace
         const char* kind = messageType == nri::Message::ERROR ? "ERROR" : messageType == nri::Message::WARNING ? "WARNING" : "INFO";
         printf("NRI %s: %s (%s:%u)\n", kind, message, file, line);
         fflush(stdout);
+        if (g_CreatingDevice && messageType == nri::Message::ERROR && g_DeviceError.empty() && message)
+            g_DeviceError = message;
+    }
+
+    // NRI's AbortExecution, which it calls after reporting a failure. While Nri_CreateDevice makes
+    // the device, nothing: a driver without what NRI needs (Google Play Games on PC's Vulkan 1.1,
+    // without timeline semaphores) makes nriCreateDevice fail, and the example says so and exits
+    // (Android: Nri_GetDeviceError's message) instead of being killed by SIGTRAP. Later, NRI's own
+    // default: the debugger's break.
+    void NRI_CALL AbortExecution(void*)
+    {
+        if (g_CreatingDevice)
+            return;
+#if defined(_WIN32)
+        DebugBreak();
+#else
+        raise(SIGTRAP);
+#endif
     }
 
     // The states the examples' barriers move a buffer between (Nri_CmdBufferBarrier). Values of
@@ -1461,7 +1485,10 @@ extern "C"
         nri::AdapterDesc adapterDescs[2] = {};
         uint32_t adapterDescNum = helper::GetCountOf(adapterDescs);
         if (nri::nriEnumerateAdapters(adapterDescs, adapterDescNum) != nri::Result::SUCCESS || adapterDescNum == 0)
+        {
+            g_DeviceError = "No graphics adapter";
             return nullptr;
+        }
 
         nri::DeviceCreationDesc desc = {};
         desc.graphicsAPI = (nri::GraphicsAPI)graphicsAPI;
@@ -1492,14 +1519,23 @@ extern "C"
         desc.adapterDesc = &adapterDescs[std::min(sample->AdapterIndex(), adapterDescNum - 1)];
         desc.allocationCallbacks = sample->AllocationCallbacks();
         desc.callbackInterface.MessageCallback = MessageCallback;
+        desc.callbackInterface.AbortExecution = AbortExecution;
         // A graphics queue and a compute queue (Nri_GetComputeQueue).
         nri::QueueFamilyDesc queueFamilies[] = { { nullptr, 1, nri::QueueType::GRAPHICS }, { nullptr, 1, nri::QueueType::COMPUTE } };
         desc.queueFamilies = queueFamilies;
         desc.queueFamilyNum = helper::GetCountOf(queueFamilies);
 
         nri::Device* device = nullptr;
-        if (nri::nriCreateDevice(desc, device) != nri::Result::SUCCESS)
+        g_DeviceError.clear();
+        g_CreatingDevice = true;
+        const nri::Result created = nri::nriCreateDevice(desc, device);
+        g_CreatingDevice = false;
+        if (created != nri::Result::SUCCESS)
+        {
+            if (g_DeviceError.empty())
+                g_DeviceError = std::string("nriCreateDevice failed (") + nri::nriGetGraphicsAPIString(desc.graphicsAPI) + ")";
             return nullptr;
+        }
 
         NRI = {};
         if (nri::nriGetInterface(*device, NRI_INTERFACE(nri::CoreInterface), (nri::CoreInterface*)&NRI) != nri::Result::SUCCESS
@@ -1516,6 +1552,14 @@ extern "C"
         if (shaderPrintf)
             CreateShaderPrintfMessenger(device);
         return device;
+    }
+
+    // Why the last Nri_CreateDevice returned null (NRI's first error, as "VK::<adapter> - Create:
+    // 'timelineSemaphore' is not supported by the device"); empty after one that succeeded, or
+    // before any. core/android_main.cpp shows it to the player.
+    NRI_INTEROP_API const char* Nri_GetDeviceError()
+    {
+        return g_DeviceError.c_str();
     }
 
     // A Vulkan feature struct (sType, pNext, then VkBool32 members, the first boolNum of them at
